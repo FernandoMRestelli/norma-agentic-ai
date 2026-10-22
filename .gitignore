@@ -1,0 +1,20 @@
+# Variables de entorno y credenciales
+.env
+.env.*
+
+# Permitir el archivo de ejemplo
+!.env.example
+
+# Entornos virtuales de Python
+.venv/
+venv/
+
+# Archivos temporales de Python
+__pycache__/
+*.pyc
+
+# Archivos de macOS
+.DS_Store
+
+# Bases de datos locales
+*.db
