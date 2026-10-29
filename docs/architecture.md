@@ -120,8 +120,10 @@ norma-agentic-ai/
 │   ├── test_interpretation.py
 │   ├── test_api.py
 │   ├── test_orders.py
-│   └── test_invariantes.py
+│   ├── test_invariantes.py
+│   └── test_datos_ejemplo.py
 ├── data/                     # base SQLite local, ignorada por git
+├── datos_ejemplo/            # catálogo, pedidos y mensajes inventados
 ├── docs/
 │   ├── architecture.md
 │   └── roadmap.md

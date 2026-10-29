@@ -19,6 +19,7 @@ RUN if [ "$INSTALL_DEV" = "true" ]; then pip install -r requirements-dev.txt; el
 # Todo el código va dentro de la imagen: la imagen de una release corre exactamente el código de ese tag
 COPY backend/ backend/
 COPY tests/ tests/
+COPY datos_ejemplo/ datos_ejemplo/
 COPY pytest.ini .
 
 # UID fijo para que en el servidor se pueda dar permiso de escritura sobre ./data (montado en /app/data)

@@ -85,6 +85,7 @@ El detalle de cada pieza está en [docs/architecture.md](docs/architecture.md).
 | `tests/conftest.py` | Aísla los tests: sin `.env`, base temporal y sin red |
 | `tests/datos_sinteticos.py` | Catálogos, mensajes y borradores deterministas para los tests |
 | `tests/test_*.py` | Un archivo por módulo, más `test_invariantes.py` para todos los canales y tipos de mensaje |
+| `datos_ejemplo/` | Catálogo, pedidos y mensajes inventados con el formato de las planillas (ver su README) |
 | `data/` | Bases y datos locales; git la ignora salvo el `.gitkeep` |
 | `docs/` | Arquitectura y roadmap |
 | `.github/workflows/` | CI: tests y lint, secretos, reglas de PR e imagen de release |

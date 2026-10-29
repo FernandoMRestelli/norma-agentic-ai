@@ -21,6 +21,8 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 - Esqueletos de tools (catálogo, stock, borradores), servicios, Google Sheets y base interna.
 - Configuración por variables de entorno (`.env.example`) y tests iniciales.
 - Dependencias de desarrollo separadas en `requirements-dev.txt`, con cotas de versión mayor.
+- Datos de ejemplo inventados en `datos_ejemplo/`: catálogo (formato de la Sheet 1), pedidos (formato de la Sheet 2) y mensajes de clientes con el resultado esperado del agente, validados por `tests/test_datos_ejemplo.py`.
+- `Product.min_stock` y `Product.is_low_stock` para marcar productos con stock bajo en el dashboard.
 
 ### Cambiado
 

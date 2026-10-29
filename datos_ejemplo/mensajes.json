@@ -1,0 +1,56 @@
+[
+  {
+    "id": "texto-simple",
+    "descripcion": "Un producto con marca, cantidad y presentación claras",
+    "mensaje": {"customer_id": "cli-001", "channel": "whatsapp", "type": "text", "text": "5 shampoos Pantene 400 por favor"},
+    "esperado": {"resultado": "borrador", "items": [{"sku": "SH-PAN-400", "cantidad": 5}]}
+  },
+  {
+    "id": "texto-varios-productos",
+    "descripcion": "Dos productos en un mismo mensaje",
+    "mensaje": {"customer_id": "cli-001", "channel": "web", "type": "text", "text": "Quiero 5 shampoo pantene 400ml y 3 tinturas koleston 6.1"},
+    "esperado": {"resultado": "borrador", "items": [{"sku": "SH-PAN-400", "cantidad": 5}, {"sku": "TIN-KOL-61", "cantidad": 3}]}
+  },
+  {
+    "id": "cantidad-en-palabras",
+    "descripcion": "La cantidad viene escrita en palabras",
+    "mensaje": {"customer_id": "cli-002", "channel": "web", "type": "text", "text": "media docena de jabones dove"},
+    "esperado": {"resultado": "borrador", "items": [{"sku": "JAB-DOV-90", "cantidad": 6}]}
+  },
+  {
+    "id": "articulo-indefinido",
+    "descripcion": "Cantidad implícita (\"una\", \"un\") y dos productos de la misma marca",
+    "mensaje": {"customer_id": "cli-004", "channel": "whatsapp", "type": "text", "text": "una pasta colgate y un cepillo de dientes colgate"},
+    "esperado": {"resultado": "borrador", "items": [{"sku": "PAS-COL-90", "cantidad": 1}, {"sku": "CEP-COL-MED", "cantidad": 1}]}
+  },
+  {
+    "id": "ambiguo-producto-y-presentacion",
+    "descripcion": "Pantene tiene shampoo y acondicionador, y el shampoo viene en 200 y 400 ml",
+    "mensaje": {"customer_id": "cli-003", "channel": "whatsapp", "type": "text", "text": "mandame 2 pantene"},
+    "esperado": {"resultado": "aclaracion", "opciones": ["SH-PAN-200", "SH-PAN-400", "AC-PAN-400"]}
+  },
+  {
+    "id": "ambiguo-tono",
+    "descripcion": "Hay varios tonos de tintura Koleston",
+    "mensaje": {"customer_id": "cli-001", "channel": "whatsapp", "type": "text", "text": "3 tinturas koleston"},
+    "esperado": {"resultado": "aclaracion", "opciones": ["TIN-KOL-60", "TIN-KOL-61", "TIN-KOL-71"]}
+  },
+  {
+    "id": "stock-insuficiente",
+    "descripcion": "Piden más unidades de las que hay: avisar y ofrecer lo disponible",
+    "mensaje": {"customer_id": "cli-005", "channel": "web", "type": "text", "text": "10 cremas de enjuague sedal"},
+    "esperado": {"resultado": "sin_stock", "items": [{"sku": "CE-SED-340", "cantidad": 10}]}
+  },
+  {
+    "id": "sin-stock",
+    "descripcion": "Producto sin stock: ofrecer una alternativa del catálogo",
+    "mensaje": {"customer_id": "cli-003", "channel": "whatsapp", "type": "text", "text": "2 koleston 7.1"},
+    "esperado": {"resultado": "sin_stock", "items": [{"sku": "TIN-KOL-71", "cantidad": 2}]}
+  },
+  {
+    "id": "fuera-de-catalogo",
+    "descripcion": "Producto que no está en el catálogo: no inventar un SKU",
+    "mensaje": {"customer_id": "cli-002", "channel": "web", "type": "text", "text": "2 shampoos Head & Shoulders"},
+    "esperado": {"resultado": "fuera_de_catalogo"}
+  }
+]
