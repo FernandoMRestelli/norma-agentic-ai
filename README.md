@@ -14,7 +14,7 @@ confirmación, registra la orden para su seguimiento.
 
 ## Puesta en marcha
 
-Requiere Python 3.9 o superior.
+Requiere Python 3.10 o superior.
 
 ```bash
 python3 -m venv .venv
