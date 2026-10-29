@@ -1,7 +1,10 @@
+from decimal import Decimal
+
 import pytest
 from pydantic import ValidationError
 
-from backend.schemas.order_schema import Channel, OrderDraft, OrderItem
+from backend.schemas.catalog_schema import StockCheck
+from backend.schemas.order_schema import Channel, IncomingMessage, MessageType, OrderDraft, OrderItem
 from backend.services.validation_service import build_summary
 
 
@@ -29,3 +32,27 @@ def test_item_quantity_must_be_positive():
 def test_summary_lists_items():
     summary = build_summary(make_draft())
     assert "5 x Shampoo Pantene 400 ml" in summary
+
+
+def test_unit_price_is_decimal():
+    item = OrderItem(sku="SH-400", product_name="Shampoo Pantene", quantity=3, unit_price="0.10")
+    assert item.unit_price == Decimal("0.10")
+    assert item.unit_price * 3 == Decimal("0.30")
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"type": MessageType.TEXT},
+        {"type": MessageType.TEXT, "text": "   "},
+        {"type": MessageType.AUDIO},
+        {"type": MessageType.IMAGE, "text": "foto"},
+    ],
+)
+def test_incoming_message_requires_content_for_its_type(data):
+    with pytest.raises(ValidationError):
+        IncomingMessage(customer_id="c-1", channel=Channel.WHATSAPP, **data)
+
+
+def test_stock_check_serializes_is_enough():
+    assert StockCheck(sku="SH-400", requested=5, available=3).model_dump()["is_enough"] is False

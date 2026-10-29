@@ -1,15 +1,6 @@
 """Tools de catálogo que el agente puede invocar (solo lectura sobre Google Sheet 1)."""
 
-from pydantic import BaseModel
-
-
-class Product(BaseModel):
-    sku: str
-    name: str
-    brand: str | None = None
-    presentation: str | None = None
-    price: float
-    stock: int
+from backend.schemas.catalog_schema import Product
 
 
 def search_products(query: str, limit: int = 5) -> list[Product]:

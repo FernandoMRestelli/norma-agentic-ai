@@ -22,6 +22,7 @@ class Settings(BaseSettings):
 
     # WhatsApp Cloud API
     whatsapp_verify_token: str | None = None
+    whatsapp_app_secret: str | None = None  # valida la firma de los POST de Meta
     whatsapp_access_token: str | None = None
     whatsapp_phone_number_id: str | None = None
 

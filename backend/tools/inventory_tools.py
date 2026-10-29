@@ -1,16 +1,6 @@
 """Tools de stock que el agente puede invocar (solo lectura)."""
 
-from pydantic import BaseModel
-
-
-class StockCheck(BaseModel):
-    sku: str
-    requested: int
-    available: int
-
-    @property
-    def is_enough(self) -> bool:
-        return self.available >= self.requested
+from backend.schemas.catalog_schema import StockCheck
 
 
 def check_stock(sku: str, quantity: int) -> StockCheck:

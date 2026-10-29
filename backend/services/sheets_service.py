@@ -4,8 +4,8 @@ Es la única capa que conoce Google Sheets; al migrar a la API del sistema de ge
 real se reemplaza este servicio sin tocar agente ni tools.
 """
 
+from backend.schemas.catalog_schema import Product
 from backend.schemas.order_schema import Order
-from backend.tools.catalog_tools import Product
 
 
 def get_catalog() -> list[Product]:

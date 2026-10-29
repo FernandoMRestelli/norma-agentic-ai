@@ -5,9 +5,11 @@ existe después de que el cliente confirma explícitamente el borrador.
 """
 
 from datetime import datetime
+from decimal import Decimal
 from enum import StrEnum
+from typing import Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class Channel(StrEnum):
@@ -30,13 +32,21 @@ class IncomingMessage(BaseModel):
     text: str | None = None
     media_url: str | None = None  # audio o imagen, según `type`
 
+    @model_validator(mode="after")
+    def check_content_matches_type(self) -> Self:
+        if self.type == MessageType.TEXT and not (self.text and self.text.strip()):
+            raise ValueError("Un mensaje de texto requiere `text`")
+        if self.type in (MessageType.AUDIO, MessageType.IMAGE) and not self.media_url:
+            raise ValueError(f"Un mensaje de tipo {self.type} requiere `media_url`")
+        return self
+
 
 class OrderItem(BaseModel):
     sku: str  # siempre un SKU existente en el catálogo, nunca inventado
     product_name: str
     presentation: str | None = None
     quantity: int = Field(gt=0)
-    unit_price: float | None = Field(default=None, ge=0)
+    unit_price: Decimal | None = Field(default=None, ge=0)
 
 
 class DraftStatus(StrEnum):

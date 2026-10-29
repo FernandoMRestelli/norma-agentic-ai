@@ -39,7 +39,7 @@ flowchart TD
 | **Agente** | `backend/agent/norma_agent.py`, `instructions.md`, `llm_client.py` | Entender la intención y elegir herramientas |
 | **Tools** | `backend/tools/catalog_tools.py`, `inventory_tools.py`, `order_tools.py` | Acciones controladas disponibles para el agente |
 | **Interpretación** | `backend/services/interpretation_service.py` | Convertir entradas diversas a un borrador común |
-| **Contrato de datos** | `backend/schemas/order_schema.py` | Definir campos y validaciones del pedido |
+| **Contrato de datos** | `backend/schemas/order_schema.py`, `catalog_schema.py` | Definir campos y validaciones del pedido, productos y stock |
 | **Confirmación** | `backend/services/validation_service.py` | Presentar resumen y manejar confirmación/corrección |
 | **Negocio** | `backend/services/order_service.py` | Registrar el pedido confirmado una sola vez |
 | **Google Sheets** | `backend/services/sheets_service.py` | Consultar la planilla de catálogo y escribir en la de seguimiento |
@@ -104,6 +104,7 @@ norma-agentic-ai/
 │   │   ├── order_service.py
 │   │   └── sheets_service.py
 │   ├── schemas/
+│   │   ├── catalog_schema.py
 │   │   └── order_schema.py
 │   └── database/
 │       ├── connection.py
@@ -132,7 +133,8 @@ norma-agentic-ai/
 ├── docker-compose.yml
 ├── README.md
 ├── pytest.ini
-└── requirements.txt
+├── requirements.txt
+└── requirements-dev.txt
 ```
 
 ## 🔐 Reglas que protegen el sistema

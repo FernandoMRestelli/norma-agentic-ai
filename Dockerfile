@@ -9,9 +9,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Dependencias primero para aprovechar la caché de capas
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+# Dependencias primero para aprovechar la caché de capas.
+# INSTALL_DEV=true suma pytest y herramientas de desarrollo (docker-compose y CI lo activan).
+ARG INSTALL_DEV=false
+COPY requirements.txt requirements-dev.txt ./
+RUN if [ "$INSTALL_DEV" = "true" ]; then pip install -r requirements-dev.txt; else pip install -r requirements.txt; fi
 
 COPY backend/ backend/
 COPY tests/ tests/

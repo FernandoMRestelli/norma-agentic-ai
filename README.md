@@ -38,7 +38,8 @@ Correr los tests:
 docker compose run --rm api pytest
 ```
 
-Reconstruir la imagen solo hace falta si cambia `requirements.txt` o el `Dockerfile`.
+Reconstruir la imagen solo hace falta si cambian los `requirements*.txt` o el `Dockerfile`.
+La imagen de producción se construye sin dependencias de desarrollo: `docker build -t norma-agentic-ai .`
 La base SQLite se guarda en el volumen `norma-data` (se borra con `docker compose down -v`).
 
 ## Opción B: con Python local
@@ -48,7 +49,7 @@ Requiere **Python 3.12 o superior** (en macOS: `brew install python@3.12`).
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 uvicorn backend.main:app --reload
 pytest
 ```
@@ -63,7 +64,7 @@ backend/
 ├── agent/             # agente Norma, instrucciones e interfaz neutral del LLM
 ├── tools/             # acciones que el agente puede usar (catálogo, stock, borradores)
 ├── services/          # preprocesamiento, interpretación, confirmación, órdenes, Google Sheets
-├── schemas/           # contrato de datos del pedido (borrador vs. orden)
+├── schemas/           # contratos de datos: pedido (borrador vs. orden) y catálogo
 └── database/          # base interna
 frontend/src/          # Chat (tarjeta Confirmar / Corregir) y Dashboard
 tests/
