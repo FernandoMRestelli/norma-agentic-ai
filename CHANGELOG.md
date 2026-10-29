@@ -33,6 +33,9 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Seguridad
 
+- Hooks de seguridad locales con `pre-commit` y verificación obligatoria en CI (`secretos.yml`): frenan secretos (`gitleaks` v8.28.0, claves privadas), archivos pesados (>500 KB), archivos prohibidos (`.opus`, `.m4a`, `.vcf`, `_chat.txt`, `.zip`, `.env*`, `credentials/`, `*service-account*.json`) y números telefónicos argentinos en archivos de datos, con mensajes en español y salidas redactadas sin exponer secretos.
+- Configuración para asistentes de IA (`.claude/settings.json` y `.cursorignore`) bloqueando la lectura de `.env`, `.env.*`, `credentials/` y `data/`.
+- Documentación en `CONTRIBUTING.md` sobre gestión de secretos en desarrollo y producción, uso de correos `noreply` en commits y procedimiento ante filtraciones.
 - El webhook de WhatsApp valida la firma `X-Hub-Signature-256` de Meta (nueva variable `WHATSAPP_APP_SECRET`) y compara el token de verificación en tiempo constante.
 
 [Sin publicar]: https://github.com/FernandoMRestelli/norma-agentic-ai/compare/main...develop
