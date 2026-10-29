@@ -17,6 +17,7 @@ RUN if [ "$INSTALL_DEV" = "true" ]; then pip install -r requirements-dev.txt; el
 
 COPY backend/ backend/
 COPY tests/ tests/
+COPY datos_ejemplo/ datos_ejemplo/
 COPY pytest.ini .
 
 # Usuario sin privilegios; /app/data guarda la base SQLite

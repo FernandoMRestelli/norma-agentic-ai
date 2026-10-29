@@ -1,0 +1,16 @@
+sku,nombre,marca,presentacion,precio,stock,stock_minimo
+SH-PAN-200,Shampoo Pantene Restauración,Pantene,200 ml,4200.00,30,10
+SH-PAN-400,Shampoo Pantene Restauración,Pantene,400 ml,7350.00,24,10
+AC-PAN-400,Acondicionador Pantene Restauración,Pantene,400 ml,7600.00,12,8
+SH-SED-340,Shampoo Sedal Ceramidas,Sedal,340 ml,3900.00,40,12
+CE-SED-340,Crema de enjuague Sedal Ceramidas,Sedal,340 ml,4100.00,4,10
+SH-ELV-400,Shampoo Elvive Hidra Hialurónico,Elvive,400 ml,6900.00,15,6
+TIN-KOL-60,Tintura Koleston 6.0 Rubio oscuro,Koleston,kit,5200.00,10,5
+TIN-KOL-61,Tintura Koleston 6.1 Rubio oscuro ceniza,Koleston,kit,5200.00,8,5
+TIN-KOL-71,Tintura Koleston 7.1 Rubio medio ceniza,Koleston,kit,5200.00,0,5
+OX-KOL-20,Oxidante Koleston 20 vol,Koleston,90 ml,2100.00,25,10
+JAB-DOV-90,Jabón de tocador Dove Original,Dove,90 g,1650.00,60,20
+DES-REX-150,Desodorante Rexona Men V8 aerosol,Rexona,150 ml,3800.00,18,8
+PAS-COL-90,Pasta dental Colgate Triple Acción,Colgate,90 g,2300.00,35,15
+CEP-COL-MED,Cepillo dental Colgate Extra Clean,Colgate,medio,1900.00,22,10
+ALG-EST-140,Algodón Estrella,Estrella,140 g,2600.00,3,6

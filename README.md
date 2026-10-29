@@ -68,5 +68,6 @@ backend/
 └── database/          # base interna
 frontend/src/          # Chat (tarjeta Confirmar / Corregir) y Dashboard
 tests/
+datos_ejemplo/          # catálogo, pedidos y mensajes inventados (formato de las planillas)
 docs/
 ```

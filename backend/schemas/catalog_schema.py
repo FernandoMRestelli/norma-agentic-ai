@@ -12,6 +12,12 @@ class Product(BaseModel):
     presentation: str | None = None
     price: Decimal = Field(ge=0)
     stock: int
+    min_stock: int = Field(default=0, ge=0)  # debajo de este valor el dashboard marca stock bajo
+
+    @computed_field
+    @property
+    def is_low_stock(self) -> bool:
+        return self.stock < self.min_stock
 
 
 class StockCheck(BaseModel):

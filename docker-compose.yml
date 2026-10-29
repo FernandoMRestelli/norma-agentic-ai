@@ -15,6 +15,7 @@ services:
       # Código montado para que --reload tome los cambios sin reconstruir la imagen
       - ./backend:/app/backend
       - ./tests:/app/tests
+      - ./datos_ejemplo:/app/datos_ejemplo:ro
       - ./credentials:/app/credentials:ro
       - norma-data:/app/data
     command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
