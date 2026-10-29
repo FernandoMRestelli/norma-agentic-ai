@@ -117,7 +117,9 @@ norma-agentic-ai/
 │   ├── test_agent.py
 │   ├── test_interpretation.py
 │   ├── test_api.py
-│   └── test_orders.py
+│   ├── test_orders.py
+│   └── test_datos_ejemplo.py
+├── datos_ejemplo/          # catálogo, pedidos y mensajes inventados
 ├── docs/
 │   ├── architecture.md
 │   └── roadmap.md
