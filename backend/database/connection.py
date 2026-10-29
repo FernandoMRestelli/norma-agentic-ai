@@ -1,6 +1,6 @@
 """Conexión a la base interna (SQLite por defecto, configurable con DATABASE_URL)."""
 
-from typing import Iterator
+from collections.abc import Iterator
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker

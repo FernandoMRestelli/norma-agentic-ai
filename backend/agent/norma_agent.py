@@ -1,7 +1,6 @@
 """Agente Norma: interpreta el pedido del cliente y arma un borrador usando las tools."""
 
 from pathlib import Path
-from typing import Optional
 
 from pydantic import BaseModel
 
@@ -15,7 +14,7 @@ class AgentReply(BaseModel):
     """Respuesta del agente: o un borrador para confirmar, o una pregunta de aclaración."""
 
     message: str
-    draft: Optional[OrderDraft] = None
+    draft: OrderDraft | None = None
 
 
 class NormaAgent:
@@ -23,7 +22,7 @@ class NormaAgent:
         self.llm = llm
         self.instructions = INSTRUCTIONS_PATH.read_text(encoding="utf-8")
 
-    def handle(self, customer_id: str, text: str, draft_id: Optional[str] = None) -> AgentReply:
+    def handle(self, customer_id: str, text: str, draft_id: str | None = None) -> AgentReply:
         """Procesa el texto ya preparado por message_service.
 
         Si `draft_id` viene informado, el cliente está corrigiendo ese borrador.

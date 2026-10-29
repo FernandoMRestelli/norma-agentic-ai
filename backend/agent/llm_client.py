@@ -4,27 +4,27 @@ Cuando se elija proveedor, se agrega una clase que implemente `LLMClient`
 (p. ej. `OpenAIClient`, `ClaudeClient`) y se selecciona según `LLM_PROVIDER`.
 """
 
-from typing import Any, Dict, List, Optional, Protocol
+from typing import Any, Protocol
 
 from pydantic import BaseModel
 
 
 class ToolCall(BaseModel):
     name: str
-    arguments: Dict[str, Any]
+    arguments: dict[str, Any]
 
 
 class LLMResponse(BaseModel):
-    text: Optional[str] = None
-    tool_calls: List[ToolCall] = []
+    text: str | None = None
+    tool_calls: list[ToolCall] = []
 
 
 class LLMClient(Protocol):
     def chat(
         self,
         system: str,
-        messages: List[Dict[str, Any]],
-        tools: Optional[List[Dict[str, Any]]] = None,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
     ) -> LLMResponse: ...
 
 

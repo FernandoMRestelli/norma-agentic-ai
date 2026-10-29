@@ -4,13 +4,11 @@ Es la única capa que conoce Google Sheets; al migrar a la API del sistema de ge
 real se reemplaza este servicio sin tocar agente ni tools.
 """
 
-from typing import List
-
 from backend.schemas.order_schema import Order
 from backend.tools.catalog_tools import Product
 
 
-def get_catalog() -> List[Product]:
+def get_catalog() -> list[Product]:
     # TODO: gspread + credenciales de cuenta de servicio (GOOGLE_CREDENTIALS_FILE)
     raise NotImplementedError
 

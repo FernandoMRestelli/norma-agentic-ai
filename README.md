@@ -14,10 +14,10 @@ confirmación, registra la orden para su seguimiento.
 
 ## Puesta en marcha
 
-Requiere Python 3.10 o superior.
+Requiere **Python 3.12 o superior** (en macOS: `brew install python@3.12`).
 
 ```bash
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # completar los valores
