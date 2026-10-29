@@ -1,0 +1,15 @@
+.git/
+.github/
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+credentials/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+*.db
+frontend/
+docs/
+.DS_Store

@@ -18,3 +18,15 @@ __pycache__/
 
 # Bases de datos locales
 *.db
+
+# Credenciales de Google (cuenta de servicio)
+credentials/
+*service-account*.json
+
+# Tests y editores
+.pytest_cache/
+.vscode/
+.idea/
+
+# Frontend
+node_modules/

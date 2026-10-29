@@ -1,0 +1,17 @@
+# Dependencias de la aplicación (producción).
+# Herramientas de desarrollo y tests: requirements-dev.txt
+
+# API
+fastapi>=0.110,<1
+uvicorn[standard]>=0.29,<1
+
+# Configuración y validación
+pydantic>=2.6,<3
+pydantic-settings>=2.2,<3
+
+# Persistencia
+sqlalchemy>=2.0,<3
+
+# Google Sheets
+gspread>=6.0,<7
+google-auth>=2.29,<3
