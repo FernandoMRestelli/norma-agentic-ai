@@ -42,6 +42,18 @@ gitGraph
     merge backport/0.1.0
 ```
 
+## Spec primero (SDD)
+
+Trabajamos con spec-driven development: el comportamiento se define en [`docs/spec/`](docs/spec/README.md) antes de
+programarlo. Si una tarea agrega o cambia comportamiento:
+
+- Primero se actualiza la spec (requisitos `RF`/`RNF` y criterios de aceptación `CA`). Para una etapa entera,
+  una PR solo de spec a partir de la [plantilla](docs/spec/_plantilla.md); para algo chico, el primer commit de la PR.
+- Después, los tests de cada `CA`, que lo citan en el docstring (`"""CA-15: …"""`).
+- Recién después, el código. Si al implementar aparece algo que la spec no previó, se actualiza la spec en la misma PR.
+
+El detalle está en la [spec del MVP](docs/spec/README.md#1-cómo-trabajamos-con-sdd).
+
 ## Día a día
 
 1. Partir siempre de `develop` actualizado:

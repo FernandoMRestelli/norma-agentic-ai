@@ -1,7 +1,8 @@
 # 🏗️ Norma Agentic AI | Arquitectura v1
 
 > **Una app, un agente y dos Google Sheets.**  
-> Documento simple para entender cómo se conectan las partes del MVP y dónde vive cada archivo.
+> Documento simple para entender cómo se conectan las partes del MVP y dónde vive cada archivo.  
+> El detalle del comportamiento está en la [spec del MVP](spec/README.md); si este resumen la contradice, manda la spec.
 
 ## 🎯 Qué estamos construyendo
 

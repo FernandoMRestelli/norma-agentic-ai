@@ -8,6 +8,7 @@ confirmación, registra la orden para su seguimiento.
 
 ## Documentación
 
+- [Spec del MVP](docs/spec/README.md): qué tiene que hacer el sistema (fuente de verdad), con la [spec del agente](docs/spec/agente.md)
 - [Arquitectura](docs/architecture.md): piezas del sistema y dónde vive cada archivo
 - [Roadmap](docs/roadmap.md): etapas del MVP
 - [Cómo trabajamos](CONTRIBUTING.md): ramas, PR, reglas del CI, changelog, versiones, releases y producción
@@ -87,6 +88,7 @@ El detalle de cada pieza está en [docs/architecture.md](docs/architecture.md).
 | `tests/test_*.py` | Un archivo por módulo, más `test_invariantes.py` para todos los canales y tipos de mensaje |
 | `datos_ejemplo/` | Catálogo, pedidos y mensajes inventados con el formato de las planillas (ver su README) |
 | `data/` | Bases y datos locales; git la ignora salvo el `.gitkeep` |
+| `docs/spec/` | Spec del MVP, spec del agente y plantilla para las specs de cada etapa |
 | `docs/` | Arquitectura y roadmap |
 | `.github/workflows/` | CI: tests y lint, secretos, reglas de PR e imagen de release |
 | `.github/scripts/verificar_reglas_pr.sh` | Nombre de rama y entrada de changelog de cada PR |

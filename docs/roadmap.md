@@ -1,7 +1,8 @@
 # 🚀 Norma Agentic AI | Roadmap v1
 
 > **De un pedido informal a una orden clara, validada y lista para preparar.**  
-Guía de desarrollo del MVP · Equipo de 3 personas
+Guía de desarrollo del MVP · Equipo de 3 personas  
+Requisitos y criterios de cierre de cada etapa: [spec del MVP](spec/README.md#8-roadmap-por-fases).
 
 ## 🎯 La visión en 30 segundos
 
