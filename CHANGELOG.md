@@ -10,8 +10,9 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Agregado
 
-- Flujo de trabajo con ramas `main`, `develop` y ramas por tarea, documentado en `CONTRIBUTING.md`, con plantilla de Pull Request.
-- CI con GitHub Actions que corre los tests en cada PR y push a `develop` y `main`.
+- Flujo de ramas con releases, hotfixes y backports, documentado en `CONTRIBUTING.md`: cada PR se rechaza si el nombre de la rama no sigue el flujo o si no suma su línea a este changelog.
+- CI en cada PR y push a `develop` y `main`: lint con ruff, tests, build de la imagen con arranque de la API y escaneo de secretos en todo el historial.
+- Cada tag `vX.Y.Z` en `main` publica la imagen de esa versión en GitHub Container Registry, y producción la corre con `docker-compose.prod.yml`.
 - Docker: `Dockerfile` y `docker-compose.yml` para levantar la API y correr los tests sin instalar Python.
 - API con FastAPI: `/health`, endpoints del chat web y verificación del webhook de WhatsApp.
 - Contrato de datos del pedido: borrador (`OrderDraft`) separado de la orden confirmada (`Order`), con precios en `Decimal` y validación del contenido según el tipo de mensaje.
@@ -25,6 +26,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Cambiado
 
+- La base SQLite pasa a `data/norma.db` (antes `norma.db` en la raíz y, con Docker, el volumen `norma-data`): para conservar datos locales, moverlos a `data/`.
 - Python 3.12 como versión mínima.
 - `backend/Schema` pasa a `backend/schemas` y `test` a `tests`, según la arquitectura.
 - Roadmap actualizado a un equipo de 3 integrantes.

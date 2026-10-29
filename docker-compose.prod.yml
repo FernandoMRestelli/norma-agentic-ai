@@ -1,0 +1,25 @@
+# Producción: corre la imagen publicada de una release, nunca el código de una carpeta de trabajo.
+# Se usa desde ~/norma-prod (ver CONTRIBUTING.md#producción):
+#   VERSION=X.Y.Z docker compose -f docker-compose.prod.yml pull
+#   VERSION=X.Y.Z docker compose -f docker-compose.prod.yml up -d
+services:
+  api:
+    image: ghcr.io/fernandomrestelli/norma-agentic-ai:${VERSION:?definí VERSION}
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: true
+    environment:
+      APP_ENV: production
+      DATABASE_URL: sqlite:////app/data/norma.db
+    volumes:
+      # Solo datos y credenciales: el código y la config vienen dentro de la imagen
+      - ./data:/app/data
+      - ./credentials:/app/credentials:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

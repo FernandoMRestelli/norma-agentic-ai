@@ -1,3 +1,5 @@
+# Desarrollo: monta el código y los datos encima de la imagen para no reconstruir en cada cambio.
+# Producción usa docker-compose.prod.yml (ver CONTRIBUTING.md#producción).
 services:
   api:
     build:
@@ -10,20 +12,17 @@ services:
       - path: .env
         required: false
     environment:
+      # Fija la base dentro del directorio montado aunque un .env viejo apunte a otro lado
       DATABASE_URL: sqlite:////app/data/norma.db
     volumes:
-      # Código montado para que --reload tome los cambios sin reconstruir la imagen
       - ./backend:/app/backend
       - ./tests:/app/tests
       - ./datos_ejemplo:/app/datos_ejemplo:ro
       - ./credentials:/app/credentials:ro
-      - norma-data:/app/data
+      - ./data:/app/data
     command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
       timeout: 5s
       retries: 3
-
-volumes:
-  norma-data:

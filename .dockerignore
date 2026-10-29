@@ -9,7 +9,10 @@ credentials/
 **/__pycache__/
 *.pyc
 .pytest_cache/
+.ruff_cache/
 *.db
+data/
+notebooks/
 frontend/
 docs/
 .DS_Store
