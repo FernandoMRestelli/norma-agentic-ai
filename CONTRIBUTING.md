@@ -56,7 +56,8 @@ gitGraph
    gh pr create --base develop
    ```
 
-5. **Otro integrante revisa y aprueba** el PR. Después se mergea y se borra la rama.
+5. GitHub Actions corre los tests automáticamente (check **Tests**, con Python 3.9 y 3.12).
+6. **Otro integrante revisa y aprueba** el PR. Con los tests en verde, se mergea y se borra la rama.
 
 > Ramas cortas: una tarea = una rama = un PR. Si una tarea dura más de unos días,
 > conviene partirla en PRs más chicos para no acumular conflictos.

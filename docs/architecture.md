@@ -121,6 +121,7 @@ norma-agentic-ai/
 │   ├── architecture.md
 │   └── roadmap.md
 ├── .github/
+│   ├── workflows/tests.yml
 │   └── pull_request_template.md
 ├── .env.example
 ├── .gitignore
