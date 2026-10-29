@@ -123,9 +123,13 @@ norma-agentic-ai/
 ├── .github/
 │   ├── workflows/tests.yml
 │   └── pull_request_template.md
+├── .dockerignore
 ├── .env.example
 ├── .gitignore
+├── CHANGELOG.md
 ├── CONTRIBUTING.md
+├── Dockerfile
+├── docker-compose.yml
 ├── README.md
 ├── pytest.ini
 └── requirements.txt

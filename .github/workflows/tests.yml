@@ -26,3 +26,14 @@ jobs:
 
       - name: Correr tests
         run: pytest -v
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Construir imagen
+        run: docker build -t norma-agentic-ai .
+
+      - name: Correr tests en el contenedor
+        run: docker run --rm norma-agentic-ai pytest -v

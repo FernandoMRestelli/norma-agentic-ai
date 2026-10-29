@@ -1,0 +1,25 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: sqlite:////app/data/norma.db
+    volumes:
+      # Código montado para que --reload tome los cambios sin reconstruir la imagen
+      - ./backend:/app/backend
+      - ./tests:/app/tests
+      - ./credentials:/app/credentials:ro
+      - norma-data:/app/data
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  norma-data:

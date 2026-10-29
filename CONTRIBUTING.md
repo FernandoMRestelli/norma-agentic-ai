@@ -41,12 +41,12 @@ gitGraph
    ```
 
 2. Commits chicos y descriptivos (`Agrega búsqueda de productos por SKU`).
-3. Antes de abrir el PR, traer lo último de `develop` y correr los tests:
+3. Antes de abrir el PR, traer lo último de `develop`, correr los tests y sumar la entrada al [changelog](#changelog):
 
    ```bash
    git fetch origin
    git merge origin/develop
-   pytest
+   pytest                                 # o: docker compose run --rm api pytest
    ```
 
 4. Subir la rama y abrir un **Pull Request hacia `develop`**:
@@ -66,15 +66,34 @@ gitGraph
 
 Cuando `develop` tiene un conjunto de cambios estable (por ejemplo, al cerrar una etapa del [roadmap](docs/roadmap.md)):
 
-1. Abrir un PR de `develop` hacia `main` titulado `Release vX.Y.Z` con la lista de cambios.
-2. Verificar que los tests pasen y que la app levante.
-3. Mergear (con merge commit, no squash, para que `main` y `develop` no diverjan) y crear la versión:
+1. En `develop`, renombrar la sección `[Sin publicar]` del `CHANGELOG.md` a `[X.Y.Z] - AAAA-MM-DD`
+   y dejar una sección `[Sin publicar]` vacía arriba.
+2. Abrir un PR de `develop` hacia `main` titulado `Release vX.Y.Z`, con esa sección del changelog como descripción.
+3. Verificar que los tests pasen y que la app levante (`docker compose up --build`).
+4. Mergear (con merge commit, no squash, para que `main` y `develop` no diverjan) y crear la versión:
 
    ```bash
    gh release create vX.Y.Z --target main --generate-notes
    ```
 
 Versionado: `0.Y.0` por cada etapa del roadmap completada, `0.Y.Z` para correcciones.
+
+## Changelog
+
+Cada PR hacia `develop` que cambie algo visible (funcionalidad, API, configuración, dependencias)
+agrega una línea en [`CHANGELOG.md`](CHANGELOG.md), dentro de `[Sin publicar]`, en la categoría que corresponda:
+
+| Categoría | Cuándo |
+|---|---|
+| `Agregado` | Funcionalidad nueva |
+| `Cambiado` | Cambios en algo que ya existía |
+| `Corregido` | Errores arreglados |
+| `Eliminado` | Algo que se quitó |
+| `Seguridad` | Correcciones de vulnerabilidades |
+
+Se escribe para quien usa el proyecto, no como lista de commits:
+`Búsqueda de productos por nombre aproximado en el catálogo.` en lugar de `fix matching`.
+Cambios internos sin efecto visible (refactors, tests) no necesitan entrada.
 
 ## Reglas
 

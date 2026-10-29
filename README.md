@@ -10,9 +10,38 @@ confirmación, registra la orden para su seguimiento.
 
 - [Arquitectura](docs/architecture.md): piezas del sistema y dónde vive cada archivo
 - [Roadmap](docs/roadmap.md): etapas del MVP
-- [Cómo trabajamos con Git](CONTRIBUTING.md): ramas, Pull Requests y releases
+- [Cómo trabajamos con Git](CONTRIBUTING.md): ramas, Pull Requests, releases y changelog
+- [Changelog](CHANGELOG.md): historial de cambios por versión
 
-## Puesta en marcha
+## Configuración
+
+```bash
+cp .env.example .env   # completar los valores
+```
+
+Las credenciales de Google (cuenta de servicio) van en `credentials/`, que no se sube a GitHub.
+
+## Opción A: con Docker (recomendada)
+
+Solo requiere [Docker Desktop](https://www.docker.com/products/docker-desktop/), sin instalar Python.
+
+```bash
+docker compose up --build
+```
+
+La API queda en http://localhost:8000 (documentación interactiva en http://localhost:8000/docs).
+El código de `backend/` está montado en el contenedor, así que los cambios se recargan solos.
+
+Correr los tests:
+
+```bash
+docker compose run --rm api pytest
+```
+
+Reconstruir la imagen solo hace falta si cambia `requirements.txt` o el `Dockerfile`.
+La base SQLite se guarda en el volumen `norma-data` (se borra con `docker compose down -v`).
+
+## Opción B: con Python local
 
 Requiere **Python 3.12 o superior** (en macOS: `brew install python@3.12`).
 
@@ -20,18 +49,7 @@ Requiere **Python 3.12 o superior** (en macOS: `brew install python@3.12`).
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # completar los valores
-```
-
-Levantar la API (documentación interactiva en http://localhost:8000/docs):
-
-```bash
 uvicorn backend.main:app --reload
-```
-
-Correr los tests:
-
-```bash
 pytest
 ```
 
