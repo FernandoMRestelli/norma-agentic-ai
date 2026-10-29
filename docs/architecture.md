@@ -114,24 +114,32 @@ norma-agentic-ai/
 │       ├── Chat/
 │       └── Dashboard/
 ├── tests/
+│   ├── conftest.py
+│   ├── datos_sinteticos.py
 │   ├── test_agent.py
 │   ├── test_interpretation.py
 │   ├── test_api.py
-│   └── test_orders.py
+│   ├── test_orders.py
+│   └── test_invariantes.py
+├── data/                     # base SQLite local, ignorada por git
 ├── docs/
 │   ├── architecture.md
 │   └── roadmap.md
 ├── .github/
-│   ├── workflows/tests.yml
+│   ├── workflows/            # tests, secretos, reglas-pr, imagen-release
+│   ├── scripts/verificar_reglas_pr.sh
 │   └── pull_request_template.md
 ├── .dockerignore
 ├── .env.example
 ├── .gitignore
 ├── CHANGELOG.md
 ├── CONTRIBUTING.md
+├── MEJORAS.md
 ├── Dockerfile
 ├── docker-compose.yml
+├── docker-compose.prod.yml
 ├── README.md
+├── pyproject.toml
 ├── pytest.ini
 ├── requirements.txt
 └── requirements-dev.txt

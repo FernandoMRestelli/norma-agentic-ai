@@ -16,15 +16,18 @@ __pycache__/
 # Archivos de macOS
 .DS_Store
 
-# Bases de datos locales
+# Bases y datos locales: data/ existe en el repo solo por su .gitkeep
 *.db
+data/*
+!data/.gitkeep
 
 # Credenciales de Google (cuenta de servicio)
 credentials/
 *service-account*.json
 
-# Tests y editores
+# Tests, lint y editores
 .pytest_cache/
+.ruff_cache/
 .vscode/
 .idea/
 

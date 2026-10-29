@@ -1,0 +1,12 @@
+# Solo configuración de herramientas: el proyecto se instala con requirements*.txt.
+[tool.ruff]
+target-version = "py312"
+# 120 y no 88: el código existente ya está escrito a ese ancho y partir líneas solo agrega ruido al diff.
+line-length = 120
+extend-exclude = ["notebooks"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["backend", "tests"]

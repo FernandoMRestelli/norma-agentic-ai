@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     app_env: str = "development"
+    app_version: str = "dev"  # la imagen de cada release la fija con el número del tag
 
     # LLM: el proveedor se define más adelante (ver backend/agent/llm_client.py)
     llm_provider: str | None = None
@@ -27,7 +28,7 @@ class Settings(BaseSettings):
     whatsapp_phone_number_id: str | None = None
 
     # Base interna
-    database_url: str = "sqlite:///./norma.db"
+    database_url: str = "sqlite:///./data/norma.db"
 
 
 @lru_cache

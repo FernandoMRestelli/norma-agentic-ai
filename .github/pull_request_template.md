@@ -1,19 +1,20 @@
 ## Qué cambia
 
-<!-- Resumen breve del cambio y por qué -->
+<!-- Qué cambia para quien usa el proyecto y por qué. Si es un fix o hotfix: cuál era el error y cómo se reproducía. -->
 
-## Etapa del roadmap
+## Tipo de rama
 
-<!-- Ej.: 02 · Datos del negocio -->
-
-## Cómo probarlo
-
-- [ ] `pytest` pasa
-- [ ] La API levanta con `uvicorn backend.main:app --reload`
+- [ ] `feature/*` → `develop`: algo nuevo
+- [ ] `fix/*` → `develop`: error no urgente
+- [ ] `release/X.Y.Z` → `main`: cierre de versión, sin funcionalidades nuevas
+- [ ] `hotfix/X.Y.Z` → `main`: error urgente en producción
+- [ ] `backport/X.Y.Z` → `develop`: trae `main` a `develop` después de una release o hotfix
 
 ## Checklist
 
-- [ ] El PR apunta a `develop` (o es un `Release vX.Y.Z` hacia `main`)
-- [ ] Agregué la entrada en `CHANGELOG.md` (sección `[Sin publicar]`), si corresponde
-- [ ] No incluye `.env` ni credenciales
-- [ ] Actualicé la documentación si cambió algo de la arquitectura
+- [ ] `ruff check .` y `python -m pytest -q` pasan en local
+- [ ] Si es un fix o hotfix, hay un test que reproduce el error (falla sin el cambio)
+- [ ] Agregué una línea en `CHANGELOG.md`, dentro de `[Sin publicar]` (los backports no llevan)
+- [ ] Si cambia el comportamiento en producción, lo dice el changelog, con lo que haya que migrar al desplegar
+- [ ] Si es un hotfix, después del merge va el `backport/X.Y.Z` a `develop`
+- [ ] No incluye `.env`, credenciales ni datos de clientes
