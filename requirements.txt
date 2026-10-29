@@ -1,0 +1,19 @@
+# API
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+
+# Configuración y validación
+pydantic>=2.6
+pydantic-settings>=2.2
+
+# Persistencia
+sqlalchemy>=2.0
+
+# Google Sheets
+gspread>=6.0
+google-auth>=2.29
+
+# Tests
+pytest>=8.0
+httpx>=0.27

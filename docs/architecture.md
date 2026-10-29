@@ -36,7 +36,7 @@ flowchart TD
 |---|---|---|
 | **Entradas** | `backend/api/chat.py`, `whatsapp_webhook.py` | Recibir mensajes del chat o WhatsApp |
 | **Preprocesamiento** | `backend/services/message_service.py` | Preparar texto, transcribir audio y analizar imágenes |
-| **Agente** | `backend/agent/norma_agent.py`, `instructions.md` | Entender la intención y elegir herramientas |
+| **Agente** | `backend/agent/norma_agent.py`, `instructions.md`, `llm_client.py` | Entender la intención y elegir herramientas |
 | **Tools** | `backend/tools/catalog_tools.py`, `inventory_tools.py`, `order_tools.py` | Acciones controladas disponibles para el agente |
 | **Interpretación** | `backend/services/interpretation_service.py` | Convertir entradas diversas a un borrador común |
 | **Contrato de datos** | `backend/schemas/order_schema.py` | Definir campos y validaciones del pedido |
@@ -85,11 +85,13 @@ Los indicadores de venta o margen solo se mostrarán cuando los datos requeridos
 norma-agentic-ai/
 ├── backend/
 │   ├── main.py
+│   ├── config.py
 │   ├── api/
 │   │   ├── chat.py
 │   │   └── whatsapp_webhook.py
 │   ├── agent/
 │   │   ├── norma_agent.py
+│   │   ├── llm_client.py
 │   │   └── instructions.md
 │   ├── tools/
 │   │   ├── catalog_tools.py
@@ -113,13 +115,18 @@ norma-agentic-ai/
 ├── tests/
 │   ├── test_agent.py
 │   ├── test_interpretation.py
+│   ├── test_api.py
 │   └── test_orders.py
 ├── docs/
 │   ├── architecture.md
 │   └── roadmap.md
+├── .github/
+│   └── pull_request_template.md
 ├── .env.example
 ├── .gitignore
+├── CONTRIBUTING.md
 ├── README.md
+├── pytest.ini
 └── requirements.txt
 ```
 
