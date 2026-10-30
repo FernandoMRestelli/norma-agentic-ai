@@ -47,7 +47,7 @@ flowchart LR
 - **Polling** (`python -m backend.telegram_polling`): para desarrollo y la beta. No necesita URL pública. Al
   arrancar borra el webhook, porque Telegram no entrega updates por `getUpdates` si hay uno configurado.
   **Un solo proceso por token**: si dos corren el polling con el mismo bot, Telegram responde `409 Conflict`.
-  Para desarrollar en paralelo, cada uno crea su propio bot.
+  Por eso hay dos tipos de bot (§3.5).
 - **Webhook** (`POST /webhook/telegram`): para cuando haya servidor (D-03). Telegram manda el header
   `X-Telegram-Bot-Api-Secret-Token` con el valor que se fijó en `setWebhook`; se compara en tiempo constante.
   Sin `TELEGRAM_WEBHOOK_SECRET` configurado, el endpoint responde `403` (está apagado). Responde `200` enseguida y
@@ -92,6 +92,17 @@ El orquestador (`conversation_service`) todavía no existe en el código: se cre
 una respuesta provisoria. A un texto le responde que lo recibió y que el agente todavía no está conectado; a un
 botón, que la confirmación todavía no está implementada. Así el canal se prueba de punta a punta (recibir,
 lista blanca, responder, botones) sin depender de las etapas 03 a 05, que reemplazan esas respuestas.
+
+### 3.5 Bots de desarrollo y bot beta
+
+| Bot | Quién lo crea | Para qué | Lista blanca |
+|---|---|---|---|
+| **De desarrollo** | Cada integrante, el suyo | Programar y probar en su máquina sin cortarle el polling a otro | Solo su id |
+| **Beta compartido** | Uno para el equipo, cuando el agente tome pedidos (etapa 03) | Simular muchos clientes que le piden al mismo negocio: todos los pedidos en la misma base y en Sheet 2 | Los tres ids |
+
+El bot beta corre en un solo lugar, idealmente un servidor siempre prendido (D-03). Mientras no lo haya, lo corre
+un integrante y responde solo mientras su máquina tenga el polling andando. El código es el mismo para los dos:
+cambian el token y la lista blanca de cada `.env`.
 
 ## 4. Contratos
 
@@ -172,6 +183,7 @@ historial y no interpreta esos campos.
 | Tema | Decisión |
 |---|---|
 | D-01 (parcial) | Para la beta, **Gemini free tier para texto**. Audio, imagen y el LLM de producción siguen abiertos |
+| Un bot por integrante para desarrollar y uno compartido para la beta | Evita el `409 Conflict` del polling al desarrollar en paralelo, y en la beta concentra los pedidos en una sola base, como en la operación real |
 | Deduplicación en memoria | Alcanza con una instancia y polling (el `offset` ya evita repetidos); se mueve a la base con `processed_messages` |
 | Riesgo: límites del free tier | El agente hace hasta 6 llamadas por turno (RNF-12); con tres personas probando debería alcanzar. Si no, se pasa a un modelo `flash-lite` o a pago |
 | Riesgo: datos usados por Google | Solo datos simulados en la beta |

@@ -66,7 +66,17 @@ Para probar entre el equipo, cada integrante le escribe pedidos simulados a un b
 (detalle en la [spec del canal](docs/spec/canal-telegram.md)). Hoy el bot recibe, filtra y responde; interpretar
 el pedido llega con el agente (etapa 03).
 
-1. **Token del bot** (uno solo para todo el equipo): en Telegram, `/newbot` en [@BotFather](https://t.me/BotFather).
+Hay dos tipos de bot:
+
+| Bot | Quién lo crea | Para qué | Lista blanca |
+|---|---|---|---|
+| **De desarrollo** | Cada integrante, el suyo | Programar y probar en tu máquina sin pisar a los demás | Solo tu id |
+| **Beta compartido** | Uno para el equipo, cuando el agente tome pedidos (etapa 03) | Que los tres pidan al mismo negocio y los pedidos caigan en la misma base y planilla | Los tres ids |
+
+El bot beta corre en **un solo lugar** (idealmente un servidor, D-03): Telegram admite un solo proceso de polling
+por token y responde `409 Conflict` al segundo.
+
+1. **Token de tu bot de desarrollo**: en Telegram, `/newbot` en [@BotFather](https://t.me/BotFather).
    Va en `TELEGRAM_BOT_TOKEN`.
 2. **API key del LLM**: gratis en [Google AI Studio](https://aistudio.google.com/apikey). Va en `LLM_API_KEY`
    (`LLM_PROVIDER=gemini` y `LLM_MODEL` ya vienen en `.env.example`). El free tier usa lo que se manda para
@@ -83,12 +93,11 @@ el pedido llega con el agente (etapa 03).
    python -m backend.telegram_polling     # o: docker compose --profile bot up bot
    ```
 
-5. **Lista blanca**: cada integrante le escribe al bot, que le responde con su id. Esos ids van separados por coma
-   en `TELEGRAM_ALLOWED_USER_IDS`; después se reinicia el bot.
+5. **Lista blanca**: escribile a tu bot, que te responde con tu id. Ponelo en `TELEGRAM_ALLOWED_USER_IDS` y reiniciá
+   el bot. En el bot beta van los ids de los tres, separados por coma.
 
-Cada integrante no necesita token propio: Telegram identifica a cada uno por su id. Eso sí, **un solo proceso
-puede hacer polling por token** (si dos lo corren, Telegram responde `409 Conflict`): para la beta lo corre uno
-solo, y para programar en paralelo cada uno se crea su propio bot de prueba.
+Cada uno ya tiene su propio chat aunque el bot sea compartido: Telegram abre un chat privado por persona, y el
+sistema trata a cada integrante como un cliente distinto (`telegram:<id>`).
 
 ## Cómo funciona
 
