@@ -4,6 +4,7 @@ import hmac
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.api.whatsapp_webhook import is_valid_signature
 from backend.config import get_settings
 from backend.main import app
 
@@ -38,6 +39,17 @@ def test_whatsapp_verify(whatsapp_settings):
 
     params["hub.verify_token"] = "otro"
     assert client.get("/webhook/whatsapp", params=params).status_code == 403
+
+
+def test_whatsapp_verify_rejects_non_ascii_token(whatsapp_settings):
+    """CA-02: un token con caracteres no ASCII es inválido (403), no un error del servidor."""
+    params = {"hub.mode": "subscribe", "hub.verify_token": "secreto-ñ", "hub.challenge": "123"}
+    assert client.get("/webhook/whatsapp", params=params).status_code == 403
+
+
+def test_whatsapp_post_rejects_non_ascii_signature():
+    """CA-03: una firma con caracteres no ASCII es inválida (403), no un error del servidor."""
+    assert not is_valid_signature(b'{"entry": []}', "sha256=ñ", "app-secret")
 
 
 def test_whatsapp_post_accepts_valid_signature(whatsapp_settings):

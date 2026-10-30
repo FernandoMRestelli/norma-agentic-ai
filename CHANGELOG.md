@@ -38,5 +38,6 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 - Configuración para asistentes de IA (`.claude/settings.json`, `.geminiignore` y `AGENTS.md`) bloqueando la lectura de `.env`, `.env.*`, `credentials/` y `data/`.
 - Documentación en `CONTRIBUTING.md` sobre gestión de secretos en desarrollo y producción, uso de correos `noreply` en commits y procedimiento ante filtraciones.
 - El webhook de WhatsApp valida la firma `X-Hub-Signature-256` de Meta (nueva variable `WHATSAPP_APP_SECRET`) y compara el token de verificación en tiempo constante.
+- El webhook responde `403` (y no `500`) cuando el token de verificación o la firma traen caracteres no ASCII: la comparación en tiempo constante ahora se hace sobre bytes.
 
 [Sin publicar]: https://github.com/FernandoMRestelli/norma-agentic-ai/compare/main...develop
