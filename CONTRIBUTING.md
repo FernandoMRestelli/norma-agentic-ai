@@ -56,6 +56,15 @@ El detalle está en la [spec del MVP](docs/spec/README.md#1-cómo-trabajamos-con
 
 ## Día a día
 
+0. **Configuración inicial (una sola vez por máquina):**
+   Configurar el correo `noreply` de GitHub para proteger la privacidad en el historial público e instalar los hooks locales:
+
+   ```bash
+   git config --global user.email "<id>+<usuario>@users.noreply.github.com"
+   pip install -r requirements-dev.txt
+   pre-commit install
+   ```
+
 1. Partir siempre de `develop` actualizado:
 
    ```bash
@@ -66,12 +75,12 @@ El detalle está en la [spec del MVP](docs/spec/README.md#1-cómo-trabajamos-con
 
 2. Commits chicos. Títulos pensados para quien lee el historial, no para quien mira el código:
    `Búsqueda de productos por SKU en el catálogo`, no `agrega función`.
-3. Antes de pushear, traer lo último de `develop`, correr lint y tests y sumar la [entrada al changelog](#changelog):
+3. Antes de pushear, traer lo último de `develop`, correr lint, tests y hooks, y sumar la [entrada al changelog](#changelog):
 
    ```bash
    git fetch origin
    git merge origin/develop
-   ruff check .
+   pre-commit run --all-files
    python -m pytest -q          # o: docker compose run --rm api pytest
    ```
 
@@ -95,7 +104,7 @@ El detalle está en la [spec del MVP](docs/spec/README.md#1-cómo-trabajamos-con
 
 ## Reglas que revisa el CI
 
-Cada PR a `main` o `develop` corre estos checks; los cinco son obligatorios para mergear:
+Cada PR a `main` o `develop` corre estos checks; los seis son obligatorios para mergear:
 
 | Check | Workflow | Qué revisa |
 |---|---|---|
@@ -103,6 +112,7 @@ Cada PR a `main` o `develop` corre estos checks; los cinco son obligatorios para
 | `Tests (pytest)` | [`tests.yml`](.github/workflows/tests.yml) | Los tests, con la misma versión de Python que el `Dockerfile` (y falla si no coinciden). |
 | `Build de la imagen Docker` | [`tests.yml`](.github/workflows/tests.yml) | Que la imagen de producción se construya y que la API arranque y responda `/health`. |
 | `Escaneo de secretos` | [`secretos.yml`](.github/workflows/secretos.yml) | gitleaks sobre **todo el historial**, no solo sobre el último commit. |
+| `Hooks de pre-commit` | [`secretos.yml`](.github/workflows/secretos.yml) | `SKIP=gitleaks pre-commit run --all-files` (claves privadas, archivos pesados con `--enforce-all`, multimedia, archivos prohibidos y teléfonos; gitleaks corre en el job dedicado). |
 | `Nombre de rama y changelog` | [`reglas-pr.yml`](.github/workflows/reglas-pr.yml) | El script [`verificar_reglas_pr.sh`](.github/scripts/verificar_reglas_pr.sh). |
 
 `Nombre de rama y changelog` rechaza la PR si:
@@ -231,11 +241,47 @@ Solo los secretos (`.env`) y los datos (`data/`) quedan fuera.
 Se configura en GitHub (*Settings → Rules → Rulesets*), igual para `main` y `develop`:
 
 - Pull request obligatoria antes de mergear (con 1 aprobación, que es como trabajamos).
-- Checks obligatorios: `Lint (ruff)`, `Tests (pytest)`, `Build de la imagen Docker`, `Escaneo de secretos`
-  y `Nombre de rama y changelog`.
+- Checks obligatorios: `Lint (ruff)`, `Tests (pytest)`, `Build de la imagen Docker`, `Escaneo de secretos`,
+  `Hooks de pre-commit` y `Nombre de rama y changelog`.
 - Sin bypass, ni siquiera para administradores.
 - Sin force push ni borrado de la rama.
 - En *Settings → General*: habilitar **Squash merging** y **Merge commits**, y **Automatically delete head branches**.
+
+## Seguridad
+
+Somos un equipo trabajando sobre un repositorio público; la seguridad y la privacidad de los datos personales (ej. exports de chats, contactos de clientes) se garantizan antes del commit.
+
+### Manejo de secretos
+- **Desarrollo:** cada uno usa **sus propias credenciales** (API key del LLM, copia propia de la planilla de Google Sheets, número de prueba de WhatsApp). Ningún secreto se comparte entre personas ni se sube al repositorio.
+- **Producción:** el `.env` vive únicamente en el servidor de producción. Si hace falta compartir alguna clave entre el equipo, se utiliza una bóveda compartida (1Password o Bitwarden), **nunca** por WhatsApp, correo electrónico ni chats de asistentes de IA.
+- **Si se filtra algo:** rotar la credencial **inmediatamente** en el proveedor correspondiente (borrar el commit no alcanza, el historial de Git es público e indexado) y avisar al resto del equipo en el canal de comunicación.
+
+### Correos en commits
+Como el repositorio es público, cada colaborador debe usar su dirección de correo `noreply` de GitHub:
+
+```bash
+git config --global user.email "<id>+<usuario>@users.noreply.github.com"
+```
+
+Además, activar en GitHub: *Settings → Emails → Block command line pushes that expose my email*.
+
+### Hooks locales de seguridad (`pre-commit`)
+Los hooks bloquean secretos y datos sensibles **antes del commit**:
+- **Gitleaks (v8.28.0):** frena API keys, tokens y contraseñas. En CI corre sobre todo el historial en el job `Escaneo de secretos`.
+- **detect-private-key:** detecta claves privadas SSH o TLS (`-----BEGIN ... PRIVATE KEY-----`).
+- **check-added-large-files:** bloquea archivos de más de 500 KB (exports, zips, multimedia pesada) con `--enforce-all` (aplicado también en el servidor).
+- **Archivos prohibidos (`verificar_archivos_prohibidos.py`):** bloquea `.opus`, `.m4a`, `.vcf`, exports de WhatsApp (iOS `_chat.txt` y Android `*WhatsApp*Chat*.txt`), `.zip`, `.env*` (salvo `.env.example`), `credentials/**` y `*service[-_]account*.json` (insensible a mayúsculas). Multimedia (imágenes, videos y audios, incluyendo `.heic` y `.mp4`) solo está permitida dentro de `tests/`.
+- **Teléfonos (`verificar_telefonos.py`):** frena números de teléfono argentinos con o sin separadores (`+54 9 ...`, `549...`, `11...`, `351...`, etc.) en archivos `.csv`, `.json`, `.txt`, `.md`, `.py`, `.yaml`, `.yml`.
+- **Ruff:** corre el linter con la versión fijada en `requirements-dev.txt`.
+
+Un falso positivo se resuelve agregándolo a la lista de excepciones (`ARCHIVOS_PERMITIDOS` o `NUMEROS_PERMITIDOS`) en el script del hook correspondiente o en `.gitleaksignore`. **NUNCA** uses `--no-verify` por costumbre para saltear las comprobaciones.
+
+### Reglas para asistentes de IA
+Para evitar que herramientas o asistentes de IA lean y envíen archivos confidenciales al modelo:
+- **Claude Code:** configurado mediante `.claude/settings.json`, denegando la lectura de `.env`, `.env.*`, `credentials/**` y `data/**` (permitiendo `.env.example`).
+- **Gemini CLI:** configurado mediante `.geminiignore`, bloqueando `.env`, `.env.*`, `credentials/` y `data/`.
+- **Codex y otros agentes:** gobernados por las directivas obligatorias de [`AGENTS.md`](AGENTS.md).
+- De todas formas, la protección fundamental es la política del proyecto: ningún secreto de producción vive en máquinas locales de desarrollo.
 
 ## Reglas generales
 
