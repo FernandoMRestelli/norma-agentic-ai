@@ -2,30 +2,34 @@
 """Hook de seguridad: bloquea archivos prohibidos y multimedia fuera de tests/.
 
 Frena:
-- *.opus, *.m4a, *.vcf, _chat.txt, *.zip
+- *.opus, *.m4a, *.vcf, *.zip
+- Exports de WhatsApp (iOS: *_chat.txt; Android: *WhatsApp*Chat*.txt, *Chat*WhatsApp*.txt)
 - .env* (salvo .env.example)
-- credentials/** y *service-account*.json
-- Imágenes y audios fuera de tests/ (ej: export de WhatsApp)
+- credentials/** y *service[-_]account*.json (sin importar mayúsculas/minúsculas)
+- Multimedia (imágenes, audios y videos, incluyendo .heic y .mp4) fuera de tests/
 """
 
 import fnmatch
+import re
 import sys
 from pathlib import Path
 
-AUDIO_EXTENSIONS = {".opus", ".m4a", ".mp3", ".wav", ".ogg", ".aac", ".flac", ".wma"}
-IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".ico", ".tiff"}
+AUDIO_EXTENSIONS = {".opus", ".m4a", ".mp3", ".wav", ".ogg", ".aac", ".flac", ".wma", ".amr", ".3ga"}
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".3gp", ".avi", ".mkv", ".webm"}
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".ico", ".tiff", ".heic", ".heif"}
+MULTIMEDIA_EXTENSIONS = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS | IMAGE_EXTENSIONS
 
 # Lista explícita de archivos permitidos (falsos positivos documentados).
 # Un falso positivo se resuelve agregándolo a esta lista, NUNCA usando --no-verify por costumbre.
 ARCHIVOS_PERMITIDOS = {
-    "docs/Flujo completo de Norma Agentic AI.png",
+    "docs/flujo completo de norma agentic ai.png",
 }
 
 
 def es_archivo_prohibido(ruta: Path) -> tuple[bool, str]:
-    ruta_posix = ruta.as_posix()
-    nombre = ruta.name
-    partes = ruta.parts
+    ruta_posix = ruta.as_posix().lower()
+    nombre = ruta.name.lower()
+    partes = [p.lower() for p in ruta.parts]
 
     # Si está en la lista de permitidos, pasa
     if ruta_posix in ARCHIVOS_PERMITIDOS or nombre in ARCHIVOS_PERMITIDOS:
@@ -35,17 +39,21 @@ def es_archivo_prohibido(ruta: Path) -> tuple[bool, str]:
     if nombre.startswith(".env") and nombre != ".env.example":
         return True, "Variables de entorno (.env*). Solo se permite versionar '.env.example'."
 
-    # credentials/**
+    # credentials/** (case-insensitive)
     if "credentials" in partes:
         return True, "Archivos dentro de 'credentials/'. Las credenciales no se versionan en el repositorio."
 
-    # *service-account*.json
-    if fnmatch.fnmatch(nombre.lower(), "*service-account*.json"):
-        return True, "Claves de cuenta de servicio (*service-account*.json)."
+    # *service[-_]account*.json (case-insensitive, acepta guión y guión bajo)
+    if re.search(r"service[-_]account.*\.json$", nombre):
+        return True, "Claves de cuenta de servicio (*service-account*.json o *service_account*.json)."
 
-    # _chat.txt (export de WhatsApp)
-    if fnmatch.fnmatch(nombre, "*_chat.txt*") or nombre == "_chat.txt":
-        return True, "Export de chat de WhatsApp (_chat.txt) con datos personales."
+    # Exports de chat de WhatsApp (iOS y Android)
+    if (
+        fnmatch.fnmatch(nombre, "*_chat*.txt")
+        or fnmatch.fnmatch(nombre, "*whatsapp*chat*.txt")
+        or fnmatch.fnmatch(nombre, "*chat*whatsapp*.txt")
+    ):
+        return True, "Export de chat de WhatsApp (iOS/Android) con posibles datos personales."
 
     # *.vcf (contactos)
     if ruta.suffix.lower() == ".vcf":
@@ -55,17 +63,20 @@ def es_archivo_prohibido(ruta: Path) -> tuple[bool, str]:
     if ruta.suffix.lower() == ".zip":
         return True, "Archivo comprimido (*.zip). Puede contener volcados de datos o multimedia no revisada."
 
-    # Imágenes y audios solo dentro de tests/
-    es_audio = ruta.suffix.lower() in AUDIO_EXTENSIONS
-    es_imagen = ruta.suffix.lower() in IMAGE_EXTENSIONS
-
-    if es_audio or es_imagen:
+    # Multimedia (audios, videos, imágenes) solo dentro de tests/
+    suffix = ruta.suffix.lower()
+    if suffix in MULTIMEDIA_EXTENSIONS:
         esta_en_tests = "tests" in partes
         if not esta_en_tests:
-            tipo = "Audio" if es_audio else "Imagen"
+            if suffix in AUDIO_EXTENSIONS:
+                tipo = "Audio"
+            elif suffix in VIDEO_EXTENSIONS:
+                tipo = "Video"
+            else:
+                tipo = "Imagen"
             return (
                 True,
-                f"{tipo} ({ruta.suffix}) fuera de 'tests/'. La multimedia solo está permitida dentro de tests/.",
+                f"{tipo} ({suffix}) fuera de 'tests/'. La multimedia solo está permitida dentro de tests/.",
             )
 
     return False, ""

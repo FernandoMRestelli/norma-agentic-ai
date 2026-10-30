@@ -13,18 +13,18 @@ repos:
     hooks:
       - id: detect-private-key
       - id: check-added-large-files
-        args: ['--maxkb=500']
+        args: ['--maxkb=500', '--enforce-all']
+        exclude: '^docs/Flujo completo de Norma Agentic AI\.png$'
 
-  # Lint con ruff: versión fijada idéntica a requirements-dev.txt y al CI
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.3
-    hooks:
-      - id: ruff
-        args: [--fix]
-
-  # Hooks propios de seguridad y privacidad
+  # Hooks locales: ruff fijado únicamente en requirements-dev.txt y scripts de seguridad propios
   - repo: local
     hooks:
+      - id: ruff
+        name: ruff (lint)
+        entry: ruff check --fix
+        language: system
+        types: [python]
+
       - id: verificar-archivos-prohibidos
         name: Verificar archivos prohibidos y multimedia
         entry: python .github/scripts/verificar_archivos_prohibidos.py

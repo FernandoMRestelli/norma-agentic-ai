@@ -48,7 +48,7 @@ gitGraph
    Configurar el correo `noreply` de GitHub para proteger la privacidad en el historial público e instalar los hooks locales:
 
    ```bash
-   git config user.email "<id>+<usuario>@users.noreply.github.com"
+   git config --global user.email "<id>+<usuario>@users.noreply.github.com"
    pip install -r requirements-dev.txt
    pre-commit install
    ```
@@ -100,7 +100,7 @@ Cada PR a `main` o `develop` corre estos checks; los seis son obligatorios para 
 | `Tests (pytest)` | [`tests.yml`](.github/workflows/tests.yml) | Los tests, con la misma versión de Python que el `Dockerfile` (y falla si no coinciden). |
 | `Build de la imagen Docker` | [`tests.yml`](.github/workflows/tests.yml) | Que la imagen de producción se construya y que la API arranque y responda `/health`. |
 | `Escaneo de secretos` | [`secretos.yml`](.github/workflows/secretos.yml) | gitleaks sobre **todo el historial**, no solo sobre el último commit. |
-| `Hooks de pre-commit` | [`secretos.yml`](.github/workflows/secretos.yml) | `pre-commit run --all-files` para validar gitleaks, claves privadas, archivos prohibidos, multimedia y teléfonos. |
+| `Hooks de pre-commit` | [`secretos.yml`](.github/workflows/secretos.yml) | `SKIP=gitleaks pre-commit run --all-files` (claves privadas, archivos pesados con `--enforce-all`, multimedia, archivos prohibidos y teléfonos; gitleaks corre en el job dedicado). |
 | `Nombre de rama y changelog` | [`reglas-pr.yml`](.github/workflows/reglas-pr.yml) | El script [`verificar_reglas_pr.sh`](.github/scripts/verificar_reglas_pr.sh). |
 
 `Nombre de rama y changelog` rechaza la PR si:
@@ -248,26 +248,28 @@ Somos un equipo trabajando sobre un repositorio público; la seguridad y la priv
 Como el repositorio es público, cada colaborador debe usar su dirección de correo `noreply` de GitHub:
 
 ```bash
-git config user.email "<id>+<usuario>@users.noreply.github.com"
+git config --global user.email "<id>+<usuario>@users.noreply.github.com"
 ```
 
 Además, activar en GitHub: *Settings → Emails → Block command line pushes that expose my email*.
 
 ### Hooks locales de seguridad (`pre-commit`)
 Los hooks bloquean secretos y datos sensibles **antes del commit**:
-- **Gitleaks (v8.28.0):** frena API keys, tokens y contraseñas.
+- **Gitleaks (v8.28.0):** frena API keys, tokens y contraseñas. En CI corre sobre todo el historial en el job `Escaneo de secretos`.
 - **detect-private-key:** detecta claves privadas SSH o TLS (`-----BEGIN ... PRIVATE KEY-----`).
-- **check-added-large-files:** bloquea archivos de más de 500 KB (exports, zips, multimedia pesada).
-- **Archivos prohibidos (`verificar_archivos_prohibidos.py`):** bloquea `.opus`, `.m4a`, `.vcf`, `_chat.txt`, `.zip`, `.env*` (salvo `.env.example`), `credentials/**` y `*service-account*.json`. Multimedia (imágenes y audios) solo está permitida dentro de `tests/`.
-- **Teléfonos (`verificar_telefonos.py`):** frena números de teléfono argentinos (`+54 9 ...`, `11 ....-....`, etc.) en archivos de datos (`.csv`, `.json`, `.txt`, `.md` bajo `data/`, `tests/` y `datos_ejemplo/`).
-- **Ruff:** corre el linter con la versión fijada.
+- **check-added-large-files:** bloquea archivos de más de 500 KB (exports, zips, multimedia pesada) con `--enforce-all` (aplicado también en el servidor).
+- **Archivos prohibidos (`verificar_archivos_prohibidos.py`):** bloquea `.opus`, `.m4a`, `.vcf`, exports de WhatsApp (iOS `_chat.txt` y Android `*WhatsApp*Chat*.txt`), `.zip`, `.env*` (salvo `.env.example`), `credentials/**` y `*service[-_]account*.json` (insensible a mayúsculas). Multimedia (imágenes, videos y audios, incluyendo `.heic` y `.mp4`) solo está permitida dentro de `tests/`.
+- **Teléfonos (`verificar_telefonos.py`):** frena números de teléfono argentinos con o sin separadores (`+54 9 ...`, `549...`, `11...`, `351...`, etc.) en archivos `.csv`, `.json`, `.txt`, `.md`, `.py`, `.yaml`, `.yml`.
+- **Ruff:** corre el linter con la versión fijada en `requirements-dev.txt`.
 
 Un falso positivo se resuelve agregándolo a la lista de excepciones (`ARCHIVOS_PERMITIDOS` o `NUMEROS_PERMITIDOS`) en el script del hook correspondiente o en `.gitleaksignore`. **NUNCA** uses `--no-verify` por costumbre para saltear las comprobaciones.
 
 ### Reglas para asistentes de IA
-Para evitar que herramientas como Claude Code o Cursor lean y envíen archivos confidenciales al modelo:
-- **Claude Code:** configurado mediante `.claude/settings.json`, denegando la lectura de `.env`, `.env.*`, `credentials/**` y `data/**`.
-- **Cursor / Copilot:** configurado mediante `.cursorignore`, bloqueando `.env`, `credentials/` y `data/`.
+Para evitar que herramientas o asistentes de IA lean y envíen archivos confidenciales al modelo:
+- **Claude Code:** configurado mediante `.claude/settings.json`, denegando la lectura de `.env`, `.env.*`, `credentials/**` y `data/**` (permitiendo `.env.example`).
+- **Gemini CLI:** configurado mediante `.geminiignore`, bloqueando `.env`, `.env.*`, `credentials/` y `data/`.
+- **Codex y otros agentes:** gobernados por las directivas obligatorias de [`AGENTS.md`](AGENTS.md).
+- De todas formas, la protección fundamental es la política del proyecto: ningún secreto de producción vive en máquinas locales de desarrollo.
 
 ## Reglas generales
 
