@@ -2,7 +2,6 @@
 
 # Tests
 pytest>=8.0,<10
-httpx>=0.27,<1
 
 # Lint: versión fija para que local y CI marquen exactamente lo mismo
 ruff==0.14.3

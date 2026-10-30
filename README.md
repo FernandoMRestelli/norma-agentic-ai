@@ -60,9 +60,39 @@ python -m pytest -q
 En producción no se usa ninguna de las dos opciones: corre la imagen publicada de una release
 (ver [Producción](CONTRIBUTING.md#producción)).
 
+## Bot de Telegram (beta)
+
+Para probar entre el equipo, cada integrante le escribe pedidos simulados a un bot de Telegram
+(detalle en la [spec del canal](docs/spec/canal-telegram.md)). Hoy el bot recibe, filtra y responde; interpretar
+el pedido llega con el agente (etapa 03).
+
+1. **Token del bot** (uno solo para todo el equipo): en Telegram, `/newbot` en [@BotFather](https://t.me/BotFather).
+   Va en `TELEGRAM_BOT_TOKEN`.
+2. **API key del LLM**: gratis en [Google AI Studio](https://aistudio.google.com/apikey). Va en `LLM_API_KEY`
+   (`LLM_PROVIDER=gemini` y `LLM_MODEL` ya vienen en `.env.example`). El free tier usa lo que se manda para
+   mejorar los productos de Google: **solo datos simulados**.
+3. Verificar las claves (no las muestra):
+
+   ```bash
+   python -m backend.verificar_claves     # o: docker compose run --rm api python -m backend.verificar_claves
+   ```
+
+4. Levantar el bot:
+
+   ```bash
+   python -m backend.telegram_polling     # o: docker compose --profile bot up bot
+   ```
+
+5. **Lista blanca**: cada integrante le escribe al bot, que le responde con su id. Esos ids van separados por coma
+   en `TELEGRAM_ALLOWED_USER_IDS`; después se reinicia el bot.
+
+Cada integrante no necesita token propio: Telegram identifica a cada uno por su id. Eso sí, **un solo proceso
+puede hacer polling por token** (si dos lo corren, Telegram responde `409 Conflict`): para la beta lo corre uno
+solo, y para programar en paralelo cada uno se crea su propio bot de prueba.
+
 ## Cómo funciona
 
-1. El mensaje del cliente entra por `api/` (chat web o webhook de WhatsApp, con la firma de Meta validada).
+1. El mensaje del cliente entra por `api/` (chat web, webhook de WhatsApp con la firma de Meta validada, o el bot de Telegram de la beta).
 2. `services/message_service.py` lo convierte en texto (transcribe audio, lee imágenes).
 3. El agente (`agent/`) interpreta el pedido y usa las `tools/` para buscar productos y stock en el catálogo.
 4. Con eso arma un **borrador** (`OrderDraft`) y `validation_service.py` le muestra el resumen al cliente.
@@ -76,10 +106,12 @@ El detalle de cada pieza está en [docs/architecture.md](docs/architecture.md).
 |---|---|
 | `backend/main.py` | App FastAPI y rutas; la versión sale de `APP_VERSION`, que fija la imagen de cada release |
 | `backend/config.py` | Configuración y secretos por variables de entorno (`.env`) |
-| `backend/api/` | Entradas: chat web y webhook de WhatsApp |
-| `backend/agent/` | Agente Norma, sus instrucciones e interfaz neutral del LLM |
+| `backend/api/` | Entradas: chat web, webhook de WhatsApp y webhook de Telegram |
+| `backend/agent/` | Agente Norma, sus instrucciones e interfaz neutral del LLM (con el cliente de Gemini) |
 | `backend/tools/` | Acciones que el agente puede usar (catálogo, stock, borradores) |
-| `backend/services/` | Preprocesamiento, interpretación, confirmación, órdenes y Google Sheets |
+| `backend/services/` | Orquestador, preprocesamiento, interpretación, confirmación, órdenes, Google Sheets y Telegram |
+| `backend/telegram_polling.py` | Bot de Telegram por polling, para desarrollo y la beta |
+| `backend/verificar_claves.py` | Prueba las claves de Telegram y del LLM sin mostrarlas |
 | `backend/schemas/` | Contratos de datos: pedido (borrador vs. orden) y catálogo |
 | `backend/database/` | Base interna (SQLite en `data/`) |
 | `frontend/src/` | Chat (tarjeta Confirmar / Corregir) y Dashboard |
@@ -88,7 +120,7 @@ El detalle de cada pieza está en [docs/architecture.md](docs/architecture.md).
 | `tests/test_*.py` | Un archivo por módulo, más `test_invariantes.py` para todos los canales y tipos de mensaje |
 | `datos_ejemplo/` | Catálogo, pedidos y mensajes inventados con el formato de las planillas (ver su README) |
 | `data/` | Bases y datos locales; git la ignora salvo el `.gitkeep` |
-| `docs/spec/` | Spec del MVP, spec del agente y plantilla para las specs de cada etapa |
+| `docs/spec/` | Spec del MVP, spec del agente, spec del canal Telegram y plantilla para las specs de cada etapa |
 | `docs/` | Arquitectura y roadmap |
 | `.github/workflows/` | CI: tests y lint, secretos, reglas de PR e imagen de release |
 | `.github/scripts/verificar_reglas_pr.sh` | Nombre de rama y entrada de changelog de cada PR |

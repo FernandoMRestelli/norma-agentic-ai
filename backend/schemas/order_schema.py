@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, model_validator
 class Channel(StrEnum):
     WEB = "web"
     WHATSAPP = "whatsapp"
+    TELEGRAM = "telegram"  # canal de prueba de la beta
 
 
 class MessageType(StrEnum):
@@ -31,6 +32,7 @@ class IncomingMessage(BaseModel):
     type: MessageType = MessageType.TEXT
     text: str | None = None
     media_url: str | None = None  # audio o imagen, según `type`
+    external_id: str | None = None  # id del mensaje en el canal, para deduplicar
 
     @model_validator(mode="after")
     def check_content_matches_type(self) -> Self:

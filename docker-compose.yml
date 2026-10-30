@@ -26,3 +26,22 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+  # Bot de Telegram por polling (canal de prueba de la beta): docker compose --profile bot up
+  # Un solo proceso por token: si otro integrante ya lo está corriendo con el mismo bot, Telegram responde 409.
+  bot:
+    profiles: ["bot"]
+    build:
+      context: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: sqlite:////app/data/norma.db
+    volumes:
+      - ./backend:/app/backend
+      - ./datos_ejemplo:/app/datos_ejemplo:ro
+      - ./credentials:/app/credentials:ro
+      - ./data:/app/data
+    command: python -m backend.telegram_polling
+    restart: unless-stopped
