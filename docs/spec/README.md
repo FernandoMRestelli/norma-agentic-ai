@@ -11,7 +11,7 @@
 | Versión | 0.1, borrador para revisión |
 | Fecha | 2026-10-29 |
 | Base | Plan de Fernando ([`docs/Flujo completo de Norma Agentic AI.png`](../Flujo%20completo%20de%20Norma%20Agentic%20AI.png)), [`architecture.md`](../architecture.md), [`roadmap.md`](../roadmap.md) y el código de `develop` |
-| Partes | Esta spec maestra y la [spec del agente](agente.md) (loop, estados, tools, errores, memoria y código) |
+| Partes | Esta spec maestra, la [spec del agente](agente.md) (loop, estados, tools, errores, memoria y código) y la del [canal Telegram para la beta](canal-telegram.md) |
 | Cómo se cambia | Por PR, como cualquier cambio (ver [§1](#1-cómo-trabajamos-con-sdd)) |
 
 **Índice**
@@ -222,7 +222,7 @@ La imagen de Fernando es la base. Estos son los puntos en los que la spec la cam
 | C-01 | Base de datos local **opcional** | **Obligatoria** (SQLite en `data/`) | Sin base no hay forma de garantizar una sola orden por confirmación (`draft_id` único), ni de guardar el estado de la conversación entre mensajes |
 | C-02 | Estados del dashboard: Confirmado / En proceso / Pendiente | `Recibido` / `Preparado` / `Retirado` / `Cancelado` (`OrderStatus`) | Ya están en el código, el roadmap y `pedidos.csv`; «Pendiente» y «Confirmado» se confunden con los estados del borrador |
 | C-03 | Sheet 2: Cliente, Fecha/Hora, Productos, Cantidades, Descripción, Estado | Columnas de [`pedidos.csv`](../../datos_ejemplo/pedidos.csv): `id_orden`, `fecha_hora`, `cliente`, `canal`, `productos`, `notas`, `estado` | Hace falta el ID para seguir y deduplicar, y el canal para responder; cantidades van dentro de `productos` (una fila por pedido) |
-| C-04 | Logo de OpenAI en «LLM» | Proveedor **sin definir** (D-01), detrás de `llm_client` | El repo todavía no eligió proveedor; la spec fija qué tiene que soportar, no cuál es |
+| C-04 | Logo de OpenAI en «LLM» | Proveedor detrás de `llm_client`: **Gemini free tier para texto en la beta**; el de producción, sin definir (D-01) | La spec fija qué tiene que soportar; para probar la beta alcanza un modelo gratuito ([canal Telegram §4.3](canal-telegram.md#43-llmclient-y-formato-neutral)) |
 | C-05 | El mensaje va de la recepción directo al procesamiento y al agente | Un **orquestador** (`conversation_service.py`) con máquina de estados entre la API y el agente | El loop «si el cliente corrige, vuelve a interpretación» necesita estado: qué borrador está pendiente, qué se preguntó, cuándo vence |
 | C-06 | «OK / Confirmar» dentro del flujo del agente | La confirmación **no pasa por el LLM**: botón o palabra clave exacta | El LLM no debe decidir cuándo se registra una orden |
 | C-07 | Tools: catálogo, inventario, órdenes | Se suman `reply_tools.py` (`respond_to_customer`, `escalate_to_human`) y `discard_order_draft` | Cada turno termina en una tool que define el resultado; así los casos de `mensajes.json` son verificables |
@@ -232,6 +232,7 @@ La imagen de Fernando es la base. Estos son los puntos en los que la spec la cam
 | C-11 | — | `whatsapp_service.py` para enviar mensajes y descargar multimedia | La imagen recibe por WhatsApp pero no muestra cómo se responde |
 | C-12 | Frontend: solo `Dashboard/` | También `Chat/` (tarjeta Confirmar / Corregir del chat web) | Ya existe en el repo y el chat web es un canal del MVP |
 | C-13 | `OrderDraft` sin versión | `OrderDraft.version`, que sube con cada corrección | Evita confirmar un resumen viejo que el cliente ya corrigió |
+| C-14 | Canales: WhatsApp y chat web | Se suma **Telegram** como canal de prueba de la beta ([spec](canal-telegram.md)) | Permite probar el flujo con el equipo antes de la etapa 07, sin cuenta de Meta ni número verificado |
 
 ---
 
@@ -299,12 +300,12 @@ con la etapa que los usa ([§8](#8-roadmap-por-fases)).
 
 | Campo | Tipo | Reglas |
 |---|---|---|
-| `customer_id` | `str` | En WhatsApp, el número del cliente; en web, ver D-05 |
-| `channel` | `web \| whatsapp` | |
+| `customer_id` | `str` | En WhatsApp, el número del cliente; en Telegram, `telegram:<id del usuario>`; en web, ver D-05 |
+| `channel` | `web \| whatsapp \| telegram` | `telegram` es el canal de prueba de la beta (C-14) |
 | `type` | `text \| audio \| image` | Por defecto `text` |
 | `text` | `str \| None` | Obligatorio y no vacío si `type = text` |
 | `media_url` | `str \| None` | Obligatorio si `type` es `audio` o `image` |
-| `external_id` | `str \| None` **(nuevo)** | Id del mensaje en Meta, para deduplicar |
+| `external_id` | `str \| None` **(nuevo)** | Id del mensaje en Meta o del update de Telegram, para deduplicar |
 
 ### 5.2 Catálogo: `Product`, `StockCheck` ↔ Google Sheet 1
 
@@ -344,7 +345,7 @@ con la etapa que los usa ([§8](#8-roadmap-por-fases)).
 | — | `draft_id` | Único: un borrador produce como máximo una orden |
 | `fecha_hora` | `created_at` | ISO 8601 con zona horaria (`-03:00`) |
 | `cliente` | `customer_id` | |
-| `canal` | `channel` | `web` o `whatsapp` |
+| `canal` | `channel` | `web`, `whatsapp` o `telegram` |
 | `productos` | `items` | `cantidad x nombre presentación (SKU)`, separados por `; ` |
 | `notas` | `notes` | |
 | `estado` | `status` | `Recibido`, `Preparado`, `Retirado` o `Cancelado` |
@@ -455,6 +456,17 @@ Esta versión de la spec está en revisión: todo lo que no está implementado f
 | RF-27 | La conversación se deriva a una persona si el cliente lo pide, tras 2 fallas o tras 3 aclaraciones seguidas sin borrador | 04 | P |
 | RF-28 | Una conversación abierta vence tras 24 h sin actividad; su borrador queda descartado | 04 | P |
 
+### Canal de prueba: Telegram
+
+Detalle en la [spec del canal](canal-telegram.md).
+
+| ID | Requisito | Etapa | Estado |
+|---|---|---|---|
+| RF-29 | El sistema recibe mensajes de texto, audio y foto por un bot de Telegram, por polling o por webhook con secret token, y solo atiende a los usuarios de la lista blanca | Beta | I |
+| RF-30 | En Telegram, una respuesta con borrador lleva los botones Confirmar / Corregir con el `draft_id` y la versión; tocar uno responde el `callback_query`, saca los botones y pasa la acción al orquestador | Beta | I (del lado del canal) |
+| RF-31 | Un update de Telegram repetido (mismo `update_id`) se procesa una sola vez | Beta | I |
+| RF-32 | Mientras no haya modelo de visión, un audio o una imagen reciben el pedido de escribirlo, sin llamar al LLM | Beta | I |
+
 ---
 
 ## 7. Requisitos no funcionales
@@ -474,6 +486,7 @@ Esta versión de la spec está en revisión: todo lo que no está implementado f
 | RNF-11 | Experiencia | Español rioplatense, breve y amable; una pregunta por vez; mensajes de WhatsApp dentro de los límites del canal |
 | RNF-12 | Costo | Máximo 6 iteraciones por turno, historial acotado a 20 mensajes y catálogo fuera del contexto (D-07) |
 | RNF-13 | Caché | El catálogo se cachea 5 min para buscar (hasta 1 h si Google no responde); la confirmación siempre lee fresco |
+| RNF-14 | Seguridad | El token del bot de Telegram y las API keys no aparecen en logs, URLs guardadas ni datos persistidos |
 
 ---
 
@@ -546,6 +559,18 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-23 | Un borrador pendiente | El cliente dice que ya no lo quiere | El borrador queda `descartado`, la conversación `descartada` y no hay orden | RF-26 | pendiente |
 | CA-28 | Una conversación abierta sin actividad | Pasan 24 h | Queda `vencida` y el siguiente mensaje abre una conversación nueva | RF-28 | pendiente |
 
+### Canal de prueba: Telegram y LLM
+
+| ID | Dado | Cuando | Entonces | RF | Test |
+|---|---|---|---|---|---|
+| CA-30 | `TELEGRAM_WEBHOOK_SECRET` configurado / sin configurar | Llega un POST con el secret correcto, incorrecto o sin header | `200` / `403` / `403`; sin secret configurado, siempre `403` | RF-29 | `test_telegram.py::test_webhook_*` |
+| CA-31 | Un usuario fuera de la lista blanca | Escribe al bot | Recibe un texto fijo con su id y el mensaje no llega al orquestador | RF-29 | `test_telegram.py::test_usuario_fuera_de_la_lista_blanca` |
+| CA-32 | Un update ya procesado | Llega otra vez con el mismo `update_id` | No se procesa ni se responde de nuevo | RF-31 | `test_telegram.py::test_update_repetido_se_procesa_una_vez` |
+| CA-33 | Un integrante de la lista blanca | Manda texto, un audio o una foto | Llega como `IncomingMessage` `text`, `audio` o `image` con `media_url = telegram:<file_id>`; audio y foto reciben el pedido de escribirlo | RF-29, RF-32 | `test_telegram.py::test_traduce_*`, `test_conversation.py` |
+| CA-34 | Una respuesta del orquestador con borrador | Se envía y el cliente toca Confirmar | El mensaje tiene los dos botones; el toque llega con el `draft_id` y la versión, se responde el `callback_query` y se sacan los botones | RF-30 | `test_telegram.py::test_borrador_con_botones_*` |
+| CA-35 | `GeminiClient` con una API falsa | Se llama con tools e historial con un `ToolCall` previo | Las tools van en `functionDeclarations`, la respuesta `functionCall` vuelve como `ToolCall` con `id` y `signature`, y en el historial vuelven como `functionCall` + `thoughtSignature` y `functionResponse` | RNF-09 | `test_llm_client.py` |
+| CA-36 | `LLM_PROVIDER` = `gemini` / vacío / otro | Se pide el cliente del LLM | `GeminiClient` / error que dice qué variable falta / error de proveedor no soportado | RNF-09 | `test_llm_client.py::test_get_llm_client_*` |
+
 ### Dashboard
 
 | ID | Dado | Cuando | Entonces | RF | Test |
@@ -561,7 +586,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 
 | ID | Tema | Estado | Detalle |
 |---|---|---|---|
-| D-01 | Proveedor de LLM | **Abierta**, bloquea la etapa 03 | Tiene que soportar tool calling con JSON Schema, buen español, y transcripción de audio y lectura de imágenes (o usar otro servicio para eso). Criterios: aciertos en `mensajes.json`, latencia (RNF-06) y costo por pedido |
+| D-01 | Proveedor de LLM | **Tomada en parte**: Gemini free tier para texto en la beta ([canal Telegram §7](canal-telegram.md#7-decisiones-y-riesgos)). Audio, imagen y producción siguen abiertos | Tiene que soportar tool calling con JSON Schema, buen español, y transcripción de audio y lectura de imágenes (o usar otro servicio para eso). Criterios: aciertos en `mensajes.json`, latencia (RNF-06) y costo por pedido |
 | D-02 | Tecnología del frontend | **Abierta**, bloquea la etapa 06 | Chat web y dashboard en `frontend/src/` |
 | D-03 | Servidor de producción | **Abierta** | Ver `MEJORAS.md`, próximos pasos |
 | D-04 | ¿El resumen muestra precios y total? | **Abierta** | Hoy no los muestra; el precio se guarda en cada línea igual |
@@ -585,7 +610,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 
 ## 11. Referencias
 
-- [Spec del agente](agente.md) · [Plantilla de spec](_plantilla.md)
+- [Spec del agente](agente.md) · [Canal Telegram para la beta](canal-telegram.md) · [Plantilla de spec](_plantilla.md)
 - [Plan de Fernando (imagen)](../Flujo%20completo%20de%20Norma%20Agentic%20AI.png) · [Arquitectura](../architecture.md) · [Roadmap](../roadmap.md)
 - [Datos de ejemplo](../../datos_ejemplo/README.md) · [`backend/schemas/`](../../backend/schemas/)
 - [Cómo trabajamos](../../CONTRIBUTING.md) · [Mejoras](../../MEJORAS.md) · [Changelog](../../CHANGELOG.md)

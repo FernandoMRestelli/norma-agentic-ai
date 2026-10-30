@@ -325,12 +325,13 @@ backend/
 ├── api/
 │   ├── chat.py                  # chat web: mensajes y acciones Confirmar / Corregir
 │   ├── whatsapp_webhook.py      # webhook de Meta: firma, deduplicación, respuesta 200 rápida
+│   ├── telegram_webhook.py      # NUEVO: webhook del bot de Telegram (canal de prueba de la beta)
 │   └── dashboard.py             # NUEVO: endpoints del dashboard, con autenticación
 ├── agent/
 │   ├── norma_agent.py           # loop de un turno: LLM ↔ tools hasta una tool terminal
 │   ├── tool_registry.py         # NUEVO: tools disponibles, esquemas y parámetros inyectados
 │   ├── context.py               # NUEVO: arma instrucciones + estado + historial para el LLM
-│   ├── llm_client.py            # interfaz neutral del LLM; una clase por proveedor
+│   ├── llm_client.py            # interfaz neutral del LLM; una clase por proveedor (hoy GeminiClient)
 │   └── instructions.md          # comportamiento del agente en lenguaje natural
 ├── tools/
 │   ├── catalog_tools.py         # search_products, get_product
@@ -345,6 +346,7 @@ backend/
 │   ├── order_service.py         # confirmación: el único lugar donde nace una Order
 │   ├── sheets_service.py        # única capa que conoce Google Sheets (con caché del catálogo)
 │   ├── whatsapp_service.py      # NUEVO: enviar mensajes y botones, descargar multimedia
+│   ├── telegram_service.py      # NUEVO: Bot API de Telegram, lista blanca y traducción de updates
 │   └── dashboard_service.py     # NUEVO: indicadores, pedidos, stock y conversaciones derivadas
 ├── schemas/
 │   ├── order_schema.py          # mensajes, borrador, orden
@@ -376,6 +378,8 @@ flowchart LR
 - Las tools no llaman al LLM y no conocen al agente.
 - Solo `order_service` crea una `Order`; solo `sheets_service` conoce gspread; solo `llm_client` conoce el SDK
   del proveedor; solo `whatsapp_service` conoce la API de Meta.
+- Solo `telegram_service` conoce la Bot API de Telegram (`backend/telegram_polling.py` es el proceso que la
+  consulta en desarrollo).
 - Cambiar Google Sheets por el sistema de gestión real (v2) es reemplazar `sheets_service` sin tocar agente ni tools.
 
 ### 9.2 `AgentOutcome`
