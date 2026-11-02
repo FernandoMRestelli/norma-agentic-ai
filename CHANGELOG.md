@@ -32,6 +32,10 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 - `backend/Schema` pasa a `backend/schemas` y `test` a `tests`, según la arquitectura.
 - Roadmap actualizado a un equipo de 3 integrantes.
 
+### Corregido
+
+- Alineación del contrato de pedidos con la spec (Issue #12, C-13, CA-14): se suma `version: int` (iniciando en 1, `ge=1`) a `OrderDraft` y `sheets_synced: bool = False` a `Order`; el endpoint `POST /chat/drafts/{id}/{action}` ahora exige el parámetro de consulta `version`.
+
 ### Seguridad
 
 - Hooks de seguridad locales con `pre-commit` y verificación obligatoria en CI (`secretos.yml`): frenan secretos (`gitleaks` v8.28.0, claves privadas), archivos pesados (>500 KB), archivos prohibidos (`.opus`, `.m4a`, `.vcf`, `_chat.txt`, `.zip`, `.env*`, `credentials/`, `*service-account*.json`) y números telefónicos argentinos en archivos de datos, con mensajes en español y salidas redactadas sin exponer secretos.
