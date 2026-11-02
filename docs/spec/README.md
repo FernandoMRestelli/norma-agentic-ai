@@ -315,11 +315,11 @@ con la etapa que los usa ([§8](#8-roadmap-por-fases)).
 | `marca` | `brand` | Opcional |
 | `presentacion` | `presentation` | Opcional. Ej.: `400 ml`, `90 g`, `kit` |
 | `precio` | `price` | `Decimal ≥ 0`, punto decimal |
-| `stock` | `stock` | Entero |
+| `stock` | `stock` | Entero ≥ 0 |
 | `stock_minimo` | `min_stock` | Entero `≥ 0`, por defecto 0 |
 | — | `is_low_stock` | Calculado: `stock < min_stock` |
 
-`StockCheck`: `sku`, `requested`, `available` y el calculado `is_enough = available ≥ requested`.
+`StockCheck`: `sku`, `requested` (Entero > 0), `available` (Entero ≥ 0) y el calculado `is_enough = available ≥ requested`.
 
 ### 5.3 Borrador: `OrderDraft`, `OrderItem`
 
