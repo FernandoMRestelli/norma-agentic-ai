@@ -129,6 +129,8 @@ def test_gemini_devuelve_texto():
     [
         httpx.Response(429, json={"error": {"message": "Quota exceeded"}}),
         httpx.Response(500, text="error"),
+        httpx.Response(503, content=b"no es json", headers={"content-type": "application/json"}),
+        httpx.Response(200, content=b"no es json", headers={"content-type": "application/json"}),
         httpx.Response(200, json={"promptFeedback": {"blockReason": "SAFETY"}}),
     ],
 )

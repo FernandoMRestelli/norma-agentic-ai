@@ -77,9 +77,13 @@ class GeminiClient:
         except httpx.HTTPError as exc:
             raise LLMError(f"No se pudo llamar a Gemini ({type(exc).__name__})") from exc
         if response.is_error:
-            detail = response.json().get("error", {}).get("message", "") if _is_json(response) else ""
+            detail = _json_or_empty(response).get("error", {}).get("message", "") if _is_json(response) else ""
             raise LLMError(f"Gemini respondió {response.status_code}: {detail}".rstrip(": "))
-        return _from_gemini(response.json())
+        try:
+            data = response.json()
+        except ValueError:
+            raise LLMError("Gemini devolvió una respuesta que no es JSON") from None
+        return _from_gemini(data)
 
 
 def _to_gemini_contents(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -144,6 +148,15 @@ def _from_gemini(data: dict[str, Any]) -> LLMResponse:
 
 def _is_json(response: httpx.Response) -> bool:
     return response.headers.get("content-type", "").startswith("application/json")
+
+
+def _json_or_empty(response: httpx.Response) -> dict[str, Any]:
+    """El cuerpo de un error puede decir JSON y no serlo: en ese caso no hay detalle que mostrar."""
+    try:
+        data = response.json()
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def get_llm_client() -> LLMClient:

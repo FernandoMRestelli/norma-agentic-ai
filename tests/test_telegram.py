@@ -180,6 +180,12 @@ def test_borrador_con_botones_al_enviar():
     assert all(len(b["callback_data"].encode()) <= 64 for b in botones[0])
 
 
+def test_borrador_con_draft_id_demasiado_largo():
+    """CA-34: un draft_id que no entra en los 64 bytes de callback_data falla antes de llamar a Telegram."""
+    with pytest.raises(ValueError, match="64 bytes"):
+        telegram_service.draft_buttons("x" * 61, 1)
+
+
 @pytest.mark.parametrize(
     ("data", "accion"), [("c:draft-1:2", ConfirmationAction.CONFIRM), ("e:draft-1:2", ConfirmationAction.CORRECT)]
 )
@@ -255,10 +261,21 @@ def test_webhook_con_secret_correcto(monkeypatch):
     assert procesados == [mensaje()]
 
 
-@pytest.mark.parametrize("headers", [{}, {"X-Telegram-Bot-Api-Secret-Token": "otro"}])
+@pytest.mark.parametrize(
+    "headers",
+    [{}, {"X-Telegram-Bot-Api-Secret-Token": "otro"}, {"X-Telegram-Bot-Api-Secret-Token": "secreto-ñ".encode()}],
+)
 def test_webhook_con_secret_invalido(headers):
-    """CA-30: sin header o con otro secret, 403."""
+    """CA-30: sin header, con otro secret o con uno no ASCII, 403 (no 500)."""
     assert api.post("/webhook/telegram", json=mensaje(), headers=headers).status_code == 403
+
+
+def test_webhook_con_cuerpo_no_json():
+    """Con el secret correcto pero un cuerpo que no es JSON, 400 y no 500."""
+    response = api.post(
+        "/webhook/telegram", content=b"no es json", headers={"X-Telegram-Bot-Api-Secret-Token": "secreto-webhook"}
+    )
+    assert response.status_code == 400
 
 
 def test_webhook_sin_secret_configurado(monkeypatch):

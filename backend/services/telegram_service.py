@@ -107,10 +107,14 @@ def customer_id_for(user_id: int) -> str:
 
 def draft_buttons(draft_id: str, version: int) -> list[list[dict]]:
     """Inline keyboard de Confirmar / Corregir. `callback_data` tiene un límite de 64 bytes."""
+    confirm, correct = f"c:{draft_id}:{version}", f"e:{draft_id}:{version}"
+    # Telegram rechaza el mensaje entero si se pasa: mejor fallar acá con un error que diga por qué
+    if len(confirm.encode()) > 64:
+        raise ValueError(f"draft_id demasiado largo para callback_data ({len(confirm.encode())} de 64 bytes)")
     return [
         [
-            {"text": "✅ Confirmar", "callback_data": f"c:{draft_id}:{version}"},
-            {"text": "✏️ Corregir", "callback_data": f"e:{draft_id}:{version}"},
+            {"text": "✅ Confirmar", "callback_data": confirm},
+            {"text": "✏️ Corregir", "callback_data": correct},
         ]
     ]
 

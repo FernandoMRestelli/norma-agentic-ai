@@ -22,9 +22,18 @@ async def receive(
     """Telegram manda el secret que se fijó con setWebhook. Sin secret o sin token configurados, está apagado."""
     settings = get_settings()
     expected = settings.telegram_webhook_secret
-    if not expected or not settings.telegram_bot_token or not secret or not secrets.compare_digest(secret, expected):
+    # Se compara en bytes: `compare_digest` con `str` lanza TypeError ante un carácter no ASCII y daría 500
+    if (
+        not expected
+        or not settings.telegram_bot_token
+        or not secret
+        or not secrets.compare_digest(secret.encode(), expected.encode())
+    ):
         raise HTTPException(status_code=403, detail="Secret token inválido")
-    update = await request.json()
+    try:
+        update = await request.json()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="El cuerpo no es JSON") from None
     # Telegram reintenta si no recibe 200 rápido: se procesa después de responder
     background.add_task(telegram_service.handle_update, update, telegram_service.get_client())
     return {"status": "received"}
