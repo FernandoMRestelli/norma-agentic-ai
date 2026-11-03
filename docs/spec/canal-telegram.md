@@ -119,7 +119,7 @@ Se suma `telegram` (`web | whatsapp | telegram`) en `IncomingMessage`, `OrderDra
 | `TELEGRAM_ALLOWED_USER_IDS` | Sí, para que responda | Ids numéricos separados por coma |
 | `TELEGRAM_WEBHOOK_SECRET` | Solo con webhook | Valor de `X-Telegram-Bot-Api-Secret-Token` (1 a 256 caracteres: letras, números, `_` y `-`) |
 | `LLM_PROVIDER` | Sí, para el agente | `gemini` |
-| `LLM_MODEL` | Sí, para el agente | Un modelo del free tier, p. ej. `gemini-2.5-flash` |
+| `LLM_MODEL` | Sí, para el agente | Un modelo del free tier, p. ej. `gemini-3.8-flash` |
 | `LLM_API_KEY` | Sí, para el agente | API key de Google AI Studio |
 | `LLM_VISION_PROVIDER`, `LLM_VISION_MODEL`, `LLM_VISION_API_KEY` | No | Modelo pago para audio e imagen; se leen pero todavía no se usan |
 
