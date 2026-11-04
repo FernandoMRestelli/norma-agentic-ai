@@ -86,6 +86,10 @@ agente prevé para un audio o una imagen sin texto útil (§6 de la spec del age
 El `media_url` guarda una referencia (`telegram:<file_id>`) y **no** la URL de descarga, porque esa URL contiene el
 token del bot (RNF-14). Cuando se sume el modelo de visión, `message_service` resuelve la referencia con `getFile`.
 
+Es la única excepción a la regla de `media_url` solo `https://` (§5.1 de la spec del MVP) y vale únicamente con
+`channel = telegram`: en otro canal, `telegram:<file_id>` se rechaza. No abre una puerta a SSRF porque un `file_id`
+no es una dirección: el sistema nunca se conecta a lo que trae, sino que le pregunta a la Bot API.
+
 ### 3.4 Mientras no esté el agente
 
 El orquestador (`conversation_service`) todavía no existe en el código: se crea con una sola función por evento y
@@ -173,7 +177,7 @@ historial y no interpreta esos campos.
 | CA-30 | `TELEGRAM_WEBHOOK_SECRET` configurado / sin configurar | Llega un POST con el secret correcto, incorrecto o sin header | `200` / `403` / `403`; sin secret configurado, siempre `403` | RF-29 | `test_telegram.py::test_webhook_*` |
 | CA-31 | Un usuario fuera de la lista blanca | Escribe al bot | Recibe un texto fijo con su id y el mensaje no llega al orquestador | RF-29 | `test_telegram.py::test_usuario_fuera_de_la_lista_blanca` |
 | CA-32 | Un update ya procesado | Llega otra vez con el mismo `update_id` | No se procesa ni se responde de nuevo | RF-31 | `test_telegram.py::test_update_repetido_se_procesa_una_vez` |
-| CA-33 | Un integrante de la lista blanca | Manda texto, un audio o una foto | Llega como `IncomingMessage` `text`, `audio` o `image` con `media_url = telegram:<file_id>`; audio y foto reciben el pedido de escribirlo | RF-29, RF-32, RNF-14 | `test_telegram.py::test_traduce_*`, `test_conversation.py` |
+| CA-33 | Un integrante de la lista blanca | Manda texto, un audio o una foto | Llega como `IncomingMessage` `text`, `audio` o `image` con `media_url = telegram:<file_id>`; audio y foto reciben el pedido de escribirlo | RF-29, RF-32, RNF-14 | `test_telegram.py::test_traduce_*`, `test_conversation.py`, `test_orders.py::test_incoming_message_*telegram*` |
 | CA-34 | Una respuesta del orquestador con borrador | Se envía y el cliente toca Confirmar | El mensaje tiene los dos botones; el toque llega con el `draft_id` y la versión, se responde el `callback_query` y se sacan los botones | RF-30 | `test_telegram.py::test_borrador_con_botones_*` |
 | CA-35 | `GeminiClient` con una API falsa | Se llama con tools e historial con un `ToolCall` previo | Las tools van en `functionDeclarations`, la respuesta `functionCall` vuelve como `ToolCall` con `id` y `signature`, y en el historial vuelven como `functionCall` + `thoughtSignature` y `functionResponse` | RNF-09 | `test_llm_client.py` |
 | CA-36 | `LLM_PROVIDER` = `gemini` / vacío / otro | Se pide el cliente del LLM | `GeminiClient` / error que dice qué variable falta / error de proveedor no soportado | RNF-09 | `test_llm_client.py::test_get_llm_client_*` |

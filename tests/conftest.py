@@ -27,8 +27,20 @@ get_settings.cache_clear()
 def sin_red(monkeypatch):
     """Un test que sale a internet depende de un servicio externo: falla en vez de pasar por casualidad."""
 
+    orig_connect = socket.socket.connect
+    orig_connect_ex = socket.socket.connect_ex
+
     def conectar(self, address, *args, **kwargs):
+        host = address[0] if isinstance(address, tuple) and len(address) > 0 else address
+        if host in ("127.0.0.1", "localhost", "::1"):
+            return orig_connect(self, address, *args, **kwargs)
+        raise RuntimeError(f"Los tests no usan red (intento de conexión a {address})")
+
+    def conectar_ex(self, address, *args, **kwargs):
+        host = address[0] if isinstance(address, tuple) and len(address) > 0 else address
+        if host in ("127.0.0.1", "localhost", "::1"):
+            return orig_connect_ex(self, address, *args, **kwargs)
         raise RuntimeError(f"Los tests no usan red (intento de conexión a {address})")
 
     monkeypatch.setattr(socket.socket, "connect", conectar)
-    monkeypatch.setattr(socket.socket, "connect_ex", conectar)
+    monkeypatch.setattr(socket.socket, "connect_ex", conectar_ex)

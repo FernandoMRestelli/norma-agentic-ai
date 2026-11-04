@@ -10,6 +10,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Agregado
 
+- Registro de las fuentes privadas del issue #2: inventario, catálogo con stock ficticio para pruebas, seguimiento de pedidos y evaluación del agente diferida, sin publicar datos reales.
 - Flujo de ramas con releases, hotfixes y backports, documentado en `CONTRIBUTING.md`: cada PR se rechaza si el nombre de la rama no sigue el flujo o si no suma su línea a este changelog.
 - CI en cada PR y push a `develop` y `main`: lint con ruff, tests, build de la imagen con arranque de la API y escaneo de secretos en todo el historial.
 - Cada tag `vX.Y.Z` en `main` publica la imagen de esa versión en GitHub Container Registry, y producción la corre con `docker-compose.prod.yml`.
@@ -23,7 +24,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 - Dependencias de desarrollo separadas en `requirements-dev.txt`, con cotas de versión mayor.
 - Datos de ejemplo inventados en `datos_ejemplo/`: catálogo (formato de la Sheet 1), pedidos (formato de la Sheet 2) y mensajes de clientes con el resultado esperado del agente, validados por `tests/test_datos_ejemplo.py`.
 - `Product.min_stock` y `Product.is_low_stock` para marcar productos con stock bajo en el dashboard.
-- Bot de Telegram para probar la beta entre el equipo (`python -m backend.telegram_polling` o webhook en `/webhook/telegram`) con lista blanca de usuarios, cliente de Gemini (free tier) para interpretar pedidos de texto y `python -m backend.verificar_claves`. Variables nuevas en `.env`: `TELEGRAM_*`, `LLM_VISION_*`; `httpx` pasa a ser dependencia de producción.
+- Bot de Telegram para probar la beta entre el equipo (`python -m backend.telegram_polling` o webhook en `/webhook/telegram`) con lista blanca de usuarios, cliente de Gemini (free tier) para interpretar pedidos de texto y `python -m backend.verificar_claves`. `media_url` admite la referencia `telegram:<file_id>` solo en ese canal. Variables nuevas en `.env`: `TELEGRAM_*`, `LLM_VISION_*`; `httpx` pasa a ser dependencia de producción.
 - Spec del MVP en `docs/spec/`: visión, arquitectura, flujos, contratos de datos, requisitos, roadmap y criterios de aceptación, más el diseño del agente (loop, estados de la conversación, tools, errores y memoria) y la forma de trabajar spec primero (SDD).
 
 ### Cambiado
@@ -33,8 +34,18 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 - `backend/Schema` pasa a `backend/schemas` y `test` a `tests`, según la arquitectura.
 - Roadmap actualizado a un equipo de 3 integrantes.
 
+### Corregido
+
+- Contratos del catálogo: `Product` rechaza stock negativo (`stock ≥ 0`) y `StockCheck` exige cantidad solicitada positiva (`requested > 0`) y disponibilidad no negativa (`available ≥ 0`) (RF-14, RF-10).
+- Validación estricta en contratos de pedidos: OrderItem rechaza sku y product_name vacíos, recorta espacios en blanco y limita quantity a MAX_QUANTITY = 999 (RF-08, RNF-02); IncomingMessage, OrderDraft y Order rechazan customer_id vacío y recortan espacios.
+- Alineación del contrato de pedidos con la spec (Issue #12, C-13, CA-14): se suma ersion: int (iniciando en 1, ge=1) a OrderDraft y sheets_synced: bool = False a Order; el endpoint POST /chat/drafts/{id}/{action} ahora exige el parámetro de consulta ersion.
+
 ### Seguridad
 
+- Validación de `media_url` en `IncomingMessage` contra SSRF: solo permite URLs con esquema `https://` y host público, rechazando `localhost`, direcciones IP privadas o internas (en formato canónico o alternativo decimal, octal, hex) y URLs de más de 2048 caracteres (RNF-02, CA-04).
+- Hooks de seguridad locales con `pre-commit` y verificación obligatoria en CI (`secretos.yml`): frenan secretos (`gitleaks` v8.28.0, claves privadas), archivos pesados (>500 KB), archivos prohibidos (`.opus`, `.m4a`, `.vcf`, `_chat.txt`, `.zip`, `.env*`, `credentials/`, `*service-account*.json`) y números telefónicos argentinos en archivos de datos, con mensajes en español y salidas redactadas sin exponer secretos.
+- Configuración para asistentes de IA (`.claude/settings.json`, `.geminiignore` y `AGENTS.md`) bloqueando la lectura de `.env`, `.env.*`, `credentials/` y `data/`.
+- Documentación en `CONTRIBUTING.md` sobre gestión de secretos en desarrollo y producción, uso de correos `noreply` en commits y procedimiento ante filtraciones.
 - El webhook de WhatsApp valida la firma `X-Hub-Signature-256` de Meta (nueva variable `WHATSAPP_APP_SECRET`) y compara el token de verificación en tiempo constante.
 
 [Sin publicar]: https://github.com/FernandoMRestelli/norma-agentic-ai/compare/main...develop

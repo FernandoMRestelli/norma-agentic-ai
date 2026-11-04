@@ -300,12 +300,14 @@ con la etapa que los usa ([§8](#8-roadmap-por-fases)).
 
 | Campo | Tipo | Reglas |
 |---|---|---|
-| `customer_id` | `str` | En WhatsApp, el número del cliente; en Telegram, `telegram:<id del usuario>`; en web, ver D-05 |
+| `customer_id` | `str` | Obligatorio, no vacío (`min_length=1`), sin espacios en extremos. En WhatsApp, el número del cliente; en Telegram, `telegram:<id del usuario>`; en web, ver D-05 |
 | `channel` | `web \| whatsapp \| telegram` | `telegram` es el canal de prueba de la beta (C-14) |
 | `type` | `text \| audio \| image` | Por defecto `text` |
 | `text` | `str \| None` | Obligatorio y no vacío si `type = text` |
-| `media_url` | `str \| None` | Obligatorio si `type` es `audio` o `image` |
+| `media_url` | `str \| None` | Obligatorio si `type` es `audio` o `image`. Solo esquema `https://`, con host público (sin `localhost` ni IPs privadas/internas ni formas alternativas/ofuscadas, anti-SSRF) y máximo 2048 caracteres. Única excepción: con `channel = telegram` también admite la referencia `telegram:<file_id>` ([spec del canal](canal-telegram.md) §3.3) |
 | `external_id` | `str \| None` **(nuevo)** | Id del mensaje en Meta o del update de Telegram, para deduplicar |
+
+> **Nota sobre SSRF:** La validación en el contrato `IncomingMessage` es estática (sin acceso a red en el validador) y bloquea esquemas inseguros, hosts locales, loopback, metadatos e IPs privadas/internas (incluyendo formatos alternativos decimales, octales, hexadecimales o notación corta). La defensa en profundidad contra DNS rebinding y redirecciones a servicios internos debe implementarse en el momento de la descarga efectiva del archivo (resolviendo la IP antes del GET y con `follow_redirects=False`). La referencia `telegram:<file_id>` no es una dirección: se resuelve con la Bot API, nunca conectándose a lo que trae.
 
 ### 5.2 Catálogo: `Product`, `StockCheck` ↔ Google Sheet 1
 
@@ -316,11 +318,11 @@ con la etapa que los usa ([§8](#8-roadmap-por-fases)).
 | `marca` | `brand` | Opcional |
 | `presentacion` | `presentation` | Opcional. Ej.: `400 ml`, `90 g`, `kit` |
 | `precio` | `price` | `Decimal ≥ 0`, punto decimal |
-| `stock` | `stock` | Entero |
+| `stock` | `stock` | Entero ≥ 0 |
 | `stock_minimo` | `min_stock` | Entero `≥ 0`, por defecto 0 |
 | — | `is_low_stock` | Calculado: `stock < min_stock` |
 
-`StockCheck`: `sku`, `requested`, `available` y el calculado `is_enough = available ≥ requested`.
+`StockCheck`: `sku`, `requested` (Entero > 0), `available` (Entero ≥ 0) y el calculado `is_enough = available ≥ requested`.
 
 ### 5.3 Borrador: `OrderDraft`, `OrderItem`
 
@@ -328,14 +330,14 @@ con la etapa que los usa ([§8](#8-roadmap-por-fases)).
 |---|---|---|
 | `draft_id` | `str` | Único |
 | `conversation_id` | `str` **(nuevo)** | Conversación a la que pertenece |
-| `customer_id`, `channel` | | Los pone el backend, nunca el LLM |
+| `customer_id`, `channel` | | Los pone el backend, nunca el LLM; `customer_id` no vacío |
 | `items` | `list[OrderItem]` | Al menos uno |
 | `notes` | `str \| None` | |
 | `status` | `pendiente_confirmacion \| confirmado \| descartado` | Nace `pendiente_confirmacion` |
 | `version` | `int` **(nuevo)** | Empieza en 1, sube con cada corrección (C-13) |
 
-`OrderItem`: `sku` (existente en el catálogo), `product_name`, `presentation`, `quantity > 0`,
-`unit_price: Decimal ≥ 0` (precio del catálogo al armar el borrador).
+`OrderItem`: `sku` (existente en el catálogo, no vacío), `product_name` (no vacío), `presentation`, `quantity` (1 ≤ quantity ≤ 999),
+`unit_price: Decimal ≥ 0` (precio del catálogo al armar el borrador). Todos los campos de texto recortan espacios automáticamente.
 
 ### 5.4 Orden: `Order` ↔ Google Sheet 2
 
@@ -524,7 +526,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-01 | La API levantada | Se pide `GET /health` | Responde `200 {"status": "ok"}` | — | `test_api.py::test_health` |
 | CA-02 | `WHATSAPP_VERIFY_TOKEN` configurado | Meta verifica con el token correcto / incorrecto | Devuelve `challenge` / `403` | RF-02 | `test_api.py::test_whatsapp_verify` |
 | CA-03 | `WHATSAPP_APP_SECRET` configurado | Llega un POST con firma válida / inválida | `200` / `403` | RF-02 | `test_api.py::test_whatsapp_post_*` |
-| CA-04 | Cualquier canal | Llega un mensaje de texto sin texto, o un audio o imagen sin `media_url` | Se rechaza (`422` en la API) | RF-01 | `test_orders.py::test_incoming_message_requires_content_for_its_type`, `test_api.py::test_chat_rejects_text_message_without_text` |
+| CA-04 | Cualquier canal | Llega un mensaje de texto sin texto, o un audio o imagen sin `media_url` o con `media_url` insegura/privada | Se rechaza (`422` en la API) | RF-01, RNF-02 | `test_orders.py`, `test_api.py` |
 | CA-05 | Un mensaje de WhatsApp ya procesado | Meta lo reenvía con el mismo id | Se responde `200` y no se procesa de nuevo | RF-03 | pendiente |
 | CA-06 | Un audio con un pedido | Llega por cualquier canal | El agente recibe la transcripción marcada como `audio transcripto`; si está vacía, se pide escribirlo sin llamar al LLM | RF-04 | pendiente |
 | CA-07 | Una imagen con un pedido | Llega por cualquier canal | Igual que CA-06, con `imagen leída` | RF-05 | pendiente |
@@ -566,7 +568,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-30 | `TELEGRAM_WEBHOOK_SECRET` configurado / sin configurar | Llega un POST con el secret correcto, incorrecto o sin header | `200` / `403` / `403`; sin secret configurado, siempre `403` | RF-29 | `test_telegram.py::test_webhook_*` |
 | CA-31 | Un usuario fuera de la lista blanca | Escribe al bot | Recibe un texto fijo con su id y el mensaje no llega al orquestador | RF-29 | `test_telegram.py::test_usuario_fuera_de_la_lista_blanca` |
 | CA-32 | Un update ya procesado | Llega otra vez con el mismo `update_id` | No se procesa ni se responde de nuevo | RF-31 | `test_telegram.py::test_update_repetido_se_procesa_una_vez` |
-| CA-33 | Un integrante de la lista blanca | Manda texto, un audio o una foto | Llega como `IncomingMessage` `text`, `audio` o `image` con `media_url = telegram:<file_id>`; audio y foto reciben el pedido de escribirlo | RF-29, RF-32 | `test_telegram.py::test_traduce_*`, `test_conversation.py` |
+| CA-33 | Un integrante de la lista blanca | Manda texto, un audio o una foto | Llega como `IncomingMessage` `text`, `audio` o `image` con `media_url = telegram:<file_id>`; audio y foto reciben el pedido de escribirlo | RF-29, RF-32 | `test_telegram.py::test_traduce_*`, `test_conversation.py`, `test_orders.py::test_incoming_message_*telegram*` |
 | CA-34 | Una respuesta del orquestador con borrador | Se envía y el cliente toca Confirmar | El mensaje tiene los dos botones; el toque llega con el `draft_id` y la versión, se responde el `callback_query` y se sacan los botones | RF-30 | `test_telegram.py::test_borrador_con_botones_*` |
 | CA-35 | `GeminiClient` con una API falsa | Se llama con tools e historial con un `ToolCall` previo | Las tools van en `functionDeclarations`, la respuesta `functionCall` vuelve como `ToolCall` con `id` y `signature`, y en el historial vuelven como `functionCall` + `thoughtSignature` y `functionResponse` | RNF-09 | `test_llm_client.py` |
 | CA-36 | `LLM_PROVIDER` = `gemini` / vacío / otro | Se pide el cliente del LLM | `GeminiClient` / error que dice qué variable falta / error de proveedor no soportado | RNF-09 | `test_llm_client.py::test_get_llm_client_*` |

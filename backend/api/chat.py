@@ -1,6 +1,6 @@
 """Entrada del chat web: recibe mensajes y la acción Confirmar / Corregir de la tarjeta."""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from backend.schemas.order_schema import ConfirmationAction, IncomingMessage
 
@@ -14,6 +14,6 @@ def receive_message(message: IncomingMessage) -> dict:
 
 
 @router.post("/drafts/{draft_id}/{action}")
-def resolve_draft(draft_id: str, action: ConfirmationAction) -> dict:
+def resolve_draft(draft_id: str, action: ConfirmationAction, version: int = Query(ge=1)) -> dict:
     # TODO: confirmar -> order_service.confirm_draft; corregir -> volver al agente
     raise HTTPException(status_code=501, detail="Confirmación todavía no implementada")
