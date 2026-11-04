@@ -11,7 +11,7 @@ class Product(BaseModel):
     brand: str | None = None
     presentation: str | None = None
     price: Decimal = Field(ge=0)
-    stock: int
+    stock: int = Field(ge=0)
     min_stock: int = Field(default=0, ge=0)  # debajo de este valor el dashboard marca stock bajo
 
     @computed_field
@@ -22,8 +22,8 @@ class Product(BaseModel):
 
 class StockCheck(BaseModel):
     sku: str
-    requested: int
-    available: int
+    requested: int = Field(gt=0)
+    available: int = Field(ge=0)
 
     @computed_field
     @property
