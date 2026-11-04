@@ -14,6 +14,7 @@ confirmación, registra la orden para su seguimiento.
 - [Cómo trabajamos](CONTRIBUTING.md): ramas, PR, reglas del CI, changelog, versiones, releases y producción
 - [Changelog](CHANGELOG.md): historial de cambios por versión
 - [Mejoras](MEJORAS.md): estado actual, limitaciones y próximos pasos
+- [Fuentes de datos preparadas](docs/data/fuentes.md): catálogo, pedidos privados, accesos y alcance del issue #2
 
 ## Configuración
 
