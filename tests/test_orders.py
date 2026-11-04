@@ -1,3 +1,4 @@
+import ipaddress
 from datetime import datetime
 from decimal import Decimal
 
@@ -145,6 +146,71 @@ def test_order_sheets_synced_default():
 def test_incoming_message_requires_content_for_its_type(data):
     with pytest.raises(ValidationError):
         IncomingMessage(customer_id="c-1", channel=Channel.WHATSAPP, **data)
+
+
+@pytest.mark.parametrize(
+    "media_url",
+    [
+        "file:///etc/passwd",
+        "http://example.com/audio.ogg",
+        "https://localhost/audio.ogg",
+        "https://localhost./audio.ogg",
+        "https://foo.localhost/audio.ogg",
+        "https://localhost:8443/audio.ogg",
+        "https://127.0.0.1/audio.ogg",
+        "https://127.0.0.1:8000/audio.ogg",
+        "https://127.1/audio.ogg",
+        f"https://{int(ipaddress.IPv4Address('127.0.0.1'))}/audio.ogg",
+        "https://0x7f000001/audio.ogg",
+        "https://0x7f.0.0.1/audio.ogg",
+        "https://017700000001/audio.ogg",
+        "https://0177.0.0.1/audio.ogg",
+        "https://169.254.169.254/latest/meta-data/",
+        f"https://{int(ipaddress.IPv4Address('169.254.169.254'))}/latest/meta-data/",
+        "https://metadata.google.internal/computeMetadata/v1/",
+        "https://service.local/audio.ogg",
+        "https://backend.internal/audio.ogg",
+        "https://10.0.0.5/audio.ogg",
+        "https://192.168.1.1/image.jpg",
+        "https://172.16.0.1/image.jpg",
+        "https://0.0.0.0/audio.ogg",
+        "https://4294967296/audio.ogg",
+        "https://[::1]/audio.ogg",
+        "x",
+        "ftp://example.com/audio.ogg",
+        "https://" + "a" * 2050 + ".com",
+    ],
+)
+def test_incoming_message_rejects_insecure_media_url(media_url: str):
+    """CA-04, RNF-02: rechaza URLs que no sean HTTPS o apunten a direcciones locales/privadas (anti-SSRF)."""
+    with pytest.raises(ValidationError):
+        IncomingMessage(
+            customer_id="c-1",
+            channel=Channel.WEB,
+            type=MessageType.AUDIO,
+            media_url=media_url,
+        )
+
+
+@pytest.mark.parametrize(
+    "media_url",
+    [
+        "https://example.com/audio.ogg",
+        "https://cdn.norma.com.ar/images/prod.jpg",
+        "https://sub.domain.co.uk:8443/path/file.ogg?token=123#frag",
+        "https://8.8.8.8/audio.mp3",
+        "https://deadbeef.de/image.jpg",
+    ],
+)
+def test_incoming_message_accepts_valid_media_url(media_url: str):
+    """CA-04, RNF-02: acepta URLs HTTPS con dominios públicos válidos."""
+    msg = IncomingMessage(
+        customer_id="c-1",
+        channel=Channel.WEB,
+        type=MessageType.AUDIO,
+        media_url=media_url,
+    )
+    assert msg.media_url == media_url
 
 
 def test_stock_check_serializes_is_enough():

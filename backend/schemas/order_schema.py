@@ -4,14 +4,22 @@ Distinción clave: un `OrderDraft` (borrador) NO es una `Order`. La orden solo
 existe después de que el cliente confirma explícitamente el borrador.
 """
 
+import ipaddress
+import re
+import socket
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 from typing import Self
+from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 MAX_QUANTITY: int = 999
+MAX_MEDIA_URL_LENGTH: int = 2048
+_NUMERIC_OR_HEX_HOST = re.compile(
+    r"^(0x[0-9a-f]+|[0-9]+)(\.(0x[0-9a-f]+|[0-9]+))*$", re.IGNORECASE
+)
 
 
 class Channel(StrEnum):
@@ -35,6 +43,81 @@ class IncomingMessage(BaseModel):
     type: MessageType = MessageType.TEXT
     text: str | None = None
     media_url: str | None = None  # audio o imagen, según `type`
+
+    @field_validator("media_url")
+    @classmethod
+    def validate_media_url(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        if len(v) > MAX_MEDIA_URL_LENGTH:
+            raise ValueError(
+                f"media_url excede el largo máximo permitido ({MAX_MEDIA_URL_LENGTH} caracteres)"
+            )
+        parsed = urlparse(v)
+        if parsed.scheme != "https":
+            raise ValueError(
+                f"media_url debe usar el esquema 'https', se recibió {parsed.scheme!r}"
+            )
+        hostname = parsed.hostname
+        if not hostname:
+            raise ValueError("media_url debe incluir un host válido")
+
+        host = hostname.lower().rstrip(".")
+        if not host:
+            raise ValueError("media_url debe incluir un host válido")
+
+        if host == "localhost" or host.endswith(".localhost"):
+            raise ValueError(
+                "media_url no permite direcciones locales o privadas ('localhost')"
+            )
+
+        if host.endswith(".local") or host.endswith(".internal"):
+            raise ValueError(
+                f"media_url no permite direcciones de red interna o metadata ({hostname})"
+            )
+
+        try:
+            ip = ipaddress.ip_address(host)
+            if (
+                ip.is_private
+                or ip.is_loopback
+                or ip.is_link_local
+                or ip.is_reserved
+                or ip.is_unspecified
+            ):
+                raise ValueError(
+                    f"media_url no permite direcciones IP privadas o internas ({hostname})"
+                )
+            return v
+        except ValueError as err:
+            if "media_url no permite" in str(err):
+                raise
+            # No es una IP literal estándar; probar representaciones alternativas de IPv4
+
+        try:
+            raw_bytes = socket.inet_aton(host)
+            ip_alt = ipaddress.IPv4Address(raw_bytes)
+            if (
+                ip_alt.is_private
+                or ip_alt.is_loopback
+                or ip_alt.is_link_local
+                or ip_alt.is_reserved
+                or ip_alt.is_unspecified
+            ):
+                raise ValueError(
+                    f"media_url no permite direcciones IP privadas o internas ({hostname})"
+                )
+            if str(ip_alt) != host:
+                raise ValueError(
+                    f"media_url no permite direcciones IP en formato no canónico ({hostname})"
+                )
+        except OSError:
+            if _NUMERIC_OR_HEX_HOST.fullmatch(host):
+                raise ValueError(
+                    f"media_url no permite direcciones de host no válidas ({hostname})"
+                ) from None
+
+        return v
 
     @model_validator(mode="after")
     def check_content_matches_type(self) -> Self:
