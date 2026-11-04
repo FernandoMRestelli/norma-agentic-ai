@@ -25,6 +25,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 - Datos de ejemplo inventados en `datos_ejemplo/`: catálogo (formato de la Sheet 1), pedidos (formato de la Sheet 2) y mensajes de clientes con el resultado esperado del agente, validados por `tests/test_datos_ejemplo.py`.
 - `Product.min_stock` y `Product.is_low_stock` para marcar productos con stock bajo en el dashboard.
 - Función pura `interpretar_palabra_clave` en `backend/services/palabras_clave.py` para reconocer `OK`, `CONFIRMAR` y `CORREGIR` (sin tildes, mayúsculas ni espacios sobrantes), y constante `AYUDA_CONFIRMAR` para instrucciones de confirmación sin botones en WhatsApp (RF-13, CA-17, CA-18).
+- Reglas de orden en `backend/services/order_service.py`: `format_order_id` y `parse_order_id` con formato correlativo `ORD-0001`, `can_transition` para validar la máquina de estados según RF-20, y `parse_status` tolerante a mayúsculas y espacios; validación estricta de `order_id` en `Order` (RF-17, RF-20).
 - Spec del MVP en `docs/spec/`: visión, arquitectura, flujos, contratos de datos, requisitos, roadmap y criterios de aceptación, más el diseño del agente (loop, estados de la conversación, tools, errores y memoria) y la forma de trabajar spec primero (SDD).
 
 ### Cambiado

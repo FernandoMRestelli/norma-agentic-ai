@@ -429,7 +429,7 @@ Esta versión de la spec está en revisión: todo lo que no está implementado f
 | RF-14 | Al confirmar se revalida el stock de cada línea con una lectura fresca; si no alcanza, no se crea la orden | 04 | P |
 | RF-15 | Un borrador produce como máximo una orden, aunque la confirmación llegue repetida | 05 | P |
 | RF-16 | No se puede confirmar una versión del borrador que no sea la última | 04 | P |
-| RF-17 | Cada orden tiene un `order_id` único y correlativo (`ORD-0001`) | 05 | P |
+| RF-17 | Cada orden tiene un `order_id` único y correlativo (`ORD-0001`) | 05 | P (formato y validación: I) |
 | RF-18 | Al confirmar, el cliente recibe el número de orden | 05 | P |
 
 ### Registro y seguimiento
@@ -437,7 +437,7 @@ Esta versión de la spec está en revisión: todo lo que no está implementado f
 | ID | Requisito | Etapa | Estado |
 |---|---|---|---|
 | RF-19 | Cada orden se agrega como una fila en Sheet 2 con el formato de [§5.4](#54-orden-order--google-sheet-2) | 05 | P |
-| RF-20 | Las órdenes siguen `Recibido → Preparado → Retirado`, con `Cancelado` desde cualquier estado previo a `Retirado` | 05 | P |
+| RF-20 | Las órdenes siguen `Recibido → Preparado → Retirado`, con `Cancelado` desde cualquier estado previo a `Retirado` | 05 | P (transiciones y parseo: I) |
 | RF-21 | El detalle por ítem de cada orden se guarda en la base interna | 05 | P |
 
 ### Dashboard
