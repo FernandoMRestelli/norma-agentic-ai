@@ -8,6 +8,10 @@ Se actualiza al cerrar cada PR que cambie el estado o la lista.
 - **Etapa 01 del [roadmap](docs/roadmap.md) (base compartida)**: completa. La API levanta con Docker o con
   Python local, responde `/health` y valida la firma del webhook de WhatsApp.
 - **Contratos de datos**: borrador (`OrderDraft`) separado de la orden (`Order`), catálogo (`Product`, `StockCheck`).
+- **Fuentes de datos del issue #2**: material original en Drive privado, inventario con referencias de Drive,
+  catálogo de 1.090 productos con stock ficticio de prueba y planilla vacía de seguimiento preparados fuera del repo.
+  La cuenta de servicio tiene permisos por archivo; falta probar la autenticación del backend. La evaluación de
+  los pedidos se difiere hasta disponer del agente. Ver [alcance y pendientes](docs/data/fuentes.md).
 - **Flujo de trabajo**: ramas, PR, changelog, CI (lint, tests, build, secretos, reglas de PR) e imagen por release.
   Todavía no hay ninguna release publicada ni producción corriendo.
 - **Esqueletos sin implementar**: agente, tools de catálogo y stock, Google Sheets, base interna, chat y frontend

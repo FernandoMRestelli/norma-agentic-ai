@@ -10,6 +10,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Agregado
 
+- Registro de las fuentes privadas del issue #2: inventario, catálogo con stock ficticio para pruebas, seguimiento de pedidos y evaluación del agente diferida, sin publicar datos reales.
 - Flujo de ramas con releases, hotfixes y backports, documentado en `CONTRIBUTING.md`: cada PR se rechaza si el nombre de la rama no sigue el flujo o si no suma su línea a este changelog.
 - CI en cada PR y push a `develop` y `main`: lint con ruff, tests, build de la imagen con arranque de la API y escaneo de secretos en todo el historial.
 - Cada tag `vX.Y.Z` en `main` publica la imagen de esa versión en GitHub Container Registry, y producción la corre con `docker-compose.prod.yml`.
