@@ -1,10 +1,11 @@
+from datetime import datetime
 from decimal import Decimal
 
 import pytest
 from pydantic import ValidationError
 
 from backend.schemas.catalog_schema import StockCheck
-from backend.schemas.order_schema import Channel, IncomingMessage, MessageType, OrderDraft, OrderItem
+from backend.schemas.order_schema import Channel, IncomingMessage, MessageType, Order, OrderDraft, OrderItem
 from backend.services.validation_service import build_summary
 
 
@@ -38,6 +39,31 @@ def test_unit_price_is_decimal():
     item = OrderItem(sku="SH-400", product_name="Shampoo Pantene", quantity=3, unit_price="0.10")
     assert item.unit_price == Decimal("0.10")
     assert item.unit_price * 3 == Decimal("0.30")
+
+
+def test_order_draft_version():
+    """C-13 / CA-14: un OrderDraft nace con version=1; version < 1 es inválido."""
+    draft = make_draft()
+    assert draft.version == 1
+
+    draft_v2 = make_draft(version=2)
+    assert draft_v2.version == 2
+
+    with pytest.raises(ValidationError):
+        make_draft(version=0)
+
+
+def test_order_sheets_synced_default():
+    """RF-19 / RNF-04: una Order nace con sheets_synced=False por defecto."""
+    order = Order(
+        order_id="ORD-0001",
+        draft_id="d-1",
+        created_at=datetime.now(),
+        customer_id="c-1",
+        channel=Channel.WEB,
+        items=[OrderItem(sku="SH-400", product_name="Shampoo Pantene", quantity=1)],
+    )
+    assert order.sheets_synced is False
 
 
 @pytest.mark.parametrize(

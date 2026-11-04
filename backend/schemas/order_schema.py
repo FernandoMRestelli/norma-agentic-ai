@@ -64,6 +64,7 @@ class OrderDraft(BaseModel):
     items: list[OrderItem] = Field(min_length=1)
     notes: str | None = None
     status: DraftStatus = DraftStatus.PENDING_CONFIRMATION
+    version: int = Field(default=1, ge=1)
 
 
 class ConfirmationAction(StrEnum):
@@ -89,3 +90,4 @@ class Order(BaseModel):
     items: list[OrderItem] = Field(min_length=1)
     notes: str | None = None
     status: OrderStatus = OrderStatus.RECEIVED
+    sheets_synced: bool = False
