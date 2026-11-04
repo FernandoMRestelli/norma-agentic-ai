@@ -213,5 +213,40 @@ def test_incoming_message_accepts_valid_media_url(media_url: str):
     assert msg.media_url == media_url
 
 
+def test_incoming_message_accepts_telegram_reference_in_telegram():
+    """CA-33: en Telegram, media_url guarda la referencia al archivo y no la URL de descarga, que tiene el token."""
+    msg = IncomingMessage(
+        customer_id="telegram:1",
+        channel=Channel.TELEGRAM,
+        type=MessageType.AUDIO,
+        media_url="telegram:AwACAgEAAxk-Bc_1",
+    )
+    assert msg.media_url == "telegram:AwACAgEAAxk-Bc_1"
+
+
+@pytest.mark.parametrize("channel", [Channel.WEB, Channel.WHATSAPP])
+def test_incoming_message_rejects_telegram_reference_in_other_channels(channel: Channel):
+    """CA-04, CA-33: la referencia de Telegram es una excepción solo de ese canal."""
+    with pytest.raises(ValidationError):
+        IncomingMessage(customer_id="c-1", channel=channel, type=MessageType.AUDIO, media_url="telegram:AUDIO1")
+
+
+@pytest.mark.parametrize(
+    "media_url",
+    [
+        "telegram:",
+        "telegram:con espacio",
+        "telegram://169.254.169.254/latest/meta-data/",
+        "telegram:" + "a" * 2050,
+        "file:///etc/passwd",
+        "https://169.254.169.254/latest/meta-data/",
+    ],
+)
+def test_incoming_message_telegram_keeps_rejecting_insecure_media_url(media_url: str):
+    """CA-04, CA-33: la excepción cubre solo `telegram:<file_id>`; el resto sigue con la validación anti-SSRF."""
+    with pytest.raises(ValidationError):
+        IncomingMessage(customer_id="telegram:1", channel=Channel.TELEGRAM, type=MessageType.AUDIO, media_url=media_url)
+
+
 def test_stock_check_serializes_is_enough():
     assert StockCheck(sku="SH-400", requested=5, available=3).model_dump()["is_enough"] is False

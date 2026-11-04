@@ -13,18 +13,20 @@ from enum import StrEnum
 from typing import Self
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 MAX_QUANTITY: int = 999
 MAX_MEDIA_URL_LENGTH: int = 2048
 _NUMERIC_OR_HEX_HOST = re.compile(
     r"^(0x[0-9a-f]+|[0-9]+)(\.(0x[0-9a-f]+|[0-9]+))*$", re.IGNORECASE
 )
+_TELEGRAM_FILE_REFERENCE = re.compile(r"telegram:[A-Za-z0-9_-]+")
 
 
 class Channel(StrEnum):
     WEB = "web"
     WHATSAPP = "whatsapp"
+    TELEGRAM = "telegram"  # canal de prueba de la beta
 
 
 class MessageType(StrEnum):
@@ -43,16 +45,20 @@ class IncomingMessage(BaseModel):
     type: MessageType = MessageType.TEXT
     text: str | None = None
     media_url: str | None = None  # audio o imagen, según `type`
+    external_id: str | None = None  # id del mensaje en el canal, para deduplicar
 
     @field_validator("media_url")
     @classmethod
-    def validate_media_url(cls, v: str | None) -> str | None:
+    def validate_media_url(cls, v: str | None, info: ValidationInfo) -> str | None:
         if v is None:
             return None
         if len(v) > MAX_MEDIA_URL_LENGTH:
             raise ValueError(
                 f"media_url excede el largo máximo permitido ({MAX_MEDIA_URL_LENGTH} caracteres)"
             )
+        # Un file_id no es una dirección: se resuelve con la Bot API, nunca conectándose a lo que trae
+        if info.data.get("channel") == Channel.TELEGRAM and _TELEGRAM_FILE_REFERENCE.fullmatch(v):
+            return v
         parsed = urlparse(v)
         if parsed.scheme != "https":
             raise ValueError(
