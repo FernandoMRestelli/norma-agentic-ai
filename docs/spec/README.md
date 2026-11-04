@@ -425,7 +425,7 @@ Esta versión de la spec está en revisión: todo lo que no está implementado f
 |---|---|---|---|
 | RF-11 | Con el pedido claro se muestra un resumen generado por el backend (producto, presentación y cantidad de cada línea) con **Confirmar / Corregir** | 04 | P (resumen: I) |
 | RF-12 | Una corrección actualiza el mismo borrador, sube su versión y muestra un resumen nuevo | 04 | P |
-| RF-13 | Solo se confirma con una acción explícita (botón o palabra clave exacta); el agente no puede confirmar y, ante un texto como «dale», recuerda cómo hacerlo | 04 | P |
+| RF-13 | Solo se confirma con una acción explícita (botón o palabra clave exacta); el agente no puede confirmar y, ante un texto como «dale», recuerda cómo hacerlo | 04 | P (palabras clave: I) |
 | RF-14 | Al confirmar se revalida el stock de cada línea con una lectura fresca; si no alcanza, no se crea la orden | 04 | P |
 | RF-15 | Un borrador produce como máximo una orden, aunque la confirmación llegue repetida | 05 | P |
 | RF-16 | No se puede confirmar una versión del borrador que no sea la última | 04 | P |
@@ -540,8 +540,8 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-14 | Un borrador en versión 2 | Llega Confirmar con versión 1 | `409` y no se crea orden | RF-16 | pendiente |
 | CA-15 | Un borrador pendiente | Llega Confirmar dos veces (doble click o reintento) | Se crea una sola orden, las dos respuestas tienen el mismo `order_id` y hay una sola fila en Sheet 2 | RF-15 | pendiente |
 | CA-16 | Un borrador cuyo stock se agotó después de armarlo | El cliente confirma | No se crea orden, se informa qué línea no alcanza y la conversación sigue en `borrador_pendiente` | RF-14 | pendiente |
-| CA-17 | Un borrador pendiente | El cliente escribe «dale, mandalo» | No se crea orden; el agente recuerda cómo confirmar | RF-13 | pendiente |
-| CA-18 | Un borrador pendiente en WhatsApp sin botones | El cliente responde `ok` / `Corregir` | Se confirma / se pide la corrección, igual que con los botones; en otro estado, `OK` va al agente | RF-13 | pendiente |
+| CA-17 | Un borrador pendiente | El cliente escribe «dale, mandalo» | No se crea orden; el agente recuerda cómo confirmar | RF-13 | `test_palabras_clave.py::test_texto_libre_no_es_palabra_clave` (interpretación); flujo del agente pendiente |
+| CA-18 | Un borrador pendiente en WhatsApp sin botones | El cliente responde `ok` / `Corregir` | Se confirma / se pide la corrección, igual que con los botones; en otro estado, `OK` va al agente | RF-13 | `test_palabras_clave.py` (función pura); orquestación pendiente |
 | CA-19 | Una orden confirmada | Sheet 2 falla al escribir y después vuelve | La orden existe en la base con `sheets_synced = false` y el reintento agrega una sola fila con las columnas de `pedidos.csv` | RF-19, RNF-04 | pendiente |
 | CA-21 | Una conversación con una falla previa | Ocurre una segunda falla | La conversación pasa a `derivada` y el bot no responde a ese cliente por 24 h | RF-27 | pendiente |
 | CA-22 | Cualquier conversación abierta | El cliente pide hablar con una persona | El turno termina en `derivado` | RF-27 | pendiente |
