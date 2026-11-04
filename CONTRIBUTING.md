@@ -138,6 +138,8 @@ con una sección `## [Sin publicar]` arriba de todo.
 - Se escribe para quien usa el proyecto: `Búsqueda de productos por nombre aproximado.`, no `fix matching`.
 - Si el cambio altera el comportamiento en producción, se dice explícitamente, junto con lo que haya que
   migrar al desplegar (una variable nueva en `.env`, un archivo que mover en `data/`, etc.).
+- Dos PR que suman su línea en el mismo lugar no dan conflicto: [`.gitattributes`](.gitattributes) le dice a Git
+  que conserve las líneas de los dos lados (`merge=union`). El orden entre ellas no importa.
 
 ## Versiones
 
@@ -192,7 +194,9 @@ git push -u origin backport/X.Y.Z
 gh pr create --base develop --title "Backport de la versión X.Y.Z"
 ```
 
-Si hay conflicto en `CHANGELOG.md`, queda la versión de `main` para `[X.Y.Z]` y lo de `develop` en `[Sin publicar]`.
+En `CHANGELOG.md`, tiene que quedar la versión de `main` para `[X.Y.Z]` y lo de `develop` en `[Sin publicar]`. Git no
+avisa con un conflicto (`merge=union`) y puede dejar líneas repetidas o en la sección equivocada: **revisarlo a mano**
+antes de abrir la PR.
 Se mergea con **Create a merge commit**.
 
 ## Producción

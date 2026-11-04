@@ -40,6 +40,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 - Contratos del catálogo: `Product` rechaza stock negativo (`stock ≥ 0`) y `StockCheck` exige cantidad solicitada positiva (`requested > 0`) y disponibilidad no negativa (`available ≥ 0`) (RF-14, RF-10).
 - Validación estricta en contratos de pedidos: OrderItem rechaza sku y product_name vacíos, recorta espacios en blanco y limita quantity a MAX_QUANTITY = 999 (RF-08, RNF-02); IncomingMessage, OrderDraft y Order rechazan customer_id vacío y recortan espacios.
 - Alineación del contrato de pedidos con la spec (Issue #12, C-13, CA-14): se suma ersion: int (iniciando en 1, ge=1) a OrderDraft y sheets_synced: bool = False a Order; el endpoint POST /chat/drafts/{id}/{action} ahora exige el parámetro de consulta ersion.
+- Los PR ya no dan conflicto en `CHANGELOG.md` cuando otro PR sumó su línea en el mismo lugar: `.gitattributes` conserva las líneas de los dos lados (`merge=union`).
 
 ### Seguridad
 
