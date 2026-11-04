@@ -40,6 +40,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Seguridad
 
+- Validación de `media_url` en `IncomingMessage` contra SSRF: solo permite URLs con esquema `https://` y host público, rechazando `localhost`, direcciones IP privadas o internas (en formato canónico o alternativo decimal, octal, hex) y URLs de más de 2048 caracteres (RNF-02, CA-04).
 - Hooks de seguridad locales con `pre-commit` y verificación obligatoria en CI (`secretos.yml`): frenan secretos (`gitleaks` v8.28.0, claves privadas), archivos pesados (>500 KB), archivos prohibidos (`.opus`, `.m4a`, `.vcf`, `_chat.txt`, `.zip`, `.env*`, `credentials/`, `*service-account*.json`) y números telefónicos argentinos en archivos de datos, con mensajes en español y salidas redactadas sin exponer secretos.
 - Configuración para asistentes de IA (`.claude/settings.json`, `.geminiignore` y `AGENTS.md`) bloqueando la lectura de `.env`, `.env.*`, `credentials/` y `data/`.
 - Documentación en `CONTRIBUTING.md` sobre gestión de secretos en desarrollo y producción, uso de correos `noreply` en commits y procedimiento ante filtraciones.

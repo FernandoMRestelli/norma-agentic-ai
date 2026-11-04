@@ -70,3 +70,18 @@ def test_resolve_draft_requires_version():
     # version=1 -> 501 (endpoint todavía no implementado, pero valida esquema)
     response_valid = client.post("/chat/drafts/d-1/confirmar?version=1")
     assert response_valid.status_code == 501
+
+
+def test_chat_rejects_insecure_media_url():
+    """CA-04, RNF-02: POST /chat/messages con media_url insegura responde 422."""
+    response = client.post(
+        "/chat/messages",
+        json={
+            "customer_id": "c-1",
+            "channel": "web",
+            "type": "audio",
+            "media_url": "file:///etc/passwd",
+        },
+    )
+    assert response.status_code == 422
+

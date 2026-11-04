@@ -303,8 +303,10 @@ con la etapa que los usa ([§8](#8-roadmap-por-fases)).
 | `channel` | `web \| whatsapp` | |
 | `type` | `text \| audio \| image` | Por defecto `text` |
 | `text` | `str \| None` | Obligatorio y no vacío si `type = text` |
-| `media_url` | `str \| None` | Obligatorio si `type` es `audio` o `image` |
+| `media_url` | `str \| None` | Obligatorio si `type` es `audio` o `image`. Solo esquema `https://`, con host público (sin `localhost` ni IPs privadas/internas ni formas alternativas/ofuscadas, anti-SSRF) y máximo 2048 caracteres |
 | `external_id` | `str \| None` **(nuevo)** | Id del mensaje en Meta, para deduplicar |
+
+> **Nota sobre SSRF:** La validación en el contrato `IncomingMessage` es estática (sin acceso a red en el validador) y bloquea esquemas inseguros, hosts locales, loopback, metadatos e IPs privadas/internas (incluyendo formatos alternativos decimales, octales, hexadecimales o notación corta). La defensa en profundidad contra DNS rebinding y redirecciones a servicios internos debe implementarse en el momento de la descarga efectiva del archivo (resolviendo la IP antes del GET y con `follow_redirects=False`).
 
 ### 5.2 Catálogo: `Product`, `StockCheck` ↔ Google Sheet 1
 
@@ -511,7 +513,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-01 | La API levantada | Se pide `GET /health` | Responde `200 {"status": "ok"}` | — | `test_api.py::test_health` |
 | CA-02 | `WHATSAPP_VERIFY_TOKEN` configurado | Meta verifica con el token correcto / incorrecto | Devuelve `challenge` / `403` | RF-02 | `test_api.py::test_whatsapp_verify` |
 | CA-03 | `WHATSAPP_APP_SECRET` configurado | Llega un POST con firma válida / inválida | `200` / `403` | RF-02 | `test_api.py::test_whatsapp_post_*` |
-| CA-04 | Cualquier canal | Llega un mensaje de texto sin texto, o un audio o imagen sin `media_url` | Se rechaza (`422` en la API) | RF-01 | `test_orders.py::test_incoming_message_requires_content_for_its_type`, `test_api.py::test_chat_rejects_text_message_without_text` |
+| CA-04 | Cualquier canal | Llega un mensaje de texto sin texto, o un audio o imagen sin `media_url` o con `media_url` insegura/privada | Se rechaza (`422` en la API) | RF-01, RNF-02 | `test_orders.py`, `test_api.py` |
 | CA-05 | Un mensaje de WhatsApp ya procesado | Meta lo reenvía con el mismo id | Se responde `200` y no se procesa de nuevo | RF-03 | pendiente |
 | CA-06 | Un audio con un pedido | Llega por cualquier canal | El agente recibe la transcripción marcada como `audio transcripto`; si está vacía, se pide escribirlo sin llamar al LLM | RF-04 | pendiente |
 | CA-07 | Una imagen con un pedido | Llega por cualquier canal | Igual que CA-06, con `imagen leída` | RF-05 | pendiente |
