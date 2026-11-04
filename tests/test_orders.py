@@ -5,7 +5,15 @@ import pytest
 from pydantic import ValidationError
 
 from backend.schemas.catalog_schema import StockCheck
-from backend.schemas.order_schema import Channel, IncomingMessage, MessageType, Order, OrderDraft, OrderItem
+from backend.schemas.order_schema import (
+    MAX_QUANTITY,
+    Channel,
+    IncomingMessage,
+    MessageType,
+    Order,
+    OrderDraft,
+    OrderItem,
+)
 from backend.services.validation_service import build_summary
 
 
@@ -28,6 +36,65 @@ def test_draft_requires_items():
 def test_item_quantity_must_be_positive():
     with pytest.raises(ValidationError):
         OrderItem(sku="SH-400", product_name="Shampoo Pantene", quantity=0)
+
+
+@pytest.mark.parametrize(
+    "item_kwargs",
+    [
+        {"sku": "", "product_name": "Shampoo Pantene"},
+        {"sku": "   ", "product_name": "Shampoo Pantene"},
+        {"sku": "SH-400", "product_name": ""},
+        {"sku": "SH-400", "product_name": "   "},
+    ],
+)
+def test_item_rechaza_sku_y_nombre_vacios(item_kwargs):
+    """RF-08: cada línea debe tener un SKU y un nombre de producto válidos no vacíos."""
+    with pytest.raises(ValidationError):
+        OrderItem(quantity=1, **item_kwargs)
+
+
+def test_item_cantidad_tiene_tope():
+    """RNF-02: cantidad tiene tope en MAX_QUANTITY para evitar números absurdos del LLM."""
+    item = OrderItem(sku="SH-400", product_name="Shampoo Pantene", quantity=MAX_QUANTITY)
+    assert item.quantity == MAX_QUANTITY
+
+    with pytest.raises(ValidationError):
+        OrderItem(sku="SH-400", product_name="Shampoo Pantene", quantity=MAX_QUANTITY + 1)
+
+
+@pytest.mark.parametrize("customer_id", ["", "   "])
+def test_customer_id_no_puede_ser_vacio(customer_id):
+    """customer_id no puede ser vacío ni consistir únicamente de espacios en blanco."""
+    with pytest.raises(ValidationError):
+        IncomingMessage(customer_id=customer_id, channel=Channel.WEB, text="hola")
+
+    with pytest.raises(ValidationError):
+        OrderDraft(
+            draft_id="d-1",
+            customer_id=customer_id,
+            channel=Channel.WEB,
+            items=[OrderItem(sku="SH-400", product_name="Shampoo Pantene", quantity=1)],
+        )
+
+    with pytest.raises(ValidationError):
+        Order(
+            order_id="ORD-0001",
+            draft_id="d-1",
+            created_at=datetime.now(),
+            customer_id=customer_id,
+            channel=Channel.WEB,
+            items=[OrderItem(sku="SH-400", product_name="Shampoo Pantene", quantity=1)],
+        )
+
+
+def test_item_y_mensaje_recortan_espacios():
+    """Recorta espacios en blanco en campos de texto y claves."""
+    item = OrderItem(sku="  SH-400  ", product_name="  Shampoo Pantene  ", quantity=2)
+    assert item.sku == "SH-400"
+    assert item.product_name == "Shampoo Pantene"
+
+    msg = IncomingMessage(customer_id="  c-1  ", channel=Channel.WEB, text="hola")
+    assert msg.customer_id == "c-1"
 
 
 def test_summary_lists_items():

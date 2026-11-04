@@ -9,7 +9,9 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Self
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+MAX_QUANTITY: int = 999
 
 
 class Channel(StrEnum):
@@ -26,7 +28,9 @@ class MessageType(StrEnum):
 class IncomingMessage(BaseModel):
     """Mensaje del cliente ya recibido por la API, antes del preprocesamiento."""
 
-    customer_id: str
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    customer_id: str = Field(min_length=1)
     channel: Channel
     type: MessageType = MessageType.TEXT
     text: str | None = None
@@ -42,10 +46,12 @@ class IncomingMessage(BaseModel):
 
 
 class OrderItem(BaseModel):
-    sku: str  # siempre un SKU existente en el catálogo, nunca inventado
-    product_name: str
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    sku: str = Field(min_length=1)  # siempre un SKU existente en el catálogo, nunca inventado
+    product_name: str = Field(min_length=1)
     presentation: str | None = None
-    quantity: int = Field(gt=0)
+    quantity: int = Field(gt=0, le=MAX_QUANTITY)
     unit_price: Decimal | None = Field(default=None, ge=0)
 
 
@@ -58,8 +64,10 @@ class DraftStatus(StrEnum):
 class OrderDraft(BaseModel):
     """Lo que el agente entendió del pedido; se muestra al cliente para confirmar o corregir."""
 
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     draft_id: str
-    customer_id: str
+    customer_id: str = Field(min_length=1)
     channel: Channel
     items: list[OrderItem] = Field(min_length=1)
     notes: str | None = None
@@ -82,10 +90,12 @@ class OrderStatus(StrEnum):
 class Order(BaseModel):
     """Orden confirmada; es lo que se registra en el Google Sheet de seguimiento."""
 
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     order_id: str
     draft_id: str
     created_at: datetime
-    customer_id: str
+    customer_id: str = Field(min_length=1)
     channel: Channel
     items: list[OrderItem] = Field(min_length=1)
     notes: str | None = None

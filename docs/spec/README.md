@@ -299,7 +299,7 @@ con la etapa que los usa ([§8](#8-roadmap-por-fases)).
 
 | Campo | Tipo | Reglas |
 |---|---|---|
-| `customer_id` | `str` | En WhatsApp, el número del cliente; en web, ver D-05 |
+| `customer_id` | `str` | Obligatorio, no vacío (`min_length=1`), sin espacios en extremos. En WhatsApp, el número del cliente; en web, ver D-05 |
 | `channel` | `web \| whatsapp` | |
 | `type` | `text \| audio \| image` | Por defecto `text` |
 | `text` | `str \| None` | Obligatorio y no vacío si `type = text` |
@@ -327,14 +327,14 @@ con la etapa que los usa ([§8](#8-roadmap-por-fases)).
 |---|---|---|
 | `draft_id` | `str` | Único |
 | `conversation_id` | `str` **(nuevo)** | Conversación a la que pertenece |
-| `customer_id`, `channel` | | Los pone el backend, nunca el LLM |
+| `customer_id`, `channel` | | Los pone el backend, nunca el LLM; `customer_id` no vacío |
 | `items` | `list[OrderItem]` | Al menos uno |
 | `notes` | `str \| None` | |
 | `status` | `pendiente_confirmacion \| confirmado \| descartado` | Nace `pendiente_confirmacion` |
 | `version` | `int` **(nuevo)** | Empieza en 1, sube con cada corrección (C-13) |
 
-`OrderItem`: `sku` (existente en el catálogo), `product_name`, `presentation`, `quantity > 0`,
-`unit_price: Decimal ≥ 0` (precio del catálogo al armar el borrador).
+`OrderItem`: `sku` (existente en el catálogo, no vacío), `product_name` (no vacío), `presentation`, `quantity` (1 ≤ quantity ≤ 999),
+`unit_price: Decimal ≥ 0` (precio del catálogo al armar el borrador). Todos los campos de texto recortan espacios automáticamente.
 
 ### 5.4 Orden: `Order` ↔ Google Sheet 2
 
