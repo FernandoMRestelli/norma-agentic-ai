@@ -1,0 +1,2 @@
+# Cada PR suma una línea al changelog: al mergear se conservan las de los dos lados, sin conflicto
+CHANGELOG.md merge=union
