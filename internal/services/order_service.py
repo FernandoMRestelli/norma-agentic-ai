@@ -1,0 +1,149 @@
+"""Lógica de negocio de la confirmación: el único lugar donde nace una `Order`."""
+
+from __future__ import annotations
+
+import re
+
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+
+from internal.database.connection import SessionLocal
+from internal.database.models import OrderRecord
+from internal.schemas.order_schema import Order, OrderDraft, OrderStatus
+from internal.services import sheets_service
+
+ORDER_ID_PREFIX = "ORD-"
+ORDER_ID_REGEX = re.compile(r"^ORD-(\d{4,})$")
+
+VALID_TRANSITIONS: dict[OrderStatus, set[OrderStatus]] = {
+    OrderStatus.RECEIVED: {OrderStatus.PREPARED, OrderStatus.CANCELLED},
+    OrderStatus.PREPARED: {OrderStatus.PICKED_UP, OrderStatus.CANCELLED},
+    OrderStatus.PICKED_UP: set(),
+    OrderStatus.CANCELLED: set(),
+}
+
+STATUS_BY_LOWER: dict[str, OrderStatus] = {
+    status.value.lower(): status for status in OrderStatus
+}
+
+
+def format_order_id(n: int) -> str:
+    """Formatea un número correlativo a formato de orden (RF-17).
+
+    Rellena con ceros hasta 4 dígitos (1 -> 'ORD-0001', 42 -> 'ORD-0042').
+    Para números superiores a 9999, no trunca (10000 -> 'ORD-10000').
+    Lanza ValueError si n <= 0.
+    """
+    if n <= 0:
+        raise ValueError(f"El correlativo de orden debe ser positivo, se recibió {n}")
+    return f"{ORDER_ID_PREFIX}{n:04d}"
+
+
+def parse_order_id(order_id: str) -> int:
+    """Parsea y valida estrictamente un order_id (RF-17).
+
+    Exige el prefijo 'ORD-' y al menos 4 dígitos, sin ceros redundantes.
+    Lanza ValueError si el formato no es válido o el número no es positivo.
+    """
+    match = ORDER_ID_REGEX.match(order_id)
+    if not match:
+        raise ValueError(
+            f"Formato de order_id inválido: {order_id!r}. Se esperaba 'ORD-0001'"
+        )
+    num = int(match.group(1))
+    if num <= 0:
+        raise ValueError(f"El número de orden debe ser mayor a 0: {order_id!r}")
+    if format_order_id(num) != order_id:
+        raise ValueError(
+            f"Formato de order_id inválido (ceros excedentes o longitud inconsistente): {order_id!r}"
+        )
+    return num
+
+
+def can_transition(actual: OrderStatus, nuevo: OrderStatus) -> bool:
+    """Indica si una transición entre estados de orden es válida (RF-20).
+
+    Recibido -> Preparado, Cancelado
+    Preparado -> Retirado, Cancelado
+    Retirado / Cancelado -> Estados terminales (no permiten transiciones).
+    """
+    return nuevo in VALID_TRANSITIONS.get(actual, set())
+
+
+def parse_status(valor: str) -> OrderStatus:
+    """Parsea un estado de orden tolerando mayúsculas y espacios en blanco extremos (RF-20).
+
+    Lanza ValueError ante estados desconocidos.
+    """
+    key = valor.strip().lower()
+    if key not in STATUS_BY_LOWER:
+        validos = [s.value for s in OrderStatus]
+        raise ValueError(f"Estado de orden desconocido: {valor!r}. Estados válidos: {validos}")
+    return STATUS_BY_LOWER[key]
+
+
+class InsufficientStockError(Exception):
+    """El stock ya no alcanza para crear la orden. `lines` indica qué líneas faltan."""
+
+    def __init__(self, lines: list[dict]):
+        super().__init__("No alcanza el stock")
+        self.lines = lines
+
+
+def _to_order(record: OrderRecord) -> Order:
+    return Order(
+        order_id=record.order_id,
+        draft_id=record.draft_id,
+        created_at=record.created_at,
+        customer_id=record.customer_id,
+        channel=record.channel,
+        items=record.items,
+        notes=record.notes,
+        status=record.status,
+        sheets_synced=record.sheets_synced,
+    )
+
+
+def get_order(order_id: str) -> Order | None:
+    with SessionLocal() as session:
+        record = session.scalar(select(OrderRecord).where(OrderRecord.order_id == order_id))
+        return _to_order(record) if record else None
+
+
+def confirm_draft(draft: OrderDraft) -> Order:
+    """Registra la orden de un borrador UNA sola vez (RF-14, RF-15).
+
+    Es idempotente: si el borrador ya tiene orden (reintento, mensaje repetido) devuelve la existente.
+    Pasos: buscar orden existente -> revalidar stock con una lectura fresca -> guardar en la base.
+    """
+    with SessionLocal() as session:
+        existing = session.scalar(select(OrderRecord).where(OrderRecord.draft_id == draft.draft_id))
+        if existing:
+            return _to_order(existing)
+
+        stock = {product.sku: product.stock for product in sheets_service.get_catalog()}
+        short = [
+            {"sku": item.sku, "requested": item.quantity, "available": stock.get(item.sku, 0)}
+            for item in draft.items
+            if item.quantity > stock.get(item.sku, 0)
+        ]
+        if short:
+            raise InsufficientStockError(short)
+
+        record = OrderRecord(
+            draft_id=draft.draft_id,
+            customer_id=draft.customer_id,
+            channel=draft.channel.value,
+            items=[item.model_dump(mode="json") for item in draft.items],
+            notes=draft.notes,
+            status=OrderStatus.RECEIVED.value,
+        )
+        session.add(record)
+        try:
+            session.flush()  # el id correlativo sale de la base
+            record.order_id = format_order_id(record.id)
+            session.commit()
+        except IntegrityError:  # otro proceso registró el mismo borrador primero
+            session.rollback()
+            return _to_order(session.scalars(select(OrderRecord).where(OrderRecord.draft_id == draft.draft_id)).one())
+        return _to_order(record)

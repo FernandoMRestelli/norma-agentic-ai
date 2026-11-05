@@ -1,0 +1,180 @@
+"""Tools de catálogo, stock y lectura de skills, con el catálogo de ejemplo y sin LLM."""
+
+import re
+
+import pytest
+
+from internal.agent import tool_registry
+from internal.schemas.agent_schema import ToolFailure
+from internal.schemas.order_schema import Channel
+from internal.services import sheets_service, skill_service
+from internal.services.skill_service import SkillError, load_skills
+from internal.tools import catalog_tools, inventory_tools, skill_tools
+
+
+@pytest.mark.parametrize("query", ["shampoo pantene 400", "Shampoo Pantene 400ML", "shampo pantne 400"])
+def test_busqueda_aproximada_trae_primero_el_producto(query):
+    """CA-29 / RF-07: tolera mayúsculas y errores de tipeo."""
+    assert catalog_tools.search_products(query)[0].sku == "SH-PAN-400"
+
+
+def test_busqueda_sin_coincidencias_no_inventa():
+    assert catalog_tools.search_products("head and shoulders xyz") == []
+
+
+@pytest.mark.parametrize(
+    ("query", "esperado"),
+    [
+        ("pantene 340", []),  # hay Pantene y hay 340 ml, pero no juntos
+        ("koleston 7.1", ["TIN-KOL-71"]),
+        ("koleston 6,1", ["TIN-KOL-61"]),
+        ("SH-PAN-400", ["SH-PAN-400"]),
+    ],
+)
+def test_los_numeros_no_se_aproximan(query, esperado):
+    """CA-45: un número no coincide con otro parecido."""
+    assert [product.sku for product in catalog_tools.search_products(query)] == esperado
+
+
+def test_presentacion_inexistente_no_parece_exacta():
+    """CA-45: «300 ml» trae los shampoos Pantene para preguntar, sin marcar ninguno como exacto."""
+    matches = catalog_tools.search_products("shampoo pantene 300 ml")
+    assert {match.sku for match in matches} == {"SH-PAN-200", "SH-PAN-400"}
+    assert all(match.score < 1 for match in matches)
+
+
+@pytest.mark.parametrize("query", ["coca cola", "gillette", "shampoo dove"])
+def test_sin_parecido_real_no_trae_productos(query):
+    """CA-45."""
+    assert catalog_tools.search_products(query) == []
+
+
+@pytest.mark.parametrize(
+    ("query", "sku"),
+    [("acondicionador", "AC-PAN-400"), ("cremas de enjuague", "CE-SED-340"), ("jabones dove", "JAB-DOV-90")],
+)
+def test_busqueda_tolera_plurales_y_palabras_de_relleno(query, sku):
+    assert [product.sku for product in catalog_tools.search_products(query)] == [sku]
+
+
+def test_resultado_al_llm_trae_score_sin_datos_internos():
+    ctx = tool_registry.TurnContext(
+        customer_id="c", channel=Channel.WEB, disponibles=["search_products", "get_product"]
+    )
+    match = tool_registry.execute("search_products", {"query": "jabon dove"}, ctx)["data"]["matches"][0]
+    assert match["score"] == 1
+    assert not {"min_stock", "is_low_stock"} & match.keys()
+    product = tool_registry.execute("get_product", {"sku": "JAB-DOV-90"}, ctx)["data"]["product"]
+    assert product["sku"] == "JAB-DOV-90"
+    assert not {"min_stock", "is_low_stock"} & product.keys()
+
+
+def test_catalogo_de_ejemplo_se_lee_con_el_esquema():
+    assert {product.sku for product in sheets_service.get_catalog()} >= {"SH-PAN-400", "CE-SED-340"}
+
+
+def test_check_stock_indica_si_alcanza():
+    assert inventory_tools.check_stock("CE-SED-340", 4).is_enough
+    assert not inventory_tools.check_stock("CE-SED-340", 5).is_enough
+
+
+def test_check_stock_con_sku_inexistente():
+    with pytest.raises(ToolFailure) as error:
+        inventory_tools.check_stock("XX-000", 1)
+    assert error.value.code == "sku_inexistente"
+
+
+def test_las_skills_reales_son_validas():
+    """CA-40: todas las tools que nombran las skills existen."""
+    tool_registry.validate_skills()
+    assert set(skill_service.get_skills()) == {
+        "aclarar",
+        "armar_pedido",
+        "corregir_pedido",
+        "fuera_de_catalogo",
+        "informar",
+        "read_catalogo",
+    }
+
+
+def test_las_skills_solo_mencionan_br_que_existen():
+    """CA-46: una BR mencionada se puede leer, y ninguna BR queda sin una skill que la nombre."""
+    skills = skill_service.get_skills().values()
+    existentes = {id_br for skill in skills for id_br in skill.br}
+    for skill in skills:
+        textos = [skill.instrucciones, *skill.br.values()]
+        assert set(re.findall(r"BR-\d+", " ".join(textos))) <= existentes, skill.nombre
+        for id_br in skill.br:
+            assert id_br in skill.instrucciones, f"{skill.nombre} no indica cuándo leer {id_br}"
+
+
+def test_las_skills_solo_nombran_tools_que_pueden_usar():
+    """CA-46: el LLM no recibe instrucciones de usar una tool que su skill no le habilita."""
+    skills = skill_service.get_skills()
+    for skill in skills.values():
+        permitidas = {*tool_registry.BASE_TOOLS, *skill.tools}
+        for tool in tool_registry.TOOLS:
+            if tool not in skills:  # armar_pedido es tool y skill: nombrarla puede ser la skill
+                assert f"`{tool}`" not in skill.instrucciones or tool in permitidas, (skill.nombre, tool)
+
+
+def test_skill_con_tool_inexistente_impide_arrancar(monkeypatch):
+    """CA-40."""
+    skill = skill_service.Skill(nombre="mala", cuando="x", tools=["no_existe"], instrucciones="", br={})
+    monkeypatch.setattr(tool_registry, "get_skills", lambda: {"mala": skill})
+    with pytest.raises(SkillError, match="no_existe"):
+        tool_registry.validate_skills()
+
+
+def _crear_skill(base, encabezado):
+    folder = base / "mi_skill"
+    folder.mkdir()
+    (folder / "skill.md").write_text(encabezado, encoding="utf-8")
+
+
+def test_skill_sin_encabezado_impide_arrancar(tmp_path):
+    _crear_skill(tmp_path, "sin encabezado")
+    with pytest.raises(SkillError):
+        load_skills(tmp_path)
+
+
+def test_skill_con_nombre_distinto_a_su_carpeta_impide_arrancar(tmp_path):
+    _crear_skill(tmp_path, "---\nnombre: otra\ncuando: x\ntools: [leer_br]\n---\nTexto")
+    with pytest.raises(SkillError, match="otra"):
+        load_skills(tmp_path)
+
+
+@pytest.mark.parametrize("nombre", ["../../.env", "../read_catalogo", "/etc/passwd", "read_catalogo/skill.md"])
+def test_leer_skill_no_lee_rutas(nombre):
+    """CA-40: el nombre solo se compara contra el índice."""
+    with pytest.raises(ToolFailure) as error:
+        skill_tools.leer_skill(nombre)
+    assert error.value.code == "skill_inexistente"
+
+
+@pytest.mark.parametrize("id_br", ["../../.env", "BR/BR-01", "/etc/passwd"])
+def test_leer_br_no_lee_rutas(id_br):
+    """CA-40."""
+    with pytest.raises(ToolFailure) as error:
+        skill_tools.leer_br(id_br, ["read_catalogo"])
+    assert error.value.code == "br_inexistente"
+
+
+def test_leer_br_solo_de_skills_leidas():
+    assert "Falta de stock" in skill_tools.leer_br("BR-01", ["read_catalogo"])["texto"]
+    with pytest.raises(ToolFailure) as error:
+        skill_tools.leer_br("BR-01", [])
+    assert error.value.code == "br_no_permitida"
+
+
+def test_tool_no_disponible_no_se_ejecuta():
+    """CA-37."""
+    ctx = tool_registry.TurnContext(customer_id="c", channel=Channel.WEB, disponibles=list(tool_registry.BASE_TOOLS))
+    result = tool_registry.execute("armar_pedido", {}, ctx)
+    assert result["error"]["code"] == "tool_no_permitida"
+
+
+def test_argumentos_invalidos_vuelven_al_llm():
+    ctx = tool_registry.TurnContext(customer_id="c", channel=Channel.WEB, disponibles=["check_stock"])
+    result = tool_registry.execute("check_stock", {"sku": "SH-PAN-400", "quantity": 0}, ctx)
+    assert result["error"]["code"] == "argumentos_invalidos"

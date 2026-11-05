@@ -46,6 +46,12 @@ hacer en `esperado.resultado`:
 - `aclaracion`: pregunta antes de armar el borrador; `opciones` son los SKU posibles.
 - `sin_stock`: avisa que no alcanza el stock y ofrece lo disponible o una alternativa.
 - `fuera_de_catalogo`: avisa que no tiene el producto, sin inventar un SKU.
+- `informacion`: responde sin proponer nada, por ejemplo a un saludo.
+- `pedido`: registra el pedido con los `items` indicados, porque el cliente aceptó la propuesta.
+- `sin_pedido`: no registra nada, porque el cliente dudó o rechazó la propuesta.
+
+Los casos con `previo` tienen dos turnos: primero ese mensaje, que recibe una propuesta, y después `mensaje`.
+Se corren con el LLM real con `python -m internal.evaluar_agente`.
 
 Por ahora solo hay mensajes de texto; faltan ejemplos de audio e imagen.
 

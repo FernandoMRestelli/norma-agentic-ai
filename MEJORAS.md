@@ -14,12 +14,21 @@ Se actualiza al cerrar cada PR que cambie el estado o la lista.
   los pedidos se difiere hasta disponer del agente. Ver [alcance y pendientes](docs/data/fuentes.md).
 - **Flujo de trabajo**: ramas, PR, changelog, CI (lint, tests, build, secretos, reglas de PR) e imagen por release.
   Todavía no hay ninguna release publicada ni producción corriendo.
-- **Esqueletos sin implementar**: agente, tools de catálogo y stock, Google Sheets, base interna, chat y frontend
-  (devuelven `501` o `NotImplementedError`).
+- **Primer loop del agente**: grafo con LangGraph, skills y BR, y pedido por conversación en Telegram. El catálogo
+  sale de `datos_ejemplo/catalogo.csv` y el pedido queda en la base local.
+- **Esqueletos sin implementar**: Google Sheets, chat y frontend (devuelven `501` o
+  `NotImplementedError`).
 
 ## Qué mostró la evidencia
 
 Todavía no hay uso real: lo único medido son los tests.
+
+**Evaluación con Gemini (2026-11-05), incompleta:** de 14 casos de `mensajes.json`, solo 2 llegaron a evaluarse
+(`texto-varios-productos` y `cantidad-en-palabras`, ambos correctos en 3 iteraciones). El resto falló por `503` de alta
+demanda o por límite de requests del free tier, así que todavía no hay medición de cómo interpreta «dale». Esos 2 casos
+son anteriores a las skills `aclarar`, `fuera_de_catalogo`, `corregir_pedido` e `informar` y al prompt actual. Con ellos,
+una segunda corrida el mismo día no pudo evaluar ninguno de los 22 casos: el LLM falló en todos, y dos pruebas sueltas
+justo antes devolvieron `503` y `504`. Hay que repetirla con `python -m internal.evaluar_agente --pausa 30`.
 
 - Los contratos de datos rechazan lo que tienen que rechazar (borrador sin ítems, cantidades no positivas,
   mensaje de audio sin archivo) y los precios no pierden centavos (`Decimal`).
@@ -29,6 +38,9 @@ Todavía no hay uso real: lo único medido son los tests.
 ## Limitaciones conocidas
 
 - El stock sale de una planilla: se revalida al confirmar, pero Google Sheets no permite reservarlo.
+- **Tarea prioritaria:** mientras el catálogo salga de `datos_ejemplo/catalogo.csv`, ninguna orden descuenta stock.
+  Dos clientes pueden pedir las mismas unidades y las dos órdenes se crean. Hay que resolverlo al conectar el stock
+  con la base o con Google Sheet 1.
 - SQLite en `data/` alcanza para el MVP con una sola instancia; dos procesos escribiendo a la vez no.
 - No hay configuración de negocio fuera del código y del `.env`. Cuando aparezcan parámetros que no son secretos
   (por ejemplo el umbral de "poco stock" del dashboard), van en `config/` como JSON validado al arrancar,
@@ -41,6 +53,6 @@ Todavía no hay uso real: lo único medido son los tests.
    protección de ramas descrita en [CONTRIBUTING.md](CONTRIBUTING.md#protección-de-ramas).
 2. **Etapa 02, datos del negocio**: `sheets_service.get_catalog()` con gspread y búsqueda por SKU y por nombre
    aproximado en `catalog_tools`; tests con `datos_sinteticos.catalogo()` y el helper `sin_stock`.
-3. **Elegir el proveedor de LLM** e implementar `llm_client`; tests del agente con `FakeLLM` (pedido ambiguo → pide aclaración).
+3. **Elegir el proveedor de LLM** para producción; tests del agente con un modelo falso (pedido ambiguo → pide aclaración).
 4. **Base interna**: tablas de borradores y órdenes con `draft_id` único para que un reintento no duplique órdenes.
 5. **Despliegue**: definir el servidor de producción, crear `~/norma-prod` y hacer el primer despliegue con la imagen de `0.1.0`.

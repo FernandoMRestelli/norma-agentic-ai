@@ -1,5 +1,5 @@
-from backend.schemas.order_schema import Channel, IncomingMessage
-from backend.services.message_service import prepare
+from internal.schemas.order_schema import Channel, IncomingMessage
+from internal.services.message_service import prepare
 
 
 def test_prepare_text_normalizes_whitespace():

@@ -4,8 +4,8 @@ import hmac
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.config import get_settings
-from backend.main import app
+from internal.config import get_settings
+from internal.main import app
 
 client = TestClient(app)
 
@@ -55,21 +55,6 @@ def test_whatsapp_post_rejects_invalid_signature(whatsapp_settings, headers):
 def test_chat_rejects_text_message_without_text():
     response = client.post("/chat/messages", json={"customer_id": "c-1", "channel": "web", "text": "  "})
     assert response.status_code == 422
-
-
-def test_resolve_draft_requires_version():
-    """CA-14: POST /chat/drafts/{id}/confirmar requiere query param version (ge=1)."""
-    # Sin version -> 422
-    response_no_ver = client.post("/chat/drafts/d-1/confirmar")
-    assert response_no_ver.status_code == 422
-
-    # version=0 -> 422
-    response_v0 = client.post("/chat/drafts/d-1/confirmar?version=0")
-    assert response_v0.status_code == 422
-
-    # version=1 -> 501 (endpoint todavía no implementado, pero valida esquema)
-    response_valid = client.post("/chat/drafts/d-1/confirmar?version=1")
-    assert response_valid.status_code == 501
 
 
 def test_chat_rejects_insecure_media_url():

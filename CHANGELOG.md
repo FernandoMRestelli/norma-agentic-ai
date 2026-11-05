@@ -17,20 +17,29 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 - Docker: `Dockerfile` y `docker-compose.yml` para levantar la API y correr los tests sin instalar Python.
 - API con FastAPI: `/health`, endpoints del chat web y verificación del webhook de WhatsApp.
 - Contrato de datos del pedido: borrador (`OrderDraft`) separado de la orden confirmada (`Order`), con precios en `Decimal` y validación del contenido según el tipo de mensaje.
-- Contrato de datos del catálogo (`Product`, `StockCheck`) en `backend/schemas`.
+- Contrato de datos del catálogo (`Product`, `StockCheck`) en `internal/schemas`.
 - Agente Norma con interfaz de LLM neutral (proveedor a definir) e instrucciones iniciales.
 - Esqueletos de tools (catálogo, stock, borradores), servicios, Google Sheets y base interna.
 - Configuración por variables de entorno (`.env.example`) y tests iniciales.
 - Dependencias de desarrollo separadas en `requirements-dev.txt`, con cotas de versión mayor.
 - Datos de ejemplo inventados en `datos_ejemplo/`: catálogo (formato de la Sheet 1), pedidos (formato de la Sheet 2) y mensajes de clientes con el resultado esperado del agente, validados por `tests/test_datos_ejemplo.py`.
 - `Product.min_stock` y `Product.is_low_stock` para marcar productos con stock bajo en el dashboard.
-- Bot de Telegram para probar la beta entre el equipo (`python -m backend.telegram_polling` o webhook en `/webhook/telegram`) con lista blanca de usuarios, cliente de Gemini (free tier) para interpretar pedidos de texto y `python -m backend.verificar_claves`. `media_url` admite la referencia `telegram:<file_id>` solo en ese canal. Variables nuevas en `.env`: `TELEGRAM_*`, `LLM_VISION_*`; `httpx` pasa a ser dependencia de producción.
-- Función pura `interpretar_palabra_clave` en `backend/services/palabras_clave.py` para reconocer `OK`, `CONFIRMAR` y `CORREGIR` (sin tildes, mayúsculas ni espacios sobrantes), y constante `AYUDA_CONFIRMAR` para instrucciones de confirmación sin botones en WhatsApp (RF-13, CA-17, CA-18).
-- Reglas de orden en `backend/services/order_service.py`: `format_order_id` y `parse_order_id` con formato correlativo `ORD-0001`, `can_transition` para validar la máquina de estados según RF-20, y `parse_status` tolerante a mayúsculas y espacios; validación estricta de `order_id` en `Order` (RF-17, RF-20).
+- Bot de Telegram para probar la beta entre el equipo (`python -m internal.telegram_polling` o webhook en `/webhook/telegram`) con lista blanca de usuarios, cliente de Gemini (free tier) para interpretar pedidos de texto y `python -m internal.verificar_claves`. `media_url` admite la referencia `telegram:<file_id>` solo en ese canal. Variables nuevas en `.env`: `TELEGRAM_*`, `LLM_VISION_*`; `httpx` pasa a ser dependencia de producción.
+- Función pura `interpretar_palabra_clave` en `internal/services/palabras_clave.py` para reconocer `OK`, `CONFIRMAR` y `CORREGIR` (sin tildes, mayúsculas ni espacios sobrantes), y constante `AYUDA_CONFIRMAR` para instrucciones de confirmación sin botones en WhatsApp (RF-13, CA-17, CA-18).
+- Reglas de orden en `internal/services/order_service.py`: `format_order_id` y `parse_order_id` con formato correlativo `ORD-0001`, `can_transition` para validar la máquina de estados según RF-20, y `parse_status` tolerante a mayúsculas y espacios; validación estricta de `order_id` en `Order` (RF-17, RF-20).
 - Spec del MVP en `docs/spec/`: visión, arquitectura, flujos, contratos de datos, requisitos, roadmap y criterios de aceptación, más el diseño del agente (loop, estados de la conversación, tools, errores y memoria) y la forma de trabajar spec primero (SDD).
+- Spec del agente: skills y reglas de negocio (BR) guardadas en el repositorio, tools `leer_skill` y `leer_br`, permisos por skill y fases L1 y L2 del turno (RF-33, RF-34, CA-37 a CA-40). El tope pasa de 6 a 15 iteraciones por turno (D-07, RNF-12).
+- Primer loop del agente con LangGraph: `descubrir_tools`, `llm`, `tools` y `pausa`, con estado guardado en SQLite para retomar una conversación aunque el proceso se reinicie. Variable opcional nueva: `CHECKPOINT_DB`.
+- Tools `search_products`, `check_stock`, `leer_skill`, `leer_br`, `respond_to_customer` y `armar_pedido`, y skills `read_catalogo`, `aclarar`, `fuera_de_catalogo`, `corregir_pedido`, `armar_pedido` e `informar`. Por ahora el catálogo sale de `datos_ejemplo/catalogo.csv` y el pedido queda en la base local.
+- `python -m internal.evaluar_agente` corre los casos de `datos_ejemplo/mensajes.json` con el LLM real.
+- La búsqueda de productos devuelve `score`, no aproxima números y no trae productos sin parecido real (RF-07, RF-08).
 
 ### Cambiado
 
+- `OK` o `CONFIRMAR` exactos registran la propuesta vigente sin llamar al LLM, y una aceptación con condiciones («dale, pero al lunes») ya no cuenta como aceptación (RF-13, CA-18, BR-06).
+- **El cliente confirma conversando:** una respuesta como «dale» registra el pedido si acepta la propuesta vigente, y el backend solo registra lo que validó antes (RF-11, RF-13, CA-17, CA-18).
+- El agente pasa a usar LangChain: `agent/llm.py` reemplaza a `agent/llm_client.py`.
+- La carpeta `backend/` pasa a llamarse `internal/`, y los comandos cambian en consecuencia (`uvicorn internal.main:app`, `python -m internal.telegram_polling`). Las skills del agente viven en `internal/skills/<nombre>/`, con su `skill.md` y sus BR en `BR/`. `instructions.md` pasa a ser `internal/agent/system_prompt.md`, reescrito para leer skills y BR.
 - La base SQLite pasa a `data/norma.db` (antes `norma.db` en la raíz y, con Docker, el volumen `norma-data`): para conservar datos locales, moverlos a `data/`.
 - Python 3.12 como versión mínima.
 - `backend/Schema` pasa a `backend/schemas` y `test` a `tests`, según la arquitectura.
@@ -52,3 +61,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 - El webhook de WhatsApp valida la firma `X-Hub-Signature-256` de Meta (nueva variable `WHATSAPP_APP_SECRET`) y compara el token de verificación en tiempo constante.
 
 [Sin publicar]: https://github.com/FernandoMRestelli/norma-agentic-ai/compare/main...develop
+
+### Eliminado
+
+- Botones Confirmar / Corregir: el cliente confirma escribiendo en todos los canales. Salen del bot de Telegram y de la API, junto con `POST /chat/drafts/{draft_id}/{action}`.

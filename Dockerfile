@@ -17,7 +17,7 @@ COPY requirements.txt requirements-dev.txt ./
 RUN if [ "$INSTALL_DEV" = "true" ]; then pip install -r requirements-dev.txt; else pip install -r requirements.txt; fi
 
 # Todo el código va dentro de la imagen: la imagen de una release corre exactamente el código de ese tag
-COPY backend/ backend/
+COPY internal/ internal/
 COPY tests/ tests/
 COPY datos_ejemplo/ datos_ejemplo/
 COPY pytest.ini .
@@ -32,4 +32,4 @@ ENV APP_VERSION=$VERSION
 
 EXPOSE 8000
 
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "internal.main:app", "--host", "0.0.0.0", "--port", "8000"]

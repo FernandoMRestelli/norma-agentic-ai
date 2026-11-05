@@ -6,10 +6,10 @@ queda cubierto sin tocar este archivo.
 
 import pytest
 
-from backend.schemas.catalog_schema import StockCheck
-from backend.schemas.order_schema import Channel, DraftStatus, MessageType
-from backend.services.message_service import normalize_text
-from backend.services.validation_service import build_summary
+from internal.schemas.catalog_schema import StockCheck
+from internal.schemas.order_schema import Channel, DraftStatus, MessageType
+from internal.services.message_service import normalize_text
+from internal.services.validation_service import build_summary
 from tests import datos_sinteticos as ds
 
 

@@ -6,7 +6,7 @@
 
 ## 🎯 Qué estamos construyendo
 
-Un cliente envía un pedido por **texto, audio o imagen** mediante WhatsApp o chat web. Un agente interpreta el contenido, consulta catálogo, precio y disponibilidad, y prepara un **borrador**. El cliente recibe una tarjeta con **✅ Confirmar** y **✏️ Corregir**. Solo tras confirmar, la aplicación registra la orden y la incorpora al seguimiento. Norma ve el estado de pedidos y stock en un dashboard.
+Un cliente envía un pedido por **texto, audio o imagen** mediante WhatsApp o chat web. Un agente interpreta el contenido, consulta catálogo, precio y disponibilidad, y prepara un **borrador**. El cliente recibe la propuesta en el chat y responde escribiendo si la acepta o qué quiere cambiar. Solo si la acepta, la aplicación registra la orden y la incorpora al seguimiento. Norma ve el estado de pedidos y stock en un dashboard.
 
 ## 🔄 El circuito completo
 
@@ -35,16 +35,16 @@ flowchart TD
 
 | Parte | Archivos principales | Responsabilidad |
 |---|---|---|
-| **Entradas** | `backend/api/chat.py`, `whatsapp_webhook.py` | Recibir mensajes del chat o WhatsApp |
-| **Preprocesamiento** | `backend/services/message_service.py` | Preparar texto, transcribir audio y analizar imágenes |
-| **Agente** | `backend/agent/norma_agent.py`, `instructions.md`, `llm_client.py` | Entender la intención y elegir herramientas |
-| **Tools** | `backend/tools/catalog_tools.py`, `inventory_tools.py`, `order_tools.py` | Acciones controladas disponibles para el agente |
-| **Interpretación** | `backend/services/interpretation_service.py` | Convertir entradas diversas a un borrador común |
-| **Contrato de datos** | `backend/schemas/order_schema.py`, `catalog_schema.py` | Definir campos y validaciones del pedido, productos y stock |
-| **Confirmación** | `backend/services/validation_service.py` | Presentar resumen y manejar confirmación/corrección |
-| **Negocio** | `backend/services/order_service.py` | Registrar el pedido confirmado una sola vez |
-| **Google Sheets** | `backend/services/sheets_service.py` | Consultar la planilla de catálogo y escribir en la de seguimiento |
-| **Persistencia** | `backend/database/connection.py`, `models.py` | Guardar borradores, IDs, estados e historial necesario |
+| **Entradas** | `internal/api/chat.py`, `whatsapp_webhook.py` | Recibir mensajes del chat o WhatsApp |
+| **Preprocesamiento** | `internal/services/message_service.py` | Preparar texto, transcribir audio y analizar imágenes |
+| **Agente** | `internal/agent/norma_agent.py`, `graph.py`, `system_prompt.md`, `llm.py` | Entender la intención y elegir herramientas |
+| **Tools** | `internal/tools/catalog_tools.py`, `inventory_tools.py`, `order_tools.py` | Acciones controladas disponibles para el agente |
+| **Interpretación** | `internal/services/interpretation_service.py` | Convertir entradas diversas a un borrador común |
+| **Contrato de datos** | `internal/schemas/order_schema.py`, `catalog_schema.py` | Definir campos y validaciones del pedido, productos y stock |
+| **Confirmación** | `internal/services/validation_service.py` | Presentar resumen y manejar confirmación/corrección |
+| **Negocio** | `internal/services/order_service.py` | Registrar el pedido confirmado una sola vez |
+| **Google Sheets** | `internal/services/sheets_service.py` | Consultar la planilla de catálogo y escribir en la de seguimiento |
+| **Persistencia** | `internal/database/connection.py`, `models.py` | Guardar borradores, IDs, estados e historial necesario |
 | **Interfaz** | `frontend/src/Chat/`, `frontend/src/Dashboard/` | Confirmación visual del cliente y panel operativo |
 | **Pruebas** | `tests/` | Comprobar interpretación, confirmación y registro |
 | **Documentación** | `docs/` | Decisiones, diagramas y plan de trabajo |
@@ -64,11 +64,11 @@ flowchart TD
 1. El agente crea un **borrador**, no una orden final.
 2. Valida los productos contra el catálogo: **nunca inventa un SKU**.
 3. Si el producto, cantidad o presentación no está claro, pregunta.
-4. Muestra el resumen con **Confirmar** y **Corregir**.
-5. Si se corrige, vuelve a mostrar un nuevo resumen.
-6. Si se confirma, el backend **vuelve a consultar el stock**, registra una única orden con ID y la sincroniza con Google Sheets.
+4. Le propone el pedido al cliente, y el backend guarda esa propuesta validada.
+5. Si el cliente cambia algo, propone de nuevo.
+6. Si el cliente acepta («dale»), el backend **vuelve a consultar el stock**, registra una única orden con ID y la sincroniza con Google Sheets. Solo puede registrar lo propuesto.
 
-**WhatsApp:** el equivalente a la tarjeta puede ser un mensaje interactivo con botones cuando el canal y tipo de mensaje lo permitan; si no, se usa la respuesta `OK` / `CORREGIR`. El backend debe vincular la acción al borrador correcto.
+**Confirmación:** en todos los canales el cliente responde escribiendo, sin botones. Si responde exactamente `OK` o `CONFIRMAR` y hay una propuesta vigente, el backend la registra sin llamar al LLM. Cualquier otra respuesta la interpreta el agente.
 
 ## 📊 De dónde se alimenta el dashboard
 
@@ -84,7 +84,7 @@ Los indicadores de venta o margen solo se mostrarán cuando los datos requeridos
 
 ```text
 norma-agentic-ai/
-├── backend/
+├── internal/
 │   ├── main.py
 │   ├── config.py
 │   ├── api/
@@ -92,8 +92,9 @@ norma-agentic-ai/
 │   │   └── whatsapp_webhook.py
 │   ├── agent/
 │   │   ├── norma_agent.py
-│   │   ├── llm_client.py
-│   │   └── instructions.md
+│   │   ├── graph.py
+│   │   ├── llm.py
+│   │   └── system_prompt.md
 │   ├── tools/
 │   │   ├── catalog_tools.py
 │   │   ├── inventory_tools.py
@@ -151,7 +152,7 @@ norma-agentic-ai/
 ## 🔐 Reglas que protegen el sistema
 
 - Las credenciales se configuran en `.env` o mediante secretos del servidor: **nunca en GitHub**.
-- El backend verifica la confirmación; el LLM **no** decide por sí solo cuándo guardar una orden definitiva.
+- El LLM interpreta si el cliente aceptó, pero solo puede registrar lo que el backend validó y guardó como propuesta.
 - Cada confirmación usa un identificador único para evitar órdenes duplicadas en reintentos.
 - El stock de una planilla puede quedar desactualizado: durante el MVP se revalida al confirmar, pero Google Sheets **no garantiza reserva transaccional**.
 - Acceso al dashboard y modificaciones de pedidos sujetos a autenticación/permisos.

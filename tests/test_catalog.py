@@ -3,7 +3,7 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from backend.schemas.catalog_schema import Product, StockCheck
+from internal.schemas.catalog_schema import Product, StockCheck
 
 
 def test_product_rechaza_stock_negativo():

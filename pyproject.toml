@@ -9,4 +9,4 @@ extend-exclude = ["notebooks"]
 select = ["E", "F", "W", "I", "B"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["backend", "tests"]
+known-first-party = ["internal", "tests"]

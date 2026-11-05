@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from backend.schemas.catalog_schema import Product
-from backend.schemas.order_schema import IncomingMessage, Order, OrderItem
+from internal.schemas.catalog_schema import Product
+from internal.schemas.order_schema import IncomingMessage, Order, OrderItem
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "datos_ejemplo"
 
@@ -25,7 +25,7 @@ CATALOG_COLUMNS = {
 }
 ORDER_COLUMNS = ["id_orden", "fecha_hora", "cliente", "canal", "productos", "notas", "estado"]
 ORDER_LINE = re.compile(r"^(?P<quantity>\d+) x (?P<label>.+) \((?P<sku>[A-Z0-9-]+)\)$")
-EXPECTED_RESULTS = {"borrador", "aclaracion", "sin_stock", "fuera_de_catalogo"}
+EXPECTED_RESULTS = {"borrador", "aclaracion", "sin_stock", "fuera_de_catalogo", "informacion", "pedido", "sin_pedido"}
 
 
 def read_csv(name: str) -> list[dict[str, str]]:
@@ -108,8 +108,10 @@ def test_message_cases_are_consistent(case, catalog):
         assert item["sku"] in catalog
         assert item["cantidad"] > 0
 
-    if expected["resultado"] == "borrador":
+    if expected["resultado"] in ("borrador", "pedido"):
         assert expected["items"]
+    if expected["resultado"] in ("pedido", "sin_pedido"):
+        assert case.get("previo"), "Aceptar o rechazar necesita una propuesta del turno anterior"
     if expected["resultado"] == "aclaracion":
         assert len(expected["opciones"]) > 1
     if expected["resultado"] == "sin_stock":
