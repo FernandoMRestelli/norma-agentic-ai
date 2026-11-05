@@ -25,7 +25,7 @@ El agente **no maneja la conversación solo**. La conversación la conduce el ba
 Así se cumple el principio rector: **el LLM interpreta; el backend valida y registra; el cliente confirma.**
 El cliente confirma conversando: el LLM interpreta su respuesta, pero solo puede registrar lo que el backend ya
 validó y guardó como propuesta (§5). El riesgo es que interprete mal una respuesta, y se mide con los casos de
-evaluación de `datos_ejemplo/mensajes.json`.
+evaluación de `data_example/mensajes.json`.
 
 ## 2. Estados de la conversación
 
@@ -317,7 +317,7 @@ pregunta algo sobre ella, el agente responde y la vuelve a enviar con las mismas
 | `fuera_de_catalogo` | El producto no está en el catálogo (sin inventar un SKU parecido) | `aclarando` |
 | `informacion` | Saludo o consulta general | Sin cambio |
 
-Los `kind` coinciden con los resultados esperados de [`datos_ejemplo/mensajes.json`](../../datos_ejemplo/mensajes.json),
+Los `kind` coinciden con los resultados esperados de [`data_example/mensajes.json`](../../data_example/mensajes.json),
 así cada caso de ejemplo se puede verificar contra el resultado del turno (CA-08 a CA-11).
 
 #### `escalate_to_human` (terminal)
@@ -427,7 +427,7 @@ El cliente confirma conversando (RF-13). El LLM interpreta si aceptó, pero **no
 > (`sheets_synced`, RNF-04) entra con la etapa 05.
 
 > **Riesgo:** el LLM puede tomar como aceptación algo que no lo es. El mensaje final muestra qué se registró, y los
-> casos de aceptación ambigua de `datos_ejemplo/mensajes.json` miden cuánto pasa.
+> casos de aceptación ambigua de `data_example/mensajes.json` miden cuánto pasa.
 
 ## 6. Errores
 
@@ -581,10 +581,10 @@ Reemplaza al `AgentReply` actual. Es lo que devuelve `NormaAgent.handle` al orqu
 
 - **Sin red y sin LLM real** (regla de `CONTRIBUTING.md`): un modelo falso con respuestas guionadas (tool calls)
   prueba el loop, los límites, los errores y las transiciones.
-- **Tools y orquestador**: con `tests/datos_sinteticos.py` y `datos_ejemplo/catalogo.csv`, sin LLM.
+- **Tools y orquestador**: con `tests/datos_sinteticos.py` y `data_example/catalogo.csv`, sin LLM.
 - **Skills y BR**: un test carga los archivos reales y falla si una skill nombra una tool que no existe
   (CA-40). Los permisos se prueban con el modelo falso (CA-37 a CA-39).
-- **Casos de `datos_ejemplo/mensajes.json`**: cada caso es un criterio de aceptación de interpretación
+- **Casos de `data_example/mensajes.json`**: cada caso es un criterio de aceptación de interpretación
   (CA-08 a CA-11). Con el modelo falso se prueba que el orquestador produce el resultado esperado; con el LLM real se
   corren como **evaluación manual** fuera del CI (D-01), y el porcentaje de aciertos se anota en `MEJORAS.md`,
   junto con las skills y BR que leyó el agente en cada caso.

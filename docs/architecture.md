@@ -125,7 +125,7 @@ norma-agentic-ai/
 │   ├── test_invariantes.py
 │   └── test_datos_ejemplo.py
 ├── data/                     # base SQLite local, ignorada por git
-├── datos_ejemplo/            # catálogo, pedidos y mensajes inventados
+├── data_example/            # catálogo, pedidos y mensajes inventados
 ├── docs/
 │   ├── architecture.md
 │   └── roadmap.md

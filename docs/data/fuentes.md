@@ -87,7 +87,7 @@ archivos, resultados esperados ni un glosario de términos todavía no verificad
 
 Preparación de fuentes y registro documental. No implementa el conector de Drive/Sheets, la
 persistencia operativa, el agente ni pruebas de interpretación. Los datos sintéticos existentes en
-`datos_ejemplo/` y `tests/` siguen siendo la fuente de las pruebas automatizadas.
+`data_example/` y `tests/` siguen siendo la fuente de las pruebas automatizadas.
 
 ### Pendientes
 
