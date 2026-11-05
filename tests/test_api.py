@@ -4,8 +4,8 @@ import hmac
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.config import get_settings
-from backend.main import app
+from internal.config import get_settings
+from internal.main import app
 
 client = TestClient(app)
 

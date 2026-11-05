@@ -149,7 +149,7 @@ Ejemplo: el cliente pide 5 unidades y hay 3.
 | Iteración | Fase | Tool | Resultado |
 |---|---|---|---|
 | 1 | L1 | `search_products` | Encuentra el producto con stock 3 |
-| 2 | L2 | `leer_skill("resolver-faltante")` | Se habilitan sus tools y sus BR |
+| 2 | L2 | `leer_skill("read_catalogo")` | Se habilitan sus tools y sus BR |
 | 3 | L2 | `leer_br("BR-01")` | Lee cómo ofrecer lo disponible |
 | 4 | L2 | `respond_to_customer(kind="sin_stock")` | «Me quedaron 3, ¿te armo el pedido con 3?». La conversación pasa a `aclarando` |
 
@@ -300,17 +300,25 @@ skills activas. Al LLM solo se le ofrecen esas, y si pide otra recibe el error `
 ### 4.5 Skills
 
 Una **skill** es una receta para una situación: cuándo aplica, qué tools y BR puede usar el agente y cómo proceder.
-Vive en un archivo de `backend/agent/skills/`, con los permisos en un encabezado YAML y las instrucciones debajo:
+Cada skill tiene su carpeta en `internal/skills/<nombre>/`. `skill.md` lleva los permisos en un encabezado YAML
+y las instrucciones debajo, y `BR/` guarda un `.md` por cada regla que la skill puede leer:
+
+```text
+internal/skills/read_catalogo/
+├── skill.md
+└── BR/
+    └── BR-01.md
+```
 
 ```markdown
 ---
-nombre: resolver-faltante
-cuando: No alcanza el stock de alguna línea del pedido
+nombre: read_catalogo
+cuando: El cliente pide o consulta un producto
 tools: [search_products, get_product, check_stock, respond_to_customer]
-br: [BR-01]
 ---
-1. Leé BR-01 si necesitás ver cómo ofrecer lo disponible.
-2. Respondé con kind = sin_stock y el SKU en options.
+1. Buscá cada producto con `search_products`.
+2. Si pidió una cantidad, verificala con `check_stock`.
+3. Si no alcanza el stock, leé BR-01 antes de responder.
 ```
 
 Reglas:
@@ -320,25 +328,29 @@ Reglas:
   `leer_br` igual respeta las BR permitidas.
 - **Tools terminales:** solo se habilitan a través de una skill.
 - **Varias skills:** los permisos se suman dentro del turno. Por ejemplo, si `armar-pedido` recibe
-  `stock_insuficiente`, el agente lee `resolver-faltante` para responder.
+  `stock_insuficiente`, el agente lee `read_catalogo` para responder.
 - **Duración:** los permisos valen solo para el turno. Leer una skill en un turno anterior no habilita nada.
 - **Lectura opcional:** el agente decide si lee una BR. Las BR que hace cumplir el backend se aplican igual (§4.6).
-- **Validación al arrancar:** `skill_service` carga los archivos y `tool_registry` verifica que toda tool y BR
+- **BR permitidas:** son las que están en la carpeta `BR/` de la skill. No se listan en el encabezado.
+- **Validación al arrancar:** `skill_service` carga los archivos y `tool_registry` verifica que toda tool
   nombrada exista. Si algo no coincide, la aplicación no arranca.
 
 | Skill | Cuándo aplica | Tools que habilita, además de las de catálogo | BR |
 |---|---|---|---|
 | `armar-pedido` | El pedido está claro y hay stock | `create_order_draft` | BR-02 |
-| `resolver-faltante` | No alcanza el stock | `respond_to_customer` | BR-01 |
+| `read_catalogo` | El cliente pide o consulta un producto | `respond_to_customer` | BR-01 |
 | `aclarar` | Producto, presentación, tono o cantidad no claros | `respond_to_customer` | BR-03 |
 | `fuera-de-catalogo` | El producto no está en el catálogo | `respond_to_customer` | BR-04 |
 | `corregir-pedido` | El cliente cambia un borrador pendiente | `update_order_draft`, `respond_to_customer` | BR-02, BR-05 |
 | `informar` | Saludo, consulta general o «dale» sin confirmar | `respond_to_customer` | BR-06 |
 | `derivar-o-cancelar` | Pide una persona o cancela el pedido | `escalate_to_human`, `discard_order_draft` | BR-08 |
 
+Por ahora solo existe `read_catalogo`; las demás se crean de a una.
+
 ### 4.6 Reglas de negocio (BR)
 
-Una **BR** es una regla atómica con un ID fijo. Vive en un archivo de `backend/agent/reglas/` (`BR-01.md`) y cambia
+Una **BR** es una regla atómica con un ID fijo. Vive en la carpeta `BR/` de su skill
+(`internal/skills/read_catalogo/BR/BR-01.md`) y cambia
 por PR, como el código. Que el agente lea una BR **no reemplaza** su control: lo que protege datos u órdenes lo
 hace cumplir el backend, aunque el agente no la haya leído.
 
@@ -354,7 +366,7 @@ hace cumplir el backend, aunque el agente no la haya leído.
 | BR-08 | Derivar si el cliente lo pide, tras 2 fallas o tras 3 aclaraciones seguidas | LLM y backend | RF-27 |
 
 Las reglas que dependen solo del LLM, como BR-03, se controlan con la evaluación de `mensajes.json`, que registra
-qué BR leyó el agente en cada caso (§10).
+qué BR leyó el agente en cada caso (§10). Falta definir dónde va una BR que usan varias skills (D-09).
 
 ## 5. Confirmación (sin LLM)
 
@@ -411,7 +423,7 @@ mensajes del cliente (ya preprocesados), respuestas, tool calls con sus resultad
 
 **Contexto que recibe el LLM en cada iteración**, armado por `agent/context.py`:
 
-1. Las instrucciones de [`agent/instructions.md`](../../backend/agent/instructions.md), más un **índice de
+1. El system prompt de [`agent/system_prompt.md`](../../internal/agent/system_prompt.md), más un **índice de
    skills** con el `nombre` y el `cuando` de cada una, generado desde los archivos.
 2. Un bloque de **estado actual**, generado por el backend: estado de la conversación, borrador pendiente
    (líneas y versión), última pregunta hecha y opciones ofrecidas.
@@ -432,7 +444,7 @@ y las BR hasta que el agente las lee. Esas lecturas valen para su turno: quedan 
 ## 9. Organización del código
 
 ```text
-backend/
+internal/
 ├── api/
 │   ├── chat.py                  # chat web: mensajes y acciones Confirmar / Corregir
 │   ├── whatsapp_webhook.py      # webhook de Meta: firma, deduplicación, respuesta 200 rápida
@@ -443,9 +455,11 @@ backend/
 │   ├── tool_registry.py         # NUEVO: tools disponibles, esquemas y parámetros inyectados
 │   ├── context.py               # NUEVO: arma instrucciones + estado + historial para el LLM
 │   ├── llm_client.py            # interfaz neutral del LLM; una clase por proveedor (hoy GeminiClient)
-│   ├── instructions.md          # comportamiento del agente en lenguaje natural
-│   ├── skills/                  # NUEVO: una skill por archivo, con sus tools y BR permitidas
-│   └── reglas/                  # NUEVO: una BR por archivo (BR-01.md)
+│   └── system_prompt.md         # comportamiento del agente en lenguaje natural
+├── skills/                      # una carpeta por skill
+│   └── read_catalogo/
+│       ├── skill.md             # permisos e instrucciones
+│       └── BR/                  # un .md por BR (BR-01.md)
 ├── tools/
 │   ├── catalog_tools.py         # search_products, get_product
 │   ├── inventory_tools.py       # check_stock
@@ -497,7 +511,7 @@ flowchart LR
   producción para leer el encabezado.
 - Solo `order_service` crea una `Order`; solo `sheets_service` conoce gspread; solo `llm_client` conoce el SDK
   del proveedor; solo `whatsapp_service` conoce la API de Meta.
-- Solo `telegram_service` conoce la Bot API de Telegram (`backend/telegram_polling.py` es el proceso que la
+- Solo `telegram_service` conoce la Bot API de Telegram (`internal/telegram_polling.py` es el proceso que la
   consulta en desarrollo).
 - Cambiar Google Sheets por el sistema de gestión real (v2) es reemplazar `sheets_service` sin tocar agente ni tools.
 
@@ -518,7 +532,7 @@ Reemplaza al `AgentReply` actual. Es lo que devuelve `NormaAgent.handle` al orqu
 - **Sin red y sin LLM real** (regla de `CONTRIBUTING.md`): un `FakeLLM` con respuestas guionadas (tool calls)
   prueba el loop, los límites, los errores y las transiciones.
 - **Tools y orquestador**: con `tests/datos_sinteticos.py` y `datos_ejemplo/catalogo.csv`, sin LLM.
-- **Skills y BR**: un test carga los archivos reales y falla si una skill nombra una tool o una BR que no existe
+- **Skills y BR**: un test carga los archivos reales y falla si una skill nombra una tool que no existe
   (CA-40). Los permisos se prueban con `FakeLLM` (CA-37 a CA-39).
 - **Casos de `datos_ejemplo/mensajes.json`**: cada caso es un criterio de aceptación de interpretación
   (CA-08 a CA-11). Con `FakeLLM` se prueba que el orquestador produce el resultado esperado; con el LLM real se

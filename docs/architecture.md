@@ -35,16 +35,16 @@ flowchart TD
 
 | Parte | Archivos principales | Responsabilidad |
 |---|---|---|
-| **Entradas** | `backend/api/chat.py`, `whatsapp_webhook.py` | Recibir mensajes del chat o WhatsApp |
-| **Preprocesamiento** | `backend/services/message_service.py` | Preparar texto, transcribir audio y analizar imágenes |
-| **Agente** | `backend/agent/norma_agent.py`, `instructions.md`, `llm_client.py` | Entender la intención y elegir herramientas |
-| **Tools** | `backend/tools/catalog_tools.py`, `inventory_tools.py`, `order_tools.py` | Acciones controladas disponibles para el agente |
-| **Interpretación** | `backend/services/interpretation_service.py` | Convertir entradas diversas a un borrador común |
-| **Contrato de datos** | `backend/schemas/order_schema.py`, `catalog_schema.py` | Definir campos y validaciones del pedido, productos y stock |
-| **Confirmación** | `backend/services/validation_service.py` | Presentar resumen y manejar confirmación/corrección |
-| **Negocio** | `backend/services/order_service.py` | Registrar el pedido confirmado una sola vez |
-| **Google Sheets** | `backend/services/sheets_service.py` | Consultar la planilla de catálogo y escribir en la de seguimiento |
-| **Persistencia** | `backend/database/connection.py`, `models.py` | Guardar borradores, IDs, estados e historial necesario |
+| **Entradas** | `internal/api/chat.py`, `whatsapp_webhook.py` | Recibir mensajes del chat o WhatsApp |
+| **Preprocesamiento** | `internal/services/message_service.py` | Preparar texto, transcribir audio y analizar imágenes |
+| **Agente** | `internal/agent/norma_agent.py`, `system_prompt.md`, `llm_client.py` | Entender la intención y elegir herramientas |
+| **Tools** | `internal/tools/catalog_tools.py`, `inventory_tools.py`, `order_tools.py` | Acciones controladas disponibles para el agente |
+| **Interpretación** | `internal/services/interpretation_service.py` | Convertir entradas diversas a un borrador común |
+| **Contrato de datos** | `internal/schemas/order_schema.py`, `catalog_schema.py` | Definir campos y validaciones del pedido, productos y stock |
+| **Confirmación** | `internal/services/validation_service.py` | Presentar resumen y manejar confirmación/corrección |
+| **Negocio** | `internal/services/order_service.py` | Registrar el pedido confirmado una sola vez |
+| **Google Sheets** | `internal/services/sheets_service.py` | Consultar la planilla de catálogo y escribir en la de seguimiento |
+| **Persistencia** | `internal/database/connection.py`, `models.py` | Guardar borradores, IDs, estados e historial necesario |
 | **Interfaz** | `frontend/src/Chat/`, `frontend/src/Dashboard/` | Confirmación visual del cliente y panel operativo |
 | **Pruebas** | `tests/` | Comprobar interpretación, confirmación y registro |
 | **Documentación** | `docs/` | Decisiones, diagramas y plan de trabajo |
@@ -84,7 +84,7 @@ Los indicadores de venta o margen solo se mostrarán cuando los datos requeridos
 
 ```text
 norma-agentic-ai/
-├── backend/
+├── internal/
 │   ├── main.py
 │   ├── config.py
 │   ├── api/
@@ -93,7 +93,7 @@ norma-agentic-ai/
 │   ├── agent/
 │   │   ├── norma_agent.py
 │   │   ├── llm_client.py
-│   │   └── instructions.md
+│   │   └── system_prompt.md
 │   ├── tools/
 │   │   ├── catalog_tools.py
 │   │   ├── inventory_tools.py

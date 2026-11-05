@@ -6,8 +6,8 @@ Con semilla fija: un test que falla vuelve a fallar igual, en local y en el CI.
 import random
 from decimal import Decimal
 
-from backend.schemas.catalog_schema import Product
-from backend.schemas.order_schema import Channel, IncomingMessage, MessageType, OrderDraft, OrderItem
+from internal.schemas.catalog_schema import Product
+from internal.schemas.order_schema import Channel, IncomingMessage, MessageType, OrderDraft, OrderItem
 
 SEMILLA = 20261029
 

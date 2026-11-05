@@ -15,12 +15,12 @@ services:
       # Fija la base dentro del directorio montado aunque un .env viejo apunte a otro lado
       DATABASE_URL: sqlite:////app/data/norma.db
     volumes:
-      - ./backend:/app/backend
+      - ./internal:/app/internal
       - ./tests:/app/tests
       - ./datos_ejemplo:/app/datos_ejemplo:ro
       - ./credentials:/app/credentials:ro
       - ./data:/app/data
-    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn internal.main:app --host 0.0.0.0 --port 8000 --reload
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
@@ -39,9 +39,9 @@ services:
     environment:
       DATABASE_URL: sqlite:////app/data/norma.db
     volumes:
-      - ./backend:/app/backend
+      - ./internal:/app/internal
       - ./datos_ejemplo:/app/datos_ejemplo:ro
       - ./credentials:/app/credentials:ro
       - ./data:/app/data
-    command: python -m backend.telegram_polling
+    command: python -m internal.telegram_polling
     restart: unless-stopped

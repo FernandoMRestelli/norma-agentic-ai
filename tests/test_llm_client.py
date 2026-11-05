@@ -3,8 +3,8 @@ import json
 import httpx
 import pytest
 
-from backend.agent.llm_client import GeminiClient, LLMError, ToolCall, get_llm_client
-from backend.config import get_settings
+from internal.agent.llm_client import GeminiClient, LLMError, ToolCall, get_llm_client
+from internal.config import get_settings
 
 SEARCH_TOOL = {
     "name": "search_products",

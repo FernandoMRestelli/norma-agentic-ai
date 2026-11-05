@@ -44,7 +44,7 @@ flowchart LR
     S -->|sendMessage / botones| T
 ```
 
-- **Polling** (`python -m backend.telegram_polling`): para desarrollo y la beta. No necesita URL pública. Al
+- **Polling** (`python -m internal.telegram_polling`): para desarrollo y la beta. No necesita URL pública. Al
   arrancar borra el webhook, porque Telegram no entrega updates por `getUpdates` si hay uno configurado.
   **Un solo proceso por token**: si dos corren el polling con el mismo bot, Telegram responde `409 Conflict`.
   Por eso hay dos tipos de bot (§3.5).

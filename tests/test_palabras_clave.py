@@ -1,7 +1,7 @@
 import pytest
 
-from backend.schemas.order_schema import ConfirmationAction
-from backend.services.palabras_clave import AYUDA_CONFIRMAR, interpretar_palabra_clave
+from internal.schemas.order_schema import ConfirmationAction
+from internal.services.palabras_clave import AYUDA_CONFIRMAR, interpretar_palabra_clave
 
 
 @pytest.mark.parametrize(

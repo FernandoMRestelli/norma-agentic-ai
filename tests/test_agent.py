@@ -1,5 +1,5 @@
-from backend.agent.llm_client import LLMResponse
-from backend.agent.norma_agent import NormaAgent
+from internal.agent.llm_client import LLMResponse
+from internal.agent.norma_agent import NormaAgent
 
 
 class FakeLLM:
@@ -12,9 +12,9 @@ class FakeLLM:
         return self.response
 
 
-def test_agent_loads_instructions():
+def test_agent_loads_system_prompt():
     agent = NormaAgent(FakeLLM(LLMResponse(text="hola")))
-    assert "Nunca inventes un SKU" in agent.instructions
+    assert "Nunca inventes un SKU" in agent.system_prompt
 
 
 # TODO: con FakeLLM, verificar que el agente pide aclaración ante productos ambiguos

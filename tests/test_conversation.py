@@ -1,7 +1,7 @@
 import pytest
 
-from backend.schemas.order_schema import Channel, IncomingMessage, MessageType
-from backend.services import conversation_service
+from internal.schemas.order_schema import Channel, IncomingMessage, MessageType
+from internal.services import conversation_service
 
 
 @pytest.mark.parametrize("tipo", [MessageType.AUDIO, MessageType.IMAGE])

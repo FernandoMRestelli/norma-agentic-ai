@@ -2,12 +2,12 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.config import get_settings
-from backend.main import app
-from backend.schemas.conversation_schema import ChannelReply
-from backend.schemas.order_schema import Channel, ConfirmationAction, MessageType
-from backend.services import conversation_service, telegram_service
-from backend.services.telegram_service import TelegramClient, TelegramError, parse_update
+from internal.config import get_settings
+from internal.main import app
+from internal.schemas.conversation_schema import ChannelReply
+from internal.schemas.order_schema import Channel, ConfirmationAction, MessageType
+from internal.services import conversation_service, telegram_service
+from internal.services.telegram_service import TelegramClient, TelegramError, parse_update
 
 USUARIO = 111
 INTRUSO = 999

@@ -5,8 +5,8 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from backend.schemas.catalog_schema import StockCheck
-from backend.schemas.order_schema import (
+from internal.schemas.catalog_schema import StockCheck
+from internal.schemas.order_schema import (
     MAX_QUANTITY,
     Channel,
     IncomingMessage,
@@ -15,7 +15,7 @@ from backend.schemas.order_schema import (
     OrderDraft,
     OrderItem,
 )
-from backend.services.validation_service import build_summary
+from internal.services.validation_service import build_summary
 
 
 def make_draft(**overrides) -> OrderDraft:

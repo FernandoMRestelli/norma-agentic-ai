@@ -205,7 +205,7 @@ El diseño detallado del agente, el orquestador y la organización del código e
 | Preprocesamiento | `services/message_service.py` | Normalizar texto, transcribir audio, leer imágenes | Decidir productos |
 | Agente | `agent/` | Loop LLM ↔ tools de un turno | Confirmar ni registrar órdenes |
 | Tools | `tools/` | Acciones controladas con contratos ([agente §4](agente.md#4-tools)) | Llamar al LLM |
-| Skills y BR | `agent/skills/`, `agent/reglas/`, `services/skill_service.py` (nuevos) | Recetas y reglas que el agente lee, y permisos por skill | Reemplazar los controles del backend |
+| Skills y BR | `skills/`, `services/skill_service.py` (nuevo) | Recetas y reglas que el agente lee, y permisos por skill | Reemplazar los controles del backend |
 | Interpretación | `services/interpretation_service.py` | Completar y validar líneas contra el catálogo | Elegir productos |
 | Confirmación | `services/validation_service.py` | Resumen del borrador | Crear órdenes |
 | Negocio | `services/order_service.py` | Confirmar: revalidar stock y crear la orden una sola vez | — |
@@ -296,7 +296,7 @@ crea la orden en una transacción, responde con el número de orden y agrega la 
 
 ## 5. Contratos de datos
 
-Los modelos viven en `backend/schemas/`. Los cambios marcados **(nuevo)** o **(cambia)** son parte del MVP y entran
+Los modelos viven en `internal/schemas/`. Los cambios marcados **(nuevo)** o **(cambia)** son parte del MVP y entran
 con la etapa que los usa ([§8](#8-roadmap-por-fases)).
 
 ### 5.1 Mensaje entrante: `IncomingMessage`
@@ -548,9 +548,9 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-12 | Una tool de borrador | El LLM pide un SKU que no existe o una cantidad sin stock | La tool devuelve `sku_inexistente` / `stock_insuficiente` y no se guarda nada | RF-08, RF-10 | pendiente |
 | CA-20 | Un `FakeLLM` que nunca llama a una tool terminal | Corre un turno | Se corta a las 15 iteraciones con mensaje fijo y la conversación suma una falla | RNF-12 | pendiente |
 | CA-37 | Un turno sin skills activas | El LLM pide `create_order_draft` | Recibe `tool_no_permitida` y no se guarda nada | RF-34 | pendiente |
-| CA-38 | Un turno en el que se leyó `armar-pedido` y después `resolver-faltante` | Se calculan las tools de la iteración siguiente | Se ofrecen las tools de base y las de las dos skills | RF-33, RF-34 | pendiente |
+| CA-38 | Un turno en el que se leyó `armar-pedido` y después `read_catalogo` | Se calculan las tools de la iteración siguiente | Se ofrecen las tools de base y las de las dos skills | RF-33, RF-34 | pendiente |
 | CA-39 | Un turno anterior leyó una skill | Empieza un turno nuevo | Solo se ofrecen las tools de base; `leer_br` con una BR de esa skill devuelve `br_no_permitida` | RF-34 | pendiente |
-| CA-40 | Los archivos de `agent/skills/` y `agent/reglas/` | Se cargan, o se pide `leer_skill` o `leer_br` con `../../.env` | Una skill que nombra una tool o BR inexistente impide arrancar; la ruta devuelve `skill_inexistente` o `br_inexistente` sin leer ningún archivo | RF-33, RF-34 | pendiente |
+| CA-40 | Los archivos de `internal/skills/` | Se cargan, o se pide `leer_skill` o `leer_br` con `../../.env` | Una skill que nombra una tool inexistente impide arrancar; la ruta devuelve `skill_inexistente` o `br_inexistente` sin leer ningún archivo | RF-33, RF-34 | pendiente |
 | CA-27 | Los archivos de `datos_ejemplo/` | Se validan contra los esquemas | Columnas correctas, SKU únicos, casos coherentes con el catálogo | RF-07 | `test_datos_ejemplo.py` |
 | CA-29 | El catálogo de ejemplo | Se busca «shampoo pantene 400», «Shampoo Pantene 400ML» y «shampo pantne 400» | `SH-PAN-400` aparece primero en los tres casos | RF-07 | pendiente |
 
@@ -605,6 +605,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | D-06 | Dónde se cambia el estado de una orden | Tomada en esta spec, a revisar | En el MVP el equipo lo cambia en Sheet 2 y el dashboard lo lee de ahí; la base guarda la orden y su estado inicial |
 | D-07 | Parámetros del agente | Tomada en esta spec, a revisar | 15 iteraciones por turno, 20 mensajes de historial, 24 h de vencimiento y de silencio tras derivar, 2 fallas o 3 aclaraciones para derivar, 30 s de timeout, caché de 5 min; se ajustan con uso real |
 | D-08 | Retención de conversaciones | **Abierta** | Propuesta: 90 días |
+| D-09 | BR usadas por varias skills | **Abierta** | Cada skill guarda sus BR en su carpeta, así que una regla compartida (hoy BR-02) quedaría copiada. Propuesta: `internal/skills/_compartidas/BR/` solo para esos casos |
 
 ### 10.2 Riesgos
 
@@ -623,5 +624,5 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 
 - [Spec del agente](agente.md) · [Canal Telegram para la beta](canal-telegram.md) · [Plantilla de spec](_plantilla.md)
 - [Plan de Fernando (imagen)](../Flujo%20completo%20de%20Norma%20Agentic%20AI.png) · [Arquitectura](../architecture.md) · [Roadmap](../roadmap.md)
-- [Datos de ejemplo](../../datos_ejemplo/README.md) · [`backend/schemas/`](../../backend/schemas/)
+- [Datos de ejemplo](../../datos_ejemplo/README.md) · [`internal/schemas/`](../../internal/schemas/)
 - [Cómo trabajamos](../../CONTRIBUTING.md) · [Mejoras](../../MEJORAS.md) · [Changelog](../../CHANGELOG.md)

@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from backend.schemas.catalog_schema import Product
-from backend.schemas.order_schema import IncomingMessage, Order, OrderItem
+from internal.schemas.catalog_schema import Product
+from internal.schemas.order_schema import IncomingMessage, Order, OrderItem
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "datos_ejemplo"
 

@@ -1,8 +1,8 @@
 import pytest
 from pydantic import ValidationError
 
-from backend.schemas.order_schema import Order, OrderStatus
-from backend.services.order_service import (
+from internal.schemas.order_schema import Order, OrderStatus
+from internal.services.order_service import (
     can_transition,
     format_order_id,
     parse_order_id,
@@ -129,7 +129,7 @@ def test_order_model_valida_order_id():
     """RF-17: Order rechaza un order_id mal formado al instanciarse."""
     from datetime import datetime
 
-    from backend.schemas.order_schema import Channel, OrderItem
+    from internal.schemas.order_schema import Channel, OrderItem
 
     item = OrderItem(sku="SH-400", product_name="Pantene", quantity=1)
 

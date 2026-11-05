@@ -33,7 +33,7 @@ docker compose up --build
 ```
 
 La API queda en http://localhost:8000 (documentación interactiva en http://localhost:8000/docs).
-El código de `backend/` está montado en el contenedor, así que los cambios se recargan solos.
+El código de `internal/` está montado en el contenedor, así que los cambios se recargan solos.
 
 Correr los tests:
 
@@ -53,7 +53,7 @@ Requiere **Python 3.12 o superior** (en macOS: `brew install python@3.12`).
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
-uvicorn backend.main:app --reload
+uvicorn internal.main:app --reload
 ruff check .
 python -m pytest -q
 ```
@@ -85,13 +85,13 @@ por token y responde `409 Conflict` al segundo.
 3. Verificar las claves (no las muestra):
 
    ```bash
-   python -m backend.verificar_claves     # o: docker compose run --rm api python -m backend.verificar_claves
+   python -m internal.verificar_claves     # o: docker compose run --rm api python -m internal.verificar_claves
    ```
 
 4. Levantar el bot:
 
    ```bash
-   python -m backend.telegram_polling     # o: docker compose --profile bot up bot
+   python -m internal.telegram_polling     # o: docker compose --profile bot up bot
    ```
 
 5. **Lista blanca**: escribile a tu bot, que te responde con tu id. Ponelo en `TELEGRAM_ALLOWED_USER_IDS` y reiniciá
@@ -114,16 +114,17 @@ El detalle de cada pieza está en [docs/architecture.md](docs/architecture.md).
 
 | Archivo o carpeta | Rol |
 |---|---|
-| `backend/main.py` | App FastAPI y rutas; la versión sale de `APP_VERSION`, que fija la imagen de cada release |
-| `backend/config.py` | Configuración y secretos por variables de entorno (`.env`) |
-| `backend/api/` | Entradas: chat web, webhook de WhatsApp y webhook de Telegram |
-| `backend/agent/` | Agente Norma, sus instrucciones e interfaz neutral del LLM (con el cliente de Gemini) |
-| `backend/tools/` | Acciones que el agente puede usar (catálogo, stock, borradores) |
-| `backend/services/` | Orquestador, preprocesamiento, interpretación, confirmación, órdenes, Google Sheets y Telegram |
-| `backend/telegram_polling.py` | Bot de Telegram por polling, para desarrollo y la beta |
-| `backend/verificar_claves.py` | Prueba las claves de Telegram y del LLM sin mostrarlas |
-| `backend/schemas/` | Contratos de datos: pedido (borrador vs. orden) y catálogo |
-| `backend/database/` | Base interna (SQLite en `data/`) |
+| `internal/main.py` | App FastAPI y rutas; la versión sale de `APP_VERSION`, que fija la imagen de cada release |
+| `internal/config.py` | Configuración y secretos por variables de entorno (`.env`) |
+| `internal/api/` | Entradas: chat web, webhook de WhatsApp y webhook de Telegram |
+| `internal/agent/` | Agente Norma, sus instrucciones e interfaz neutral del LLM (con el cliente de Gemini) |
+| `internal/skills/` | Skills del agente: cada una con su `skill.md` y sus BR |
+| `internal/tools/` | Acciones que el agente puede usar (catálogo, stock, borradores) |
+| `internal/services/` | Orquestador, preprocesamiento, interpretación, confirmación, órdenes, Google Sheets y Telegram |
+| `internal/telegram_polling.py` | Bot de Telegram por polling, para desarrollo y la beta |
+| `internal/verificar_claves.py` | Prueba las claves de Telegram y del LLM sin mostrarlas |
+| `internal/schemas/` | Contratos de datos: pedido (borrador vs. orden) y catálogo |
+| `internal/database/` | Base interna (SQLite en `data/`) |
 | `frontend/src/` | Chat (tarjeta Confirmar / Corregir) y Dashboard |
 | `tests/conftest.py` | Aísla los tests: sin `.env`, base temporal y sin red |
 | `tests/datos_sinteticos.py` | Catálogos, mensajes y borradores deterministas para los tests |
