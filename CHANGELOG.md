@@ -26,6 +26,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 - `Product.min_stock` y `Product.is_low_stock` para marcar productos con stock bajo en el dashboard.
 - Bot de Telegram para probar la beta entre el equipo (`python -m backend.telegram_polling` o webhook en `/webhook/telegram`) con lista blanca de usuarios, cliente de Gemini (free tier) para interpretar pedidos de texto y `python -m backend.verificar_claves`. `media_url` admite la referencia `telegram:<file_id>` solo en ese canal. Variables nuevas en `.env`: `TELEGRAM_*`, `LLM_VISION_*`; `httpx` pasa a ser dependencia de producción.
 - Función pura `interpretar_palabra_clave` en `backend/services/palabras_clave.py` para reconocer `OK`, `CONFIRMAR` y `CORREGIR` (sin tildes, mayúsculas ni espacios sobrantes), y constante `AYUDA_CONFIRMAR` para instrucciones de confirmación sin botones en WhatsApp (RF-13, CA-17, CA-18).
+- Reglas de orden en `backend/services/order_service.py`: `format_order_id` y `parse_order_id` con formato correlativo `ORD-0001`, `can_transition` para validar la máquina de estados según RF-20, y `parse_status` tolerante a mayúsculas y espacios; validación estricta de `order_id` en `Order` (RF-17, RF-20).
 - Spec del MVP en `docs/spec/`: visión, arquitectura, flujos, contratos de datos, requisitos, roadmap y criterios de aceptación, más el diseño del agente (loop, estados de la conversación, tools, errores y memoria) y la forma de trabajar spec primero (SDD).
 
 ### Cambiado

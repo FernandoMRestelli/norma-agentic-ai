@@ -190,3 +190,11 @@ class Order(BaseModel):
     notes: str | None = None
     status: OrderStatus = OrderStatus.RECEIVED
     sheets_synced: bool = False
+
+    @field_validator("order_id")
+    @classmethod
+    def validate_order_id_format(cls, v: str) -> str:
+        from backend.services.order_service import parse_order_id
+
+        parse_order_id(v)
+        return v
