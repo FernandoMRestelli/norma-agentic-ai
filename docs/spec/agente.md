@@ -19,6 +19,7 @@ El agente **no maneja la conversación solo**. La conversación la conduce el ba
 | Completar nombre, presentación y precio desde el catálogo | Las cantidades y el SKU de cada línea |
 | El texto del resumen con **Confirmar / Corregir** | Si el cliente quiere cancelar o hablar con una persona |
 | Límites, reintentos, vencimientos y derivación por fallas | El texto de las preguntas y avisos al cliente |
+| Qué tools y BR permite cada skill | Qué skill y qué BR leer en cada turno |
 
 Así se cumple el principio rector: **el LLM interpreta; el backend valida y registra; el cliente confirma.**
 
@@ -105,8 +106,8 @@ sequenceDiagram
     O->>M: prepare(mensaje)
     M-->>O: texto (+ origen: texto / audio / imagen)
     O->>A: handle(contexto del turno)
-    loop hasta una tool terminal (máx. 6 iteraciones)
-        A->>L: instrucciones + contexto + historial + tools
+    loop hasta una tool terminal (máx. 15 iteraciones)
+        A->>L: instrucciones + contexto + historial + tools permitidas
         L-->>A: tool calls
         A->>T: ejecutar con contexto inyectado
         T-->>A: resultado u error estructurado
@@ -120,7 +121,7 @@ sequenceDiagram
 Reglas del loop:
 
 1. **Cada turno termina con exactamente una tool terminal** (§4.2). Ese resultado decide la transición de estado.
-2. **Máximo 6 iteraciones** LLM ↔ tools por turno (D-07). Si se alcanza sin tool terminal, el turno termina con
+2. **Máximo 15 iteraciones** LLM ↔ tools por turno (D-07). Si se alcanza sin tool terminal, el turno termina con
    un mensaje fijo de disculpa y suma una falla a la conversación (§6).
 3. Si el LLM responde **solo texto** sin llamar a una tool terminal, se trata como
    `respond_to_customer(kind="informacion")` y queda registrado como advertencia.
@@ -130,6 +131,34 @@ Reglas del loop:
    a partir del borrador validado (RF-11).
 6. Los turnos de una misma conversación se procesan **de a uno** (lock por `(customer_id, channel)`). Un mensaje
    que llega durante un turno espera a que termine (RNF-05).
+7. Cada turno empieza **sin skills activas**. Las tools que no son de base se habilitan al leer la skill que las
+   permite (§4.5).
+
+### 3.1 Fases del turno: L1 y L2
+
+L1 y L2 son fases de **un mismo loop**, no dos agentes ni dos prompts. Comparten el tope de iteraciones y el
+historial del turno.
+
+| Fase | Qué hace | Tools típicas | Termina cuando |
+|---|---|---|---|
+| **L1 · Entender** | Junta los datos que necesita, sin decidir todavía | `search_products`, `get_product`, `check_stock` | Sabe qué pidió el cliente y qué hay en el catálogo |
+| **L2 · Decidir** | Elige la skill, lee las BR que necesite y cierra el turno | `leer_skill`, `leer_br` y una tool terminal | Una tool terminal tiene éxito |
+
+Ejemplo: el cliente pide 5 unidades y hay 3.
+
+| Iteración | Fase | Tool | Resultado |
+|---|---|---|---|
+| 1 | L1 | `search_products` | Encuentra el producto con stock 3 |
+| 2 | L2 | `leer_skill("resolver-faltante")` | Se habilitan sus tools y sus BR |
+| 3 | L2 | `leer_br("BR-01")` | Lee cómo ofrecer lo disponible |
+| 4 | L2 | `respond_to_customer(kind="sin_stock")` | «Me quedaron 3, ¿te armo el pedido con 3?». La conversación pasa a `aclarando` |
+
+Si el cliente acepta, el turno siguiente lee `armar-pedido` y termina en `create_order_draft` con 3 unidades. La
+respuesta a esa pregunta **no confirma nada**: el cliente todavía tiene que confirmar el borrador (§5).
+
+> **Riesgo:** cada lectura suma una llamada al LLM, con todo el contexto. Hay que medir que el camino normal cumpla
+> el p95 de 10 s (RNF-06). Un turno que agota el tope puede tardar varios minutos con la conversación bloqueada
+> (15 llamadas de hasta 30 s), y en el free tier de Gemini consume 15 requests (D-07).
 
 ## 4. Tools
 
@@ -153,6 +182,8 @@ Las tools reciben dos tipos de parámetros:
 | `search_products` | Lectura | `tools/catalog_tools.py` | Buscar candidatos por nombre, marca o presentación |
 | `get_product` | Lectura | `tools/catalog_tools.py` | Ver un producto por SKU |
 | `check_stock` | Lectura | `tools/inventory_tools.py` | Saber si alcanza el stock para una cantidad |
+| `leer_skill` | Lectura | `tools/skill_tools.py` | Leer una skill y habilitar sus tools y BR (§4.5) |
+| `leer_br` | Lectura | `tools/skill_tools.py` | Leer una regla de negocio permitida (§4.6) |
 | `create_order_draft` | **Terminal** | `tools/order_tools.py` | Armar el borrador cuando el pedido está claro |
 | `update_order_draft` | **Terminal** | `tools/order_tools.py` | Reemplazar las líneas del borrador tras una corrección |
 | `discard_order_draft` | **Terminal** | `tools/order_tools.py` | El cliente cancela el pedido |
@@ -169,6 +200,20 @@ Todas las tools devuelven un sobre común, para que el LLM pueda recuperarse de 
 {"ok": true, "data": { ... }}
 {"ok": false, "error": {"code": "sku_inexistente", "message": "No existe el SKU XX-000", "details": {"sku": "XX-000"}}}
 ```
+
+#### `leer_skill`
+
+Entrada `nombre: str`. Busca en el índice de skills cargado al arrancar. Salida `data`: `{nombre, instrucciones,
+tools, br}`. Desde la iteración siguiente, las tools de esa skill quedan disponibles y sus BR se pueden leer.
+Errores: `skill_inexistente`.
+
+#### `leer_br`
+
+Entrada `id: str`. Inyectado: `skills_activas`. Busca en el índice de BR cargado al arrancar. Salida `data`:
+`{id, titulo, texto}`. Errores: `br_inexistente`, `br_no_permitida` (ninguna skill leída en este turno la permite).
+
+Ninguna de las dos arma una ruta de archivo con lo que manda el LLM: el nombre o el ID solo se comparan contra el
+índice. Así, un mensaje malicioso no puede hacer que el agente lea otro archivo del sistema, como `.env`.
 
 #### `search_products`
 
@@ -249,6 +294,68 @@ descripción para el LLM, modelo pydantic de entrada (de él sale el JSON Schema
 terminal y qué parámetros se inyectan. Agregar una tool es agregar una entrada al registro, su modelo y sus tests.
 `llm_client` traduce ese formato neutral al del proveedor elegido (D-01).
 
+Antes de cada iteración, el registro calcula las tools disponibles: las **tools de base** más las que permiten las
+skills activas. Al LLM solo se le ofrecen esas, y si pide otra recibe el error `tool_no_permitida` sin ejecutarla.
+
+### 4.5 Skills
+
+Una **skill** es una receta para una situación: cuándo aplica, qué tools y BR puede usar el agente y cómo proceder.
+Vive en un archivo de `backend/agent/skills/`, con los permisos en un encabezado YAML y las instrucciones debajo:
+
+```markdown
+---
+nombre: resolver-faltante
+cuando: No alcanza el stock de alguna línea del pedido
+tools: [search_products, get_product, check_stock, respond_to_customer]
+br: [BR-01]
+---
+1. Leé BR-01 si necesitás ver cómo ofrecer lo disponible.
+2. Respondé con kind = sin_stock y el SKU en options.
+```
+
+Reglas:
+
+- **Tools de base:** `leer_skill`, `leer_br`, `search_products`, `get_product` y `check_stock` están disponibles
+  desde el inicio del turno, porque el agente necesita consultar el catálogo para saber qué skill elegir.
+  `leer_br` igual respeta las BR permitidas.
+- **Tools terminales:** solo se habilitan a través de una skill.
+- **Varias skills:** los permisos se suman dentro del turno. Por ejemplo, si `armar-pedido` recibe
+  `stock_insuficiente`, el agente lee `resolver-faltante` para responder.
+- **Duración:** los permisos valen solo para el turno. Leer una skill en un turno anterior no habilita nada.
+- **Lectura opcional:** el agente decide si lee una BR. Las BR que hace cumplir el backend se aplican igual (§4.6).
+- **Validación al arrancar:** `skill_service` carga los archivos y `tool_registry` verifica que toda tool y BR
+  nombrada exista. Si algo no coincide, la aplicación no arranca.
+
+| Skill | Cuándo aplica | Tools que habilita, además de las de catálogo | BR |
+|---|---|---|---|
+| `armar-pedido` | El pedido está claro y hay stock | `create_order_draft` | BR-02 |
+| `resolver-faltante` | No alcanza el stock | `respond_to_customer` | BR-01 |
+| `aclarar` | Producto, presentación, tono o cantidad no claros | `respond_to_customer` | BR-03 |
+| `fuera-de-catalogo` | El producto no está en el catálogo | `respond_to_customer` | BR-04 |
+| `corregir-pedido` | El cliente cambia un borrador pendiente | `update_order_draft`, `respond_to_customer` | BR-02, BR-05 |
+| `informar` | Saludo, consulta general o «dale» sin confirmar | `respond_to_customer` | BR-06 |
+| `derivar-o-cancelar` | Pide una persona o cancela el pedido | `escalate_to_human`, `discard_order_draft` | BR-08 |
+
+### 4.6 Reglas de negocio (BR)
+
+Una **BR** es una regla atómica con un ID fijo. Vive en un archivo de `backend/agent/reglas/` (`BR-01.md`) y cambia
+por PR, como el código. Que el agente lea una BR **no reemplaza** su control: lo que protege datos u órdenes lo
+hace cumplir el backend, aunque el agente no la haya leído.
+
+| ID | Regla | Quién la hace cumplir | Origen |
+|---|---|---|---|
+| BR-01 | Si no alcanza el stock, ofrecer lo disponible o una alternativa, sin armar borrador | LLM ofrece, backend bloquea con `stock_insuficiente` | RF-10 |
+| BR-02 | Nunca inventar SKU, precio ni presentación | Backend | RF-08 |
+| BR-03 | Ante una ambigüedad, hacer una sola pregunta con opciones del catálogo | LLM | RF-09 |
+| BR-04 | Si el producto no está en el catálogo, decirlo sin ofrecer un SKU inventado | LLM y backend | RF-08, RF-10 |
+| BR-05 | Una corrección actualiza el mismo borrador y sube su versión | Backend | RF-12 |
+| BR-06 | El agente no confirma: ante un «dale», recuerda cómo hacerlo | Backend (no existe esa tool) y LLM | RF-13 |
+| BR-07 | Revalidar el stock al confirmar | Backend, sin LLM. No la permite ninguna skill | RF-14 |
+| BR-08 | Derivar si el cliente lo pide, tras 2 fallas o tras 3 aclaraciones seguidas | LLM y backend | RF-27 |
+
+Las reglas que dependen solo del LLM, como BR-03, se controlan con la evaluación de `mensajes.json`, que registra
+qué BR leyó el agente en cada caso (§10).
+
 ## 5. Confirmación (sin LLM)
 
 La confirmación es **determinística** y vive en `services/order_service.py` (RF-14 a RF-18):
@@ -274,7 +381,8 @@ La confirmación es **determinística** y vive en `services/order_service.py` (R
 | Una tool devuelve `ok: false` | El error vuelve al LLM en la misma iteración para que corrija (p. ej. buscar de nuevo) | Sin cambio |
 | Argumentos que no cumplen el esquema | Error `argumentos_invalidos` al LLM, con el detalle de pydantic | Sin cambio |
 | El LLM falla o tarda más de 30 s | 1 reintento. Si vuelve a fallar: mensaje fijo «Tuve un problema, probá de nuevo en unos minutos» y +1 falla | Sin cambio |
-| Se alcanzan 6 iteraciones sin tool terminal | Mensaje fijo de disculpa y +1 falla | Sin cambio |
+| Se alcanzan 15 iteraciones sin tool terminal | Mensaje fijo de disculpa y +1 falla | Sin cambio |
+| El LLM pide una tool que su skill no permite | Error `tool_no_permitida` al LLM, sin ejecutarla | Sin cambio |
 | Audio o imagen sin texto útil (transcripción u OCR vacíos o fallidos) | Sin llamar al LLM: «No pude entender el audio / la imagen, ¿me lo escribís?» | Sin cambio |
 | Catálogo no disponible al buscar | Se usa la última copia en caché si tiene menos de 1 h; si no, `catalogo_no_disponible` | Sin cambio |
 | Catálogo no disponible al confirmar | No se confirma; «No pude verificar el stock, probá en unos minutos» | `borrador_pendiente` |
@@ -303,15 +411,18 @@ mensajes del cliente (ya preprocesados), respuestas, tool calls con sus resultad
 
 **Contexto que recibe el LLM en cada iteración**, armado por `agent/context.py`:
 
-1. Las instrucciones de [`agent/instructions.md`](../../backend/agent/instructions.md).
+1. Las instrucciones de [`agent/instructions.md`](../../backend/agent/instructions.md), más un **índice de
+   skills** con el `nombre` y el `cuando` de cada una, generado desde los archivos.
 2. Un bloque de **estado actual**, generado por el backend: estado de la conversación, borrador pendiente
    (líneas y versión), última pregunta hecha y opciones ofrecidas.
 3. Los **últimos 20 mensajes** de la conversación abierta (D-07), con el origen de cada uno
    (`texto`, `audio transcripto`, `imagen leída`) para que el agente sea más prudente con audio e imagen.
-4. Las tools disponibles.
+4. Las tools disponibles en esa iteración (§4.4).
 
 **No van al contexto:** el catálogo completo (se consulta con las tools, porque el real puede tener miles de
-productos), conversaciones anteriores del cliente ni datos de otros clientes.
+productos), conversaciones anteriores del cliente ni datos de otros clientes. Tampoco el texto de las skills
+y las BR hasta que el agente las lee. Esas lecturas valen para su turno: quedan guardadas para reconstruirlo
+(RNF-07), pero no se reenvían en los turnos siguientes ni ocupan lugar en el historial de 20 mensajes.
 
 **Memoria de largo plazo:** no hay en el MVP. «Lo mismo que la otra vez» o un perfil del cliente quedan para v2.
 
@@ -332,11 +443,14 @@ backend/
 │   ├── tool_registry.py         # NUEVO: tools disponibles, esquemas y parámetros inyectados
 │   ├── context.py               # NUEVO: arma instrucciones + estado + historial para el LLM
 │   ├── llm_client.py            # interfaz neutral del LLM; una clase por proveedor (hoy GeminiClient)
-│   └── instructions.md          # comportamiento del agente en lenguaje natural
+│   ├── instructions.md          # comportamiento del agente en lenguaje natural
+│   ├── skills/                  # NUEVO: una skill por archivo, con sus tools y BR permitidas
+│   └── reglas/                  # NUEVO: una BR por archivo (BR-01.md)
 ├── tools/
 │   ├── catalog_tools.py         # search_products, get_product
 │   ├── inventory_tools.py       # check_stock
 │   ├── order_tools.py           # create / update / discard_order_draft
+│   ├── skill_tools.py           # NUEVO: leer_skill, leer_br
 │   └── reply_tools.py           # NUEVO: respond_to_customer, escalate_to_human
 ├── services/
 │   ├── conversation_service.py  # NUEVO: orquestador y máquina de estados de la conversación
@@ -345,6 +459,7 @@ backend/
 │   ├── validation_service.py    # resumen del borrador con Confirmar / Corregir
 │   ├── order_service.py         # confirmación: el único lugar donde nace una Order
 │   ├── sheets_service.py        # única capa que conoce Google Sheets (con caché del catálogo)
+│   ├── skill_service.py         # NUEVO: carga skills y BR al arrancar y las sirve desde un índice
 │   ├── whatsapp_service.py      # NUEVO: enviar mensajes y botones, descargar multimedia
 │   ├── telegram_service.py      # NUEVO: Bot API de Telegram, lista blanca y traducción de updates
 │   └── dashboard_service.py     # NUEVO: indicadores, pedidos, stock y conversaciones derivadas
@@ -369,6 +484,8 @@ flowchart LR
     agent --> tool_registry --> tools
     tools --> sheets_service
     tools --> interpretation_service
+    tools --> skill_service
+    tool_registry --> skill_service
     order_service --> sheets_service
     agent --> llm_client
 ```
@@ -376,6 +493,8 @@ flowchart LR
 - `api/` solo traduce HTTP ↔ esquemas y llama al orquestador; no tiene lógica de negocio.
 - El agente no conoce el canal ni HTTP: recibe un contexto y devuelve un `AgentOutcome`.
 - Las tools no llaman al LLM y no conocen al agente.
+- Solo `skill_service` lee los archivos de skills y BR. Los lee al arrancar: `PyYAML` pasa a ser dependencia de
+  producción para leer el encabezado.
 - Solo `order_service` crea una `Order`; solo `sheets_service` conoce gspread; solo `llm_client` conoce el SDK
   del proveedor; solo `whatsapp_service` conoce la API de Meta.
 - Solo `telegram_service` conoce la Bot API de Telegram (`backend/telegram_polling.py` es el proceso que la
@@ -399,6 +518,9 @@ Reemplaza al `AgentReply` actual. Es lo que devuelve `NormaAgent.handle` al orqu
 - **Sin red y sin LLM real** (regla de `CONTRIBUTING.md`): un `FakeLLM` con respuestas guionadas (tool calls)
   prueba el loop, los límites, los errores y las transiciones.
 - **Tools y orquestador**: con `tests/datos_sinteticos.py` y `datos_ejemplo/catalogo.csv`, sin LLM.
+- **Skills y BR**: un test carga los archivos reales y falla si una skill nombra una tool o una BR que no existe
+  (CA-40). Los permisos se prueban con `FakeLLM` (CA-37 a CA-39).
 - **Casos de `datos_ejemplo/mensajes.json`**: cada caso es un criterio de aceptación de interpretación
   (CA-08 a CA-11). Con `FakeLLM` se prueba que el orquestador produce el resultado esperado; con el LLM real se
-  corren como **evaluación manual** fuera del CI (D-01), y el porcentaje de aciertos se anota en `MEJORAS.md`.
+  corren como **evaluación manual** fuera del CI (D-01), y el porcentaje de aciertos se anota en `MEJORAS.md`,
+  junto con las skills y BR que leyó el agente en cada caso.

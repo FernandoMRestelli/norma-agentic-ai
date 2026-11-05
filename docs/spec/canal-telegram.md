@@ -189,5 +189,5 @@ historial y no interpreta esos campos.
 | D-01 (parcial) | Para la beta, **Gemini free tier para texto**. Audio, imagen y el LLM de producción siguen abiertos |
 | Un bot por integrante para desarrollar y uno compartido para la beta | Evita el `409 Conflict` del polling al desarrollar en paralelo, y en la beta concentra los pedidos en una sola base, como en la operación real |
 | Deduplicación en memoria | Alcanza con una instancia y polling (el `offset` ya evita repetidos); se mueve a la base con `processed_messages` |
-| Riesgo: límites del free tier | El agente hace hasta 6 llamadas por turno (RNF-12); con tres personas probando debería alcanzar. Si no, se pasa a un modelo `flash-lite` o a pago |
+| Riesgo: límites del free tier | Un turno sin errores hace unas 4 llamadas y puede llegar a 15 (RNF-12), así que hay que medir el consumo con tres personas probando. Si no alcanza, se pasa a un modelo `flash-lite` o a pago |
 | Riesgo: datos usados por Google | Solo datos simulados en la beta |

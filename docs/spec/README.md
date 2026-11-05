@@ -145,6 +145,8 @@ orden clara para que el equipo la prepare.
 | **Interpretado ≠ confirmado** | Nada operativo se registra antes del OK del cliente |
 | **Tool** | Acción controlada que el agente puede pedir al backend |
 | **Tool terminal** | Tool que cierra el turno del agente y define el resultado |
+| **Skill** | Receta para una situación: define qué tools y BR puede usar el agente ([agente §4.5](agente.md#45-skills)) |
+| **BR** | Regla de negocio con ID fijo, guardada en el repositorio, que el agente puede leer ([agente §4.6](agente.md#46-reglas-de-negocio-br)) |
 | **SKU** | Código único de producto del catálogo |
 | **Stock bajo** | `stock < stock_minimo` según Sheet 1 |
 | **Derivar** | Pasar la conversación a una persona del equipo |
@@ -203,6 +205,7 @@ El diseño detallado del agente, el orquestador y la organización del código e
 | Preprocesamiento | `services/message_service.py` | Normalizar texto, transcribir audio, leer imágenes | Decidir productos |
 | Agente | `agent/` | Loop LLM ↔ tools de un turno | Confirmar ni registrar órdenes |
 | Tools | `tools/` | Acciones controladas con contratos ([agente §4](agente.md#4-tools)) | Llamar al LLM |
+| Skills y BR | `agent/skills/`, `agent/reglas/`, `services/skill_service.py` (nuevos) | Recetas y reglas que el agente lee, y permisos por skill | Reemplazar los controles del backend |
 | Interpretación | `services/interpretation_service.py` | Completar y validar líneas contra el catálogo | Elegir productos |
 | Confirmación | `services/validation_service.py` | Resumen del borrador | Crear órdenes |
 | Negocio | `services/order_service.py` | Confirmar: revalidar stock y crear la orden una sola vez | — |
@@ -245,8 +248,8 @@ Los flujos de la conversación (estados y eventos) están en detalle en la [spec
 1. El cliente escribe «Quiero 5 shampoo pantene 400ml y 3 tinturas koleston 6.1».
 2. La API valida el `IncomingMessage` y lo pasa al orquestador, que abre una conversación (`esperando_pedido`).
 3. `message_service` normaliza el texto.
-4. El agente busca cada producto (`search_products`), verifica stock (`check_stock`) y llama a
-   `create_order_draft` con `[{SH-PAN-400, 5}, {TIN-KOL-61, 3}]`.
+4. El agente busca cada producto (`search_products`), verifica stock (`check_stock`), lee la skill `armar-pedido`
+   (`leer_skill`) y llama a `create_order_draft` con `[{SH-PAN-400, 5}, {TIN-KOL-61, 3}]`.
 5. El backend completa nombres y precios, guarda el borrador (versión 1) y la conversación pasa a `borrador_pendiente`.
 6. El cliente ve el resumen con **Confirmar / Corregir** (RF-11).
 
@@ -419,6 +422,8 @@ Esta versión de la spec está en revisión: todo lo que no está implementado f
 | RF-08 | Toda línea de un borrador referencia un SKU existente; el sistema nunca inventa SKU, precio ni presentación | 03 | P |
 | RF-09 | Si producto, presentación, tono o cantidad son ambiguos, el agente pregunta (una pregunta por vez) ofreciendo las opciones del catálogo | 03 | P |
 | RF-10 | Si no alcanza el stock, el agente lo avisa y ofrece lo disponible o una alternativa; si el producto no está en el catálogo, lo dice | 03 | P |
+| RF-33 | El agente puede leer skills y BR guardadas en el repositorio mediante `leer_skill` y `leer_br` ([agente §4.5](agente.md#45-skills) y [§4.6](agente.md#46-reglas-de-negocio-br)) | 03 | P |
+| RF-34 | Cada skill define qué tools y BR puede usar el agente; el backend rechaza cualquier otra, y los permisos valen solo para el turno | 03 | P |
 
 ### Borrador y confirmación
 
@@ -486,7 +491,7 @@ Detalle en la [spec del canal](canal-telegram.md).
 | RNF-09 | Portabilidad | Cambiar de proveedor de LLM es agregar una clase en `llm_client`; cambiar Google Sheets por el sistema real es reemplazar `sheets_service` |
 | RNF-10 | Despliegue | Producción corre la imagen de una release; la configuración va en la imagen y cambiar un parámetro es una release ([CONTRIBUTING](../../CONTRIBUTING.md#producción)) |
 | RNF-11 | Experiencia | Español rioplatense, breve y amable; una pregunta por vez; mensajes de WhatsApp dentro de los límites del canal |
-| RNF-12 | Costo | Máximo 6 iteraciones por turno, historial acotado a 20 mensajes y catálogo fuera del contexto (D-07) |
+| RNF-12 | Costo | Máximo 15 iteraciones por turno, historial acotado a 20 mensajes y catálogo fuera del contexto (D-07) |
 | RNF-13 | Caché | El catálogo se cachea 5 min para buscar (hasta 1 h si Google no responde); la confirmación siempre lee fresco |
 | RNF-14 | Seguridad | El token del bot de Telegram y las API keys no aparecen en logs, URLs guardadas ni datos persistidos |
 
@@ -502,7 +507,7 @@ Mismas 7 etapas que [`roadmap.md`](../roadmap.md). Cerrar una etapa es una versi
 |---|---|---|---|---|---|
 | 01 · Base compartida | Todos pueden ejecutar el proyecto | — | La API levanta en los tres equipos y el CI está en verde | 0.1.0 | ✅ Completa (falta publicar la release) |
 | 02 · Datos del negocio | Consultar catálogo, precios y stock | RF-07, RNF-13 | Pasan CA-27 y CA-29 con el catálogo de ejemplo, y se consulta Sheet 1 real sin tocar código | 0.2.0 | Pendiente |
-| 03 · Agente y pedidos multimodales | Del mensaje al borrador o la pregunta | RF-01, RF-04 a RF-06, RF-08 a RF-10 | Pasan CA-06 a CA-12 y CA-20 con `FakeLLM`, y los casos de `mensajes.json` con el LLM elegido | 0.3.0 | Pendiente (bloqueada por D-01) |
+| 03 · Agente y pedidos multimodales | Del mensaje al borrador o la pregunta | RF-01, RF-04 a RF-06, RF-08 a RF-10, RF-33, RF-34 | Pasan CA-06 a CA-12, CA-20 y CA-37 a CA-40 con `FakeLLM`, y los casos de `mensajes.json` con el LLM elegido | 0.3.0 | Pendiente (bloqueada por D-01) |
 | 04 · Confirmación del cliente | Ningún pedido sin confirmación | RF-11 a RF-14, RF-16, RF-26 a RF-28 | Pasan CA-13, CA-14, CA-16, CA-17 y CA-21 a CA-23, CA-28 | 0.4.0 | Pendiente |
 | 05 · Registro y seguimiento | Pedido confirmado = trabajo operativo | RF-15, RF-17 a RF-21 | Pasan CA-15 y CA-19 | 0.5.0 | Pendiente |
 | 06 · Dashboard | Ver qué pasa en el negocio | RF-22 a RF-25 | Pasan CA-24 y CA-25 | 0.6.0 | Pendiente (bloqueada por D-02) |
@@ -541,7 +546,11 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-10 | El catálogo de ejemplo | Llega un caso con `resultado: sin_stock` | El turno termina en `sin_stock` y no se crea borrador con cantidades sin stock | RF-10 | pendiente |
 | CA-11 | El catálogo de ejemplo | Llega `fuera-de-catalogo` | El turno termina en `fuera_de_catalogo` y no aparece ningún SKU inventado | RF-08, RF-10 | pendiente |
 | CA-12 | Una tool de borrador | El LLM pide un SKU que no existe o una cantidad sin stock | La tool devuelve `sku_inexistente` / `stock_insuficiente` y no se guarda nada | RF-08, RF-10 | pendiente |
-| CA-20 | Un `FakeLLM` que nunca llama a una tool terminal | Corre un turno | Se corta a las 6 iteraciones con mensaje fijo y la conversación suma una falla | RNF-12 | pendiente |
+| CA-20 | Un `FakeLLM` que nunca llama a una tool terminal | Corre un turno | Se corta a las 15 iteraciones con mensaje fijo y la conversación suma una falla | RNF-12 | pendiente |
+| CA-37 | Un turno sin skills activas | El LLM pide `create_order_draft` | Recibe `tool_no_permitida` y no se guarda nada | RF-34 | pendiente |
+| CA-38 | Un turno en el que se leyó `armar-pedido` y después `resolver-faltante` | Se calculan las tools de la iteración siguiente | Se ofrecen las tools de base y las de las dos skills | RF-33, RF-34 | pendiente |
+| CA-39 | Un turno anterior leyó una skill | Empieza un turno nuevo | Solo se ofrecen las tools de base; `leer_br` con una BR de esa skill devuelve `br_no_permitida` | RF-34 | pendiente |
+| CA-40 | Los archivos de `agent/skills/` y `agent/reglas/` | Se cargan, o se pide `leer_skill` o `leer_br` con `../../.env` | Una skill que nombra una tool o BR inexistente impide arrancar; la ruta devuelve `skill_inexistente` o `br_inexistente` sin leer ningún archivo | RF-33, RF-34 | pendiente |
 | CA-27 | Los archivos de `datos_ejemplo/` | Se validan contra los esquemas | Columnas correctas, SKU únicos, casos coherentes con el catálogo | RF-07 | `test_datos_ejemplo.py` |
 | CA-29 | El catálogo de ejemplo | Se busca «shampoo pantene 400», «Shampoo Pantene 400ML» y «shampo pantne 400» | `SH-PAN-400` aparece primero en los tres casos | RF-07 | pendiente |
 
@@ -594,7 +603,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | D-04 | ¿El resumen muestra precios y total? | **Abierta** | Hoy no los muestra; el precio se guarda en cada línea igual |
 | D-05 | Identidad del cliente en el chat web | **Abierta** | Propuesta: un id anónimo que genera el backend y el navegador guarda; sin cuentas de usuario |
 | D-06 | Dónde se cambia el estado de una orden | Tomada en esta spec, a revisar | En el MVP el equipo lo cambia en Sheet 2 y el dashboard lo lee de ahí; la base guarda la orden y su estado inicial |
-| D-07 | Parámetros del agente | Tomada en esta spec, a revisar | 6 iteraciones por turno, 20 mensajes de historial, 24 h de vencimiento y de silencio tras derivar, 2 fallas o 3 aclaraciones para derivar, 30 s de timeout, caché de 5 min; se ajustan con uso real |
+| D-07 | Parámetros del agente | Tomada en esta spec, a revisar | 15 iteraciones por turno, 20 mensajes de historial, 24 h de vencimiento y de silencio tras derivar, 2 fallas o 3 aclaraciones para derivar, 30 s de timeout, caché de 5 min; se ajustan con uso real |
 | D-08 | Retención de conversaciones | **Abierta** | Propuesta: 90 días |
 
 ### 10.2 Riesgos
