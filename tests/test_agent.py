@@ -1,20 +1,8 @@
-from internal.agent.llm_client import LLMResponse
+from langgraph.checkpoint.memory import InMemorySaver
+
 from internal.agent.norma_agent import NormaAgent
 
 
-class FakeLLM:
-    """LLM falso para testear el agente sin llamar a ningún proveedor."""
-
-    def __init__(self, response: LLMResponse):
-        self.response = response
-
-    def chat(self, system, messages, tools=None):
-        return self.response
-
-
 def test_agent_loads_system_prompt():
-    agent = NormaAgent(FakeLLM(LLMResponse(text="hola")))
+    agent = NormaAgent(model=None, checkpointer=InMemorySaver())
     assert "Nunca inventes un SKU" in agent.system_prompt
-
-
-# TODO: con FakeLLM, verificar que el agente pide aclaración ante productos ambiguos

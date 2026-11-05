@@ -8,7 +8,7 @@ import logging
 import time
 
 from internal.config import get_settings
-from internal.services import telegram_service
+from internal.services import conversation_service, telegram_service
 
 logger = logging.getLogger("internal.telegram_polling")
 
@@ -20,6 +20,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)  # loguea cada URL, y la URL tiene el token
 
+    conversation_service.startup()
     client = telegram_service.get_client()
     bot = client.get_me()
     client.delete_webhook()  # con un webhook configurado, getUpdates no entrega nada

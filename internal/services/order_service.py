@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
 
-from internal.schemas.order_schema import OrderStatus
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
-if TYPE_CHECKING:
-    from internal.schemas.order_schema import Order
+from internal.database.connection import SessionLocal
+from internal.database.models import OrderRecord
+from internal.schemas.order_schema import Order, OrderDraft, OrderStatus
+from internal.services import sheets_service
 
 ORDER_ID_PREFIX = "ORD-"
 ORDER_ID_REGEX = re.compile(r"^ORD-(\d{4,})$")
@@ -80,11 +82,68 @@ def parse_status(valor: str) -> OrderStatus:
     return STATUS_BY_LOWER[key]
 
 
-def confirm_draft(draft_id: str) -> Order:
-    """Confirma un borrador y registra la orden UNA sola vez.
+class InsufficientStockError(Exception):
+    """El stock ya no alcanza para crear la orden. `lines` indica qué líneas faltan."""
 
-    Debe ser idempotente: si el borrador ya fue confirmado (reintento, doble click,
-    webhook repetido) devuelve la orden existente en lugar de crear otra.
-    Pasos: revalidar stock -> generar order_id -> guardar en base -> sheets_service.append_order.
+    def __init__(self, lines: list[dict]):
+        super().__init__("No alcanza el stock")
+        self.lines = lines
+
+
+def _to_order(record: OrderRecord) -> Order:
+    return Order(
+        order_id=record.order_id,
+        draft_id=record.draft_id,
+        created_at=record.created_at,
+        customer_id=record.customer_id,
+        channel=record.channel,
+        items=record.items,
+        notes=record.notes,
+        status=record.status,
+        sheets_synced=record.sheets_synced,
+    )
+
+
+def get_order(order_id: str) -> Order | None:
+    with SessionLocal() as session:
+        record = session.scalar(select(OrderRecord).where(OrderRecord.order_id == order_id))
+        return _to_order(record) if record else None
+
+
+def confirm_draft(draft: OrderDraft) -> Order:
+    """Registra la orden de un borrador UNA sola vez (RF-14, RF-15).
+
+    Es idempotente: si el borrador ya tiene orden (reintento, mensaje repetido) devuelve la existente.
+    Pasos: buscar orden existente -> revalidar stock con una lectura fresca -> guardar en la base.
     """
-    raise NotImplementedError
+    with SessionLocal() as session:
+        existing = session.scalar(select(OrderRecord).where(OrderRecord.draft_id == draft.draft_id))
+        if existing:
+            return _to_order(existing)
+
+        stock = {product.sku: product.stock for product in sheets_service.get_catalog()}
+        short = [
+            {"sku": item.sku, "requested": item.quantity, "available": stock.get(item.sku, 0)}
+            for item in draft.items
+            if item.quantity > stock.get(item.sku, 0)
+        ]
+        if short:
+            raise InsufficientStockError(short)
+
+        record = OrderRecord(
+            draft_id=draft.draft_id,
+            customer_id=draft.customer_id,
+            channel=draft.channel.value,
+            items=[item.model_dump(mode="json") for item in draft.items],
+            notes=draft.notes,
+            status=OrderStatus.RECEIVED.value,
+        )
+        session.add(record)
+        try:
+            session.flush()  # el id correlativo sale de la base
+            record.order_id = format_order_id(record.id)
+            session.commit()
+        except IntegrityError:  # otro proceso registró el mismo borrador primero
+            session.rollback()
+            return _to_order(session.scalars(select(OrderRecord).where(OrderRecord.draft_id == draft.draft_id)).one())
+        return _to_order(record)

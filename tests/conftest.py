@@ -20,6 +20,7 @@ Settings.model_config["env_file"] = None
 
 DATA_DIR = Path(tempfile.mkdtemp(prefix="norma-tests-"))
 os.environ["DATABASE_URL"] = f"sqlite:///{DATA_DIR / 'norma.db'}"
+os.environ["CHECKPOINT_DB"] = str(DATA_DIR / "checkpoints.db")
 get_settings.cache_clear()
 
 

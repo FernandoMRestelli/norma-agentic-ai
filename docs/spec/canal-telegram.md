@@ -26,7 +26,7 @@ de teléfono ni aprobación de Meta, y tiene botones nativos para **Confirmar / 
 | Bot de Telegram como canal `telegram`: recibir texto, audio y foto; responder; botones Confirmar / Corregir | Usar Telegram con clientes reales (es un canal de prueba) |
 | Recepción por long polling (local) y por webhook con secret token (servidor) | Grupos y canales de Telegram: solo chats privados |
 | Lista blanca de usuarios | Descargar audios y fotos (llega con el modelo de visión) |
-| Cliente de Gemini (free tier) detrás de `LLMClient` para texto | El loop del agente, las tools y la confirmación (etapas 03 a 05) |
+| Cliente de Gemini (free tier) con LangChain para texto | El loop del agente, las tools y la confirmación (etapas 03 a 05) |
 | Configuración separada para un modelo de visión pago, sin implementarlo | Elegir el LLM de producción (D-01 sigue abierta para eso) |
 
 ## 3. Comportamiento
@@ -127,35 +127,15 @@ Se suma `telegram` (`web | whatsapp | telegram`) en `IncomingMessage`, `OrderDra
 | `LLM_API_KEY` | Sí, para el agente | API key de Google AI Studio |
 | `LLM_VISION_PROVIDER`, `LLM_VISION_MODEL`, `LLM_VISION_API_KEY` | No | Modelo pago para audio e imagen; se leen pero todavía no se usan |
 
-### 4.3 `LLMClient` y formato neutral
+### 4.3 Modelo con LangChain
 
-`LLMClient.chat(system, messages, tools)` recibe y devuelve un formato que no depende del proveedor (RNF-09).
-Cada proveedor lo traduce en su clase.
+`agent/llm.py` crea el modelo según `LLM_PROVIDER` (RNF-09). El agente trabaja con los mensajes de LangChain y
+guarda cada `AIMessage` completo: conserva las firmas de Gemini y no hay que reconstruirlas.
 
-| Elemento | Formato neutral |
-|---|---|
-| Tool | `{"name", "description", "parameters"}`, con `parameters` en JSON Schema (sale del modelo pydantic de entrada, spec del agente §4.4) |
-| Mensaje del cliente | `{"role": "user", "content": str}` |
-| Respuesta del LLM | `{"role": "assistant", "content": str \| None, "tool_calls": [ToolCall]}` |
-| Resultado de una tool | `{"role": "tool", "tool_call_id": str \| None, "name": str, "content": dict}` (el sobre `{ok, data \| error}`) |
+**Gemini** (`ChatGoogleGenerativeAI`, `LLM_PROVIDER=gemini`):
 
-`ToolCall` suma dos campos opcionales: `id` (para emparejar el resultado con la llamada) y `signature` (dato opaco
-del proveedor que hay que devolver tal cual en el turno siguiente). El agente guarda el `ToolCall` completo en el
-historial y no interpreta esos campos.
-
-**Gemini** (`GeminiClient`, `LLM_PROVIDER=gemini`), sobre la API REST `generateContent` con `httpx`:
-
-| Neutral | Gemini |
-|---|---|
-| `system` | `systemInstruction.parts[].text` |
-| `user` / `assistant` | `contents[]` con `role` `user` / `model` |
-| Tool | `tools[].functionDeclarations[]` con `parametersJsonSchema` |
-| `ToolCall` | Part con `functionCall {id, name, args}`; `signature` ↔ `thoughtSignature` de esa misma part |
-| Resultado de una tool | Part `functionResponse {id, name, response}` con `role` `user` |
-
-- La API key va en el header `x-goog-api-key`, nunca en la URL, para que no quede en logs.
-- Timeout de 30 s (RNF-06). Un error HTTP o un timeout se convierten en `LLMError`; el reintento lo decide el
-  agente (§6 de la spec del agente).
+- Timeout de 30 s (RNF-06) y 1 reintento. Si vuelve a fallar, el grafo lo trata como una falla (§6 de la spec del
+  agente).
 - **Cuidados del free tier:** tiene límites de requests por minuto y por día por proyecto, y Google **usa** lo
   que se manda para mejorar sus productos. En la beta solo se usan datos simulados (el catálogo de
   `datos_ejemplo/` y pedidos inventados); nunca datos reales de clientes (RNF-03).
@@ -179,8 +159,8 @@ historial y no interpreta esos campos.
 | CA-32 | Un update ya procesado | Llega otra vez con el mismo `update_id` | No se procesa ni se responde de nuevo | RF-31 | `test_telegram.py::test_update_repetido_se_procesa_una_vez` |
 | CA-33 | Un integrante de la lista blanca | Manda texto, un audio o una foto | Llega como `IncomingMessage` `text`, `audio` o `image` con `media_url = telegram:<file_id>`; audio y foto reciben el pedido de escribirlo | RF-29, RF-32, RNF-14 | `test_telegram.py::test_traduce_*`, `test_conversation.py`, `test_orders.py::test_incoming_message_*telegram*` |
 | CA-34 | Una respuesta del orquestador con borrador | Se envía y el cliente toca Confirmar | El mensaje tiene los dos botones; el toque llega con el `draft_id` y la versión, se responde el `callback_query` y se sacan los botones | RF-30 | `test_telegram.py::test_borrador_con_botones_*` |
-| CA-35 | `GeminiClient` con una API falsa | Se llama con tools e historial con un `ToolCall` previo | Las tools van en `functionDeclarations`, la respuesta `functionCall` vuelve como `ToolCall` con `id` y `signature`, y en el historial vuelven como `functionCall` + `thoughtSignature` y `functionResponse` | RNF-09 | `test_llm_client.py` |
-| CA-36 | `LLM_PROVIDER` = `gemini` / vacío / otro | Se pide el cliente del LLM | `GeminiClient` / error que dice qué variable falta / error de proveedor no soportado | RNF-09 | `test_llm_client.py::test_get_llm_client_*` |
+| CA-35 | Un `AIMessage` de Gemini con tool calls | Vuelve al modelo dentro del mismo turno | Se reenvía completo, sin reconstruirlo, para conservar las firmas | RNF-09 | `test_agent_graph.py` |
+| CA-36 | `LLM_PROVIDER` = `gemini` / vacío / otro | Se pide el modelo | `ChatGoogleGenerativeAI` / error que dice qué variable falta / error de proveedor no soportado | RNF-09 | `test_llm.py` |
 
 ## 7. Decisiones y riesgos
 

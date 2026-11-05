@@ -1,22 +1,14 @@
-"""Tools de borrador que el agente puede invocar.
+"""Tool que registra el pedido. No recibe productos: solo puede crear la propuesta vigente (spec del agente §5)."""
 
-El agente solo crea o modifica BORRADORES. No existe una tool para confirmar:
-la confirmación la dispara el cliente y la procesa order_service en el backend.
-"""
-
-from internal.schemas.order_schema import Channel, OrderDraft, OrderItem
+from internal.schemas.agent_schema import ToolFailure
+from internal.schemas.order_schema import Order, OrderDraft
+from internal.services import order_service
 
 
-def create_order_draft(
-    customer_id: str, channel: Channel, items: list[OrderItem], notes: str | None = None
-) -> OrderDraft:
-    """Crea un borrador validando cada SKU contra el catálogo.
-
-    `channel` lo aporta el backend (según por dónde llegó el mensaje), no el LLM.
-    """
-    raise NotImplementedError
-
-
-def update_order_draft(draft_id: str, items: list[OrderItem], notes: str | None = None) -> OrderDraft:
-    """Reemplaza las líneas de un borrador pendiente tras una corrección del cliente."""
-    raise NotImplementedError
+def armar_pedido(vigente: OrderDraft | None) -> Order:
+    if vigente is None:
+        raise ToolFailure("sin_propuesta", "No hay ninguna propuesta vigente: proponé el pedido antes de armarlo")
+    try:
+        return order_service.confirm_draft(vigente)
+    except order_service.InsufficientStockError as exc:
+        raise ToolFailure("stock_insuficiente", "Ya no alcanza el stock: proponé de nuevo", lineas=exc.lines) from exc

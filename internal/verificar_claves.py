@@ -5,7 +5,7 @@ Llama a Telegram (getMe) y al LLM con un mensaje mínimo. No muestra ninguna cla
 
 import logging
 
-from internal.agent.llm_client import LLMError, get_llm_client
+from internal.agent.llm import get_chat_model
 from internal.config import get_settings
 from internal.services import telegram_service
 
@@ -25,12 +25,12 @@ def check_telegram() -> bool:
 
 def check_llm() -> bool:
     try:
-        response = get_llm_client().chat("Respondé solo con la palabra OK.", [{"role": "user", "content": "Hola"}])
-    except (ValueError, LLMError) as exc:
+        response = get_chat_model().invoke("Respondé solo con la palabra OK.")
+    except Exception as exc:  # cada proveedor lanza sus propios errores
         print(f"❌ LLM: {exc}")
         return False
     settings = get_settings()
-    print(f"✅ LLM: {settings.llm_provider} / {settings.llm_model} respondió «{(response.text or '').strip()}»")
+    print(f"✅ LLM: {settings.llm_provider} / {settings.llm_model} respondió «{response.text.strip()}»")
     return True
 
 

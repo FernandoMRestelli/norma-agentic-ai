@@ -53,7 +53,7 @@ flowchart LR
 
 **Meta:** evitar órdenes incorrectas.  
 **Construimos:** tarjeta con líneas, cantidades, presentación y opciones **Confirmar / Corregir**.  
-**Listo cuando:** una corrección genera un nuevo resumen y **ningún pedido se registra sin confirmación explícita**.
+**Listo cuando:** una corrección genera un nuevo resumen y **ningún pedido se registra sin que el cliente acepte la propuesta**.
 
 ### 05 · 📋 Registro y seguimiento
 

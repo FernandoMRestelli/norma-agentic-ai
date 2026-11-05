@@ -14,16 +14,23 @@ El agente **no maneja la conversación solo**. La conversación la conduce el ba
 | Lo decide el backend (determinístico) | Lo decide el LLM (dentro de un turno) |
 |---|---|
 | En qué estado está la conversación y qué eventos acepta | Qué quiso decir el cliente |
-| Confirmar un borrador y crear la orden | Qué productos buscar y cuáles coinciden |
-| Revalidar el stock al confirmar | Si hace falta preguntar algo y qué |
+| Crear la orden exactamente con lo propuesto | Qué productos buscar y cuáles coinciden |
+| Revalidar el stock al crear la orden | Si hace falta preguntar algo y qué |
+| Qué se le puede registrar al cliente: solo la propuesta vigente | Si el cliente aceptó la propuesta |
 | Completar nombre, presentación y precio desde el catálogo | Las cantidades y el SKU de cada línea |
-| El texto del resumen con **Confirmar / Corregir** | Si el cliente quiere cancelar o hablar con una persona |
+| El mensaje final con el pedido registrado | Si el cliente quiere cancelar o hablar con una persona |
 | Límites, reintentos, vencimientos y derivación por fallas | El texto de las preguntas y avisos al cliente |
 | Qué tools y BR permite cada skill | Qué skill y qué BR leer en cada turno |
 
 Así se cumple el principio rector: **el LLM interpreta; el backend valida y registra; el cliente confirma.**
+El cliente confirma conversando: el LLM interpreta su respuesta, pero solo puede registrar lo que el backend ya
+validó y guardó como propuesta (§5). El riesgo es que interprete mal una respuesta, y se mide con los casos de
+evaluación de `datos_ejemplo/mensajes.json`.
 
 ## 2. Estados de la conversación
+
+> **Primer corte:** por ahora la conversación solo se guarda como `abierta`, `cerrada` o `fallida`. Los estados
+> de esta sección, el vencimiento y la derivación se suman en etapas siguientes.
 
 Una **conversación** es el intento de armar **un** pedido de un cliente por un canal. Hay como máximo una
 conversación abierta por `(customer_id, channel)`. Cuando termina (confirmada, descartada, vencida o derivada),
@@ -74,9 +81,9 @@ stateDiagram-v2
 | Palabra clave `OK` / `CONFIRMAR` / `CORREGIR` | Texto en WhatsApp, cuando no hay botones | **No**: se trata igual que el botón |
 | Vencimiento | Tarea del backend | No |
 
-Las palabras clave se comparan sin mayúsculas, tildes ni espacios sobrantes, y **solo** se aceptan si el
-mensaje es exactamente esa palabra y la conversación está en `borrador_pendiente`. Cualquier otro texto
-(«dale, mandalo», «sí») va al agente, que **no puede confirmar**: le recuerda al cliente cómo hacerlo (RF-13).
+Con la aceptación conversacional, cualquier respuesta de texto («dale», «sí», `OK») va al agente, que decide si
+acepta la propuesta vigente (RF-13, §5). Los botones y `interpretar_palabra_clave` quedan sin usar en el primer
+corte: se van a revisar cuando se implementen las acciones por botón.
 
 ### 2.2 Qué pasa en cada estado al recibir un mensaje
 
@@ -124,11 +131,11 @@ Reglas del loop:
 2. **Máximo 15 iteraciones** LLM ↔ tools por turno (D-07). Si se alcanza sin tool terminal, el turno termina con
    un mensaje fijo de disculpa y suma una falla a la conversación (§6).
 3. Si el LLM responde **solo texto** sin llamar a una tool terminal, se trata como
-   `respond_to_customer(kind="informacion")` y queda registrado como advertencia.
+   `respond_to_customer(kind="informacion")`, descarta la propuesta y queda registrado como advertencia.
 4. Las tools de lectura se pueden llamar varias veces en un turno. Las terminales, una sola vez: la primera
    que tenga éxito cierra el turno.
-5. El texto del **resumen del borrador** no lo escribe el LLM: lo arma `validation_service.build_summary`
-   a partir del borrador validado (RF-11).
+5. El **mensaje final** con el pedido registrado no lo escribe el LLM: lo arma `validation_service` a partir
+   de la orden creada (RF-11).
 6. Los turnos de una misma conversación se procesan **de a uno** (lock por `(customer_id, channel)`). Un mensaje
    que llega durante un turno espera a que termine (RNF-05).
 7. Cada turno empieza **sin skills activas**. Las tools que no son de base se habilitan al leer la skill que las
@@ -151,14 +158,47 @@ Ejemplo: el cliente pide 5 unidades y hay 3.
 | 1 | L1 | `search_products` | Encuentra el producto con stock 3 |
 | 2 | L2 | `leer_skill("read_catalogo")` | Se habilitan sus tools y sus BR |
 | 3 | L2 | `leer_br("BR-01")` | Lee cómo ofrecer lo disponible |
-| 4 | L2 | `respond_to_customer(kind="sin_stock")` | «Me quedaron 3, ¿te armo el pedido con 3?». La conversación pasa a `aclarando` |
+| 4 | L2 | `respond_to_customer(kind="sin_stock", propuesta=[{sku, 3}])` | «Me quedaron 3, ¿te armo el pedido con 3?». El backend guarda la propuesta y el grafo pausa |
 
-Si el cliente acepta, el turno siguiente lee `armar-pedido` y termina en `create_order_draft` con 3 unidades. La
-respuesta a esa pregunta **no confirma nada**: el cliente todavía tiene que confirmar el borrador (§5).
+Si el cliente acepta, el turno siguiente lee `armar_pedido` y termina en la tool `armar_pedido`, que crea la orden
+con esas 3 unidades (§5).
 
 > **Riesgo:** cada lectura suma una llamada al LLM, con todo el contexto. Hay que medir que el camino normal cumpla
 > el p95 de 10 s (RNF-06). Un turno que agota el tope puede tardar varios minutos con la conversación bloqueada
 > (15 llamadas de hasta 30 s), y en el free tier de Gemini consume 15 requests (D-07).
+
+### 3.2 El grafo
+
+El loop se implementa con LangGraph en `agent/graph.py`, y el modelo se llama con LangChain:
+
+```mermaid
+flowchart TD
+    S([START]) --> D[descubrir_tools]
+    D -->|hay iteraciones| L[llm]
+    D -->|tope, primera falla| P[pausa]
+    D -->|tope, segunda falla| E([END])
+    L -->|tool_calls| T[tools]
+    L -->|texto o primera falla| P
+    L -->|segunda falla| E
+    T -->|continuar| D
+    T -->|pausar| P
+    T -->|final| E
+    P -->|llega otro mensaje| D
+```
+
+| Nodo | Qué hace |
+|---|---|
+| `descubrir_tools` | Calcula las tools permitidas: las de base más las de las skills leídas en el turno. Corta al llegar a 15 iteraciones |
+| `llm` | Arma el contexto (§8) y llama al modelo solo con esas tools. Guarda el `AIMessage` completo para conservar las firmas de Gemini |
+| `tools` | Rechaza lo no permitido, inyecta los datos del backend, ejecuta y guarda los resultados en el sobre común |
+| `pausa` | Devuelve el mensaje con `interrupt()` y espera. Al retomar, agrega el mensaje del cliente y reinicia iteraciones y skills |
+
+- **Persistencia:** el estado del grafo se guarda con `SqliteSaver` en `CHECKPOINT_DB`, un archivo propio dentro de
+  `data/`, con `LANGGRAPH_STRICT_MSGPACK=true`. El `thread_id` es el ID de la conversación, y una conversación
+  sigue aunque el proceso se reinicie entre dos mensajes.
+- **Salidas por `END`:** un pedido registrado cierra la conversación. Una segunda falla la marca `fallida`, y el
+  mensaje siguiente abre otra.
+- **`recursion_limit`:** es solo una red de seguridad. El tope real es el contador de 15 iteraciones.
 
 ## 4. Tools
 
@@ -171,9 +211,8 @@ Las tools reciben dos tipos de parámetros:
   `conversation_id`, `draft_id`. Así el LLM no puede registrar un pedido a nombre de otro cliente ni tocar
   otro borrador.
 
-> **Cambio respecto del esqueleto actual:** hoy `create_order_draft` recibe `customer_id`, `channel` y
-> `OrderItem` completos (con nombre y precio). Pasa a recibir solo `sku` y `quantity`; el resto lo inyecta o lo
-> completa el backend desde el catálogo.
+> La `propuesta` de `respond_to_customer` solo lleva `sku` y `quantity`. El resto lo completa el backend desde el
+> catálogo, y `armar_pedido` no recibe productos.
 
 ### 4.2 Catálogo de tools
 
@@ -184,13 +223,13 @@ Las tools reciben dos tipos de parámetros:
 | `check_stock` | Lectura | `tools/inventory_tools.py` | Saber si alcanza el stock para una cantidad |
 | `leer_skill` | Lectura | `tools/skill_tools.py` | Leer una skill y habilitar sus tools y BR (§4.5) |
 | `leer_br` | Lectura | `tools/skill_tools.py` | Leer una regla de negocio permitida (§4.6) |
-| `create_order_draft` | **Terminal** | `tools/order_tools.py` | Armar el borrador cuando el pedido está claro |
-| `update_order_draft` | **Terminal** | `tools/order_tools.py` | Reemplazar las líneas del borrador tras una corrección |
+| `armar_pedido` | **Terminal** | `tools/order_tools.py` | Registrar la propuesta vigente cuando el cliente la acepta |
 | `discard_order_draft` | **Terminal** | `tools/order_tools.py` | El cliente cancela el pedido |
-| `respond_to_customer` | **Terminal** | `tools/reply_tools.py` | Preguntar, avisar falta de stock o de producto, informar |
+| `respond_to_customer` | **Terminal** | `tools/reply_tools.py` | Preguntar, proponer un pedido, avisar falta de stock o de producto, informar |
 | `escalate_to_human` | **Terminal** | `tools/reply_tools.py` | Pasar la conversación a una persona |
 
-**No existe ninguna tool para confirmar.** Confirmar es un evento del cliente que procesa el backend (§5).
+`discard_order_draft` y `escalate_to_human` todavía no se implementan: quedan para cuando se sumen la cancelación
+explícita y la derivación.
 
 ### 4.3 Contratos
 
@@ -235,29 +274,17 @@ Entrada `sku: str`. Salida `data.product`: un `Product` completo o `null`. Error
 Entrada `sku: str`, `quantity: int > 0`. Salida `data`: un `StockCheck` (`sku`, `requested`, `available`,
 `is_enough`). Errores: `sku_inexistente`, `catalogo_no_disponible`.
 
-#### `create_order_draft` (terminal)
+#### `armar_pedido` (terminal)
 
-| Entrada | Tipo | Reglas |
-|---|---|---|
-| `items` | `list[{sku: str, quantity: int}]` | Al menos uno. `quantity > 0`. Un SKU repetido se suma en una sola línea |
-| `notes` | `str \| None` | Opcional: aclaraciones del cliente («retira a la tarde») |
-
-Inyectados: `customer_id`, `channel`, `conversation_id`.
+No recibe nada del LLM. Inyectados: `customer_id`, `channel` y la propuesta vigente.
 
 Validaciones del backend, en este orden:
 
-1. La conversación no tiene un borrador pendiente → si no, `borrador_existente` (usar `update_order_draft`).
-2. Cada SKU existe en el catálogo → si no, `sku_inexistente` con la lista de SKU inválidos.
-3. Alcanza el stock de cada línea → si no, `stock_insuficiente` con `{sku, requested, available}` por línea.
+1. Hay una propuesta vigente → si no, `sin_propuesta`.
+2. Si ya existe una orden con ese `draft_id`, la devuelve sin crear otra.
+3. Alcanza el stock de cada línea, con una lectura fresca → si no, `stock_insuficiente` y no se crea nada.
 
-Si todo pasa: completa `product_name`, `presentation` y `unit_price` desde el catálogo, guarda un `OrderDraft`
-con `version = 1` y estado `pendiente_confirmacion`, y devuelve `data = {draft, summary}`.
-La conversación pasa a `borrador_pendiente`. Resultado del turno: `borrador`.
-
-#### `update_order_draft` (terminal)
-
-Igual que `create_order_draft`, pero reemplaza **todas** las líneas del borrador pendiente (inyectado `draft_id`)
-y hace `version + 1`. Errores adicionales: `sin_borrador`. Resultado del turno: `borrador`.
+Si todo pasa, crea la orden (§5) y cierra la conversación. Resultado del turno: `pedido`.
 
 #### `discard_order_draft` (terminal)
 
@@ -271,9 +298,15 @@ Solo se usa cuando el cliente lo pide de forma explícita. Resultado del turno: 
 | `kind` | `aclaracion \| sin_stock \| fuera_de_catalogo \| informacion` | Ver tabla de abajo |
 | `message` | `str` | El texto para el cliente. No vacío, máx. 600 caracteres |
 | `options` | `list[str]` | SKU que se le ofrecen al cliente. Cada uno tiene que existir (`sku_inexistente` si no) |
+| `propuesta` | `list[{sku: str, quantity: int}] \| None` | Solo con `kind` `propuesta` o `sin_stock`. El backend valida cada SKU y el stock (`sku_inexistente`, `stock_insuficiente`) |
+
+Con `propuesta`, el backend completa los datos desde el catálogo y guarda un `OrderDraft`. Si ya había una, conserva
+el `draft_id` y sube la versión. Sin `propuesta`, descarta la que hubiera: una propuesta solo sigue vigente si es
+lo último que el bot le ofreció al cliente.
 
 | `kind` | Cuándo | Nuevo estado |
 |---|---|---|
+| `propuesta` | El pedido está claro y alcanza el stock: se le pregunta si lo arma | `borrador_pendiente` |
 | `aclaracion` | Producto, presentación, tono o cantidad no claros; varias opciones posibles | `aclarando` |
 | `sin_stock` | No alcanza el stock; se ofrece lo disponible o una alternativa | `aclarando` |
 | `fuera_de_catalogo` | El producto no está en el catálogo (sin inventar un SKU parecido) | `aclarando` |
@@ -292,7 +325,7 @@ el agente no puede resolver (reclamos, devoluciones). La conversación pasa a `d
 `agent/tool_registry.py` es el único lugar que conoce la lista de tools. Para cada una guarda: nombre,
 descripción para el LLM, modelo pydantic de entrada (de él sale el JSON Schema que recibe el LLM), función, si es
 terminal y qué parámetros se inyectan. Agregar una tool es agregar una entrada al registro, su modelo y sus tests.
-`llm_client` traduce ese formato neutral al del proveedor elegido (D-01).
+LangChain traduce esos esquemas al formato del proveedor elegido (D-01).
 
 Antes de cada iteración, el registro calcula las tools disponibles: las **tools de base** más las que permiten las
 skills activas. Al LLM solo se le ofrecen esas, y si pide otra recibe el error `tool_no_permitida` sin ejecutarla.
@@ -327,7 +360,7 @@ Reglas:
   desde el inicio del turno, porque el agente necesita consultar el catálogo para saber qué skill elegir.
   `leer_br` igual respeta las BR permitidas.
 - **Tools terminales:** solo se habilitan a través de una skill.
-- **Varias skills:** los permisos se suman dentro del turno. Por ejemplo, si `armar-pedido` recibe
+- **Varias skills:** los permisos se suman dentro del turno. Por ejemplo, si `armar_pedido` recibe
   `stock_insuficiente`, el agente lee `read_catalogo` para responder.
 - **Duración:** los permisos valen solo para el turno. Leer una skill en un turno anterior no habilita nada.
 - **Lectura opcional:** el agente decide si lee una BR. Las BR que hace cumplir el backend se aplican igual (§4.6).
@@ -337,15 +370,15 @@ Reglas:
 
 | Skill | Cuándo aplica | Tools que habilita, además de las de catálogo | BR |
 |---|---|---|---|
-| `armar-pedido` | El pedido está claro y hay stock | `create_order_draft` | BR-02 |
+| `armar_pedido` | El cliente acepta la propuesta vigente | `armar_pedido`, `respond_to_customer` | BR-06 |
 | `read_catalogo` | El cliente pide o consulta un producto | `respond_to_customer` | BR-01 |
 | `aclarar` | Producto, presentación, tono o cantidad no claros | `respond_to_customer` | BR-03 |
 | `fuera-de-catalogo` | El producto no está en el catálogo | `respond_to_customer` | BR-04 |
-| `corregir-pedido` | El cliente cambia un borrador pendiente | `update_order_draft`, `respond_to_customer` | BR-02, BR-05 |
+| `corregir-pedido` | El cliente cambia una propuesta | `respond_to_customer` | BR-02, BR-05 |
 | `informar` | Saludo, consulta general o «dale» sin confirmar | `respond_to_customer` | BR-06 |
 | `derivar-o-cancelar` | Pide una persona o cancela el pedido | `escalate_to_human`, `discard_order_draft` | BR-08 |
 
-Por ahora solo existe `read_catalogo`; las demás se crean de a una.
+Por ahora existen `read_catalogo` y `armar_pedido`; las demás se crean de a una.
 
 ### 4.6 Reglas de negocio (BR)
 
@@ -360,31 +393,34 @@ hace cumplir el backend, aunque el agente no la haya leído.
 | BR-02 | Nunca inventar SKU, precio ni presentación | Backend | RF-08 |
 | BR-03 | Ante una ambigüedad, hacer una sola pregunta con opciones del catálogo | LLM | RF-09 |
 | BR-04 | Si el producto no está en el catálogo, decirlo sin ofrecer un SKU inventado | LLM y backend | RF-08, RF-10 |
-| BR-05 | Una corrección actualiza el mismo borrador y sube su versión | Backend | RF-12 |
-| BR-06 | El agente no confirma: ante un «dale», recuerda cómo hacerlo | Backend (no existe esa tool) y LLM | RF-13 |
-| BR-07 | Revalidar el stock al confirmar | Backend, sin LLM. No la permite ninguna skill | RF-14 |
+| BR-05 | Una corrección genera una propuesta nueva del mismo borrador, con otra versión | Backend | RF-12 |
+| BR-06 | Armar el pedido solo si el cliente acepta la propuesta vigente sin cambios; si cambia algo o duda, proponer de nuevo o preguntar | LLM interpreta, backend registra solo la propuesta | RF-13 |
+| BR-07 | Revalidar el stock al crear la orden | Backend. No la permite ninguna skill | RF-14 |
 | BR-08 | Derivar si el cliente lo pide, tras 2 fallas o tras 3 aclaraciones seguidas | LLM y backend | RF-27 |
 
 Las reglas que dependen solo del LLM, como BR-03, se controlan con la evaluación de `mensajes.json`, que registra
 qué BR leyó el agente en cada caso (§10). Falta definir dónde va una BR que usan varias skills (D-09).
 
-## 5. Confirmación (sin LLM)
+## 5. Confirmación
 
-La confirmación es **determinística** y vive en `services/order_service.py` (RF-14 a RF-18):
+El cliente confirma conversando (RF-13). El LLM interpreta si aceptó, pero **no decide qué se registra**:
 
-1. Llega `Confirmar` con `draft_id` y `version` (botón o palabra clave; con la palabra clave se usa el borrador
-   pendiente y su versión actual).
-2. Si el borrador ya está `confirmado` → devuelve la orden existente (idempotencia, CA-15).
-3. Si la conversación no está en `borrador_pendiente`, o `version` no es la última → `409`: «El pedido cambió,
-   revisá el último resumen» (CA-14).
-4. **Revalida el stock** de cada línea contra el catálogo, con una lectura fresca (sin caché).
-   Si alguna línea no alcanza → no crea nada, responde qué líneas no alcanzan y la conversación sigue en
-   `borrador_pendiente` para que el cliente corrija (CA-16).
-5. En **una transacción** de la base: crea la `Order` (`order_id` correlativo `ORD-0001`, `draft_id` único),
-   marca el borrador `confirmado` y la conversación `confirmada`.
-6. Fuera de la transacción: agrega la fila en Google Sheet 2. Si falla, la orden queda con
-   `sheets_synced = false` y se reintenta en segundo plano (RNF-04).
-7. Responde al cliente con el número de orden.
+1. El bot propone un pedido con `respond_to_customer(propuesta=...)`. El backend valida SKU y stock, y guarda la
+   propuesta como `OrderDraft`.
+2. El cliente responde («dale», «sí», `OK`). Si acepta sin cambios, el agente lee la skill `armar_pedido` y llama a
+   la tool. Si cambia algo o duda, propone de nuevo o pregunta (BR-06).
+3. `armar_pedido` solo puede crear lo que está en la propuesta vigente.
+4. Si ya hay una orden con ese `draft_id`, devuelve la existente (idempotencia, CA-15).
+5. **Revalida el stock** de cada línea con una lectura fresca. Si alguna no alcanza, no crea nada, y el agente
+   tiene que proponer de nuevo (CA-16).
+6. En **una transacción** de la base crea la `Order`, con `order_id` correlativo `ORD-0001` y `draft_id` único.
+7. Responde con un mensaje fijo armado por el backend: el detalle registrado y el número de orden.
+
+> **Primer corte:** la orden solo queda en la base local. Escribir en Google Sheet 2 y reintentar si falla
+> (`sheets_synced`, RNF-04) entra con la etapa 05.
+
+> **Riesgo:** el LLM puede tomar como aceptación algo que no lo es. El mensaje final muestra qué se registró, y los
+> casos de aceptación ambigua de `datos_ejemplo/mensajes.json` miden cuánto pasa.
 
 ## 6. Errores
 
@@ -438,6 +474,9 @@ y las BR hasta que el agente las lee. Esas lecturas valen para su turno: quedan 
 
 **Memoria de largo plazo:** no hay en el MVP. «Lo mismo que la otra vez» o un perfil del cliente quedan para v2.
 
+**Estado del grafo:** el `SqliteSaver` guarda los mensajes y el estado de cada conversación en `CHECKPOINT_DB`. Es
+texto de clientes: aplica la misma retención que al resto de la conversación (D-08).
+
 **Retención:** los archivos de audio e imagen se procesan y **no se guardan**; se guarda solo el texto extraído
 (RNF-03).
 
@@ -451,10 +490,12 @@ internal/
 │   ├── telegram_webhook.py      # NUEVO: webhook del bot de Telegram (canal de prueba de la beta)
 │   └── dashboard.py             # NUEVO: endpoints del dashboard, con autenticación
 ├── agent/
-│   ├── norma_agent.py           # loop de un turno: LLM ↔ tools hasta una tool terminal
+│   ├── norma_agent.py           # inicia o retoma el grafo y devuelve un AgentOutcome
+│   ├── graph.py                 # NUEVO: nodos y edges del loop con LangGraph
+│   ├── state.py                 # NUEVO: EstadoNorma, el estado del grafo
 │   ├── tool_registry.py         # NUEVO: tools disponibles, esquemas y parámetros inyectados
 │   ├── context.py               # NUEVO: arma instrucciones + estado + historial para el LLM
-│   ├── llm_client.py            # interfaz neutral del LLM; una clase por proveedor (hoy GeminiClient)
+│   ├── llm.py                   # NUEVO: crea el modelo de LangChain según LLM_PROVIDER
 │   └── system_prompt.md         # comportamiento del agente en lenguaje natural
 ├── skills/                      # una carpeta por skill
 │   └── read_catalogo/
@@ -463,15 +504,15 @@ internal/
 ├── tools/
 │   ├── catalog_tools.py         # search_products, get_product
 │   ├── inventory_tools.py       # check_stock
-│   ├── order_tools.py           # create / update / discard_order_draft
+│   ├── order_tools.py           # armar_pedido
 │   ├── skill_tools.py           # NUEVO: leer_skill, leer_br
 │   └── reply_tools.py           # NUEVO: respond_to_customer, escalate_to_human
 ├── services/
 │   ├── conversation_service.py  # NUEVO: orquestador y máquina de estados de la conversación
 │   ├── message_service.py       # preprocesamiento: texto, audio → texto, imagen → texto
 │   ├── interpretation_service.py# {sku, quantity} del LLM → OrderItem completos y validados
-│   ├── validation_service.py    # resumen del borrador con Confirmar / Corregir
-│   ├── order_service.py         # confirmación: el único lugar donde nace una Order
+│   ├── validation_service.py    # resumen del borrador y mensaje final del pedido
+│   ├── order_service.py         # el único lugar donde nace una Order
 │   ├── sheets_service.py        # única capa que conoce Google Sheets (con caché del catálogo)
 │   ├── skill_service.py         # NUEVO: carga skills y BR al arrancar y las sirve desde un índice
 │   ├── whatsapp_service.py      # NUEVO: enviar mensajes y botones, descargar multimedia
@@ -501,7 +542,7 @@ flowchart LR
     tools --> skill_service
     tool_registry --> skill_service
     order_service --> sheets_service
-    agent --> llm_client
+    agent --> llm
 ```
 
 - `api/` solo traduce HTTP ↔ esquemas y llama al orquestador; no tiene lógica de negocio.
@@ -509,7 +550,7 @@ flowchart LR
 - Las tools no llaman al LLM y no conocen al agente.
 - Solo `skill_service` lee los archivos de skills y BR. Los lee al arrancar: `PyYAML` pasa a ser dependencia de
   producción para leer el encabezado.
-- Solo `order_service` crea una `Order`; solo `sheets_service` conoce gspread; solo `llm_client` conoce el SDK
+- Solo `order_service` crea una `Order`; solo `sheets_service` conoce gspread; solo `agent/llm.py` crea el modelo
   del proveedor; solo `whatsapp_service` conoce la API de Meta.
 - Solo `telegram_service` conoce la Bot API de Telegram (`internal/telegram_polling.py` es el proceso que la
   consulta en desarrollo).
@@ -521,20 +562,22 @@ Reemplaza al `AgentReply` actual. Es lo que devuelve `NormaAgent.handle` al orqu
 
 | Campo | Tipo | Notas |
 |---|---|---|
-| `kind` | `borrador \| aclaracion \| sin_stock \| fuera_de_catalogo \| informacion \| descartado \| derivado \| error` | Sale de la tool terminal |
-| `message` | `str` | Lo que ve el cliente (en `borrador`, el resumen de `validation_service`) |
-| `draft` | `OrderDraft \| None` | Solo en `borrador` |
+| `kind` | `propuesta \| pedido \| aclaracion \| sin_stock \| fuera_de_catalogo \| informacion \| descartado \| derivado \| error` | Sale de la tool terminal |
+| `message` | `str` | Lo que ve el cliente (en `pedido`, el mensaje de `validation_service`) |
+| `draft` | `OrderDraft \| None` | La propuesta vigente |
+| `order_id` | `str \| None` | Solo en `pedido` |
+| `cerrada` | `bool` | Si el grafo terminó en `END` y la conversación se cierra |
 | `options` | `list[str]` | SKU ofrecidos, en `aclaracion` y `sin_stock` |
 | `iterations` | `int` | Para observabilidad |
 
 ## 10. Cómo se prueba el agente
 
-- **Sin red y sin LLM real** (regla de `CONTRIBUTING.md`): un `FakeLLM` con respuestas guionadas (tool calls)
+- **Sin red y sin LLM real** (regla de `CONTRIBUTING.md`): un modelo falso con respuestas guionadas (tool calls)
   prueba el loop, los límites, los errores y las transiciones.
 - **Tools y orquestador**: con `tests/datos_sinteticos.py` y `datos_ejemplo/catalogo.csv`, sin LLM.
 - **Skills y BR**: un test carga los archivos reales y falla si una skill nombra una tool que no existe
-  (CA-40). Los permisos se prueban con `FakeLLM` (CA-37 a CA-39).
+  (CA-40). Los permisos se prueban con el modelo falso (CA-37 a CA-39).
 - **Casos de `datos_ejemplo/mensajes.json`**: cada caso es un criterio de aceptación de interpretación
-  (CA-08 a CA-11). Con `FakeLLM` se prueba que el orquestador produce el resultado esperado; con el LLM real se
+  (CA-08 a CA-11). Con el modelo falso se prueba que el orquestador produce el resultado esperado; con el LLM real se
   corren como **evaluación manual** fuera del CI (D-01), y el porcentaje de aciertos se anota en `MEJORAS.md`,
   junto con las skills y BR que leyó el agente en cada caso.

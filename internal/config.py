@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_version: str = "dev"  # la imagen de cada release la fija con el número del tag
 
-    # LLM de texto (ver internal/agent/llm_client.py). En la beta: gemini, free tier
+    # LLM de texto (ver internal/agent/llm.py). En la beta: gemini, free tier
     llm_provider: str | None = None
     llm_model: str | None = None
     llm_api_key: str | None = None
@@ -39,6 +39,7 @@ class Settings(BaseSettings):
 
     # Base interna
     database_url: str = "sqlite:///./data/norma.db"
+    checkpoint_db: str = "data/checkpoints.db"  # estado del grafo del agente
 
     @property
     def telegram_allowed_ids(self) -> set[int]:

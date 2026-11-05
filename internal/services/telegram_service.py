@@ -130,6 +130,7 @@ def parse_update(update: dict) -> TelegramMessage | TelegramButton | None:
     user_id = message["from"]["id"]
     fields: dict[str, Any] = {
         "customer_id": customer_id_for(user_id),
+        "customer_name": message["from"].get("first_name"),
         "channel": Channel.TELEGRAM,
         "external_id": str(update["update_id"]),
     }

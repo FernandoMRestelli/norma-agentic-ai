@@ -41,6 +41,7 @@ class IncomingMessage(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     customer_id: str = Field(min_length=1)
+    customer_name: str | None = Field(default=None, max_length=64)  # el nombre del perfil, si el canal lo da
     channel: Channel
     type: MessageType = MessageType.TEXT
     text: str | None = None

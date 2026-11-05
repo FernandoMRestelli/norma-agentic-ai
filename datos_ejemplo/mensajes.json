@@ -52,5 +52,93 @@
     "descripcion": "Producto que no está en el catálogo: no inventar un SKU",
     "mensaje": {"customer_id": "cli-002", "channel": "web", "type": "text", "text": "2 shampoos Head & Shoulders"},
     "esperado": {"resultado": "fuera_de_catalogo"}
+  },
+  {
+    "id": "acepta-dale",
+    "descripcion": "Acepta la propuesta sin cambios",
+    "previo": "2 shampoos Pantene 400 por favor",
+    "mensaje": {
+      "customer_id": "cli-010",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "dale"
+    },
+    "esperado": {
+      "resultado": "pedido",
+      "items": [
+        {
+          "sku": "SH-PAN-400",
+          "cantidad": 2
+        }
+      ]
+    }
+  },
+  {
+    "id": "acepta-ok",
+    "descripcion": "Acepta con la palabra clave",
+    "previo": "2 shampoos Pantene 400 por favor",
+    "mensaje": {
+      "customer_id": "cli-010",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "ok"
+    },
+    "esperado": {
+      "resultado": "pedido",
+      "items": [
+        {
+          "sku": "SH-PAN-400",
+          "cantidad": 2
+        }
+      ]
+    }
+  },
+  {
+    "id": "acepta-con-cambio",
+    "descripcion": "Parece aceptar, pero cambia la cantidad: hay que proponer de nuevo",
+    "previo": "2 shampoos Pantene 400 por favor",
+    "mensaje": {
+      "customer_id": "cli-010",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "dale, pero que sean 3"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "SH-PAN-400",
+          "cantidad": 3
+        }
+      ]
+    }
+  },
+  {
+    "id": "duda",
+    "descripcion": "No acepta ni rechaza: no se arma el pedido",
+    "previo": "2 shampoos Pantene 400 por favor",
+    "mensaje": {
+      "customer_id": "cli-010",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "no sé, dejame pensarlo"
+    },
+    "esperado": {
+      "resultado": "sin_pedido"
+    }
+  },
+  {
+    "id": "rechaza",
+    "descripcion": "Rechaza la propuesta: no se arma el pedido",
+    "previo": "2 shampoos Pantene 400 por favor",
+    "mensaje": {
+      "customer_id": "cli-010",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "no, gracias"
+    },
+    "esperado": {
+      "resultado": "sin_pedido"
+    }
   }
 ]

@@ -29,9 +29,14 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 - Reglas de orden en `internal/services/order_service.py`: `format_order_id` y `parse_order_id` con formato correlativo `ORD-0001`, `can_transition` para validar la máquina de estados según RF-20, y `parse_status` tolerante a mayúsculas y espacios; validación estricta de `order_id` en `Order` (RF-17, RF-20).
 - Spec del MVP en `docs/spec/`: visión, arquitectura, flujos, contratos de datos, requisitos, roadmap y criterios de aceptación, más el diseño del agente (loop, estados de la conversación, tools, errores y memoria) y la forma de trabajar spec primero (SDD).
 - Spec del agente: skills y reglas de negocio (BR) guardadas en el repositorio, tools `leer_skill` y `leer_br`, permisos por skill y fases L1 y L2 del turno (RF-33, RF-34, CA-37 a CA-40). El tope pasa de 6 a 15 iteraciones por turno (D-07, RNF-12).
+- Primer loop del agente con LangGraph: `descubrir_tools`, `llm`, `tools` y `pausa`, con estado guardado en SQLite para retomar una conversación aunque el proceso se reinicie. Variable opcional nueva: `CHECKPOINT_DB`.
+- Tools `search_products`, `check_stock`, `leer_skill`, `leer_br`, `respond_to_customer` y `armar_pedido`, y skills `read_catalogo` y `armar_pedido`. Por ahora el catálogo sale de `datos_ejemplo/catalogo.csv` y el pedido queda en la base local.
+- `python -m internal.evaluar_agente` corre los casos de `datos_ejemplo/mensajes.json` con el LLM real.
 
 ### Cambiado
 
+- **El cliente confirma conversando:** una respuesta como «dale» registra el pedido si acepta la propuesta vigente, y el backend solo registra lo que validó antes (RF-11, RF-13, CA-17, CA-18).
+- El agente pasa a usar LangChain: `agent/llm.py` reemplaza a `agent/llm_client.py`.
 - La carpeta `backend/` pasa a llamarse `internal/`, y los comandos cambian en consecuencia (`uvicorn internal.main:app`, `python -m internal.telegram_polling`). Las skills del agente viven en `internal/skills/<nombre>/`, con su `skill.md` y sus BR en `BR/`. `instructions.md` pasa a ser `internal/agent/system_prompt.md`, reescrito para leer skills y BR.
 - La base SQLite pasa a `data/norma.db` (antes `norma.db` en la raíz y, con Docker, el volumen `norma-data`): para conservar datos locales, moverlos a `data/`.
 - Python 3.12 como versión mínima.
