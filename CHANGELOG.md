@@ -30,8 +30,9 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 - Spec del MVP en `docs/spec/`: visión, arquitectura, flujos, contratos de datos, requisitos, roadmap y criterios de aceptación, más el diseño del agente (loop, estados de la conversación, tools, errores y memoria) y la forma de trabajar spec primero (SDD).
 - Spec del agente: skills y reglas de negocio (BR) guardadas en el repositorio, tools `leer_skill` y `leer_br`, permisos por skill y fases L1 y L2 del turno (RF-33, RF-34, CA-37 a CA-40). El tope pasa de 6 a 15 iteraciones por turno (D-07, RNF-12).
 - Primer loop del agente con LangGraph: `descubrir_tools`, `llm`, `tools` y `pausa`, con estado guardado en SQLite para retomar una conversación aunque el proceso se reinicie. Variable opcional nueva: `CHECKPOINT_DB`.
-- Tools `search_products`, `check_stock`, `leer_skill`, `leer_br`, `respond_to_customer` y `armar_pedido`, y skills `read_catalogo` y `armar_pedido`. Por ahora el catálogo sale de `datos_ejemplo/catalogo.csv` y el pedido queda en la base local.
+- Tools `search_products`, `check_stock`, `leer_skill`, `leer_br`, `respond_to_customer` y `armar_pedido`, y skills `read_catalogo`, `aclarar`, `fuera_de_catalogo`, `corregir_pedido`, `armar_pedido` e `informar`. Por ahora el catálogo sale de `datos_ejemplo/catalogo.csv` y el pedido queda en la base local.
 - `python -m internal.evaluar_agente` corre los casos de `datos_ejemplo/mensajes.json` con el LLM real.
+- La búsqueda de productos devuelve `score`, no aproxima números y no trae productos sin parecido real (RF-07, RF-08).
 
 ### Cambiado
 

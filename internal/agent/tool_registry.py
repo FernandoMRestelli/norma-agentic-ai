@@ -51,14 +51,18 @@ class ToolSpec:
     run: Callable[[Any, TurnContext], dict[str, Any]]
 
 
+# El stock mínimo es para el dashboard: el LLM no tiene por qué contarle al cliente que queda poco
+_SOLO_INTERNOS = {"min_stock", "is_low_stock"}
+
+
 def _search_products(data: SearchProductsInput, _: TurnContext) -> dict[str, Any]:
     matches = catalog_tools.search_products(data.query, data.limit)
-    return {"matches": [product.model_dump(mode="json") for product in matches]}
+    return {"matches": [match.model_dump(mode="json", exclude=_SOLO_INTERNOS) for match in matches]}
 
 
 def _get_product(data: GetProductInput, _: TurnContext) -> dict[str, Any]:
     product = catalog_tools.get_product(data.sku)
-    return {"product": product.model_dump(mode="json") if product else None}
+    return {"product": product.model_dump(mode="json", exclude=_SOLO_INTERNOS) if product else None}
 
 
 def _check_stock(data: CheckStockInput, _: TurnContext) -> dict[str, Any]:
@@ -100,12 +104,24 @@ TOOLS: dict[str, ToolSpec] = {
     for spec in (
         ToolSpec(
             "search_products",
-            "Busca productos en el catálogo por nombre, marca o presentación. Devuelve precio y stock.",
+            "Busca en el catálogo por producto, marca, presentación o tono. Devuelve precio, stock y `score` "
+            "(de 0 a 1). Los números tienen que coincidir: 400 no trae 340. Si no hay nada parecido, devuelve una "
+            "lista vacía.",
             SearchProductsInput,
             _search_products,
         ),
-        ToolSpec("get_product", "Devuelve un producto por su SKU.", GetProductInput, _get_product),
-        ToolSpec("check_stock", "Indica si alcanza el stock para una cantidad.", CheckStockInput, _check_stock),
+        ToolSpec(
+            "get_product",
+            "Devuelve un producto por su SKU exacto, o null si no existe.",
+            GetProductInput,
+            _get_product,
+        ),
+        ToolSpec(
+            "check_stock",
+            "Indica cuántas unidades hay de un SKU y si alcanzan para una cantidad.",
+            CheckStockInput,
+            _check_stock,
+        ),
         ToolSpec(
             "leer_skill",
             "Lee una skill del índice: sus instrucciones, sus tools y sus BR. Habilita esas tools.",
@@ -115,13 +131,15 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec("leer_br", "Lee una regla de negocio de una skill ya leída.", LeerBrInput, _leer_br),
         ToolSpec(
             "respond_to_customer",
-            "Le responde al cliente y termina el turno. Para proponer un pedido, indicá `propuesta`.",
+            "Le responde al cliente y termina el turno. Con `propuesta`, ese pedido queda como propuesta vigente. "
+            "Sin ella, la vigente deja de valer.",
             RespondToCustomerInput,
             _respond_to_customer,
         ),
         ToolSpec(
             "armar_pedido",
-            "Registra la propuesta vigente y termina el turno. Usala solo si el cliente la aceptó.",
+            "Registra la propuesta vigente y termina el turno. El sistema le responde al cliente con el detalle y el "
+            "número. Usala solo si el cliente aceptó la propuesta sin cambios.",
             ArmarPedidoInput,
             _armar_pedido,
         ),

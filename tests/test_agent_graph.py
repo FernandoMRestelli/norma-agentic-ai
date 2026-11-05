@@ -160,6 +160,46 @@ def test_correccion_sube_la_version_del_mismo_borrador(catalogo):
     assert _ordenes() == 0
 
 
+def test_pregunta_sobre_la_propuesta_la_mantiene_vigente(catalogo):
+    """CA-47: responder con las mismas líneas la mantiene, y al aceptar se crea una sola orden."""
+    agent, _ = _agente(
+        *GUION_OFERTA,
+        _ai(_call("leer_skill", nombre="armar_pedido")),
+        _ai(_propuesta("Sale $1000 cada una. ¿Te armo el pedido?", SKU, 3)),
+        *GUION_ACEPTA,
+    )
+    agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+    pregunta = agent.handle("1", text="¿cuánto sale?", **CLIENTE)
+    assert pregunta.kind == "propuesta"
+    assert pregunta.draft.version == 2
+    assert _ordenes() == 0
+
+    final = agent.handle("1", text="dale", **CLIENTE)
+    assert final.kind == "pedido"
+    assert _ordenes() == 1
+    assert order_service.get_order(final.order_id).items[0].quantity == 3
+
+
+@pytest.mark.parametrize("skill", ["aclarar", "fuera_de_catalogo", "corregir_pedido", "informar"])
+def test_cada_skill_habilita_una_respuesta(catalogo, skill):
+    agent, modelo = _agente(
+        _ai(_call("leer_skill", nombre=skill)),
+        _ai(_call("respond_to_customer", kind="informacion", message="Hola, ¿qué querés pedir?")),
+    )
+    resultado = agent.handle("1", text="hola", **CLIENTE)
+    assert "respond_to_customer" not in modelo.ofrecidas[0]
+    assert "respond_to_customer" in modelo.ofrecidas[1]
+    assert "armar_pedido" not in modelo.ofrecidas[1]
+    assert resultado.kind == "informacion"
+
+
+def test_estado_muestra_la_presentacion_de_la_propuesta(catalogo):
+    agent, modelo = _agente(*GUION_OFERTA, _ai(_call("search_products", query="crema")), AIMessage(content="ok"))
+    agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+    agent.handle("1", text="¿es la de 100?", **CLIENTE)
+    assert f"3 x Crema Nivea 100 ml ({SKU})" in modelo.recibidos[-1][0].content
+
+
 def test_propuesta_con_mas_stock_del_disponible_vuelve_al_llm(catalogo):
     """CA-12: no se guarda una propuesta sin stock."""
     agent, _ = _agente(

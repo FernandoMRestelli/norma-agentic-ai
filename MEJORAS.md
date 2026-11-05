@@ -25,8 +25,10 @@ Todavía no hay uso real: lo único medido son los tests.
 
 **Evaluación con Gemini (2026-11-05), incompleta:** de 14 casos de `mensajes.json`, solo 2 llegaron a evaluarse
 (`texto-varios-productos` y `cantidad-en-palabras`, ambos correctos en 3 iteraciones). El resto falló por `503` de alta
-demanda o por límite de requests del free tier, así que todavía no hay medición de cómo interpreta «dale». Hay que
-repetirla con `python -m internal.evaluar_agente --pausa 30`.
+demanda o por límite de requests del free tier, así que todavía no hay medición de cómo interpreta «dale». Esos 2 casos
+son anteriores a las skills `aclarar`, `fuera_de_catalogo`, `corregir_pedido` e `informar` y al prompt actual. Con ellos,
+una segunda corrida el mismo día no pudo evaluar ninguno de los 22 casos: el LLM falló en todos, y dos pruebas sueltas
+justo antes devolvieron `503` y `504`. Hay que repetirla con `python -m internal.evaluar_agente --pausa 30`.
 
 - Los contratos de datos rechazan lo que tienen que rechazar (borrador sin ítems, cantidades no positivas,
   mensaje de audio sin archivo) y los precios no pierden centavos (`Decimal`).

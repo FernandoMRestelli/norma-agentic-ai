@@ -1,5 +1,7 @@
 """Tools de catálogo, stock y lectura de skills, con el catálogo de ejemplo y sin LLM."""
 
+import re
+
 import pytest
 
 from internal.agent import tool_registry
@@ -20,6 +22,53 @@ def test_busqueda_sin_coincidencias_no_inventa():
     assert catalog_tools.search_products("head and shoulders xyz") == []
 
 
+@pytest.mark.parametrize(
+    ("query", "esperado"),
+    [
+        ("pantene 340", []),  # hay Pantene y hay 340 ml, pero no juntos
+        ("koleston 7.1", ["TIN-KOL-71"]),
+        ("koleston 6,1", ["TIN-KOL-61"]),
+        ("SH-PAN-400", ["SH-PAN-400"]),
+    ],
+)
+def test_los_numeros_no_se_aproximan(query, esperado):
+    """CA-45: un número no coincide con otro parecido."""
+    assert [product.sku for product in catalog_tools.search_products(query)] == esperado
+
+
+def test_presentacion_inexistente_no_parece_exacta():
+    """CA-45: «300 ml» trae los shampoos Pantene para preguntar, sin marcar ninguno como exacto."""
+    matches = catalog_tools.search_products("shampoo pantene 300 ml")
+    assert {match.sku for match in matches} == {"SH-PAN-200", "SH-PAN-400"}
+    assert all(match.score < 1 for match in matches)
+
+
+@pytest.mark.parametrize("query", ["coca cola", "gillette", "shampoo dove"])
+def test_sin_parecido_real_no_trae_productos(query):
+    """CA-45."""
+    assert catalog_tools.search_products(query) == []
+
+
+@pytest.mark.parametrize(
+    ("query", "sku"),
+    [("acondicionador", "AC-PAN-400"), ("cremas de enjuague", "CE-SED-340"), ("jabones dove", "JAB-DOV-90")],
+)
+def test_busqueda_tolera_plurales_y_palabras_de_relleno(query, sku):
+    assert [product.sku for product in catalog_tools.search_products(query)] == [sku]
+
+
+def test_resultado_al_llm_trae_score_sin_datos_internos():
+    ctx = tool_registry.TurnContext(
+        customer_id="c", channel=Channel.WEB, disponibles=["search_products", "get_product"]
+    )
+    match = tool_registry.execute("search_products", {"query": "jabon dove"}, ctx)["data"]["matches"][0]
+    assert match["score"] == 1
+    assert not {"min_stock", "is_low_stock"} & match.keys()
+    product = tool_registry.execute("get_product", {"sku": "JAB-DOV-90"}, ctx)["data"]["product"]
+    assert product["sku"] == "JAB-DOV-90"
+    assert not {"min_stock", "is_low_stock"} & product.keys()
+
+
 def test_catalogo_de_ejemplo_se_lee_con_el_esquema():
     assert {product.sku for product in sheets_service.get_catalog()} >= {"SH-PAN-400", "CE-SED-340"}
 
@@ -38,7 +87,35 @@ def test_check_stock_con_sku_inexistente():
 def test_las_skills_reales_son_validas():
     """CA-40: todas las tools que nombran las skills existen."""
     tool_registry.validate_skills()
-    assert "read_catalogo" in skill_service.get_skills()
+    assert set(skill_service.get_skills()) == {
+        "aclarar",
+        "armar_pedido",
+        "corregir_pedido",
+        "fuera_de_catalogo",
+        "informar",
+        "read_catalogo",
+    }
+
+
+def test_las_skills_solo_mencionan_br_que_existen():
+    """CA-46: una BR mencionada se puede leer, y ninguna BR queda sin una skill que la nombre."""
+    skills = skill_service.get_skills().values()
+    existentes = {id_br for skill in skills for id_br in skill.br}
+    for skill in skills:
+        textos = [skill.instrucciones, *skill.br.values()]
+        assert set(re.findall(r"BR-\d+", " ".join(textos))) <= existentes, skill.nombre
+        for id_br in skill.br:
+            assert id_br in skill.instrucciones, f"{skill.nombre} no indica cuándo leer {id_br}"
+
+
+def test_las_skills_solo_nombran_tools_que_pueden_usar():
+    """CA-46: el LLM no recibe instrucciones de usar una tool que su skill no le habilita."""
+    skills = skill_service.get_skills()
+    for skill in skills.values():
+        permitidas = {*tool_registry.BASE_TOOLS, *skill.tools}
+        for tool in tool_registry.TOOLS:
+            if tool not in skills:  # armar_pedido es tool y skill: nombrarla puede ser la skill
+                assert f"`{tool}`" not in skill.instrucciones or tool in permitidas, (skill.nombre, tool)
 
 
 def test_skill_con_tool_inexistente_impide_arrancar(monkeypatch):

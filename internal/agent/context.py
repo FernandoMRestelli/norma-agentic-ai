@@ -26,7 +26,10 @@ def _current_state(state: EstadoNorma) -> str:
     lines = ["## Estado actual", "", f"Nombre del cliente según su perfil: {name}"]
     if propuesta := state.get("propuesta"):
         draft = OrderDraft.model_validate(propuesta)
-        items = "; ".join(f"{item.quantity} x {item.product_name} ({item.sku})" for item in draft.items)
+        items = "; ".join(
+            f"{item.quantity} x {' '.join(filter(None, (item.product_name, item.presentation)))} ({item.sku})"
+            for item in draft.items
+        )
         lines.append(f"Propuesta vigente: {items}")
     else:
         lines.append("Propuesta vigente: ninguna")

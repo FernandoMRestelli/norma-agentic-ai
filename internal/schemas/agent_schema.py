@@ -32,17 +32,20 @@ class ProposedItem(BaseModel):
 
 
 class SearchProductsInput(BaseModel):
-    query: str = Field(min_length=1, description="Producto, marca o presentación que busca el cliente")
-    limit: int = Field(default=5, ge=1, le=10)
+    query: str = Field(
+        min_length=1,
+        description="Producto, marca, presentación o tono, sin la cantidad. Por ejemplo: shampoo pantene 400",
+    )
+    limit: int = Field(default=5, ge=1, le=10, description="Cantidad máxima de resultados")
 
 
 class GetProductInput(BaseModel):
-    sku: str = Field(min_length=1)
+    sku: str = Field(min_length=1, description="SKU exacto, tal como lo devolvió una tool")
 
 
 class CheckStockInput(BaseModel):
-    sku: str = Field(min_length=1)
-    quantity: int = Field(gt=0, le=MAX_QUANTITY)
+    sku: str = Field(min_length=1, description="SKU exacto, tal como lo devolvió una tool")
+    quantity: int = Field(gt=0, le=MAX_QUANTITY, description="Cantidad que quiere el cliente")
 
 
 class LeerSkillInput(BaseModel):
@@ -54,11 +57,25 @@ class LeerBrInput(BaseModel):
 
 
 class RespondToCustomerInput(BaseModel):
-    kind: ReplyKind
-    message: str = Field(min_length=1, max_length=600, description="Texto para el cliente")
-    options: list[str] = Field(default_factory=list, description="SKU que se le ofrecen al cliente")
+    kind: ReplyKind = Field(
+        description=(
+            "propuesta: el pedido está claro y alcanza el stock. "
+            "aclaracion: falta producto, presentación, tono o cantidad. "
+            "sin_stock: no alcanza el stock. "
+            "fuera_de_catalogo: el producto no está en el catálogo. "
+            "informacion: saludo, consulta o cualquier otra respuesta."
+        )
+    )
+    message: str = Field(min_length=1, max_length=600, description="Texto para el cliente, sin SKU")
+    options: list[str] = Field(
+        default_factory=list, description="SKU de las opciones o alternativas que le ofrecés en el mensaje"
+    )
     propuesta: list[ProposedItem] | None = Field(
-        default=None, description="Pedido que le estás proponiendo, solo con kind propuesta o sin_stock"
+        default=None,
+        description=(
+            "Pedido completo que le proponés, solo con kind propuesta o sin_stock. Reemplaza a la propuesta vigente: "
+            "incluí todas las líneas. Si la omitís, la vigente deja de valer."
+        ),
     )
 
     @model_validator(mode="after")

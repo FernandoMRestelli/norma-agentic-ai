@@ -248,7 +248,7 @@ Los flujos de la conversación (estados y eventos) están en detalle en la [spec
 1. El cliente escribe «Quiero 5 shampoo pantene 400ml y 3 tinturas koleston 6.1».
 2. La API valida el `IncomingMessage` y lo pasa al orquestador, que abre una conversación (`esperando_pedido`).
 3. `message_service` normaliza el texto.
-4. El agente busca cada producto (`search_products`), verifica stock (`check_stock`), lee la skill `read_catalogo`
+4. El agente busca cada producto (`search_products`), compara su stock, lee la skill `read_catalogo`
    (`leer_skill`) y llama a `respond_to_customer` con la propuesta `[{SH-PAN-400, 5}, {TIN-KOL-61, 3}]`.
 5. El backend completa nombres y precios, y guarda la propuesta como borrador (versión 1).
 6. El cliente ve la pregunta del bot y responde conversando (RF-11).
@@ -555,6 +555,9 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-42 | Sin propuesta vigente, o con una que el bot ya dejó de ofrecer | El LLM pide `armar_pedido` | Devuelve `sin_propuesta` y no se crea orden | RF-13, RNF-02 | `test_agent_graph.py` |
 | CA-43 | Una propuesta vigente y el stock que baja antes de aceptar | El LLM pide `armar_pedido` | Devuelve `stock_insuficiente` y no se crea orden | RF-14 | `test_agent_graph.py` |
 | CA-44 | Una conversación en pausa | El proceso se reinicia y llega otro mensaje | El grafo retoma la conversación con su estado | RNF-05 | `test_agent_graph.py` |
+| CA-45 | El catálogo de ejemplo | Se busca `pantene 340`, `koleston 7.1` o `coca cola` | Un número no coincide con otro parecido y una palabra sin parecido real no trae productos | RF-07, RF-08 | `test_tools.py` |
+| CA-46 | Las skills reales | Se cargan | Toda BR que mencionan existe, toda BR de una skill aparece en sus instrucciones y cada skill solo nombra tools que puede usar | RF-34 | `test_tools.py` |
+| CA-47 | Una propuesta vigente | El cliente pregunta algo, el agente la vuelve a enviar y después acepta | La orden se crea una sola vez, con esas líneas | RF-13 | `test_agent_graph.py` |
 | CA-27 | Los archivos de `datos_ejemplo/` | Se validan contra los esquemas | Columnas correctas, SKU únicos, casos coherentes con el catálogo | RF-07 | `test_datos_ejemplo.py` |
 | CA-29 | El catálogo de ejemplo | Se busca «shampoo pantene 400», «Shampoo Pantene 400ML» y «shampo pantne 400» | `SH-PAN-400` aparece primero en los tres casos | RF-07 | `test_tools.py::test_busqueda_aproximada_trae_primero_el_producto` |
 
@@ -609,7 +612,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | D-06 | Dónde se cambia el estado de una orden | Tomada en esta spec, a revisar | En el MVP el equipo lo cambia en Sheet 2 y el dashboard lo lee de ahí; la base guarda la orden y su estado inicial |
 | D-07 | Parámetros del agente | Tomada en esta spec, a revisar | 15 iteraciones por turno, 20 mensajes de historial, 24 h de vencimiento y de silencio tras derivar, 2 fallas o 3 aclaraciones para derivar, 30 s de timeout, caché de 5 min; se ajustan con uso real |
 | D-08 | Retención de conversaciones | **Abierta** | Propuesta: 90 días |
-| D-09 | BR usadas por varias skills | **Abierta** | Cada skill guarda sus BR en su carpeta, así que una regla compartida (hoy BR-02) quedaría copiada. Propuesta: `internal/skills/_compartidas/BR/` solo para esos casos |
+| D-09 | BR usadas por varias skills | **Abierta** | Cada skill guarda sus BR en su carpeta, así que una regla compartida quedaría copiada. Hoy no hay ninguna: BR-02 está en el system prompt y `informar` no usa BR-06. Propuesta: `internal/skills/_compartidas/BR/` solo para esos casos |
 
 ### 10.2 Riesgos
 

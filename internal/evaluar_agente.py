@@ -79,9 +79,9 @@ def main() -> int:
         passed += ok
         print(f"{'✅' if ok else '❌'} {case['id']}: {outcome.kind}, {outcome.iterations} iteraciones")
         print(f"   tools: {', '.join(calls)}")
+        print(f"   respuesta: {outcome.message}")
         if not ok:
             print(f"   esperado: {json.dumps(case['esperado'], ensure_ascii=False)}")
-            print(f"   respuesta: {outcome.message}")
     print(f"\n{passed} de {len(cases) - not_evaluated} casos correctos, {not_evaluated} sin evaluar")
     return 0 if passed == len(cases) else 1
 

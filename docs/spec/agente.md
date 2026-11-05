@@ -249,7 +249,7 @@ Errores: `skill_inexistente`.
 #### `leer_br`
 
 Entrada `id: str`. Inyectado: `skills_activas`. Busca en el índice de BR cargado al arrancar. Salida `data`:
-`{id, titulo, texto}`. Errores: `br_inexistente`, `br_no_permitida` (ninguna skill leída en este turno la permite).
+`{id, texto}`. Errores: `br_inexistente`, `br_no_permitida` (ninguna skill leída en este turno la permite).
 
 Ninguna de las dos arma una ruta de archivo con lo que manda el LLM: el nombre o el ID solo se comparan contra el
 índice. Así, un mensaje malicioso no puede hacer que el agente lea otro archivo del sistema, como `.env`.
@@ -263,11 +263,12 @@ Ninguna de las dos arma una ruta de archivo con lo que manda el LLM: el nombre o
 
 Salida `data.matches`: lista de `{sku, name, brand, presentation, price, stock, score}`, ordenada por `score`
 descendente (0 a 1). La búsqueda es aproximada: tolera mayúsculas, tildes, plurales y errores de tipeo (RF-07).
+Los números no se aproximan: `340` no trae un producto de 400 ml, y `6.1` no trae el tono 7.1 (RF-08).
 Lista vacía si no hay coincidencias razonables. Errores: `catalogo_no_disponible`.
 
 #### `get_product`
 
-Entrada `sku: str`. Salida `data.product`: un `Product` completo o `null`. Errores: `catalogo_no_disponible`.
+Entrada `sku: str`. Salida `data.product`: `{sku, name, brand, presentation, price, stock}` o `null`. Errores: `catalogo_no_disponible`.
 
 #### `check_stock`
 
@@ -295,14 +296,15 @@ Solo se usa cuando el cliente lo pide de forma explícita. Resultado del turno: 
 
 | Entrada | Tipo | Reglas |
 |---|---|---|
-| `kind` | `aclaracion \| sin_stock \| fuera_de_catalogo \| informacion` | Ver tabla de abajo |
+| `kind` | `propuesta \| aclaracion \| sin_stock \| fuera_de_catalogo \| informacion` | Ver tabla de abajo |
 | `message` | `str` | El texto para el cliente. No vacío, máx. 600 caracteres |
 | `options` | `list[str]` | SKU que se le ofrecen al cliente. Cada uno tiene que existir (`sku_inexistente` si no) |
 | `propuesta` | `list[{sku: str, quantity: int}] \| None` | Solo con `kind` `propuesta` o `sin_stock`. El backend valida cada SKU y el stock (`sku_inexistente`, `stock_insuficiente`) |
 
 Con `propuesta`, el backend completa los datos desde el catálogo y guarda un `OrderDraft`. Si ya había una, conserva
-el `draft_id` y sube la versión. Sin `propuesta`, descarta la que hubiera: una propuesta solo sigue vigente si es
-lo último que el bot le ofreció al cliente.
+el `draft_id` y sube la versión, y las líneas nuevas reemplazan a las anteriores. Sin `propuesta`, descarta la que
+hubiera: una propuesta solo sigue vigente si es lo último que el bot le ofreció al cliente. Por eso, si el cliente
+pregunta algo sobre ella, el agente responde y la vuelve a enviar con las mismas líneas (BR-06).
 
 | `kind` | Cuándo | Nuevo estado |
 |---|---|---|
@@ -346,12 +348,12 @@ internal/skills/read_catalogo/
 ```markdown
 ---
 nombre: read_catalogo
-cuando: El cliente pide o consulta un producto
+cuando: El cliente pide o consulta productos que el catálogo identifica sin dudas
 tools: [search_products, get_product, check_stock, respond_to_customer]
 ---
-1. Buscá cada producto con `search_products`.
-2. Si pidió una cantidad, verificala con `check_stock`.
-3. Si no alcanza el stock, leé BR-01 antes de responder.
+1. Elegí de `search_products` el producto que coincide.
+2. Compará su stock con la cantidad pedida.
+3. Si alcanza, respondé con `kind = propuesta`. Si no, leé BR-01 antes de responder.
 ```
 
 Reglas:
@@ -370,15 +372,16 @@ Reglas:
 
 | Skill | Cuándo aplica | Tools que habilita, además de las de catálogo | BR |
 |---|---|---|---|
-| `armar_pedido` | El cliente acepta la propuesta vigente | `armar_pedido`, `respond_to_customer` | BR-06 |
-| `read_catalogo` | El cliente pide o consulta un producto | `respond_to_customer` | BR-01 |
+| `armar_pedido` | Hay una propuesta vigente y el cliente la acepta, la rechaza o duda | `armar_pedido`, `respond_to_customer` | BR-06 |
+| `read_catalogo` | El cliente pide o consulta productos que el catálogo identifica sin dudas | `respond_to_customer` | BR-01 |
 | `aclarar` | Producto, presentación, tono o cantidad no claros | `respond_to_customer` | BR-03 |
-| `fuera-de-catalogo` | El producto no está en el catálogo | `respond_to_customer` | BR-04 |
-| `corregir-pedido` | El cliente cambia una propuesta | `respond_to_customer` | BR-02, BR-05 |
-| `informar` | Saludo, consulta general o «dale» sin confirmar | `respond_to_customer` | BR-06 |
-| `derivar-o-cancelar` | Pide una persona o cancela el pedido | `escalate_to_human`, `discard_order_draft` | BR-08 |
+| `fuera_de_catalogo` | El producto no está en el catálogo | `respond_to_customer` | BR-04 |
+| `corregir_pedido` | El cliente cambia una propuesta | `respond_to_customer` | BR-05 |
+| `informar` | Saludo, consulta general, «dale» sin propuesta o algo que no es un pedido | `respond_to_customer` | — |
+| `derivar_o_cancelar` | Pide una persona o cancela el pedido | `escalate_to_human`, `discard_order_draft` | BR-08 |
 
-Por ahora existen `read_catalogo` y `armar_pedido`; las demás se crean de a una.
+`derivar_o_cancelar` todavía no existe: depende de las tools de §4.2. Mientras tanto, `informar` no promete
+derivar a nadie, y un rechazo descarta la propuesta con `armar_pedido`.
 
 ### 4.6 Reglas de negocio (BR)
 
@@ -389,12 +392,12 @@ hace cumplir el backend, aunque el agente no la haya leído.
 
 | ID | Regla | Quién la hace cumplir | Origen |
 |---|---|---|---|
-| BR-01 | Si no alcanza el stock, ofrecer lo disponible o una alternativa, sin armar borrador | LLM ofrece, backend bloquea con `stock_insuficiente` | RF-10 |
-| BR-02 | Nunca inventar SKU, precio ni presentación | Backend | RF-08 |
+| BR-01 | Si no alcanza el stock, proponer lo disponible; si no queda nada, ofrecer una alternativa sin proponerla | LLM ofrece, backend bloquea con `stock_insuficiente` | RF-10 |
+| BR-02 | Nunca inventar SKU, precio ni presentación | Backend y system prompt. No la permite ninguna skill | RF-08 |
 | BR-03 | Ante una ambigüedad, hacer una sola pregunta con opciones del catálogo | LLM | RF-09 |
-| BR-04 | Si el producto no está en el catálogo, decirlo sin ofrecer un SKU inventado | LLM y backend | RF-08, RF-10 |
-| BR-05 | Una corrección genera una propuesta nueva del mismo borrador, con otra versión | Backend | RF-12 |
-| BR-06 | Armar el pedido solo si el cliente acepta la propuesta vigente sin cambios; si cambia algo o duda, proponer de nuevo o preguntar | LLM interpreta, backend registra solo la propuesta | RF-13 |
+| BR-04 | Si el producto no está en el catálogo, decirlo sin ofrecer un SKU inventado; lo demás del pedido se propone igual | LLM y backend | RF-08, RF-10 |
+| BR-05 | Una corrección vuelve a enviar la propuesta completa, en el mismo borrador y con otra versión | LLM arma las líneas, backend versiona | RF-12 |
+| BR-06 | Armar el pedido solo si el cliente acepta la propuesta vigente sin cambios; si cambia algo, proponer de nuevo; si duda o pregunta, responder y volver a ofrecerla | LLM interpreta, backend registra solo la propuesta | RF-13 |
 | BR-07 | Revalidar el stock al crear la orden | Backend. No la permite ninguna skill | RF-14 |
 | BR-08 | Derivar si el cliente lo pide, tras 2 fallas o tras 3 aclaraciones seguidas | LLM y backend | RF-27 |
 

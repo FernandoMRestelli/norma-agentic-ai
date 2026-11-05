@@ -20,6 +20,12 @@ class Product(BaseModel):
         return self.stock < self.min_stock
 
 
+class ProductMatch(Product):
+    """Resultado de una búsqueda: 1 si todas las palabras coinciden exactamente."""
+
+    score: float = Field(ge=0, le=1)
+
+
 class StockCheck(BaseModel):
     sku: str
     requested: int = Field(gt=0)

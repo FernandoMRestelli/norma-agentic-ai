@@ -25,7 +25,7 @@ CATALOG_COLUMNS = {
 }
 ORDER_COLUMNS = ["id_orden", "fecha_hora", "cliente", "canal", "productos", "notas", "estado"]
 ORDER_LINE = re.compile(r"^(?P<quantity>\d+) x (?P<label>.+) \((?P<sku>[A-Z0-9-]+)\)$")
-EXPECTED_RESULTS = {"borrador", "aclaracion", "sin_stock", "fuera_de_catalogo", "pedido", "sin_pedido"}
+EXPECTED_RESULTS = {"borrador", "aclaracion", "sin_stock", "fuera_de_catalogo", "informacion", "pedido", "sin_pedido"}
 
 
 def read_csv(name: str) -> list[dict[str, str]]:
