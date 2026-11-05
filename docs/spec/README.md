@@ -121,7 +121,7 @@ orden clara para que el equipo la prepare.
 | Pedidos por texto, audio e imagen, por chat web y WhatsApp | Atención humana completa y avisos al equipo |
 | Catálogo, precios y stock desde Google Sheet 1 | API del sistema de gestión real |
 | Interpretación con aclaraciones; nunca inventa productos | Órdenes en el sistema real |
-| Borrador con **Confirmar / Corregir** | Reposición sugerida a proveedores |
+| Propuesta del pedido, que el cliente acepta o corrige escribiendo | Reposición sugerida a proveedores |
 | Una orden por confirmación, en la base interna y en Google Sheet 2 | Memoria de largo plazo («lo mismo que la otra vez») |
 | Dashboard operativo con autenticación | Analítica de ventas y margen |
 | Derivación **mínima** a una persona (C-09) | Usuarios y permisos por persona en el dashboard |
@@ -167,7 +167,7 @@ La base es el plan de Fernando, con sus 8 pasos. Lo que cambia respecto de la im
 | 3 · Procesamiento de entrada | Audio → texto, imagen → texto, normalización | `services/message_service.py` |
 | 4 · Agente Norma | Interpreta y arma el borrador o pregunta, con tools | `agent/`, `tools/`, `services/interpretation_service.py` |
 | 5 · Consulta de información | Catálogo, precios y stock | `services/sheets_service.py` ↔ Google Sheet 1 |
-| 6 · Validación del pedido | Resumen con **Confirmar / Corregir**; corregir vuelve al paso 4 | `services/validation_service.py` |
+| 6 · Validación del pedido | Propuesta en el chat; si el cliente corrige, vuelve al paso 4 | `services/validation_service.py` |
 | 7 · Registro | Revalida stock y crea **una** orden | `services/order_service.py` → base interna y Google Sheet 2 |
 | 8 · Visualización | Pedidos, stock, métricas y conversaciones derivadas | `api/dashboard.py` → `frontend/src/Dashboard/` |
 
@@ -182,7 +182,7 @@ flowchart TD
     T <--> H[services/sheets_service.py]
     H <--> G[(📗 Sheet 1<br/>catálogo y stock)]
     D --> O
-    O --> V[services/validation_service.py<br/>resumen Confirmar / Corregir]
+    O --> V[services/validation_service.py<br/>propuesta y mensaje final]
     V --> J{👤 Cliente}
     J -->|Corregir| O
     J -->|Confirmar| K[services/order_service.py<br/>revalida y registra una vez]
@@ -203,18 +203,18 @@ El diseño detallado del agente, el orquestador y la organización del código e
 | Entradas | `api/chat.py`, `api/whatsapp_webhook.py` | HTTP, firma de Meta, deduplicación, respuesta rápida | Lógica de negocio |
 | Orquestador | `services/conversation_service.py` | Estados de la conversación, lock, persistencia del turno | Interpretar lenguaje |
 | Preprocesamiento | `services/message_service.py` | Normalizar texto, transcribir audio, leer imágenes | Decidir productos |
-| Agente | `agent/` | Loop LLM ↔ tools de un turno | Confirmar ni registrar órdenes |
+| Agente | `agent/` | Loop LLM ↔ tools de un turno | Registrar algo distinto de la propuesta vigente |
 | Tools | `tools/` | Acciones controladas con contratos ([agente §4](agente.md#4-tools)) | Llamar al LLM |
 | Skills y BR | `skills/`, `services/skill_service.py` (nuevo) | Recetas y reglas que el agente lee, y permisos por skill | Reemplazar los controles del backend |
 | Interpretación | `services/interpretation_service.py` | Completar y validar líneas contra el catálogo | Elegir productos |
 | Confirmación | `services/validation_service.py` | Resumen del borrador | Crear órdenes |
 | Negocio | `services/order_service.py` | Confirmar: revalidar stock y crear la orden una sola vez | — |
 | Google Sheets | `services/sheets_service.py` | Leer Sheet 1 (con caché), escribir Sheet 2 | — |
-| WhatsApp | `services/whatsapp_service.py` (nuevo) | Enviar mensajes y botones, descargar multimedia | — |
+| WhatsApp | `services/whatsapp_service.py` (nuevo) | Enviar mensajes, descargar multimedia | — |
 | Dashboard | `api/dashboard.py`, `services/dashboard_service.py` (nuevos) | Indicadores y listados con autenticación | Escribir datos |
 | Contratos | `schemas/` | Modelos compartidos ([§5](#5-contratos-de-datos)) | — |
 | Persistencia | `database/` | Base interna SQLite | — |
-| Interfaz | `frontend/src/Chat/`, `frontend/src/Dashboard/` | Tarjeta de confirmación y panel | Hablar con Google Sheets |
+| Interfaz | `frontend/src/Chat/`, `frontend/src/Dashboard/` | Chat y panel | Hablar con Google Sheets |
 
 ### 3.3 Cambios respecto de la imagen
 
@@ -227,13 +227,13 @@ La imagen de Fernando es la base. Estos son los puntos en los que la spec la cam
 | C-03 | Sheet 2: Cliente, Fecha/Hora, Productos, Cantidades, Descripción, Estado | Columnas de [`pedidos.csv`](../../datos_ejemplo/pedidos.csv): `id_orden`, `fecha_hora`, `cliente`, `canal`, `productos`, `notas`, `estado` | Hace falta el ID para seguir y deduplicar, y el canal para responder; cantidades van dentro de `productos` (una fila por pedido) |
 | C-04 | Logo de OpenAI en «LLM» | Proveedor detrás de LangChain (`agent/llm.py`): **Gemini free tier para texto en la beta**; el de producción, sin definir (D-01) | La spec fija qué tiene que soportar; para probar la beta alcanza un modelo gratuito ([canal Telegram §4.3](canal-telegram.md#43-llmclient-y-formato-neutral)) |
 | C-05 | El mensaje va de la recepción directo al procesamiento y al agente | Un **orquestador** (`conversation_service.py`) con máquina de estados entre la API y el agente | El loop «si el cliente corrige, vuelve a interpretación» necesita estado: qué borrador está pendiente, qué se preguntó, cuándo vence |
-| C-06 | «OK / Confirmar» dentro del flujo del agente | La confirmación **no pasa por el LLM**: botón o palabra clave exacta | El LLM no debe decidir cuándo se registra una orden |
+| C-06 | «OK / Confirmar» dentro del flujo del agente | El cliente confirma escribiendo, sin botones. `OK` o `CONFIRMAR` exactos no pasan por el LLM; cualquier otra respuesta la interpreta el agente | Se confirma igual en todos los canales, y el LLM solo puede registrar la propuesta vigente |
 | C-07 | Tools: catálogo, inventario, órdenes | Se suman `reply_tools.py` (`respond_to_customer`, `escalate_to_human`) y `discard_order_draft` | Cada turno termina en una tool que define el resultado; así los casos de `mensajes.json` son verificables |
 | C-08 | — | Las tools reciben `customer_id`, `channel` y `draft_id` **inyectados** por el backend | Que el LLM no pueda actuar a nombre de otro cliente ni sobre otro borrador |
 | C-09 | Sin derivación | Derivación **mínima** a una persona (estado `derivada`, visible en el dashboard) | Un asistente que no puede resolver algo necesita una salida; los avisos al equipo siguen en v2 |
 | C-10 | Dashboard sin acceso controlado | Dashboard detrás de **autenticación** | Muestra datos de clientes; `architecture.md` ya lo pedía |
 | C-11 | — | `whatsapp_service.py` para enviar mensajes y descargar multimedia | La imagen recibe por WhatsApp pero no muestra cómo se responde |
-| C-12 | Frontend: solo `Dashboard/` | También `Chat/` (tarjeta Confirmar / Corregir del chat web) | Ya existe en el repo y el chat web es un canal del MVP |
+| C-12 | Frontend: solo `Dashboard/` | También `Chat/` (chat web) | Ya existe en el repo y el chat web es un canal del MVP |
 | C-13 | `OrderDraft` sin versión | `OrderDraft.version`, que sube con cada corrección | Evita confirmar un resumen viejo que el cliente ya corrigió |
 | C-14 | Canales: WhatsApp y chat web | Se suma **Telegram** como canal de prueba de la beta ([spec](canal-telegram.md)) | Permite probar el flujo con el equipo antes de la etapa 07, sin cuenta de Meta ni número verificado |
 
@@ -282,8 +282,7 @@ stock, crea la orden en una transacción, responde con el número de orden y agr
 1. Meta envía el POST; el webhook valida la firma, guarda el id del mensaje y responde **200 enseguida**.
 2. En segundo plano: si el id ya se procesó, se descarta; si es multimedia, `whatsapp_service` descarga el archivo.
 3. Sigue el mismo flujo que el chat web (F1 a F6).
-4. El borrador se envía como **mensaje interactivo con botones** cuando se puede; si no, como texto con la
-   instrucción «Respondé OK para confirmar o CORREGIR para cambiar algo».
+4. La propuesta se envía como texto, y el cliente responde igual que en los demás canales.
 
 ### F8 · Seguimiento y dashboard
 
@@ -387,8 +386,6 @@ Definido en la [spec del agente](agente.md#92-agentoutcome). Sus valores de `kin
 | `GET /webhook/whatsapp` | `hub.mode`, `hub.verify_token`, `hub.challenge` | `challenge` o `403` | Hecho |
 | `POST /webhook/whatsapp` | Payload de Meta + `X-Hub-Signature-256` | `200` o `403` | Firma hecha; procesamiento pendiente |
 | `POST /chat/messages` | `IncomingMessage` | `{state, outcome: AgentOutcome}` | `501` |
-| `POST /chat/drafts/{draft_id}/confirmar?version=N` | — | `200 {order}`; `409` versión vieja, estado inválido o stock insuficiente; `404` | `501` |
-| `POST /chat/drafts/{draft_id}/corregir?version=N` | — | `200 {message}`; `409`; `404` | `501` |
 | `GET /dashboard/summary` | — | Indicadores de RF-22 | Nuevo |
 | `GET /dashboard/orders?status=&limit=` | — | Últimos pedidos | Nuevo |
 | `GET /dashboard/stock?low=true` | — | Productos y stock | Nuevo |
@@ -431,10 +428,10 @@ Esta versión de la spec está en revisión: todo lo que no está implementado f
 |---|---|---|---|
 | RF-11 | Con el pedido claro, el agente le propone al cliente lo que entendió y el backend lo guarda validado; al registrarlo, el backend responde con el detalle de producto, presentación y cantidad de cada línea | 04 | P (resumen: I) |
 | RF-12 | Una corrección actualiza el mismo borrador, sube su versión y muestra un resumen nuevo | 04 | P |
-| RF-13 | Se registra un pedido solo si el cliente acepta la propuesta vigente, aunque sea conversando («dale»); el agente interpreta la aceptación, pero `armar_pedido` solo puede crear lo que el backend guardó como propuesta | 04 | I |
+| RF-13 | Se registra un pedido solo si el cliente acepta la propuesta vigente, aunque sea conversando («dale»); el agente interpreta la aceptación, pero `armar_pedido` solo puede crear lo que el backend guardó como propuesta. `OK` o `CONFIRMAR` exactos se registran sin llamar al LLM | 04 | I |
 | RF-14 | Al confirmar se revalida el stock de cada línea con una lectura fresca; si no alcanza, no se crea la orden | 04 | P |
 | RF-15 | Un borrador produce como máximo una orden, aunque la confirmación llegue repetida | 05 | P |
-| RF-16 | No se puede confirmar una versión del borrador que no sea la última | 04 | P |
+| RF-16 | Solo se puede registrar la última versión de la propuesta | 04 | I |
 | RF-17 | Cada orden tiene un `order_id` único y correlativo (`ORD-0001`) | 05 | P (formato y validación: I) |
 | RF-18 | Al confirmar, el cliente recibe el número de orden | 05 | P |
 
@@ -470,7 +467,7 @@ Detalle en la [spec del canal](canal-telegram.md).
 | ID | Requisito | Etapa | Estado |
 |---|---|---|---|
 | RF-29 | El sistema recibe mensajes de texto, audio y foto por un bot de Telegram, por polling o por webhook con secret token, y solo atiende a los usuarios de la lista blanca | Beta | I |
-| RF-30 | En Telegram, una respuesta con borrador lleva los botones Confirmar / Corregir con el `draft_id` y la versión; tocar uno responde el `callback_query`, saca los botones y pasa la acción al orquestador | Beta | I (del lado del canal) |
+| ~~RF-30~~ | ~~En Telegram, una respuesta con borrador lleva los botones Confirmar / Corregir~~ Eliminado: el cliente confirma escribiendo, en todos los canales | Beta | — |
 | RF-31 | Un update de Telegram repetido (mismo `update_id`) se procesa una sola vez | Beta | I |
 | RF-32 | Mientras no haya modelo de visión, un audio o una imagen reciben el pedido de escribirlo, sin llamar al LLM | Beta | I |
 
@@ -484,7 +481,7 @@ Detalle en la [spec del canal](canal-telegram.md).
 | RNF-02 | Control del LLM | El LLM no elige qué se registra: solo dispara `armar_pedido` sobre la propuesta vigente. No conoce identificadores del cliente o del borrador (se inyectan); toda salida del LLM que llega a una tool se valida con pydantic |
 | RNF-03 | Privacidad | Audios e imágenes no se guardan, solo el texto extraído; los logs llevan IDs, no el texto de los mensajes; ningún dato real en el repositorio; plazo de retención de conversaciones según D-08 |
 | RNF-04 | Confiabilidad | La orden se crea en una transacción de la base; si falla la escritura en Sheet 2, se reintenta en segundo plano sin duplicar la fila (se busca el `order_id` antes de agregar) |
-| RNF-05 | Concurrencia | Los turnos de una conversación se procesan de a uno; el MVP corre en una sola instancia (SQLite) |
+| RNF-05 | Concurrencia | Los turnos de una conversación se procesan de a uno; el MVP corre en una sola instancia y un solo worker (SQLite) |
 | RNF-06 | Latencia | Webhook: 200 en menos de 2 s. Respuesta a texto: p95 < 10 s. Audio o imagen: p95 < 20 s. Dashboard: < 2 s. Timeout del LLM: 30 s |
 | RNF-07 | Observabilidad | Logs estructurados con `conversation_id`, `draft_id`, `order_id`, tools llamadas, iteraciones, latencia y tokens; la versión que corre se ve en `/openapi.json` |
 | RNF-08 | Testabilidad | Tests sin red ni Docker; el LLM se reemplaza por un modelo falso; datos sintéticos deterministas; cada CA tiene al menos un test |
@@ -566,11 +563,11 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | ID | Dado | Cuando | Entonces | RF | Test |
 |---|---|---|---|---|---|
 | CA-13 | Un borrador pendiente versión 1 | El cliente corrige una cantidad | El mismo `draft_id` pasa a versión 2, el resumen nuevo muestra cada ítem, sigue pendiente | RF-11, RF-12 | `test_invariantes.py::test_el_resumen_muestra_cada_item_del_borrador` (resumen); resto pendiente |
-| CA-14 | Un borrador en versión 2 | Llega Confirmar con versión 1 | `409` y no se crea orden | RF-16 | pendiente |
-| CA-15 | Un borrador pendiente | Llega Confirmar dos veces (doble click o reintento) | Se crea una sola orden, las dos respuestas tienen el mismo `order_id` y hay una sola fila en Sheet 2 | RF-15 | `test_agent_graph.py::test_reintento_no_duplica_la_orden` |
+| CA-14 | Una propuesta en versión 2 | El cliente acepta | La orden se crea con las líneas de la versión 2 | RF-16 | `test_agent_graph.py` |
+| CA-15 | Un borrador pendiente | La aceptación llega dos veces (reintento) | Se crea una sola orden, las dos respuestas tienen el mismo `order_id` y hay una sola fila en Sheet 2 | RF-15 | `test_agent_graph.py::test_reintento_no_duplica_la_orden` |
 | CA-16 | Un borrador cuyo stock se agotó después de armarlo | El cliente confirma | No se crea orden, se informa qué línea no alcanza y la conversación sigue en `borrador_pendiente` | RF-14 | pendiente |
 | CA-17 | Una propuesta vigente | El cliente escribe «dale» | Se crea una sola orden con lo propuesto. Si escribe «dale, pero 2» o «no, gracias», no se crea orden | RF-13 | `test_agent_graph.py`; interpretación real: casos de `mensajes.json` |
-| CA-18 | Una propuesta vigente | El cliente responde `ok` | Va al agente y se trata igual que cualquier otra aceptación | RF-13 | casos de `mensajes.json` |
+| CA-18 | Una propuesta vigente | El cliente responde exactamente `OK` o `CONFIRMAR` | Se registra sin llamar al LLM. Si el stock ya no alcanza, responde el agente. Sin propuesta vigente, el mensaje va al agente | RF-13 | `test_agent_graph.py` |
 | CA-19 | Una orden confirmada | Sheet 2 falla al escribir y después vuelve | La orden existe en la base con `sheets_synced = false` y el reintento agrega una sola fila con las columnas de `pedidos.csv` | RF-19, RNF-04 | pendiente |
 | CA-21 | Una conversación con una falla previa | Ocurre una segunda falla | La conversación pasa a `derivada` y el bot no responde a ese cliente por 24 h | RF-27 | pendiente |
 | CA-22 | Cualquier conversación abierta | El cliente pide hablar con una persona | El turno termina en `derivado` | RF-27 | pendiente |
@@ -585,7 +582,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-31 | Un usuario fuera de la lista blanca | Escribe al bot | Recibe un texto fijo con su id y el mensaje no llega al orquestador | RF-29 | `test_telegram.py::test_usuario_fuera_de_la_lista_blanca` |
 | CA-32 | Un update ya procesado | Llega otra vez con el mismo `update_id` | No se procesa ni se responde de nuevo | RF-31 | `test_telegram.py::test_update_repetido_se_procesa_una_vez` |
 | CA-33 | Un integrante de la lista blanca | Manda texto, un audio o una foto | Llega como `IncomingMessage` `text`, `audio` o `image` con `media_url = telegram:<file_id>`; audio y foto reciben el pedido de escribirlo | RF-29, RF-32 | `test_telegram.py::test_traduce_*`, `test_conversation.py`, `test_orders.py::test_incoming_message_*telegram*` |
-| CA-34 | Una respuesta del orquestador con borrador | Se envía y el cliente toca Confirmar | El mensaje tiene los dos botones; el toque llega con el `draft_id` y la versión, se responde el `callback_query` y se sacan los botones | RF-30 | `test_telegram.py::test_borrador_con_botones_*` |
+| ~~CA-34~~ | ~~Botones Confirmar / Corregir en Telegram~~ Eliminado: el cliente confirma escribiendo, en todos los canales | — | — | ~~RF-30~~ | — |
 | CA-35 | Un `AIMessage` de Gemini con tool calls | Vuelve al modelo dentro del mismo turno | Se reenvía completo, sin reconstruirlo, para conservar las firmas | RNF-09 | `test_agent_graph.py` |
 | CA-36 | `LLM_PROVIDER` = `gemini` / vacío / otro | Se pide el modelo | `ChatGoogleGenerativeAI` / error que dice qué variable falta / error de proveedor no soportado | RNF-09 | `test_llm.py` |
 
@@ -618,7 +615,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 
 | Riesgo | Mitigación |
 |---|---|
-| El stock de la planilla no se puede reservar (dos clientes confirman el último) | Revalidación al confirmar (RF-14); se acepta el riesgo residual en el MVP |
+| El stock de la planilla no se puede reservar (dos clientes confirman el último) | Revalidación al confirmar (RF-14); se acepta el riesgo residual en el MVP. Mientras el catálogo salga del CSV provisorio, ninguna orden descuenta stock (`MEJORAS.md`) |
 | El LLM interpreta mal un pedido | El cliente siempre ve el resumen antes de confirmar; `mensajes.json` como evaluación |
 | Conversaciones derivadas sin atender (no hay avisos en el MVP) | Listado en el dashboard (RF-24); avisos en v2 |
 | Costo del LLM por pedido | Límites de RNF-12 y medición de tokens (RNF-07) |

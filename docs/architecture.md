@@ -6,7 +6,7 @@
 
 ## 🎯 Qué estamos construyendo
 
-Un cliente envía un pedido por **texto, audio o imagen** mediante WhatsApp o chat web. Un agente interpreta el contenido, consulta catálogo, precio y disponibilidad, y prepara un **borrador**. El cliente recibe una tarjeta con **✅ Confirmar** y **✏️ Corregir**. Solo tras confirmar, la aplicación registra la orden y la incorpora al seguimiento. Norma ve el estado de pedidos y stock en un dashboard.
+Un cliente envía un pedido por **texto, audio o imagen** mediante WhatsApp o chat web. Un agente interpreta el contenido, consulta catálogo, precio y disponibilidad, y prepara un **borrador**. El cliente recibe la propuesta en el chat y responde escribiendo si la acepta o qué quiere cambiar. Solo si la acepta, la aplicación registra la orden y la incorpora al seguimiento. Norma ve el estado de pedidos y stock en un dashboard.
 
 ## 🔄 El circuito completo
 
@@ -68,7 +68,7 @@ flowchart TD
 5. Si el cliente cambia algo, propone de nuevo.
 6. Si el cliente acepta («dale»), el backend **vuelve a consultar el stock**, registra una única orden con ID y la sincroniza con Google Sheets. Solo puede registrar lo propuesto.
 
-**WhatsApp:** el equivalente a la tarjeta puede ser un mensaje interactivo con botones cuando el canal y tipo de mensaje lo permitan; si no, se usa la respuesta `OK` / `CORREGIR`. El backend debe vincular la acción al borrador correcto.
+**Confirmación:** en todos los canales el cliente responde escribiendo, sin botones. Si responde exactamente `OK` o `CONFIRMAR` y hay una propuesta vigente, el backend la registra sin llamar al LLM. Cualquier otra respuesta la interpreta el agente.
 
 ## 📊 De dónde se alimenta el dashboard
 

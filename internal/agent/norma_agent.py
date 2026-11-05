@@ -22,6 +22,9 @@ from internal.schemas.order_schema import Channel, OrderDraft
 
 logger = logging.getLogger(__name__)
 
+# Otro proceso, como el bot, puede estar escribiendo: se espera antes de fallar con «database is locked»
+CHECKPOINT_BUSY_TIMEOUT = 15.0
+
 
 class NormaAgent:
     def __init__(self, model: BaseChatModel, checkpointer: BaseCheckpointSaver):
@@ -73,4 +76,5 @@ class NormaAgent:
 def get_agent() -> NormaAgent:
     path = Path(get_settings().checkpoint_db)
     path.parent.mkdir(parents=True, exist_ok=True)
-    return NormaAgent(get_chat_model(), SqliteSaver(sqlite3.connect(path, check_same_thread=False)))
+    connection = sqlite3.connect(path, timeout=CHECKPOINT_BUSY_TIMEOUT, check_same_thread=False)
+    return NormaAgent(get_chat_model(), SqliteSaver(connection))

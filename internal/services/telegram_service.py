@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from internal.config import get_settings
 from internal.schemas.conversation_schema import ChannelReply
-from internal.schemas.order_schema import Channel, ConfirmationAction, IncomingMessage, MessageType
+from internal.schemas.order_schema import Channel, IncomingMessage, MessageType
 from internal.services import conversation_service
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,6 @@ NOT_ALLOWED = (
 UNSUPPORTED = "Por ahora solo entiendo mensajes de texto, audios y fotos."
 SOMETHING_FAILED = "Tuve un problema, probá de nuevo en unos minutos."
 
-ACTION_CODES = {ConfirmationAction.CONFIRM: "c", ConfirmationAction.CORRECT: "e"}
 
 
 class TelegramError(RuntimeError):
@@ -60,22 +59,13 @@ class TelegramClient:
         self.call("deleteWebhook")
 
     def get_updates(self, offset: int | None, poll_seconds: int) -> list[dict]:
-        params: dict[str, Any] = {"timeout": poll_seconds, "allowed_updates": ["message", "callback_query"]}
+        params: dict[str, Any] = {"timeout": poll_seconds, "allowed_updates": ["message"]}
         if offset is not None:
             params["offset"] = offset
         return self.call("getUpdates", http_timeout=poll_seconds + 10, **params)
 
-    def send_message(self, chat_id: int, text: str, buttons: list[list[dict]] | None = None) -> None:
-        params: dict[str, Any] = {"chat_id": chat_id, "text": text}
-        if buttons:
-            params["reply_markup"] = {"inline_keyboard": buttons}
-        self.call("sendMessage", **params)
-
-    def answer_callback_query(self, callback_query_id: str) -> None:
-        self.call("answerCallbackQuery", callback_query_id=callback_query_id)
-
-    def remove_buttons(self, chat_id: int, message_id: int) -> None:
-        self.call("editMessageReplyMarkup", chat_id=chat_id, message_id=message_id)
+    def send_message(self, chat_id: int, text: str) -> None:
+        self.call("sendMessage", chat_id=chat_id, text=text)
 
 
 def get_client() -> TelegramClient:
@@ -91,38 +81,12 @@ class TelegramMessage(BaseModel):
     message: IncomingMessage | None  # None: tipo de mensaje que el sistema no maneja
 
 
-class TelegramButton(BaseModel):
-    chat_id: int
-    user_id: int
-    message_id: int
-    callback_query_id: str
-    action: ConfirmationAction
-    draft_id: str
-    version: int
-
-
 def customer_id_for(user_id: int) -> str:
     return f"telegram:{user_id}"
 
 
-def draft_buttons(draft_id: str, version: int) -> list[list[dict]]:
-    """Inline keyboard de Confirmar / Corregir. `callback_data` tiene un límite de 64 bytes."""
-    confirm, correct = f"c:{draft_id}:{version}", f"e:{draft_id}:{version}"
-    # Telegram rechaza el mensaje entero si se pasa: mejor fallar acá con un error que diga por qué
-    if len(confirm.encode()) > 64:
-        raise ValueError(f"draft_id demasiado largo para callback_data ({len(confirm.encode())} de 64 bytes)")
-    return [
-        [
-            {"text": "✅ Confirmar", "callback_data": confirm},
-            {"text": "✏️ Corregir", "callback_data": correct},
-        ]
-    ]
-
-
-def parse_update(update: dict) -> TelegramMessage | TelegramButton | None:
+def parse_update(update: dict) -> TelegramMessage | None:
     """Traduce un update de Telegram. Devuelve None para lo que se ignora (grupos, otros tipos de update)."""
-    if query := update.get("callback_query"):
-        return _parse_button(query)
     message = update.get("message")
     if not message or message.get("chat", {}).get("type") != "private" or "from" not in message:
         return None
@@ -149,24 +113,6 @@ def parse_update(update: dict) -> TelegramMessage | TelegramButton | None:
     else:
         incoming = None
     return TelegramMessage(chat_id=message["chat"]["id"], user_id=user_id, message=incoming)
-
-
-def _parse_button(query: dict) -> TelegramButton | None:
-    message = query.get("message")
-    code, _, rest = query.get("data", "").partition(":")
-    draft_id, _, version = rest.rpartition(":")
-    actions = {value: key for key, value in ACTION_CODES.items()}
-    if not message or code not in actions or not draft_id or not version.isdigit():
-        return None
-    return TelegramButton(
-        chat_id=message["chat"]["id"],
-        user_id=query["from"]["id"],
-        message_id=message["message_id"],
-        callback_query_id=query["id"],
-        action=actions[code],
-        draft_id=draft_id,
-        version=int(version),
-    )
 
 
 class _ProcessedUpdates:
@@ -211,30 +157,17 @@ def handle_update(update: dict, client: TelegramClient) -> None:
     try:
         if event.user_id not in get_settings().telegram_allowed_ids:
             logger.info("Telegram: usuario %s fuera de la lista blanca", event.user_id)
-            if isinstance(event, TelegramButton):
-                client.answer_callback_query(event.callback_query_id)
             client.send_message(event.chat_id, NOT_ALLOWED.format(user_id=event.user_id))
             return
 
-        if isinstance(event, TelegramButton):
-            client.answer_callback_query(event.callback_query_id)
-            client.remove_buttons(event.chat_id, event.message_id)
-            reply = conversation_service.handle_action(
-                customer_id_for(event.user_id), Channel.TELEGRAM, event.draft_id, event.version, event.action
-            )
-        elif event.message is None:
+        if event.message is None:
             reply = ChannelReply(text=UNSUPPORTED)
         else:
             reply = conversation_service.handle_message(event.message)
-        send_reply(client, event.chat_id, reply)
+        client.send_message(event.chat_id, reply.text)
     except Exception:
         logger.exception("Telegram: error procesando el update %s", update_id)
         try:
             client.send_message(event.chat_id, SOMETHING_FAILED)
         except TelegramError:
             logger.warning("Telegram: tampoco se pudo avisar el error del update %s", update_id)
-
-
-def send_reply(client: TelegramClient, chat_id: int, reply: ChannelReply) -> None:
-    buttons = draft_buttons(reply.draft_id, reply.draft_version or 1) if reply.draft_id else None
-    client.send_message(chat_id, reply.text, buttons)

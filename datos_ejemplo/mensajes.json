@@ -390,5 +390,33 @@
     "esperado": {
       "resultado": "sin_pedido"
     }
+  },
+  {
+    "id": "acepta-con-condicion-de-fecha",
+    "descripcion": "Parece aceptar, pero pone una condición: no se registra nada",
+    "previo": "2 shampoos Pantene 400 por favor",
+    "mensaje": {
+      "customer_id": "cli-019",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "dale pero aguantame al lunes que cobro"
+    },
+    "esperado": {
+      "resultado": "sin_pedido"
+    }
+  },
+  {
+    "id": "acepta-con-condicion-de-envio",
+    "descripcion": "Parece aceptar, pero pide algo que no se puede coordinar: no se registra nada",
+    "previo": "2 shampoos Pantene 400 por favor",
+    "mensaje": {
+      "customer_id": "cli-020",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "dale pero mandámelo a otra sucursal"
+    },
+    "esperado": {
+      "resultado": "sin_pedido"
+    }
   }
 ]

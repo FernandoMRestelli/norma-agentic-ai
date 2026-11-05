@@ -10,4 +10,3 @@ def test_audio_e_imagen_piden_el_pedido_escrito(tipo):
     message = IncomingMessage(customer_id="telegram:1", channel=Channel.TELEGRAM, type=tipo, media_url="telegram:X")
     reply = conversation_service.handle_message(message)
     assert reply.text == conversation_service.WRITE_IT_PLEASE
-    assert reply.draft_id is None

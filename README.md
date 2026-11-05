@@ -1,8 +1,8 @@
 # Norma Agentic AI
 
 Agente que recibe pedidos de compra de los clientes por **texto, audio o imagen** (chat web o WhatsApp),
-los interpreta contra el catálogo, muestra un borrador para **confirmar o corregir** y, solo tras la
-confirmación, registra la orden para su seguimiento.
+los interpreta contra el catálogo, le propone el pedido por el mismo chat y, solo cuando el cliente
+lo acepta, registra la orden para su seguimiento.
 
 > **El LLM interpreta; el backend valida y registra; el cliente confirma; el equipo controla la operación.**
 
@@ -125,7 +125,7 @@ El detalle de cada pieza está en [docs/architecture.md](docs/architecture.md).
 | `internal/verificar_claves.py` | Prueba las claves de Telegram y del LLM sin mostrarlas |
 | `internal/schemas/` | Contratos de datos: pedido (borrador vs. orden) y catálogo |
 | `internal/database/` | Base interna (SQLite en `data/`) |
-| `frontend/src/` | Chat (tarjeta Confirmar / Corregir) y Dashboard |
+| `frontend/src/` | Chat y Dashboard |
 | `tests/conftest.py` | Aísla los tests: sin `.env`, base temporal y sin red |
 | `tests/datos_sinteticos.py` | Catálogos, mensajes y borradores deterministas para los tests |
 | `tests/test_*.py` | Un archivo por módulo, más `test_invariantes.py` para todos los canales y tipos de mensaje |

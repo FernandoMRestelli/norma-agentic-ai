@@ -16,7 +16,7 @@ Se actualiza al cerrar cada PR que cambie el estado o la lista.
   Todavía no hay ninguna release publicada ni producción corriendo.
 - **Primer loop del agente**: grafo con LangGraph, skills y BR, y pedido por conversación en Telegram. El catálogo
   sale de `datos_ejemplo/catalogo.csv` y el pedido queda en la base local.
-- **Esqueletos sin implementar**: Google Sheets, chat, botones de Telegram y frontend (devuelven `501` o
+- **Esqueletos sin implementar**: Google Sheets, chat y frontend (devuelven `501` o
   `NotImplementedError`).
 
 ## Qué mostró la evidencia
@@ -38,6 +38,9 @@ justo antes devolvieron `503` y `504`. Hay que repetirla con `python -m internal
 ## Limitaciones conocidas
 
 - El stock sale de una planilla: se revalida al confirmar, pero Google Sheets no permite reservarlo.
+- **Tarea prioritaria:** mientras el catálogo salga de `datos_ejemplo/catalogo.csv`, ninguna orden descuenta stock.
+  Dos clientes pueden pedir las mismas unidades y las dos órdenes se crean. Hay que resolverlo al conectar el stock
+  con la base o con Google Sheet 1.
 - SQLite en `data/` alcanza para el MVP con una sola instancia; dos procesos escribiendo a la vez no.
 - No hay configuración de negocio fuera del código y del `.env`. Cuando aparezcan parámetros que no son secretos
   (por ejemplo el umbral de "poco stock" del dashboard), van en `config/` como JSON validado al arrancar,

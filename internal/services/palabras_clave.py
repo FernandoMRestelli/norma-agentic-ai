@@ -1,15 +1,13 @@
-"""Interpretación de palabras clave para confirmación y corrección de borradores.
+"""Interpretación de palabras clave para confirmación y corrección de propuestas.
 
 Lógica pura (texto -> ConfirmationAction | None).
-No decide sobre el estado de la conversación (eso le corresponde al orquestador
-en `conversation_service`, quien verificará que la conversación esté en `borrador_pendiente`).
+No decide sobre el estado de la conversación: de eso se encarga el grafo del agente,
+que solo registra la propuesta si hay una vigente.
 """
 
 import unicodedata
 
 from internal.schemas.order_schema import ConfirmationAction
-
-AYUDA_CONFIRMAR: str = "Respondé OK para confirmar o CORREGIR para cambiar algo"
 
 
 def _normalizar(texto: str) -> str:
@@ -27,10 +25,10 @@ def interpretar_palabra_clave(texto: str) -> ConfirmationAction | None:
       * 'ok' o 'confirmar' -> ConfirmationAction.CONFIRM
       * 'corregir' -> ConfirmationAction.CORRECT
     - Cualquier otro texto (incluyendo 'dale', 'sí', o frases compuestas) devuelve None,
-      dejando que el mensaje pase al agente (quien no puede confirmar y recordará cómo hacerlo).
+      dejando que el mensaje pase al agente, que decide si es una aceptación.
 
     Nota: Esta función es pura y no comprueba el estado de la conversación.
-    El orquestador debe asegurar que solo se aplique en `borrador_pendiente`.
+    Hoy solo CONFIRM evita al LLM. 'corregir' sigue al agente, que pregunta qué cambiar.
     """
     normalizado = _normalizar(texto)
     if normalizado in ("ok", "confirmar"):

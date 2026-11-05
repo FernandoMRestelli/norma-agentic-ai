@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from internal.config import get_settings
 from internal.main import app
 from internal.schemas.conversation_schema import ChannelReply
-from internal.schemas.order_schema import Channel, ConfirmationAction, MessageType
+from internal.schemas.order_schema import Channel, MessageType
 from internal.services import conversation_service, telegram_service
 from internal.services.telegram_service import TelegramClient, TelegramError, parse_update
 
@@ -19,14 +19,8 @@ class FakeTelegram:
     def __init__(self):
         self.calls: list[tuple] = []
 
-    def send_message(self, chat_id, text, buttons=None):
-        self.calls.append(("send_message", chat_id, text, buttons))
-
-    def answer_callback_query(self, callback_query_id):
-        self.calls.append(("answer_callback_query", callback_query_id))
-
-    def remove_buttons(self, chat_id, message_id):
-        self.calls.append(("remove_buttons", chat_id, message_id))
+    def send_message(self, chat_id, text):
+        self.calls.append(("send_message", chat_id, text))
 
     @property
     def sent(self) -> list[tuple]:
@@ -54,12 +48,7 @@ def orquestador(monkeypatch):
         recibido.append(message)
         return ChannelReply(text="respuesta")
 
-    def handle_action(customer_id, channel, draft_id, version, action):
-        recibido.append((customer_id, channel, draft_id, version, action))
-        return ChannelReply(text="accion")
-
     monkeypatch.setattr(conversation_service, "handle_message", handle_message)
-    monkeypatch.setattr(conversation_service, "handle_action", handle_action)
     return recibido
 
 
@@ -125,16 +114,16 @@ def test_ignora_grupos():
     assert parse_update(mensaje(chat_type="group")) is None
 
 
-@pytest.mark.parametrize("data", ["x:draft-1:2", "c:draft-1:dos", "c::2", ""])
-def test_ignora_botones_malformados(data):
-    assert parse_update(boton(data=data)) is None
+def test_ignora_callback_queries():
+    """Los botones viejos de un chat no hacen nada: el cliente confirma escribiendo."""
+    assert parse_update(boton()) is None
 
 
 def test_mensaje_de_integrante_llega_al_orquestador(orquestador):
     bot = FakeTelegram()
     telegram_service.handle_update(mensaje(), bot)
     assert [m.text for m in orquestador] == ["Quiero 5 shampoo pantene 400"]
-    assert bot.calls == [("send_message", USUARIO, "respuesta", None)]
+    assert bot.calls == [("send_message", USUARIO, "respuesta")]
 
 
 def test_usuario_fuera_de_la_lista_blanca(orquestador):
@@ -142,7 +131,7 @@ def test_usuario_fuera_de_la_lista_blanca(orquestador):
     bot = FakeTelegram()
     telegram_service.handle_update(mensaje(user_id=INTRUSO), bot)
     assert orquestador == []
-    ((_, chat_id, texto, _),) = bot.sent
+    ((_, chat_id, texto),) = bot.sent
     assert chat_id == INTRUSO
     assert str(INTRUSO) in texto
 
@@ -167,35 +156,7 @@ def test_tipo_no_soportado_responde_sin_orquestador(orquestador):
     bot = FakeTelegram()
     telegram_service.handle_update(mensaje(sticker={"file_id": "S1"}), bot)
     assert orquestador == []
-    assert bot.sent == [("send_message", USUARIO, telegram_service.UNSUPPORTED, None)]
-
-
-def test_borrador_con_botones_al_enviar():
-    """CA-34: una respuesta con borrador va con Confirmar / Corregir con el draft_id y la versión."""
-    bot = FakeTelegram()
-    telegram_service.send_reply(bot, USUARIO, ChannelReply(text="resumen", draft_id="draft-1", draft_version=2))
-    ((_, _, texto, botones),) = bot.sent
-    assert texto == "resumen"
-    assert [b["callback_data"] for b in botones[0]] == ["c:draft-1:2", "e:draft-1:2"]
-    assert all(len(b["callback_data"].encode()) <= 64 for b in botones[0])
-
-
-def test_borrador_con_draft_id_demasiado_largo():
-    """CA-34: un draft_id que no entra en los 64 bytes de callback_data falla antes de llamar a Telegram."""
-    with pytest.raises(ValueError, match="64 bytes"):
-        telegram_service.draft_buttons("x" * 61, 1)
-
-
-@pytest.mark.parametrize(
-    ("data", "accion"), [("c:draft-1:2", ConfirmationAction.CONFIRM), ("e:draft-1:2", ConfirmationAction.CORRECT)]
-)
-def test_borrador_con_botones_al_tocar(orquestador, data, accion):
-    """CA-34: el toque llega al orquestador, se responde el callback_query y se sacan los botones."""
-    bot = FakeTelegram()
-    telegram_service.handle_update(boton(data=data), bot)
-    assert orquestador == [(f"telegram:{USUARIO}", Channel.TELEGRAM, "draft-1", 2, accion)]
-    assert bot.calls[:2] == [("answer_callback_query", "cb-1"), ("remove_buttons", USUARIO, 20)]
-    assert bot.sent == [("send_message", USUARIO, "accion", None)]
+    assert bot.sent == [("send_message", USUARIO, telegram_service.UNSUPPORTED)]
 
 
 def test_error_del_orquestador_avisa_al_cliente(monkeypatch):
@@ -205,7 +166,7 @@ def test_error_del_orquestador_avisa_al_cliente(monkeypatch):
     monkeypatch.setattr(conversation_service, "handle_message", falla)
     bot = FakeTelegram()
     telegram_service.handle_update(mensaje(), bot)
-    assert bot.sent == [("send_message", USUARIO, telegram_service.SOMETHING_FAILED, None)]
+    assert bot.sent == [("send_message", USUARIO, telegram_service.SOMETHING_FAILED)]
 
 
 def test_cliente_de_telegram_no_filtra_el_token_en_errores():
@@ -230,10 +191,10 @@ def test_cliente_de_telegram_arma_el_pedido():
         return httpx.Response(200, json={"ok": True, "result": True})
 
     client = TelegramClient("123:token-de-prueba", http=httpx.Client(transport=httpx.MockTransport(handler)))
-    client.send_message(USUARIO, "hola", telegram_service.draft_buttons("draft-1", 1))
+    client.send_message(USUARIO, "hola")
     (request,) = requests
     assert request.url.path == "/bot123:token-de-prueba/sendMessage"
-    assert b'"inline_keyboard"' in request.content
+    assert b'"inline_keyboard"' not in request.content
 
 
 def test_cliente_de_telegram_respuesta_con_error():

@@ -1,7 +1,7 @@
 import pytest
 
 from internal.schemas.order_schema import ConfirmationAction
-from internal.services.palabras_clave import AYUDA_CONFIRMAR, interpretar_palabra_clave
+from internal.services.palabras_clave import interpretar_palabra_clave
 
 
 @pytest.mark.parametrize(
@@ -64,8 +64,3 @@ def test_corregir_con_tildes_y_espacios(texto: str):
 def test_texto_libre_no_es_palabra_clave(texto: str):
     """CA-17: cualquier texto que no sea exactamente la palabra clave devuelve None."""
     assert interpretar_palabra_clave(texto) is None
-
-
-def test_ayuda_confirmar_contiene_instruccion_correcta():
-    """F7: instrucción fija para mensajes sin botones interactivos."""
-    assert AYUDA_CONFIRMAR == "Respondé OK para confirmar o CORREGIR para cambiar algo"

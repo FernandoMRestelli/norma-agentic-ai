@@ -16,7 +16,7 @@ El agente **no maneja la conversación solo**. La conversación la conduce el ba
 | En qué estado está la conversación y qué eventos acepta | Qué quiso decir el cliente |
 | Crear la orden exactamente con lo propuesto | Qué productos buscar y cuáles coinciden |
 | Revalidar el stock al crear la orden | Si hace falta preguntar algo y qué |
-| Qué se le puede registrar al cliente: solo la propuesta vigente | Si el cliente aceptó la propuesta |
+| Qué se le puede registrar al cliente: solo la propuesta vigente | Si el cliente aceptó la propuesta, salvo `OK` o `CONFIRMAR` exactos |
 | Completar nombre, presentación y precio desde el catálogo | Las cantidades y el SKU de cada línea |
 | El mensaje final con el pedido registrado | Si el cliente quiere cancelar o hablar con una persona |
 | Límites, reintentos, vencimientos y derivación por fallas | El texto de las preguntas y avisos al cliente |
@@ -40,7 +40,7 @@ el siguiente mensaje del cliente abre una nueva.
 |---|---|---|
 | `esperando_pedido` | Recién abierta, todavía no hay nada interpretado | Sí |
 | `aclarando` | El agente hizo una pregunta y espera la respuesta | Sí |
-| `borrador_pendiente` | Hay un borrador mostrado con **Confirmar / Corregir** | Sí |
+| `borrador_pendiente` | Hay una propuesta vigente, esperando la respuesta del cliente | Sí |
 | `confirmada` | El cliente confirmó y se creó la orden | No |
 | `descartada` | El cliente canceló el pedido antes de confirmar | No |
 | `vencida` | Pasaron 24 h sin actividad (D-07) | No |
@@ -56,7 +56,7 @@ stateDiagram-v2
     borrador_pendiente --> borrador_pendiente: corrección → nuevo borrador (versión + 1)
     borrador_pendiente --> aclarando: la corrección necesita una pregunta
     borrador_pendiente --> borrador_pendiente: confirmar falla por stock
-    borrador_pendiente --> confirmada: Confirmar (backend)
+    borrador_pendiente --> confirmada: el cliente acepta
     esperando_pedido --> descartada: el cliente cancela
     aclarando --> descartada: el cliente cancela
     borrador_pendiente --> descartada: el cliente cancela
@@ -75,24 +75,21 @@ stateDiagram-v2
 
 | Evento | Origen | ¿Pasa por el LLM? |
 |---|---|---|
-| Mensaje de texto, audio o imagen | Chat web o WhatsApp | Sí, después del preprocesamiento |
-| Acción **Confirmar** (`draft_id`, `version`) | Botón de la tarjeta o del mensaje interactivo de WhatsApp | **No** |
-| Acción **Corregir** (`draft_id`, `version`) | Botón | **No**: responde un texto fijo («¿Qué querés cambiar?») |
-| Palabra clave `OK` / `CONFIRMAR` / `CORREGIR` | Texto en WhatsApp, cuando no hay botones | **No**: se trata igual que el botón |
+| Mensaje de texto, audio o imagen | Cualquier canal | Sí, después del preprocesamiento |
+| `OK` o `CONFIRMAR` exactos, con una propuesta vigente | Texto del cliente | **No**: el backend registra la propuesta |
 | Vencimiento | Tarea del backend | No |
 
-Con la aceptación conversacional, cualquier respuesta de texto («dale», «sí», `OK») va al agente, que decide si
-acepta la propuesta vigente (RF-13, §5). Los botones y `interpretar_palabra_clave` quedan sin usar en el primer
-corte: se van a revisar cuando se implementen las acciones por botón.
+Ningún canal usa botones: el cliente confirma escribiendo. Cualquier otra respuesta («dale», «sí») va al agente, que
+decide si acepta la propuesta vigente (RF-13, §5). Sin propuesta vigente, `OK` también va al agente.
 
 ### 2.2 Qué pasa en cada estado al recibir un mensaje
 
-| Estado | Mensaje del cliente | Confirmar | Corregir |
-|---|---|---|---|
-| `esperando_pedido` | Turno del agente | Error: no hay borrador | Error: no hay borrador |
-| `aclarando` | Turno del agente (con la pregunta pendiente en contexto) | Error: no hay borrador | Error: no hay borrador |
-| `borrador_pendiente` | Turno del agente (con el borrador en contexto) | Confirmación (§5) | Texto fijo, sigue en `borrador_pendiente` |
-| Cerrada | Abre una conversación nueva (salvo `derivada`, ver §7) | Idempotente si es la misma orden; si no, error | Error: el pedido ya no se puede corregir |
+| Estado | Mensaje del cliente |
+|---|---|
+| `esperando_pedido` | Turno del agente |
+| `aclarando` | Turno del agente (con la pregunta pendiente en contexto) |
+| `borrador_pendiente` | `OK` o `CONFIRMAR` exactos: se registra la propuesta (§5). Otro mensaje: turno del agente, con la propuesta en contexto |
+| Cerrada | Abre una conversación nueva (salvo `derivada`, ver §7) |
 
 ## 3. El loop de un turno
 
@@ -122,7 +119,7 @@ sequenceDiagram
     A-->>O: AgentOutcome
     O->>O: aplicar transición de estado y guardar todo
     O-->>API: respuesta para el canal
-    API-->>C: mensaje, pregunta o tarjeta Confirmar / Corregir
+    API-->>C: mensaje de texto
 ```
 
 Reglas del loop:
@@ -183,7 +180,10 @@ flowchart TD
     T -->|continuar| D
     T -->|pausar| P
     T -->|final| E
-    P -->|llega otro mensaje| D
+    P -->|otro mensaje| D
+    P -->|OK o CONFIRMAR, con propuesta| C[confirmar]
+    C -->|orden creada| E
+    C -->|no se pudo| D
 ```
 
 | Nodo | Qué hace |
@@ -192,10 +192,13 @@ flowchart TD
 | `llm` | Arma el contexto (§8) y llama al modelo solo con esas tools. Guarda el `AIMessage` completo para conservar las firmas de Gemini |
 | `tools` | Rechaza lo no permitido, inyecta los datos del backend, ejecuta y guarda los resultados en el sobre común |
 | `pausa` | Devuelve el mensaje con `interrupt()` y espera. Al retomar, agrega el mensaje del cliente y reinicia iteraciones y skills |
+| `confirmar` | Registra la propuesta sin llamar al LLM, si el cliente respondió exactamente `OK` o `CONFIRMAR`. Si no se puede, por ejemplo porque ya no alcanza el stock, sigue el agente |
 
 - **Persistencia:** el estado del grafo se guarda con `SqliteSaver` en `CHECKPOINT_DB`, un archivo propio dentro de
   `data/`, con `LANGGRAPH_STRICT_MSGPACK=true`. El `thread_id` es el ID de la conversación, y una conversación
   sigue aunque el proceso se reinicie entre dos mensajes.
+- **Un solo worker:** el lock por conversación vive en el proceso, así que la API corre con un solo worker mientras
+  los checkpoints estén en SQLite. La conexión espera hasta 15 s si otro proceso, como el bot, está escribiendo.
 - **Salidas por `END`:** un pedido registrado cierra la conversación. Una segunda falla la marca `fallida`, y el
   mensaje siguiente abre otra.
 - **`recursion_limit`:** es solo una red de seguridad. El tope real es el contador de 15 iteraciones.
@@ -312,7 +315,7 @@ pregunta algo sobre ella, el agente responde y la vuelve a enviar con las mismas
 | `aclaracion` | Producto, presentación, tono o cantidad no claros; varias opciones posibles | `aclarando` |
 | `sin_stock` | No alcanza el stock; se ofrece lo disponible o una alternativa | `aclarando` |
 | `fuera_de_catalogo` | El producto no está en el catálogo (sin inventar un SKU parecido) | `aclarando` |
-| `informacion` | Saludo, consulta general o recordatorio de cómo confirmar | Sin cambio |
+| `informacion` | Saludo o consulta general | Sin cambio |
 
 Los `kind` coinciden con los resultados esperados de [`datos_ejemplo/mensajes.json`](../../datos_ejemplo/mensajes.json),
 así cada caso de ejemplo se puede verificar contra el resultado del turno (CA-08 a CA-11).
@@ -397,7 +400,7 @@ hace cumplir el backend, aunque el agente no la haya leído.
 | BR-03 | Ante una ambigüedad, hacer una sola pregunta con opciones del catálogo | LLM | RF-09 |
 | BR-04 | Si el producto no está en el catálogo, decirlo sin ofrecer un SKU inventado; lo demás del pedido se propone igual | LLM y backend | RF-08, RF-10 |
 | BR-05 | Una corrección vuelve a enviar la propuesta completa, en el mismo borrador y con otra versión | LLM arma las líneas, backend versiona | RF-12 |
-| BR-06 | Armar el pedido solo si el cliente acepta la propuesta vigente sin cambios; si cambia algo, proponer de nuevo; si duda o pregunta, responder y volver a ofrecerla | LLM interpreta, backend registra solo la propuesta | RF-13 |
+| BR-06 | Armar el pedido solo si el cliente acepta la propuesta vigente sin cambios ni condiciones; si cambia algo, proponer de nuevo; si pone una condición, duda o pregunta, responder y volver a ofrecerla | LLM interpreta, backend registra solo la propuesta | RF-13 |
 | BR-07 | Revalidar el stock al crear la orden | Backend. No la permite ninguna skill | RF-14 |
 | BR-08 | Derivar si el cliente lo pide, tras 2 fallas o tras 3 aclaraciones seguidas | LLM y backend | RF-27 |
 
@@ -410,8 +413,9 @@ El cliente confirma conversando (RF-13). El LLM interpreta si aceptó, pero **no
 
 1. El bot propone un pedido con `respond_to_customer(propuesta=...)`. El backend valida SKU y stock, y guarda la
    propuesta como `OrderDraft`.
-2. El cliente responde («dale», «sí», `OK`). Si acepta sin cambios, el agente lee la skill `armar_pedido` y llama a
-   la tool. Si cambia algo o duda, propone de nuevo o pregunta (BR-06).
+2. El cliente responde. Si escribe exactamente `OK` o `CONFIRMAR`, el backend sigue en el paso 3 sin llamar al LLM.
+   Con otra respuesta decide el agente: si acepta sin cambios («dale», «sí»), lee la skill `armar_pedido` y llama a
+   la tool. Si cambia algo, pone una condición o duda, propone de nuevo o pregunta (BR-06).
 3. `armar_pedido` solo puede crear lo que está en la propuesta vigente.
 4. Si ya hay una orden con ese `draft_id`, devuelve la existente (idempotencia, CA-15).
 5. **Revalida el stock** de cada línea con una lectura fresca. Si alguna no alcanza, no crea nada, y el agente
@@ -488,7 +492,7 @@ texto de clientes: aplica la misma retención que al resto de la conversación (
 ```text
 internal/
 ├── api/
-│   ├── chat.py                  # chat web: mensajes y acciones Confirmar / Corregir
+│   ├── chat.py                  # chat web: mensajes
 │   ├── whatsapp_webhook.py      # webhook de Meta: firma, deduplicación, respuesta 200 rápida
 │   ├── telegram_webhook.py      # NUEVO: webhook del bot de Telegram (canal de prueba de la beta)
 │   └── dashboard.py             # NUEVO: endpoints del dashboard, con autenticación
@@ -518,7 +522,7 @@ internal/
 │   ├── order_service.py         # el único lugar donde nace una Order
 │   ├── sheets_service.py        # única capa que conoce Google Sheets (con caché del catálogo)
 │   ├── skill_service.py         # NUEVO: carga skills y BR al arrancar y las sirve desde un índice
-│   ├── whatsapp_service.py      # NUEVO: enviar mensajes y botones, descargar multimedia
+│   ├── whatsapp_service.py      # NUEVO: enviar mensajes, descargar multimedia
 │   ├── telegram_service.py      # NUEVO: Bot API de Telegram, lista blanca y traducción de updates
 │   └── dashboard_service.py     # NUEVO: indicadores, pedidos, stock y conversaciones derivadas
 ├── schemas/

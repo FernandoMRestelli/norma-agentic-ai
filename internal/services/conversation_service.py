@@ -14,11 +14,10 @@ from internal.agent.tool_registry import validate_skills
 from internal.database.connection import SessionLocal, init_db
 from internal.database.models import ConversationRecord
 from internal.schemas.conversation_schema import ChannelReply
-from internal.schemas.order_schema import Channel, ConfirmationAction, IncomingMessage, MessageType
+from internal.schemas.order_schema import Channel, IncomingMessage, MessageType
 from internal.services import message_service
 
 WRITE_IT_PLEASE = "Por ahora solo puedo leer pedidos escritos. ¿Me lo mandás por texto?"
-CONFIRMATION_NOT_READY = "La confirmación de pedidos todavía no está implementada."
 
 _locks: defaultdict[tuple[str, Channel], threading.Lock] = defaultdict(threading.Lock)
 
@@ -69,10 +68,3 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
         if outcome.cerrada:
             _close_conversation(conversation_id, "cerrada" if outcome.kind == "pedido" else "fallida")
     return ChannelReply(text=outcome.message)
-
-
-def handle_action(
-    customer_id: str, channel: Channel, draft_id: str, version: int, action: ConfirmationAction
-) -> ChannelReply:
-    """Botones Confirmar / Corregir: fuera del primer corte, que confirma conversando (spec del agente §5)."""
-    return ChannelReply(text=CONFIRMATION_NOT_READY)

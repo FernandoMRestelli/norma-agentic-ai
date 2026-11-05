@@ -10,7 +10,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.sqlite import SqliteSaver
 from sqlalchemy import delete, func, select
 
-from internal.agent import context
+from internal.agent import context, norma_agent
 from internal.agent.graph import FAILURE_MESSAGE, MAX_ITERATIONS
 from internal.agent.norma_agent import NormaAgent
 from internal.database.connection import SessionLocal, init_db
@@ -198,6 +198,112 @@ def test_estado_muestra_la_presentacion_de_la_propuesta(catalogo):
     agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
     agent.handle("1", text="¿es la de 100?", **CLIENTE)
     assert f"3 x Crema Nivea 100 ml ({SKU})" in modelo.recibidos[-1][0].content
+
+
+@pytest.mark.parametrize("texto", ["ok", "OK", "  Confirmar\n"])
+def test_ok_exacto_registra_la_propuesta_sin_llamar_al_llm(catalogo, texto):
+    """CA-18: la propuesta se registra y el modelo no vuelve a recibir nada."""
+    agent, modelo = _agente(*GUION_OFERTA)
+    agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+    llamadas = len(modelo.recibidos)
+
+    final = agent.handle("1", text=texto, **CLIENTE)
+
+    assert final.kind == "pedido"
+    assert final.cerrada
+    assert len(modelo.recibidos) == llamadas
+    assert _ordenes() == 1
+    assert order_service.get_order(final.order_id).items[0].quantity == 3
+
+
+def test_ok_sin_stock_lo_resuelve_el_agente(catalogo):
+    """CA-18: si ya no alcanza no se crea la orden, y el agente ofrece lo que queda."""
+    agent, modelo = _agente(
+        *GUION_OFERTA,
+        _ai(_call("leer_skill", nombre="read_catalogo")),
+        _ai(_call("respond_to_customer", kind="sin_stock", message="Ahora queda 1. ¿Te lo armo?",
+                  propuesta=[{"sku": SKU, "quantity": 1}])),
+    )
+    agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+    catalogo[0].stock = 1
+
+    respuesta = agent.handle("1", text="ok", **CLIENTE)
+
+    assert respuesta.kind == "sin_stock"
+    assert respuesta.draft.items[0].quantity == 1
+    assert _ordenes() == 0
+    assert modelo.recibidos[-1][-1].type == "tool"
+
+
+def test_ok_sin_propuesta_va_al_agente(catalogo):
+    """CA-18: sin propuesta vigente no hay nada que registrar."""
+    def informar():  # mensajes distintos: add_messages reemplaza a uno con el mismo id
+        return (
+            _ai(_call("leer_skill", nombre="informar")),
+            _ai(_call("respond_to_customer", kind="informacion", message="¿Qué querés pedir?")),
+        )
+
+    agent, modelo = _agente(*informar(), *informar())
+    agent.handle("1", text="hola", **CLIENTE)
+    respuesta = agent.handle("1", text="ok", **CLIENTE)
+    assert respuesta.kind == "informacion"
+    assert len(modelo.recibidos) == 4
+    assert _ordenes() == 0
+
+
+def test_corregir_va_al_agente(catalogo):
+    agent, modelo = _agente(
+        *GUION_OFERTA,
+        _ai(_call("leer_skill", nombre="corregir_pedido")),
+        _ai(_call("respond_to_customer", kind="aclaracion", message="¿Qué querés cambiar?", options=[SKU])),
+    )
+    agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+    respuesta = agent.handle("1", text="CORREGIR", **CLIENTE)
+    assert respuesta.kind == "aclaracion"
+    assert _ordenes() == 0
+
+
+def test_aceptar_registra_la_ultima_version(catalogo):
+    """CA-14: después de una corrección, se registra lo último que se propuso."""
+    agent, _ = _agente(
+        *GUION_OFERTA,
+        _ai(_call("leer_skill", nombre="corregir_pedido")),
+        _ai(_propuesta("Quedan 2. ¿Te lo armo?", SKU, 2)),
+    )
+    agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+    corregida = agent.handle("1", text="mejor 2", **CLIENTE)
+    assert corregida.draft.version == 2
+
+    final = agent.handle("1", text="ok", **CLIENTE)
+    assert order_service.get_order(final.order_id).items[0].quantity == 2
+
+
+def test_texto_sin_tools_descarta_la_propuesta(catalogo):
+    """Regla 3 del loop: lo último que se le dijo al cliente ya no es la propuesta."""
+    agent, _ = _agente(*GUION_OFERTA, AIMessage(content="Dale, avisame."))
+    agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+    respuesta = agent.handle("1", text="lo pienso", **CLIENTE)
+    assert respuesta.draft is None
+    assert _ordenes() == 0
+
+
+def test_checkpoints_esperan_si_la_base_esta_ocupada(monkeypatch):
+    """Sin esto, otro proceso escribiendo hace fallar el turno con «database is locked» a los 5 s."""
+    recibido = {}
+    conectar = sqlite3.connect
+
+    def espia(path, **kwargs):
+        recibido.update(kwargs)
+        return conectar(":memory:", check_same_thread=False)
+
+    monkeypatch.setattr(norma_agent.sqlite3, "connect", espia)
+    monkeypatch.setattr(norma_agent, "get_chat_model", ModeloGuionado)
+    norma_agent.get_agent.cache_clear()
+    try:
+        norma_agent.get_agent()
+    finally:
+        norma_agent.get_agent.cache_clear()
+    assert recibido["timeout"] == norma_agent.CHECKPOINT_BUSY_TIMEOUT
 
 
 def test_propuesta_con_mas_stock_del_disponible_vuelve_al_llm(catalogo):

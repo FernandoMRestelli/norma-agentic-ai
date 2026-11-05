@@ -36,6 +36,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Cambiado
 
+- `OK` o `CONFIRMAR` exactos registran la propuesta vigente sin llamar al LLM, y una aceptación con condiciones («dale, pero al lunes») ya no cuenta como aceptación (RF-13, CA-18, BR-06).
 - **El cliente confirma conversando:** una respuesta como «dale» registra el pedido si acepta la propuesta vigente, y el backend solo registra lo que validó antes (RF-11, RF-13, CA-17, CA-18).
 - El agente pasa a usar LangChain: `agent/llm.py` reemplaza a `agent/llm_client.py`.
 - La carpeta `backend/` pasa a llamarse `internal/`, y los comandos cambian en consecuencia (`uvicorn internal.main:app`, `python -m internal.telegram_polling`). Las skills del agente viven en `internal/skills/<nombre>/`, con su `skill.md` y sus BR en `BR/`. `instructions.md` pasa a ser `internal/agent/system_prompt.md`, reescrito para leer skills y BR.
@@ -60,3 +61,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 - El webhook de WhatsApp valida la firma `X-Hub-Signature-256` de Meta (nueva variable `WHATSAPP_APP_SECRET`) y compara el token de verificación en tiempo constante.
 
 [Sin publicar]: https://github.com/FernandoMRestelli/norma-agentic-ai/compare/main...develop
+
+### Eliminado
+
+- Botones Confirmar / Corregir: el cliente confirma escribiendo en todos los canales. Salen del bot de Telegram y de la API, junto con `POST /chat/drafts/{draft_id}/{action}`.

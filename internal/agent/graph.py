@@ -13,7 +13,8 @@ from langgraph.types import interrupt
 
 from internal.agent import context, tool_registry
 from internal.agent.state import EstadoNorma
-from internal.schemas.order_schema import Channel, OrderDraft
+from internal.schemas.order_schema import Channel, ConfirmationAction, OrderDraft
+from internal.services.palabras_clave import interpretar_palabra_clave
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,32 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             "resultado": "continuar",
         }
 
+    def confirmar(state: EstadoNorma) -> dict[str, Any]:
+        """`OK` o `CONFIRMAR` exactos: registra la propuesta vigente sin llamar al LLM (RF-13, CA-18)."""
+        ctx = tool_registry.TurnContext(
+            customer_id=state["customer_id"],
+            channel=Channel(state["channel"]),
+            disponibles=["armar_pedido"],
+            propuesta=OrderDraft.model_validate(state["propuesta"]),
+        )
+        result = tool_registry.execute("armar_pedido", {}, ctx)
+        if not result["ok"]:
+            # Por ejemplo, ya no alcanza el stock: el agente le explica al cliente y le ofrece lo que queda
+            logger.info("Agente: no se pudo confirmar sin el LLM (%s)", result["error"]["code"])
+            return {"resultado": "continuar"}
+        return {
+            "messages": [AIMessage(content=ctx.respuesta)],
+            "propuesta": None,
+            "respuesta": ctx.respuesta,
+            "kind": ctx.kind,
+            "order_id": ctx.order_id,
+            "resultado": ctx.resultado,
+        }
+
+    def decidir_tras_pausa(state: EstadoNorma) -> str:
+        confirma = interpretar_palabra_clave(state["messages"][-1].content) == ConfirmationAction.CONFIRM
+        return "confirmar" if confirma and state.get("propuesta") else "agente"
+
     def ruta_falla(state: EstadoNorma) -> str:
         return "handoff" if state.get("fallas", 0) >= MAX_FAILURES else "error"
 
@@ -134,6 +161,7 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
     graph.add_node("llm", llamar_modelo)
     graph.add_node("tools", ejecutar_tools)
     graph.add_node("pausa", pausa)
+    graph.add_node("confirmar", confirmar)
 
     graph.add_edge(START, "descubrir_tools")
     graph.add_conditional_edges(
@@ -145,5 +173,6 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
     graph.add_conditional_edges(
         "tools", decidir_resultado, {"continuar": "descubrir_tools", "pausar": "pausa", "final": END}
     )
-    graph.add_edge("pausa", "descubrir_tools")
+    graph.add_conditional_edges("pausa", decidir_tras_pausa, {"confirmar": "confirmar", "agente": "descubrir_tools"})
+    graph.add_conditional_edges("confirmar", decidir_resultado, {"continuar": "descubrir_tools", "final": END})
     return graph.compile(checkpointer=checkpointer)
