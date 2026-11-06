@@ -1,4 +1,4 @@
-"""Corre los casos de datos_ejemplo/mensajes.json con el LLM real: python -m internal.evaluar_agente
+"""Corre los casos de data_example/mensajes.json con el LLM real: python -m internal.evaluar_agente
 
 Es una evaluación manual, fuera del CI (spec del agente §10). Usa una base temporal: no toca los pedidos locales.
 Solo manda datos inventados. Cada caso hace varias llamadas al LLM: en el free tier conviene usar --pausa.
@@ -11,7 +11,7 @@ import tempfile
 import time
 from pathlib import Path
 
-CASES = Path(__file__).resolve().parent.parent / "datos_ejemplo" / "mensajes.json"
+CASES = Path(__file__).resolve().parent.parent / "data_example" / "mensajes.json"
 KIND_POR_RESULTADO = {"borrador": "propuesta"}
 
 

@@ -11,7 +11,7 @@ import pytest
 from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import IncomingMessage, Order, OrderItem
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "datos_ejemplo"
+DATA_DIR = Path(__file__).resolve().parent.parent / "data_example"
 
 # Columnas de la planilla -> campos del esquema
 CATALOG_COLUMNS = {

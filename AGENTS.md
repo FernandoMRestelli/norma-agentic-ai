@@ -6,7 +6,7 @@
 
 2. **Privacidad de clientes y datos sensibles:**
    - **NUNCA** leas ni proceses volcados de datos reales de clientes en `data/` (tales como exports de chats de WhatsApp, contactos `.vcf` o grabaciones multimedia).
-   - Para desarrollo y pruebas automatizadas, utilizá exclusivamente los datos sintéticos de `tests/` o los catálogos y pedidos ficticios de `datos_ejemplo/`.
+   - Para desarrollo y pruebas automatizadas, utilizá exclusivamente los datos sintéticos de `tests/` o los catálogos y pedidos ficticios de `data_example/`.
 
 3. **Entorno local:**
    - Cada colaborador utiliza sus propias credenciales en local. No solicites ni almacenes secretos de otros desarrolladores.

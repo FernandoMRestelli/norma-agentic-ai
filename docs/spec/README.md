@@ -224,7 +224,7 @@ La imagen de Fernando es la base. Estos son los puntos en los que la spec la cam
 |---|---|---|---|
 | C-01 | Base de datos local **opcional** | **Obligatoria** (SQLite en `data/`) | Sin base no hay forma de garantizar una sola orden por confirmación (`draft_id` único), ni de guardar el estado de la conversación entre mensajes |
 | C-02 | Estados del dashboard: Confirmado / En proceso / Pendiente | `Recibido` / `Preparado` / `Retirado` / `Cancelado` (`OrderStatus`) | Ya están en el código, el roadmap y `pedidos.csv`; «Pendiente» y «Confirmado» se confunden con los estados del borrador |
-| C-03 | Sheet 2: Cliente, Fecha/Hora, Productos, Cantidades, Descripción, Estado | Columnas de [`pedidos.csv`](../../datos_ejemplo/pedidos.csv): `id_orden`, `fecha_hora`, `cliente`, `canal`, `productos`, `notas`, `estado` | Hace falta el ID para seguir y deduplicar, y el canal para responder; cantidades van dentro de `productos` (una fila por pedido) |
+| C-03 | Sheet 2: Cliente, Fecha/Hora, Productos, Cantidades, Descripción, Estado | Columnas de [`pedidos.csv`](../../data_example/pedidos.csv): `id_orden`, `fecha_hora`, `cliente`, `canal`, `productos`, `notas`, `estado` | Hace falta el ID para seguir y deduplicar, y el canal para responder; cantidades van dentro de `productos` (una fila por pedido) |
 | C-04 | Logo de OpenAI en «LLM» | Proveedor detrás de LangChain (`agent/llm.py`): **Gemini free tier para texto en la beta**; el de producción, sin definir (D-01) | La spec fija qué tiene que soportar; para probar la beta alcanza un modelo gratuito ([canal Telegram §4.3](canal-telegram.md#43-llmclient-y-formato-neutral)) |
 | C-05 | El mensaje va de la recepción directo al procesamiento y al agente | Un **orquestador** (`conversation_service.py`) con máquina de estados entre la API y el agente | El loop «si el cliente corrige, vuelve a interpretación» necesita estado: qué borrador está pendiente, qué se preguntó, cuándo vence |
 | C-06 | «OK / Confirmar» dentro del flujo del agente | El cliente confirma escribiendo, sin botones. `OK` o `CONFIRMAR` exactos no pasan por el LLM; cualquier otra respuesta la interpreta el agente | Se confirma igual en todos los canales, y el LLM solo puede registrar la propuesta vigente |
@@ -359,7 +359,7 @@ Una fila por pedido en Sheet 2; el detalle por ítem se guarda estructurado en l
 ### 5.5 Resultado del agente: `AgentOutcome` (cambia: reemplaza a `AgentReply`)
 
 Definido en la [spec del agente](agente.md#92-agentoutcome). Sus valores de `kind` coinciden con
-`esperado.resultado` de [`mensajes.json`](../../datos_ejemplo/mensajes.json): `borrador`, `aclaracion`,
+`esperado.resultado` de [`mensajes.json`](../../data_example/mensajes.json): `borrador`, `aclaracion`,
 `sin_stock`, `fuera_de_catalogo`, más `informacion`, `descartado`, `derivado` y `error`.
 
 ### 5.6 Conversación (nuevo)
@@ -534,7 +534,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-07 | Una imagen con un pedido | Llega por cualquier canal | Igual que CA-06, con `imagen leída` | RF-05 | pendiente |
 | CA-26 | — | Se construyen borradores y órdenes | Un borrador sin ítems o con cantidad ≤ 0 es inválido; nace `pendiente_confirmacion`; los precios son `Decimal` | RF-08 | `test_orders.py`, `test_invariantes.py::test_un_borrador_nace_sin_confirmar` |
 
-### Interpretación (casos de `datos_ejemplo/mensajes.json`)
+### Interpretación (casos de `data_example/mensajes.json`)
 
 | ID | Dado | Cuando | Entonces | RF | Test |
 |---|---|---|---|---|---|
@@ -555,7 +555,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-45 | El catálogo de ejemplo | Se busca `pantene 340`, `koleston 7.1` o `coca cola` | Un número no coincide con otro parecido y una palabra sin parecido real no trae productos | RF-07, RF-08 | `test_tools.py` |
 | CA-46 | Las skills reales | Se cargan | Toda BR que mencionan existe, toda BR de una skill aparece en sus instrucciones y cada skill solo nombra tools que puede usar | RF-34 | `test_tools.py` |
 | CA-47 | Una propuesta vigente | El cliente pregunta algo, el agente la vuelve a enviar y después acepta | La orden se crea una sola vez, con esas líneas | RF-13 | `test_agent_graph.py` |
-| CA-27 | Los archivos de `datos_ejemplo/` | Se validan contra los esquemas | Columnas correctas, SKU únicos, casos coherentes con el catálogo | RF-07 | `test_datos_ejemplo.py` |
+| CA-27 | Los archivos de `data_example/` | Se validan contra los esquemas | Columnas correctas, SKU únicos, casos coherentes con el catálogo | RF-07 | `test_datos_ejemplo.py` |
 | CA-29 | El catálogo de ejemplo | Se busca «shampoo pantene 400», «Shampoo Pantene 400ML» y «shampo pantne 400» | `SH-PAN-400` aparece primero en los tres casos | RF-07 | `test_tools.py::test_busqueda_aproximada_trae_primero_el_producto` |
 
 ### Borrador, confirmación y registro
@@ -628,5 +628,5 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 
 - [Spec del agente](agente.md) · [Canal Telegram para la beta](canal-telegram.md) · [Plantilla de spec](_plantilla.md)
 - [Plan de Fernando (imagen)](../Flujo%20completo%20de%20Norma%20Agentic%20AI.png) · [Arquitectura](../architecture.md) · [Roadmap](../roadmap.md)
-- [Datos de ejemplo](../../datos_ejemplo/README.md) · [`internal/schemas/`](../../internal/schemas/)
+- [Datos de ejemplo](../../data_example/README.md) · [`internal/schemas/`](../../internal/schemas/)
 - [Cómo trabajamos](../../CONTRIBUTING.md) · [Mejoras](../../MEJORAS.md) · [Changelog](../../CHANGELOG.md)

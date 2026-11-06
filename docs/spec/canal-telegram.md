@@ -133,7 +133,7 @@ guarda cada `AIMessage` completo: conserva las firmas de Gemini y no hay que rec
   agente).
 - **Cuidados del free tier:** tiene límites de requests por minuto y por día por proyecto, y Google **usa** lo
   que se manda para mejorar sus productos. En la beta solo se usan datos simulados (el catálogo de
-  `datos_ejemplo/` y pedidos inventados); nunca datos reales de clientes (RNF-03).
+  `data_example/` y pedidos inventados); nunca datos reales de clientes (RNF-03).
 
 ## 5. Requisitos
 

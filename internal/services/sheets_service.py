@@ -3,7 +3,7 @@
 Es la única capa que conoce la fuente del catálogo; al migrar a la API del sistema de gestión
 real se reemplaza este servicio sin tocar agente ni tools.
 
-PROVISORIO: el primer corte del agente lee `datos_ejemplo/catalogo.csv`, que tiene las columnas de la Sheet 1.
+PROVISORIO: el primer corte del agente lee `data_example/catalogo.csv`, que tiene las columnas de la Sheet 1.
 """
 
 import csv
@@ -12,7 +12,7 @@ from pathlib import Path
 from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import Order
 
-CATALOG_CSV = Path(__file__).resolve().parent.parent.parent / "datos_ejemplo" / "catalogo.csv"
+CATALOG_CSV = Path(__file__).resolve().parent.parent.parent / "data_example" / "catalogo.csv"
 
 
 def get_catalog() -> list[Product]:
