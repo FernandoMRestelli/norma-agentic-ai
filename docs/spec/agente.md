@@ -418,9 +418,11 @@ El cliente confirma conversando (RF-13). El LLM interpreta si aceptó, pero **no
    la tool. Si cambia algo, pone una condición o duda, propone de nuevo o pregunta (BR-06).
 3. `armar_pedido` solo puede crear lo que está en la propuesta vigente.
 4. Si ya hay una orden con ese `draft_id`, devuelve la existente (idempotencia, CA-15).
-5. **Revalida el stock** de cada línea con una lectura fresca. Si alguna no alcanza, no crea nada, y el agente
+5. **Revalida el stock disponible** de cada línea con una lectura fresca descontando las órdenes activas previas
+   (`stock_disponible = max(0, stock_base - unidades_comprometidas)`). Si alguna no alcanza, no crea nada, y el agente
    tiene que proponer de nuevo (CA-16).
-6. En **una transacción** de la base crea la `Order`, con `order_id` correlativo `ORD-0001` y `draft_id` único.
+6. En **una transacción** de la base crea la `Order`, con `order_id` correlativo `ORD-0001` y `draft_id` único,
+   comprometiendo atómicamente el stock para consultas y órdenes posteriores.
 7. Responde con un mensaje fijo armado por el backend: el detalle registrado y el número de orden.
 
 > **Primer corte:** la orden solo queda en la base local. Escribir en Google Sheet 2 y reintentar si falla

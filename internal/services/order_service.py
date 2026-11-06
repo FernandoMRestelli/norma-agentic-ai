@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from internal.database.connection import SessionLocal
 from internal.database.models import OrderRecord
 from internal.schemas.order_schema import Order, OrderDraft, OrderStatus
-from internal.services import sheets_service
+from internal.services import inventory_service
 
 ORDER_ID_PREFIX = "ORD-"
 ORDER_ID_REGEX = re.compile(r"^ORD-(\d{4,})$")
@@ -117,11 +117,14 @@ def confirm_draft(draft: OrderDraft) -> Order:
     Pasos: buscar orden existente -> revalidar stock con una lectura fresca -> guardar en la base.
     """
     with SessionLocal() as session:
+        if session.bind and session.bind.dialect.name == "sqlite":
+            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+
         existing = session.scalar(select(OrderRecord).where(OrderRecord.draft_id == draft.draft_id))
         if existing:
             return _to_order(existing)
 
-        stock = {product.sku: product.stock for product in sheets_service.get_catalog()}
+        stock = {product.sku: product.stock for product in inventory_service.get_catalog(session=session)}
         short = [
             {"sku": item.sku, "requested": item.quantity, "available": stock.get(item.sku, 0)}
             for item in draft.items
@@ -146,4 +149,18 @@ def confirm_draft(draft: OrderDraft) -> Order:
         except IntegrityError:  # otro proceso registró el mismo borrador primero
             session.rollback()
             return _to_order(session.scalars(select(OrderRecord).where(OrderRecord.draft_id == draft.draft_id)).one())
+        return _to_order(record)
+
+
+def cancel_order(order_id: str) -> Order:
+    """Cancela una orden activa y libera su stock comprometido (RF-20)."""
+    with SessionLocal() as session:
+        record = session.scalar(select(OrderRecord).where(OrderRecord.order_id == order_id))
+        if not record:
+            raise ValueError(f"Orden no encontrada: {order_id!r}")
+        actual = parse_status(record.status)
+        if not can_transition(actual, OrderStatus.CANCELLED):
+            raise ValueError(f"No se puede cancelar una orden en estado {actual.value!r}")
+        record.status = OrderStatus.CANCELLED.value
+        session.commit()
         return _to_order(record)

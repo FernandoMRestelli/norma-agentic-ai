@@ -429,7 +429,7 @@ Esta versión de la spec está en revisión: todo lo que no está implementado f
 | RF-11 | Con el pedido claro, el agente le propone al cliente lo que entendió y el backend lo guarda validado; al registrarlo, el backend responde con el detalle de producto, presentación y cantidad de cada línea | 04 | P (resumen: I) |
 | RF-12 | Una corrección actualiza el mismo borrador, sube su versión y muestra un resumen nuevo | 04 | P |
 | RF-13 | Se registra un pedido solo si el cliente acepta la propuesta vigente, aunque sea conversando («dale»); el agente interpreta la aceptación, pero `armar_pedido` solo puede crear lo que el backend guardó como propuesta. `OK` o `CONFIRMAR` exactos se registran sin llamar al LLM | 04 | I |
-| RF-14 | Al confirmar se revalida el stock de cada línea con una lectura fresca; si no alcanza, no se crea la orden | 04 | P |
+| RF-14 | Al confirmar se revalida el stock neto de cada línea descontando órdenes activas; si no alcanza, no se crea la orden | 04 | I |
 | RF-15 | Un borrador produce como máximo una orden, aunque la confirmación llegue repetida | 05 | P |
 | RF-16 | Solo se puede registrar la última versión de la propuesta | 04 | I |
 | RF-17 | Cada orden tiene un `order_id` único y correlativo (`ORD-0001`) | 05 | P (formato y validación: I) |
@@ -440,7 +440,7 @@ Esta versión de la spec está en revisión: todo lo que no está implementado f
 | ID | Requisito | Etapa | Estado |
 |---|---|---|---|
 | RF-19 | Cada orden se agrega como una fila en Sheet 2 con el formato de [§5.4](#54-orden-order--google-sheet-2) | 05 | P |
-| RF-20 | Las órdenes siguen `Recibido → Preparado → Retirado`, con `Cancelado` desde cualquier estado previo a `Retirado` | 05 | P (transiciones y parseo: I) |
+| RF-20 | Las órdenes siguen `Recibido → Preparado → Retirado`, con opción `Cancelado` desde cualquier estado previo; cancelar una orden libera sus unidades de stock comprometido | 05 | P (transiciones, parseo y liberación de stock: I) |
 | RF-21 | El detalle por ítem de cada orden se guarda en la base interna | 05 | P |
 
 ### Dashboard
@@ -565,7 +565,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-13 | Un borrador pendiente versión 1 | El cliente corrige una cantidad | El mismo `draft_id` pasa a versión 2, el resumen nuevo muestra cada ítem, sigue pendiente | RF-11, RF-12 | `test_invariantes.py::test_el_resumen_muestra_cada_item_del_borrador` (resumen); resto pendiente |
 | CA-14 | Una propuesta en versión 2 | El cliente acepta | La orden se crea con las líneas de la versión 2 | RF-16 | `test_agent_graph.py` |
 | CA-15 | Un borrador pendiente | La aceptación llega dos veces (reintento) | Se crea una sola orden, las dos respuestas tienen el mismo `order_id` y hay una sola fila en Sheet 2 | RF-15 | `test_agent_graph.py::test_reintento_no_duplica_la_orden` |
-| CA-16 | Un borrador cuyo stock se agotó después de armarlo | El cliente confirma | No se crea orden, se informa qué línea no alcanza y la conversación sigue en `borrador_pendiente` | RF-14 | pendiente |
+| CA-16 | Un borrador cuyo stock se agotó después de armarlo por órdenes concurrentes | El cliente confirma | No se crea orden, se informa qué línea no alcanza, la conversación sigue en `borrador_pendiente` y se rechaza la sobreventa | RF-14 | `test_inventory.py` |
 | CA-17 | Una propuesta vigente | El cliente escribe «dale» | Se crea una sola orden con lo propuesto. Si escribe «dale, pero 2» o «no, gracias», no se crea orden | RF-13 | `test_agent_graph.py`; interpretación real: casos de `mensajes.json` |
 | CA-18 | Una propuesta vigente | El cliente responde exactamente `OK` o `CONFIRMAR` | Se registra sin llamar al LLM. Si el stock ya no alcanza, responde el agente. Sin propuesta vigente, el mensaje va al agente | RF-13 | `test_agent_graph.py` |
 | CA-19 | Una orden confirmada | Sheet 2 falla al escribir y después vuelve | La orden existe en la base con `sheets_synced = false` y el reintento agrega una sola fila con las columnas de `pedidos.csv` | RF-19, RNF-04 | pendiente |
@@ -615,7 +615,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 
 | Riesgo | Mitigación |
 |---|---|
-| El stock de la planilla no se puede reservar (dos clientes confirman el último) | Revalidación al confirmar (RF-14); se acepta el riesgo residual en el MVP. Mientras el catálogo salga del CSV provisorio, ninguna orden descuenta stock (`MEJORAS.md`) |
+| El stock de la planilla no se puede reservar (dos clientes confirman el último) | Revalidación transaccional al confirmar (RF-14): la base interna descuenta las unidades de órdenes activas (`inventory_service`) evitando la sobreventa en el sistema local. |
 | El LLM interpreta mal un pedido | El cliente siempre ve el resumen antes de confirmar; `mensajes.json` como evaluación |
 | Conversaciones derivadas sin atender (no hay avisos en el MVP) | Listado en el dashboard (RF-24); avisos en v2 |
 | Costo del LLM por pedido | Límites de RNF-12 y medición de tokens (RNF-07) |

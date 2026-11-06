@@ -2,12 +2,12 @@
 
 from internal.schemas.agent_schema import ProposedItem, ToolFailure
 from internal.schemas.order_schema import OrderItem
-from internal.services import sheets_service
+from internal.services import inventory_service
 
 
 def normalize_items(items: list[ProposedItem]) -> list[OrderItem]:
     """Completa nombre, presentación y precio desde el catálogo. Un SKU repetido se suma en una sola línea."""
-    catalog = {product.sku: product for product in sheets_service.get_catalog()}
+    catalog = {product.sku: product for product in inventory_service.get_catalog()}
     quantities: dict[str, int] = {}
     for item in items:
         quantities[item.sku] = quantities.get(item.sku, 0) + item.quantity

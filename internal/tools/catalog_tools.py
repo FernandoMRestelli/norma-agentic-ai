@@ -5,7 +5,7 @@ import unicodedata
 from difflib import SequenceMatcher
 
 from internal.schemas.catalog_schema import Product, ProductMatch
-from internal.services import sheets_service
+from internal.services import inventory_service
 
 MIN_SCORE = 0.6
 MIN_WORD_SCORE = 0.75  # debajo de esto, dos palabras son distintas: «coca» no es «accion»
@@ -36,7 +36,7 @@ def search_products(query: str, limit: int = 5) -> list[ProductMatch]:
     if not palabras:
         return []
     puntuados = []
-    for product in sheets_service.get_catalog():
+    for product in inventory_service.get_catalog():
         partes = _palabras(f"{product.sku} {product.name} {product.brand or ''} {product.presentation or ''}")
         # Cada palabra de la búsqueda tiene que aparecer: «pantene 400» no trae un Pantene de 200 ml adelante
         score = sum(_score(palabra, partes) for palabra in palabras) / len(palabras)
@@ -48,4 +48,4 @@ def search_products(query: str, limit: int = 5) -> list[ProductMatch]:
 
 def get_product(sku: str) -> Product | None:
     """Devuelve el producto con ese SKU, o None si no existe."""
-    return next((product for product in sheets_service.get_catalog() if product.sku == sku), None)
+    return inventory_service.get_product(sku)
