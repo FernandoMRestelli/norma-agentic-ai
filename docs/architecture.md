@@ -154,7 +154,7 @@ norma-agentic-ai/
 - Las credenciales se configuran en `.env` o mediante secretos del servidor: **nunca en GitHub**.
 - El LLM interpreta si el cliente aceptó, pero solo puede registrar lo que el backend validó y guardó como propuesta.
 - Cada confirmación usa un identificador único para evitar órdenes duplicadas en reintentos.
-- El stock de una planilla puede quedar desactualizado: durante el MVP se revalida al confirmar, pero Google Sheets **no garantiza reserva transaccional**.
+- El stock de una planilla puede quedar desactualizado: durante el MVP se revalida al confirmar, pero Google Sheets **no garantiza reserva transaccional**; para mitigarlo, la base interna descuenta las órdenes activas del stock disponible (`inventory_service`).
 - Acceso al dashboard y modificaciones de pedidos sujetos a autenticación/permisos.
 - Mensajes y archivos de clientes se guardan solo cuando haga falta y con acceso restringido.
 
