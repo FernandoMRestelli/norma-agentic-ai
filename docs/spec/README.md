@@ -386,12 +386,14 @@ Definido en la [spec del agente](agente.md#92-agentoutcome). Sus valores de `kin
 | `GET /webhook/whatsapp` | `hub.mode`, `hub.verify_token`, `hub.challenge` | `challenge` o `403` | Hecho |
 | `POST /webhook/whatsapp` | Payload de Meta + `X-Hub-Signature-256` | `200` o `403` | Firma hecha; procesamiento pendiente |
 | `POST /chat/messages` | `IncomingMessage` | `{state, outcome: AgentOutcome}` | `501` |
+| `GET /orders/{order_id}` | `order_id`, credencial de operador | `Order` o `404` (`401` sin autenticación) | Hecho |
+| `POST /orders/{order_id}/cancel` | `order_id`, credencial de operador | `Order` o `400`/`404` (`401` sin autenticación) | Hecho |
 | `GET /dashboard/summary` | — | Indicadores de RF-22 | Nuevo |
 | `GET /dashboard/orders?status=&limit=` | — | Últimos pedidos | Nuevo |
 | `GET /dashboard/stock?low=true` | — | Productos y stock | Nuevo |
 | `GET /dashboard/conversations?state=derivada` | — | Conversaciones que requieren atención | Nuevo |
 
-Todos los `/dashboard/*` requieren autenticación (RNF-01).
+Todos los `/dashboard/*` y `/orders/*` requieren autenticación (RNF-01) mediante token de operador (`OPERATOR_TOKEN`). Sin token configurado responden siempre `401 Unauthorized` (falla cerrado).
 
 ---
 
@@ -440,7 +442,7 @@ Esta versión de la spec está en revisión: todo lo que no está implementado f
 | ID | Requisito | Etapa | Estado |
 |---|---|---|---|
 | RF-19 | Cada orden se agrega como una fila en Sheet 2 con el formato de [§5.4](#54-orden-order--google-sheet-2) | 05 | P |
-| RF-20 | Las órdenes siguen `Recibido → Preparado → Retirado`, con opción `Cancelado` desde cualquier estado previo; cancelar una orden libera sus unidades de stock comprometido | 05 | P (transiciones, parseo y liberación de stock: I) |
+| RF-20 | Las órdenes siguen `Recibido → Preparado → Retirado`, con opción `Cancelado` desde cualquier estado previo a `Retirado`; cancelar una orden libera sus unidades de stock comprometido | 05 | I |
 | RF-21 | El detalle por ítem de cada orden se guarda en la base interna | 05 | P |
 
 ### Dashboard
@@ -477,7 +479,7 @@ Detalle en la [spec del canal](canal-telegram.md).
 
 | ID | Tema | Requisito |
 |---|---|---|
-| RNF-01 | Seguridad | Secretos solo en `.env` o secretos del servidor; firma de Meta y token comparados en tiempo constante; dashboard con autenticación (en el MVP, un token compartido por variable de entorno); escaneo de secretos en todo el historial |
+| RNF-01 | Seguridad | Secretos solo en `.env` o secretos del servidor; firma de Meta y token comparados en tiempo constante; dashboard y endpoints de gestión (`/orders/*`) con autenticación (`OPERATOR_TOKEN` en el MVP, falla cerrado si no está configurado); escaneo de secretos en todo el historial |
 | RNF-02 | Control del LLM | El LLM no elige qué se registra: solo dispara `armar_pedido` sobre la propuesta vigente. No conoce identificadores del cliente o del borrador (se inyectan); toda salida del LLM que llega a una tool se valida con pydantic |
 | RNF-03 | Privacidad | Audios e imágenes no se guardan, solo el texto extraído; los logs llevan IDs, no el texto de los mensajes; ningún dato real en el repositorio; plazo de retención de conversaciones según D-08 |
 | RNF-04 | Confiabilidad | La orden se crea en una transacción de la base; si falla la escritura en Sheet 2, se reintenta en segundo plano sin duplicar la fila (se busca el `order_id` antes de agregar) |
@@ -506,7 +508,7 @@ Mismas 7 etapas que [`roadmap.md`](../roadmap.md). Cerrar una etapa es una versi
 | 02 · Datos del negocio | Consultar catálogo, precios y stock | RF-07, RNF-13 | Pasan CA-27 y CA-29 con el catálogo de ejemplo, y se consulta Sheet 1 real sin tocar código | 0.2.0 | Pendiente |
 | 03 · Agente y pedidos multimodales | Del mensaje al borrador o la pregunta | RF-01, RF-04 a RF-06, RF-08 a RF-10, RF-33, RF-34 | Pasan CA-06 a CA-12, CA-20 y CA-37 a CA-44 con un modelo falso, y los casos de `mensajes.json` con el LLM elegido | 0.3.0 | Pendiente (bloqueada por D-01) |
 | 04 · Confirmación del cliente | Ningún pedido sin confirmación | RF-11 a RF-14, RF-16, RF-26 a RF-28 | Pasan CA-13, CA-14, CA-16, CA-17 y CA-21 a CA-23, CA-28 | 0.4.0 | Pendiente |
-| 05 · Registro y seguimiento | Pedido confirmado = trabajo operativo | RF-15, RF-17 a RF-21 | Pasan CA-15 y CA-19 | 0.5.0 | Pendiente |
+| 05 · Registro y seguimiento | Pedido confirmado = trabajo operativo | RF-15, RF-17 a RF-21 | Pasan CA-15, CA-19 y CA-48 a CA-52 | 0.5.0 | Pendiente |
 | 06 · Dashboard | Ver qué pasa en el negocio | RF-22 a RF-25 | Pasan CA-24 y CA-25 | 0.6.0 | Pendiente (bloqueada por D-02) |
 | 07 · WhatsApp de punta a punta | Operar desde el canal del cliente | RF-02, RF-03 | Pasan CA-05 y CA-18, y un pedido real de prueba por WhatsApp llega al dashboard | 0.7.0 | Pendiente |
 
@@ -573,6 +575,11 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-22 | Cualquier conversación abierta | El cliente pide hablar con una persona | El turno termina en `derivado` | RF-27 | pendiente |
 | CA-23 | Un borrador pendiente | El cliente dice que ya no lo quiere | El borrador queda `descartado`, la conversación `descartada` y no hay orden | RF-26 | pendiente |
 | CA-28 | Una conversación abierta sin actividad | Pasan 24 h | Queda `vencida` y el siguiente mensaje abre una conversación nueva | RF-28 | pendiente |
+| CA-48 | Un request a `/orders/*` | Llega sin credencial o con token inválido | Se rechaza con `401 Unauthorized` | RF-20, RNF-01 | `test_api_orders.py::test_orders_endpoints_requieren_autenticacion` |
+| CA-49 | Una orden registrada | Se consulta por `GET /orders/{order_id}` con token de operador | Devuelve `200` con los datos de la orden; si no existe, `404` | RF-20 | `test_api_orders.py::test_get_order_*` |
+| CA-50 | Una orden activa | Se cancela por `POST /orders/{order_id}/cancel` con token de operador | Pasa a `Cancelado`, devuelve `200` y libera sus unidades comprometidas del stock disponible | RF-20 | `test_api_orders.py::test_cancel_order_api_success_and_frees_stock` |
+| CA-51 | Una orden inexistente o en estado terminal (`Cancelado`, `Retirado`) | Se cancela por `POST /orders/{order_id}/cancel` con token de operador | Devuelve `404` (inexistente) o `400` (ya terminal) | RF-20 | `test_api_orders.py::test_cancel_order_api_*` |
+| CA-52 | Una orden en el backend | Se cancela mediante la tool `cancelar_pedido` | Devuelve la orden cancelada, o lanza `ToolFailure("orden_invalida")` si no existe o es terminal | RF-20 | `test_api_orders.py::test_order_tools_cancelar_pedido` |
 
 ### Canal de prueba: Telegram y LLM
 

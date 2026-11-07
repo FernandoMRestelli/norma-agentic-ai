@@ -82,6 +82,14 @@ def parse_status(valor: str) -> OrderStatus:
     return STATUS_BY_LOWER[key]
 
 
+class OrderNotFoundError(ValueError):
+    """La orden solicitada no existe."""
+
+
+class InvalidTransitionError(ValueError):
+    """La transición de estado de la orden no es válida."""
+
+
 class InsufficientStockError(Exception):
     """El stock ya no alcanza para crear la orden. `lines` indica qué líneas faltan."""
 
@@ -157,10 +165,10 @@ def cancel_order(order_id: str) -> Order:
     with SessionLocal() as session:
         record = session.scalar(select(OrderRecord).where(OrderRecord.order_id == order_id))
         if not record:
-            raise ValueError(f"Orden no encontrada: {order_id!r}")
+            raise OrderNotFoundError(f"Orden no encontrada: {order_id!r}")
         actual = parse_status(record.status)
         if not can_transition(actual, OrderStatus.CANCELLED):
-            raise ValueError(f"No se puede cancelar una orden en estado {actual.value!r}")
+            raise InvalidTransitionError(f"No se puede cancelar una orden en estado {actual.value!r}")
         record.status = OrderStatus.CANCELLED.value
         session.commit()
         return _to_order(record)

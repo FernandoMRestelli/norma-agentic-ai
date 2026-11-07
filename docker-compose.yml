@@ -14,6 +14,7 @@ services:
     environment:
       # Fija la base dentro del directorio montado aunque un .env viejo apunte a otro lado
       DATABASE_URL: sqlite:////app/data/norma.db
+      OPERATOR_TOKEN: ${OPERATOR_TOKEN:-}
     volumes:
       - ./internal:/app/internal
       - ./tests:/app/tests

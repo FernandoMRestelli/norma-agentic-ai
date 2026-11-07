@@ -39,7 +39,7 @@ justo antes devolvieron `503` y `504`. Hay que repetirla con `python -m internal
 
 - El stock sale de una planilla: se revalida al confirmar, pero Google Sheets no permite reservarlo.
 - **Descuento de stock en base interna:** las órdenes activas en SQLite descuentan unidades del catálogo (`inventory_service`), evitando la sobreventa (*overselling*) entre clientes concurrentes incluso con el CSV estático o Google Sheet 1 de solo lectura.
-- **Cancelación de órdenes sin tool/endpoint expuesto:** el servicio interno `order_service.cancel_order` ya implementa la cancelación y liberación de stock comprometido (RF-20), pero aún no está expuesto como herramienta para el agente ni como endpoint HTTP para el operador.
+- **Cancelación de órdenes expuesta (RF-20):** endpoint autenticado `POST /orders/{order_id}/cancel` (con `X-Operator-Token` o `Authorization: Bearer`) y función interna `order_tools.cancelar_pedido` disponibles, permitiendo al operador cancelar órdenes activas y liberando su stock comprometido en la base interna. La tool no está registrada en el agente conversacional para evitar cancelaciones de pedidos de terceros por chat sin validar autoría.
 - SQLite en `data/` alcanza para el MVP con una sola instancia; dos procesos escribiendo a la vez no.
 - No hay configuración de negocio fuera del código y del `.env`. Cuando aparezcan parámetros que no son secretos
   (por ejemplo el umbral de "poco stock" del dashboard), van en `config/` como JSON validado al arrancar,
