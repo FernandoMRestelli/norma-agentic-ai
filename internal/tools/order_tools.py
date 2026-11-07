@@ -12,3 +12,11 @@ def armar_pedido(vigente: OrderDraft | None) -> Order:
         return order_service.confirm_draft(vigente)
     except order_service.InsufficientStockError as exc:
         raise ToolFailure("stock_insuficiente", "Ya no alcanza el stock: proponé de nuevo", lineas=exc.lines) from exc
+
+def cancelar_pedido(order_id: str) -> Order:
+    """Cancela una orden existente liberando su stock comprometido (RF-20)."""
+    try:
+        return order_service.cancel_order(order_id)
+    except ValueError as exc:
+        raise ToolFailure("orden_invalida", str(exc)) from exc
+
