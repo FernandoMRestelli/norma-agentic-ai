@@ -11,6 +11,8 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 ### Agregado
 
 - Endpoints HTTP `POST /orders/{order_id}/cancel` y `GET /orders/{order_id}` protegidos con credencial de operador (`operator_token`), y tool `cancelar_pedido` para cancelar órdenes activas y liberar stock comprometido (RF-20, CA-48 a CA-52).
+- Soporte para catálogo local configurable mediante variable `CATALOG_FILE` en `Settings` con fallback a `data_example/catalogo.csv` (etapa 02, RF-07, CA-53).
+- Presentación de precios unitarios, subtotales y total en el resumen del borrador, confirmación de orden y propuesta del agente (cierre de decisión D-04, RF-11).
 - Descuento transaccional de stock en `internal/services/inventory_service.py`: las órdenes activas en SQLite descuentan unidades del catálogo neto disponible, evitando la sobreventa (*overselling*) entre clientes concurrentes; función `cancel_order` en `internal/services/order_service.py` para liberar stock al cancelar (RF-14, RF-20, CA-16).
 - Registro de las fuentes privadas del issue #2: inventario, catálogo con stock ficticio para pruebas, seguimiento de pedidos y evaluación del agente diferida, sin publicar datos reales.
 - Flujo de ramas con releases, hotfixes y backports, documentado en `CONTRIBUTING.md`: cada PR se rechaza si el nombre de la rama no sigue el flujo o si no suma su línea a este changelog.

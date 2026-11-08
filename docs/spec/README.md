@@ -326,6 +326,9 @@ con la etapa que los usa ([§8](#8-roadmap-por-fases)).
 
 `StockCheck`: `sku`, `requested` (Entero > 0), `available` (Entero ≥ 0) y el calculado `is_enough = available ≥ requested`.
 
+#### Fuente de datos del catálogo local
+La ruta del catálogo local se configura mediante la variable de entorno `CATALOG_FILE` (por defecto `data_example/catalogo.csv`). `sheets_service.get_catalog_path()` resuelve la ruta absoluta; si el archivo configurado no existe en disco, recurre automáticamente como fallback a `data_example/catalogo.csv` (CA-53). Si ninguna de las dos rutas existe en disco, eleva `FileNotFoundError`.
+
 ### 5.3 Borrador: `OrderDraft`, `OrderItem`
 
 | Campo | Tipo | Reglas |
@@ -340,6 +343,8 @@ con la etapa que los usa ([§8](#8-roadmap-por-fases)).
 
 `OrderItem`: `sku` (existente en el catálogo, no vacío), `product_name` (no vacío), `presentation`, `quantity` (1 ≤ quantity ≤ 999),
 `unit_price: Decimal ≥ 0` (precio del catálogo al armar el borrador). Todos los campos de texto recortan espacios automáticamente.
+
+> **Garantía contractual de precios vs. propuesta conversacional:** Los precios unitarios, subtotales y total garantizados y presentados al cliente de forma determinística son los generados por `validation_service` (`build_summary` en el borrador y `build_order_message` en la orden registrada). La instrucción en la skill `read_catalogo` para que el agente mencione precios unitarios y total estimado es de mejor esfuerzo (*best-effort*) conversacional y no reemplaza la validación determinística del backend (D-04, RF-11).
 
 ### 5.4 Orden: `Order` ↔ Google Sheet 2
 
@@ -428,7 +433,7 @@ Esta versión de la spec está en revisión: todo lo que no está implementado f
 
 | ID | Requisito | Etapa | Estado |
 |---|---|---|---|
-| RF-11 | Con el pedido claro, el agente le propone al cliente lo que entendió y el backend lo guarda validado; al registrarlo, el backend responde con el detalle de producto, presentación y cantidad de cada línea | 04 | P (resumen: I) |
+| RF-11 | Con el pedido claro, el agente le propone al cliente lo que entendió y el backend lo guarda validado; al registrarlo, el backend responde con el detalle de producto, presentación, cantidad, precios y total de cada línea (D-04) | 04 | P (resumen y precios: I) |
 | RF-12 | Una corrección actualiza el mismo borrador, sube su versión y muestra un resumen nuevo | 04 | P |
 | RF-13 | Se registra un pedido solo si el cliente acepta la propuesta vigente, aunque sea conversando («dale»); el agente interpreta la aceptación, pero `armar_pedido` solo puede crear lo que el backend guardó como propuesta. `OK` o `CONFIRMAR` exactos se registran sin llamar al LLM | 04 | I |
 | RF-14 | Al confirmar se revalida el stock neto de cada línea descontando órdenes activas; si no alcanza, no se crea la orden | 04 | I |
@@ -505,7 +510,7 @@ Mismas 7 etapas que [`roadmap.md`](../roadmap.md). Cerrar una etapa es una versi
 | Etapa | Meta | Requisitos | Se cierra cuando | Versión | Estado |
 |---|---|---|---|---|---|
 | 01 · Base compartida | Todos pueden ejecutar el proyecto | — | La API levanta en los tres equipos y el CI está en verde | 0.1.0 | ✅ Completa (falta publicar la release) |
-| 02 · Datos del negocio | Consultar catálogo, precios y stock | RF-07, RNF-13 | Pasan CA-27 y CA-29 con el catálogo de ejemplo, y se consulta Sheet 1 real sin tocar código | 0.2.0 | Pendiente |
+| 02 · Datos del negocio | Consultar catálogo, precios y stock | RF-07, RNF-13 | Pasan CA-27, CA-29 y CA-53 con el catálogo de ejemplo, y se consulta Sheet 1 real sin tocar código | 0.2.0 | Pendiente |
 | 03 · Agente y pedidos multimodales | Del mensaje al borrador o la pregunta | RF-01, RF-04 a RF-06, RF-08 a RF-10, RF-33, RF-34 | Pasan CA-06 a CA-12, CA-20 y CA-37 a CA-44 con un modelo falso, y los casos de `mensajes.json` con el LLM elegido | 0.3.0 | Pendiente (bloqueada por D-01) |
 | 04 · Confirmación del cliente | Ningún pedido sin confirmación | RF-11 a RF-14, RF-16, RF-26 a RF-28 | Pasan CA-13, CA-14, CA-16, CA-17 y CA-21 a CA-23, CA-28 | 0.4.0 | Pendiente |
 | 05 · Registro y seguimiento | Pedido confirmado = trabajo operativo | RF-15, RF-17 a RF-21 | Pasan CA-15, CA-19 y CA-48 a CA-52 | 0.5.0 | Pendiente |
@@ -580,6 +585,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-50 | Una orden activa | Se cancela por `POST /orders/{order_id}/cancel` con token de operador | Pasa a `Cancelado`, devuelve `200` y libera sus unidades comprometidas del stock disponible | RF-20 | `test_api_orders.py::test_cancel_order_api_success_and_frees_stock` |
 | CA-51 | Una orden inexistente o en estado terminal (`Cancelado`, `Retirado`) | Se cancela por `POST /orders/{order_id}/cancel` con token de operador | Devuelve `404` (inexistente) o `400` (ya terminal) | RF-20 | `test_api_orders.py::test_cancel_order_api_*` |
 | CA-52 | Una orden en el backend | Se cancela mediante la tool `cancelar_pedido` | Devuelve la orden cancelada, o lanza `ToolFailure("orden_invalida")` si no existe o es terminal | RF-20 | `test_api_orders.py::test_order_tools_cancelar_pedido` |
+| CA-53 | Carga de catálogo local | Se configura `CATALOG_FILE` con una ruta existente o inexistente | Se carga el archivo indicado; si no existe, recurre a `data_example/catalogo.csv` como fallback | RF-07 | `test_catalog.py::test_get_catalog_configurable_y_fallback` |
 
 ### Canal de prueba: Telegram y LLM
 
@@ -611,7 +617,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | D-01 | Proveedor de LLM | **Tomada en parte**: LangGraph y LangChain para el loop, con Gemini free tier para texto en la beta ([canal Telegram §7](canal-telegram.md#7-decisiones-y-riesgos)). Audio, imagen y producción siguen abiertos | Tiene que soportar tool calling con JSON Schema, buen español, y transcripción de audio y lectura de imágenes (o usar otro servicio para eso). Criterios: aciertos en `mensajes.json`, latencia (RNF-06) y costo por pedido |
 | D-02 | Tecnología del frontend | **Abierta**, bloquea la etapa 06 | Chat web y dashboard en `frontend/src/` |
 | D-03 | Servidor de producción | **Abierta** | Ver `MEJORAS.md`, próximos pasos |
-| D-04 | ¿El resumen muestra precios y total? | **Abierta** | Hoy no los muestra; el precio se guarda en cada línea igual |
+| D-04 | ¿El resumen muestra precios y total? | **Tomada** | Sí: el resumen del borrador (`build_summary`), el mensaje de confirmación (`build_order_message`) y la propuesta del agente incluyen precio unitario y total estimado cuando están disponibles en el catálogo. |
 | D-05 | Identidad del cliente en el chat web | **Abierta** | Propuesta: un id anónimo que genera el backend y el navegador guarda; sin cuentas de usuario |
 | D-06 | Dónde se cambia el estado de una orden | Tomada en esta spec, a revisar | En el MVP el equipo lo cambia en Sheet 2 y el dashboard lo lee de ahí; la base guarda la orden y su estado inicial |
 | D-07 | Parámetros del agente | Tomada en esta spec, a revisar | 15 iteraciones por turno, 20 mensajes de historial, 24 h de vencimiento y de silencio tras derivar, 2 fallas o 3 aclaraciones para derivar, 30 s de timeout, caché de 5 min; se ajustan con uso real |

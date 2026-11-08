@@ -21,10 +21,11 @@ class Settings(BaseSettings):
     llm_vision_model: str | None = None
     llm_vision_api_key: str | None = None
 
-    # Google Sheets
+    # Google Sheets / Catálogo local
     google_credentials_file: str | None = None
     catalog_sheet_id: str | None = None
     orders_sheet_id: str | None = None
+    catalog_file: str = "data_example/catalogo.csv"
 
     # WhatsApp Cloud API
     whatsapp_verify_token: str | None = None
