@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     telegram_webhook_secret: str | None = None  # header X-Telegram-Bot-Api-Secret-Token
     telegram_allowed_user_ids: str = ""  # ids numéricos separados por coma
 
+    # Operador / Dashboard (autenticación de endpoints de gestión de órdenes)
+    operator_token: str | None = None
+
     # Base interna
     database_url: str = "sqlite:///./data/norma.db"
     checkpoint_db: str = "data/checkpoints.db"  # estado del grafo del agente
