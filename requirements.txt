@@ -15,11 +15,14 @@ sqlalchemy>=2.0,<3
 # Llamadas HTTP a Telegram
 httpx>=0.27,<1
 
-# Agente: grafo del loop, modelo de Gemini y encabezado de las skills
+# Agente: grafo del loop, modelos de texto (ver internal/agent/llm.py) y encabezado de las skills.
+# Cada proveedor trae su propio paquete; llm.py importa solo el que corresponde a LLM_PROVIDER.
 langgraph>=1.2,<2
 langgraph-checkpoint-sqlite>=3.1,<4
 langchain-core>=1.7,<2
-langchain-google-genai>=4.4,<5
+langchain-google-genai>=4.4,<5  # proveedor gemini
+langchain-groq>=1.0,<2  # proveedor groq (free tier amplio: Llama 3.3 70B, etc.)
+langchain-openai>=1.0,<2  # proveedor openrouter (API compatible con OpenAI)
 pyyaml>=6.0,<7
 
 # Google Sheets

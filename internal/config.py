@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_version: str = "dev"  # la imagen de cada release la fija con el número del tag
 
-    # LLM de texto (ver internal/agent/llm.py). En la beta: gemini, free tier
+    # LLM de texto (ver internal/agent/llm.py). Proveedores free tier: gemini, groq, openrouter
     llm_provider: str | None = None
     llm_model: str | None = None
     llm_api_key: str | None = None
