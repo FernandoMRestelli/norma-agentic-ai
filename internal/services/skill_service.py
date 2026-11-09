@@ -24,6 +24,7 @@ class SkillHeader(BaseModel):
     nombre: str = Field(min_length=1)
     cuando: str = Field(min_length=1)
     tools: list[str] = Field(min_length=1)
+    requiere_propuesta: bool = False  # sin propuesta vigente, el índice no la muestra
 
 
 class Skill(SkillHeader):

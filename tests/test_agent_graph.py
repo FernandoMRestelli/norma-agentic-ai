@@ -60,7 +60,7 @@ class ModeloGuionado:
 
 GUION_OFERTA = (
     _ai(_call("search_products", query="crema")),
-    _ai(_call("leer_skill", nombre="read_catalogo")),
+    _ai(_call("leer_skill", nombre="tomar_pedido")),
     _ai(_call("leer_br", id="BR-01")),
     _ai(
         _call(
@@ -71,7 +71,7 @@ GUION_OFERTA = (
         )
     ),
 )
-GUION_ACEPTA = (_ai(_call("leer_skill", nombre="armar_pedido")), _ai(_call("armar_pedido")))
+GUION_ACEPTA = (_ai(_call("leer_skill", nombre="confirmar_pedido")), _ai(_call("armar_pedido")))
 
 
 @pytest.fixture
@@ -132,7 +132,7 @@ def test_rechazo_no_crea_orden_y_descarta_la_propuesta(catalogo):
     """CA-17: «no, gracias» no registra, y un «dale» posterior no revive la propuesta (CA-42)."""
     agent, _ = _agente(
         *GUION_OFERTA,
-        _ai(_call("leer_skill", nombre="armar_pedido")),
+        _ai(_call("leer_skill", nombre="confirmar_pedido")),
         _ai(_call("respond_to_customer", kind="informacion", message="Dale, cualquier cosa me avisás")),
         *GUION_ACEPTA,
         AIMessage(content="No tengo ninguna propuesta"),
@@ -150,7 +150,7 @@ def test_rechazo_no_crea_orden_y_descarta_la_propuesta(catalogo):
 def test_correccion_sube_la_version_del_mismo_borrador(catalogo):
     """BR-05 y CA-17: «dale, pero 2» es una propuesta nueva, no un pedido."""
     corregir = _propuesta("¿Te armo 2?", SKU, 2)
-    agent, _ = _agente(*GUION_OFERTA, _ai(_call("leer_skill", nombre="read_catalogo")), _ai(corregir))
+    agent, _ = _agente(*GUION_OFERTA, _ai(_call("leer_skill", nombre="tomar_pedido")), _ai(corregir))
     primero = agent.handle("1", text="5 cremas", **CLIENTE)
     segundo = agent.handle("1", text="dale, pero 2", **CLIENTE)
     assert segundo.kind == "propuesta"
@@ -164,7 +164,7 @@ def test_pregunta_sobre_la_propuesta_la_mantiene_vigente(catalogo):
     """CA-47: responder con las mismas líneas la mantiene, y al aceptar se crea una sola orden."""
     agent, _ = _agente(
         *GUION_OFERTA,
-        _ai(_call("leer_skill", nombre="armar_pedido")),
+        _ai(_call("leer_skill", nombre="confirmar_pedido")),
         _ai(_propuesta("Sale $1000 cada una. ¿Te armo el pedido?", SKU, 3)),
         *GUION_ACEPTA,
     )
@@ -180,7 +180,7 @@ def test_pregunta_sobre_la_propuesta_la_mantiene_vigente(catalogo):
     assert order_service.get_order(final.order_id).items[0].quantity == 3
 
 
-@pytest.mark.parametrize("skill", ["aclarar", "fuera_de_catalogo", "corregir_pedido", "informar"])
+@pytest.mark.parametrize("skill", ["tomar_pedido", "informar"])
 def test_cada_skill_habilita_una_respuesta(catalogo, skill):
     agent, modelo = _agente(
         _ai(_call("leer_skill", nombre=skill)),
@@ -220,7 +220,7 @@ def test_ok_sin_stock_lo_resuelve_el_agente(catalogo):
     """CA-18: si ya no alcanza no se crea la orden, y el agente ofrece lo que queda."""
     agent, modelo = _agente(
         *GUION_OFERTA,
-        _ai(_call("leer_skill", nombre="read_catalogo")),
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
         _ai(_call("respond_to_customer", kind="sin_stock", message="Ahora queda 1. ¿Te lo armo?",
                   propuesta=[{"sku": SKU, "quantity": 1}])),
     )
@@ -254,7 +254,7 @@ def test_ok_sin_propuesta_va_al_agente(catalogo):
 def test_corregir_va_al_agente(catalogo):
     agent, modelo = _agente(
         *GUION_OFERTA,
-        _ai(_call("leer_skill", nombre="corregir_pedido")),
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
         _ai(_call("respond_to_customer", kind="aclaracion", message="¿Qué querés cambiar?", options=[SKU])),
     )
     agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
@@ -267,7 +267,7 @@ def test_aceptar_registra_la_ultima_version(catalogo):
     """CA-14: después de una corrección, se registra lo último que se propuso."""
     agent, _ = _agente(
         *GUION_OFERTA,
-        _ai(_call("leer_skill", nombre="corregir_pedido")),
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
         _ai(_propuesta("Quedan 2. ¿Te lo armo?", SKU, 2)),
     )
     agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
@@ -309,7 +309,7 @@ def test_checkpoints_esperan_si_la_base_esta_ocupada(monkeypatch):
 def test_propuesta_con_mas_stock_del_disponible_vuelve_al_llm(catalogo):
     """CA-12: no se guarda una propuesta sin stock."""
     agent, _ = _agente(
-        _ai(_call("leer_skill", nombre="read_catalogo")),
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
         _ai(_propuesta("¿Te armo 5?", SKU, 5)),
         AIMessage(content="Solo tengo 3"),
     )
@@ -321,7 +321,7 @@ def test_propuesta_con_mas_stock_del_disponible_vuelve_al_llm(catalogo):
 def test_propuesta_con_sku_inventado_vuelve_al_llm(catalogo):
     """CA-12 / RF-08."""
     agent, _ = _agente(
-        _ai(_call("leer_skill", nombre="read_catalogo")),
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
         _ai(_propuesta("¿Te armo?", "XX-000", 1)),
         AIMessage(content="No lo tengo"),
     )
@@ -349,7 +349,7 @@ def test_armar_pedido_ignora_productos_que_mande_el_llm(catalogo):
     """RNF-02: el LLM no elige qué se registra."""
     agent, _ = _agente(
         *GUION_OFERTA,
-        _ai(_call("leer_skill", nombre="armar_pedido")),
+        _ai(_call("leer_skill", nombre="confirmar_pedido")),
         _ai(_call("armar_pedido", items=[{"sku": SKU, "quantity": 999}])),
     )
     agent.handle("1", text="5 cremas", **CLIENTE)
@@ -377,6 +377,19 @@ def test_reintento_no_duplica_la_orden(catalogo):
     repetida = order_service.confirm_draft(primero.draft)
     assert repetida.order_id == resultado.order_id
     assert _ordenes() == 1
+
+
+def test_indice_muestra_confirmar_pedido_solo_con_propuesta(catalogo):
+    """CA-54: sin propuesta vigente no hay nada que confirmar."""
+    agent, modelo = _agente(*GUION_OFERTA, *GUION_ACEPTA)
+    agent.handle("1", text="5 cremas", **CLIENTE)
+    agent.handle("1", text="dale", **CLIENTE)
+    indice_sin_propuesta = modelo.recibidos[0][0].content
+    indice_con_propuesta = modelo.recibidos[4][0].content
+    assert "- `tomar_pedido`:" in indice_sin_propuesta
+    assert "- `informar`:" in indice_sin_propuesta
+    assert "- `confirmar_pedido`:" not in indice_sin_propuesta
+    assert "- `confirmar_pedido`:" in indice_con_propuesta
 
 
 def test_tools_ofrecidas_dependen_de_la_skill_y_se_reinician(catalogo):

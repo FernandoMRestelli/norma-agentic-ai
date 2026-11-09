@@ -42,6 +42,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 - La carpeta de datos de prueba `datos_ejemplo/` pasa a llamarse `data_example/` y se actualizan todas sus referencias en código, Docker y documentación.
 
+- El agente pasa de 6 skills a 3: `tomar_pedido`, `confirmar_pedido` e `informar`. Las reglas de negocio no cambian y se siguen leyendo solo cuando hacen falta. Sin propuesta vigente, el índice de skills no muestra `confirmar_pedido`.
 - `OK` o `CONFIRMAR` exactos registran la propuesta vigente sin llamar al LLM, y una aceptación con condiciones («dale, pero al lunes») ya no cuenta como aceptación (RF-13, CA-18, BR-06).
 - **El cliente confirma conversando:** una respuesta como «dale» registra el pedido si acepta la propuesta vigente, y el backend solo registra lo que validó antes (RF-11, RF-13, CA-17, CA-18).
 - El agente pasa a usar LangChain: `agent/llm.py` reemplaza a `agent/llm_client.py`.
