@@ -15,6 +15,8 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Agregado
 
+- Volcado local de órdenes confirmadas a archivo CSV configurable mediante `ORDERS_FILE` (por defecto `data/pedidos.csv`) siguiendo las columnas de Sheet 2 (`id_orden,fecha_hora,cliente,canal,productos,notas,estado`), con zona horaria de Argentina (`America/Argentina/Buenos_Aires`), escritura idempotente y reintento resiliente con `sync_pending_orders` ante fallas temporales (RF-19, CA-19, RNF-04).
+
 - Proveedores de LLM de texto free tier adicionales en `internal/agent/llm.py`, seleccionables con `LLM_PROVIDER`: `groq` (Llama 3.3 70B y otros, límite amplio) y `openrouter` (API compatible con OpenAI). El import de cada paquete es diferido, así solo se carga el del proveedor configurado.
 - Exploración y agregación de catálogo por marcas y categorías con la tool base `explorar_catalogo` y categorización de productos en `Product.category` (`categoria` en `catalogo.csv`), permitiendo responder consultas exploratorias abiertas en una sola iteración y sin agotar la tasa de tokens de Gemini (RF-35, CA-55).
 - Endpoints HTTP `POST /orders/{order_id}/cancel` y `GET /orders/{order_id}` protegidos con credencial de operador (`operator_token`), y tool `cancelar_pedido` para cancelar órdenes activas y liberar stock comprometido (RF-20, CA-48 a CA-52).

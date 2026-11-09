@@ -362,6 +362,9 @@ La ruta del catálogo local se configura mediante la variable de entorno `CATALO
 
 Una fila por pedido en Sheet 2; el detalle por ítem se guarda estructurado en la base (RF-21).
 
+#### Fuente de datos de órdenes local
+La ruta del archivo de órdenes local se configura mediante la variable de entorno `ORDERS_FILE` (por defecto `data/pedidos.csv`). `sheets_service.get_orders_path()` resuelve la ruta absoluta. Al confirmar un pedido (`confirm_draft`), se agrega la fila con el formato de Sheet 2 (`id_orden,fecha_hora,cliente,canal,productos,notas,estado`) y fecha en zona horaria de Argentina (`America/Argentina/Buenos_Aires`). Si el archivo no existe, se crea con sus cabeceras. La operación es idempotente: no duplica filas ante reintentos (RF-19, RNF-04). Si la escritura falla, la orden se persiste en la base interna con `sheets_synced = False` y se puede reintentar con `sync_pending_orders()` (CA-19).
+
 ### 5.5 Resultado del agente: `AgentOutcome` (cambia: reemplaza a `AgentReply`)
 
 Definido en la [spec del agente](agente.md#92-agentoutcome). Sus valores de `kind` coinciden con
@@ -448,7 +451,7 @@ Esta versión de la spec está en revisión: todo lo que no está implementado f
 
 | ID | Requisito | Etapa | Estado |
 |---|---|---|---|
-| RF-19 | Cada orden se agrega como una fila en Sheet 2 con el formato de [§5.4](#54-orden-order--google-sheet-2) | 05 | P |
+| RF-19 | Cada orden se agrega como una fila en Sheet 2 con el formato de [§5.4](#54-orden-order--google-sheet-2) | 05 | I |
 | RF-20 | Las órdenes siguen `Recibido → Preparado → Retirado`, con opción `Cancelado` desde cualquier estado previo a `Retirado`; cancelar una orden libera sus unidades de stock comprometido | 05 | I |
 | RF-21 | El detalle por ítem de cada orden se guarda en la base interna | 05 | P |
 
@@ -579,7 +582,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-16 | Un borrador cuyo stock se agotó después de armarlo por órdenes concurrentes | El cliente confirma | No se crea orden, se informa qué línea no alcanza, la conversación sigue en `borrador_pendiente` y se rechaza la sobreventa | RF-14 | `test_inventory.py` |
 | CA-17 | Una propuesta vigente | El cliente escribe «dale» | Se crea una sola orden con lo propuesto. Si escribe «dale, pero 2» o «no, gracias», no se crea orden | RF-13 | `test_agent_graph.py`; interpretación real: casos de `mensajes.json` |
 | CA-18 | Una propuesta vigente | El cliente responde exactamente `OK` o `CONFIRMAR` | Se registra sin llamar al LLM. Si el stock ya no alcanza, responde el agente. Sin propuesta vigente, el mensaje va al agente | RF-13 | `test_agent_graph.py` |
-| CA-19 | Una orden confirmada | Sheet 2 falla al escribir y después vuelve | La orden existe en la base con `sheets_synced = false` y el reintento agrega una sola fila con las columnas de `pedidos.csv` | RF-19, RNF-04 | pendiente |
+| CA-19 | Una orden confirmada | Sheet 2 falla al escribir y después vuelve | La orden existe en la base con `sheets_synced = false` y el reintento agrega una sola fila con las columnas de `pedidos.csv` | RF-19, RNF-04 | `test_orders.py::test_confirm_draft_falla_sheets_resiliente_y_reintento` (I) |
 | CA-21 | Una conversación con una falla previa | Ocurre una segunda falla | La conversación pasa a `derivada` y el bot no responde a ese cliente por 24 h | RF-27 | pendiente |
 | CA-22 | Cualquier conversación abierta | El cliente pide hablar con una persona | El turno termina en `derivado` | RF-27 | pendiente |
 | CA-23 | Un borrador pendiente | El cliente dice que ya no lo quiere | El borrador queda `descartado`, la conversación `descartada` y no hay orden | RF-26 | pendiente |
