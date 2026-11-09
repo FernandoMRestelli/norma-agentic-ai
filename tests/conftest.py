@@ -45,3 +45,10 @@ def sin_red(monkeypatch):
 
     monkeypatch.setattr(socket.socket, "connect", conectar)
     monkeypatch.setattr(socket.socket, "connect_ex", conectar_ex)
+
+@pytest.fixture(autouse=True)
+def base_de_datos_inicializada():
+    from internal.database.connection import init_db
+
+    init_db()
+
