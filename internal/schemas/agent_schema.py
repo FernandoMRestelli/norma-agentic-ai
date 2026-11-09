@@ -48,6 +48,21 @@ class CheckStockInput(BaseModel):
     quantity: int = Field(gt=0, le=MAX_QUANTITY, description="Cantidad que quiere el cliente")
 
 
+class ExplorarCatalogoInput(BaseModel):
+    brand: str | None = Field(
+        default=None,
+        description="Marca por la que consulta el cliente (por ejemplo 'Alfaparf', 'Fidelite', 'Loreal'). Opcional.",
+    )
+    category: str | None = Field(
+        default=None,
+        description=(
+            "Rubro o categoría a consultar (por ejemplo 'Shampoo', 'Acondicionador', 'Coloración', 'Oxidante'). "
+            "Opcional."
+        ),
+    )
+    limit: int = Field(default=5, ge=1, le=10, description="Tope de productos a listar")
+
+
 class LeerSkillInput(BaseModel):
     nombre: str = Field(min_length=1, description="Nombre de la skill, tal como figura en el índice")
 

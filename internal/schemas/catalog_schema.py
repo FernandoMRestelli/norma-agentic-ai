@@ -10,6 +10,7 @@ class Product(BaseModel):
     name: str
     brand: str | None = None
     presentation: str | None = None
+    category: str | None = None
     price: Decimal = Field(ge=0)
     stock: int = Field(ge=0)
     min_stock: int = Field(default=0, ge=0)  # debajo de este valor el dashboard marca stock bajo

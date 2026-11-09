@@ -98,3 +98,22 @@ def test_get_catalog_path_not_found(monkeypatch, tmp_path):
 
     get_settings.cache_clear()
 
+def test_product_admite_categoria_opcional():
+    """RF-35: Product acepta un campo opcional category."""
+    from decimal import Decimal
+
+    from internal.schemas.catalog_schema import Product
+
+    p1 = Product(sku="SKU-1", name="Shampoo X", price=Decimal("100"), stock=10, category="Shampoo")
+    assert p1.category == "Shampoo"
+    p2 = Product(sku="SKU-2", name="Crema Y", price=Decimal("200"), stock=5)
+    assert p2.category is None
+
+
+def test_get_catalog_carga_categoria():
+    """RF-35: sheets_service carga el campo categoria desde el CSV."""
+    from internal.services import sheets_service
+
+    products = sheets_service.get_catalog()
+    assert any(p.category == "Shampoo" for p in products)
+

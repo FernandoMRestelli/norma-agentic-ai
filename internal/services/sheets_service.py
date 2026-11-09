@@ -39,6 +39,7 @@ def get_catalog() -> list[Product]:
                 name=row["nombre"],
                 brand=row["marca"] or None,
                 presentation=row["presentacion"] or None,
+                category=row.get("categoria") or None,
                 price=row["precio"],
                 stock=row["stock"] or 0,
                 min_stock=row["stock_minimo"] or 0,

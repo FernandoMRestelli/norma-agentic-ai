@@ -318,6 +318,7 @@ con la etapa que los usa ([§8](#8-roadmap-por-fases)).
 | `sku` | `sku` | Único |
 | `nombre` | `name` | |
 | `marca` | `brand` | Opcional |
+| `categoria` | `category` | Opcional. Ej.: `Shampoo`, `Acondicionador`, `Tratamiento y Máscara`, `Coloración` |
 | `presentacion` | `presentation` | Opcional. Ej.: `400 ml`, `90 g`, `kit` |
 | `precio` | `price` | `Decimal ≥ 0`, punto decimal |
 | `stock` | `stock` | Entero ≥ 0 |
@@ -428,6 +429,7 @@ Esta versión de la spec está en revisión: todo lo que no está implementado f
 | RF-10 | Si no alcanza el stock, el agente lo avisa y ofrece lo disponible o una alternativa; si el producto no está en el catálogo, lo dice | 03 | I |
 | RF-33 | El agente puede leer skills y BR guardadas en el repositorio mediante `leer_skill` y `leer_br` ([agente §4.5](agente.md#45-skills) y [§4.6](agente.md#46-reglas-de-negocio-br)) | 03 | I |
 | RF-34 | Cada skill define qué tools y BR puede usar el agente; el backend rechaza cualquier otra, y los permisos valen solo para el turno | 03 | I |
+| RF-35 | El sistema permite explorar el catálogo agrupado por marcas y categorías mediante agregaciones sin saturar tokens ni contexto | 02 | I |
 
 ### Borrador y confirmación
 
@@ -510,7 +512,7 @@ Mismas 7 etapas que [`roadmap.md`](../roadmap.md). Cerrar una etapa es una versi
 | Etapa | Meta | Requisitos | Se cierra cuando | Versión | Estado |
 |---|---|---|---|---|---|
 | 01 · Base compartida | Todos pueden ejecutar el proyecto | — | La API levanta en los tres equipos y el CI está en verde | 0.1.0 | ✅ Completa (falta publicar la release) |
-| 02 · Datos del negocio | Consultar catálogo, precios y stock | RF-07, RNF-13 | Pasan CA-27, CA-29 y CA-53 con el catálogo de ejemplo, y se consulta Sheet 1 real sin tocar código | 0.2.0 | Pendiente |
+| 02 · Datos del negocio | Consultar catálogo, precios y stock | RF-07, RF-35, RNF-13 | Pasan CA-27, CA-29, CA-53 y CA-55 con el catálogo de ejemplo, y se consulta Sheet 1 real sin tocar código | 0.2.0 | Pendiente |
 | 03 · Agente y pedidos multimodales | Del mensaje al borrador o la pregunta | RF-01, RF-04 a RF-06, RF-08 a RF-10, RF-33, RF-34 | Pasan CA-06 a CA-12, CA-20 y CA-37 a CA-44 con un modelo falso, y los casos de `mensajes.json` con el LLM elegido | 0.3.0 | Pendiente (bloqueada por D-01) |
 | 04 · Confirmación del cliente | Ningún pedido sin confirmación | RF-11 a RF-14, RF-16, RF-26 a RF-28 | Pasan CA-13, CA-14, CA-16, CA-17 y CA-21 a CA-23, CA-28 | 0.4.0 | Pendiente |
 | 05 · Registro y seguimiento | Pedido confirmado = trabajo operativo | RF-15, RF-17 a RF-21 | Pasan CA-15, CA-19 y CA-48 a CA-52 | 0.5.0 | Pendiente |
@@ -563,6 +565,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-46 | Las skills reales | Se cargan | Toda BR que mencionan existe, toda BR de una skill aparece en sus instrucciones y cada skill solo nombra tools que puede usar | RF-34 | `test_tools.py` |
 | CA-47 | Una propuesta vigente | El cliente pregunta algo, el agente la vuelve a enviar y después acepta | La orden se crea una sola vez, con esas líneas | RF-13 | `test_agent_graph.py` |
 | CA-54 | Una conversación con y sin propuesta vigente | Se arma el contexto del LLM | El índice muestra `confirmar_pedido` solo con una propuesta vigente; `tomar_pedido` e `informar` aparecen siempre | RF-33 | `test_agent_graph.py::test_indice_muestra_confirmar_pedido_solo_con_propuesta` |
+| CA-55 | Una consulta exploratoria de marcas o categorías | Se invoca `explorar_catalogo` | Devuelve el desglose por categorías o marcas sin recorrer todo el catálogo en prompts | RF-35 | `test_tools.py::test_explorar_catalogo_*`, `test_agent_graph.py::test_agente_explorar_catalogo_marcas_de_shampoo` |
 | CA-27 | Los archivos de `data_example/` | Se validan contra los esquemas | Columnas correctas, SKU únicos, casos coherentes con el catálogo | RF-07 | `test_datos_ejemplo.py` |
 | CA-29 | El catálogo de ejemplo | Se busca «shampoo pantene 400», «Shampoo Pantene 400ML» y «shampo pantne 400» | `SH-PAN-400` aparece primero en los tres casos | RF-07 | `test_tools.py::test_busqueda_aproximada_trae_primero_el_producto` |
 

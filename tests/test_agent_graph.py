@@ -500,3 +500,15 @@ def test_orquestador_abre_y_cierra_conversaciones(catalogo, monkeypatch):
     with SessionLocal() as session:
         estados = session.scalars(select(ConversationRecord.status).order_by(ConversationRecord.id)).all()
     assert estados == ["cerrada", "abierta"]
+
+def test_agente_explorar_catalogo_marcas_de_shampoo(catalogo):
+    """CA-55: el agente puede explorar marcas de una categoría con explorar_catalogo y responder con informacion."""
+    agent, modelo = _agente(
+        _ai(_call("explorar_catalogo", category="shampoo")),
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _ai(_call("respond_to_customer", kind="informacion", message="En shampoo trabajamos Pantene, Sedal y Elvive.")),
+    )
+    resultado = agent.handle("1", text="¿Qué marcas de shampoo tenés?", **CLIENTE)
+    assert resultado.kind == "informacion"
+    assert "Pantene" in resultado.message
+

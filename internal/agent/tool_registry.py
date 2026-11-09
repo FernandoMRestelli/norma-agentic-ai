@@ -12,6 +12,7 @@ from internal.agent.state import Resultado
 from internal.schemas.agent_schema import (
     ArmarPedidoInput,
     CheckStockInput,
+    ExplorarCatalogoInput,
     GetProductInput,
     LeerBrInput,
     LeerSkillInput,
@@ -55,6 +56,10 @@ class ToolSpec:
 _SOLO_INTERNOS = {"min_stock", "is_low_stock"}
 
 
+
+def _explorar_catalogo(data: ExplorarCatalogoInput, _: TurnContext) -> dict[str, Any]:
+    return catalog_tools.explorar_catalogo(data.brand, data.category, data.limit)
+
 def _search_products(data: SearchProductsInput, _: TurnContext) -> dict[str, Any]:
     matches = catalog_tools.search_products(data.query, data.limit)
     return {"matches": [match.model_dump(mode="json", exclude=_SOLO_INTERNOS) for match in matches]}
@@ -65,7 +70,8 @@ def _get_product(data: GetProductInput, _: TurnContext) -> dict[str, Any]:
     return {"product": product.model_dump(mode="json", exclude=_SOLO_INTERNOS) if product else None}
 
 
-def _check_stock(data: CheckStockInput, _: TurnContext) -> dict[str, Any]:
+def _check_stock(data: CheckStockInput,
+    ExplorarCatalogoInput, _: TurnContext) -> dict[str, Any]:
     return inventory_tools.check_stock(data.sku, data.quantity).model_dump(mode="json")
 
 
@@ -102,6 +108,14 @@ def _armar_pedido(_: ArmarPedidoInput, ctx: TurnContext) -> dict[str, Any]:
 TOOLS: dict[str, ToolSpec] = {
     spec.name: spec
     for spec in (
+        ToolSpec(
+            "explorar_catalogo",
+            "Explora el catálogo por marcas o categorías cuando el cliente hace preguntas abiertas "
+            "(por ejemplo: qué marcas de shampoo hay, qué productos tiene una marca, o qué líneas se trabajan). "
+            "Devuelve resúmenes compactos agrupados por rubro o listas de marcas.",
+            ExplorarCatalogoInput,
+            _explorar_catalogo,
+        ),
         ToolSpec(
             "search_products",
             "Busca en el catálogo por producto, marca, presentación o tono. Devuelve precio, stock y `score` "
@@ -147,7 +161,7 @@ TOOLS: dict[str, ToolSpec] = {
 }
 
 # Disponibles desde el inicio del turno: sin consultar el catálogo no se puede elegir una skill
-BASE_TOOLS = ("leer_skill", "leer_br", "search_products", "get_product", "check_stock")
+BASE_TOOLS = ("leer_skill", "leer_br", "search_products", "get_product", "check_stock", "explorar_catalogo")
 
 
 def available(skills_activas: list[str]) -> list[str]:

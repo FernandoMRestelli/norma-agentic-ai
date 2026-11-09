@@ -223,6 +223,7 @@ Las tools reciben dos tipos de parámetros:
 |---|---|---|---|
 | `search_products` | Lectura | `tools/catalog_tools.py` | Buscar candidatos por nombre, marca o presentación |
 | `get_product` | Lectura | `tools/catalog_tools.py` | Ver un producto por SKU |
+| `explorar_catalogo` | Lectura | `tools/catalog_tools.py` | Explorar marcas o categorías del catálogo de forma agregada sin recorrer todo el catálogo |
 | `check_stock` | Lectura | `tools/inventory_tools.py` | Saber si alcanza el stock para una cantidad |
 | `leer_skill` | Lectura | `tools/skill_tools.py` | Leer una skill y habilitar sus tools y BR (§4.5) |
 | `leer_br` | Lectura | `tools/skill_tools.py` | Leer una regla de negocio permitida (§4.6) |
@@ -272,6 +273,23 @@ Lista vacía si no hay coincidencias razonables. Errores: `catalogo_no_disponibl
 #### `get_product`
 
 Entrada `sku: str`. Salida `data.product`: `{sku, name, brand, presentation, price, stock}` o `null`. Errores: `catalogo_no_disponible`.
+
+#### `explorar_catalogo`
+
+| Entrada | Tipo | Reglas |
+|---|---|---|
+| `brand` | `str | None` | Opcional. Marca a filtrar (insensible a mayúsculas/minúsculas). |
+| `category` | `str | None` | Opcional. Categoría a filtrar (insensible a mayúsculas/minúsculas). |
+| `limit` | `int` | 1 a 20, por defecto 5. Límite de productos de muestra cuando se filtran ambos. |
+
+Permite responder preguntas abiertas exploratorias (ej.: «¿Qué marcas de shampoo tenés?» o «¿Qué productos tenés de Fidelité?») en una sola llamada sin requerir iteraciones múltiples ni saturar los tokens de contexto (RF-35, CA-55).
+
+Devuelve un diccionario estructurado según los parámetros provistos:
+- Si solo se indica `category`: lista de `marcas` que tienen productos en dicha categoría (`tipo_consulta: marcas_por_categoria`).
+- Si solo se indica `brand`: diccionario de `categorias` con conteo de productos de la marca (`tipo_consulta: categorias_por_marca`).
+- Si se indican ambos (`brand` y `category`): muestra acotada de nombres y presentaciones de productos (`tipo_consulta: productos_por_marca_y_categoria`).
+- Si no se indican parámetros: listado general de categorías con su total de productos (`tipo_consulta: categorias_generales`).
+
 
 #### `check_stock`
 
