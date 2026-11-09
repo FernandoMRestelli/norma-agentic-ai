@@ -280,7 +280,7 @@ Entrada `sku: str`. Salida `data.product`: `{sku, name, brand, presentation, pri
 |---|---|---|
 | `brand` | `str | None` | Opcional. Marca a filtrar (insensible a mayúsculas/minúsculas). |
 | `category` | `str | None` | Opcional. Categoría a filtrar (insensible a mayúsculas/minúsculas). |
-| `limit` | `int` | 1 a 20, por defecto 5. Límite de productos de muestra cuando se filtran ambos. |
+| `limit` | `int` | 1 a 10, por defecto 5. Límite de productos de muestra cuando se filtran ambos. |
 
 Permite responder preguntas abiertas exploratorias (ej.: «¿Qué marcas de shampoo tenés?» o «¿Qué productos tenés de Fidelité?») en una sola llamada sin requerir iteraciones múltiples ni saturar los tokens de contexto (RF-35, CA-55).
 

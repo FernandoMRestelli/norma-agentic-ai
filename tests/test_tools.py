@@ -177,6 +177,13 @@ def test_argumentos_invalidos_vuelven_al_llm():
     result = tool_registry.execute("check_stock", {"sku": "SH-PAN-400", "quantity": 0}, ctx)
     assert result["error"]["code"] == "argumentos_invalidos"
 
+
+def test_check_stock_ejecuta_con_argumentos_validos():
+    ctx = tool_registry.TurnContext(customer_id="c", channel=Channel.WEB, disponibles=["check_stock"])
+    result = tool_registry.execute("check_stock", {"sku": "SH-PAN-400", "quantity": 2}, ctx)
+    assert result["ok"] is True
+    assert result["data"]["is_enough"] is True
+
 def test_explorar_catalogo_marcas_por_categoria():
     """RF-35: Consulta marcas disponibles en una categoría."""
     res = catalog_tools.explorar_catalogo(category="shampoo")
@@ -201,11 +208,15 @@ def test_explorar_catalogo_marca_no_encontrada():
 
 
 def test_explorar_catalogo_productos_por_marca_y_categoria():
-    """RF-35: Devuelve muestra de productos acotada por limit."""
+    """RF-35: Devuelve muestra de productos acotada por limit sin fugar stock crudo."""
     res = catalog_tools.explorar_catalogo(brand="pantene", category="shampoo", limit=2)
     assert res["tipo_consulta"] == "productos_por_marca_y_categoria"
     assert len(res["muestra_productos"]) <= 2
     assert res["total_productos"] >= len(res["muestra_productos"])
+    for prod in res["muestra_productos"]:
+        assert "stock" not in prod
+        assert "hay_stock" in prod
+        assert isinstance(prod["hay_stock"], bool)
 
 
 def test_explorar_catalogo_general():

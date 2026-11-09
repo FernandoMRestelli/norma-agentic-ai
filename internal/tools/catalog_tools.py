@@ -2,6 +2,7 @@
 
 import re
 import unicodedata
+from collections import Counter
 from difflib import SequenceMatcher
 from typing import Any
 
@@ -63,7 +64,6 @@ def explorar_catalogo(
     limit: int = 5,
 ) -> dict[str, Any]:
     """Explora marcas, categorías y productos cuando el cliente consulta opciones abiertas (RF-35)."""
-    from collections import Counter
     products = inventory_service.get_catalog()
     b_norm = _normalizar(brand) if brand else None
     c_norm = _normalizar(category) if category else None
@@ -71,7 +71,7 @@ def explorar_catalogo(
     # Caso 1: Solo categoría (ej. ¿qué marcas de shampoo tenés?)
     if c_norm and not b_norm:
         matched = [p for p in products if c_norm in _normalizar(p.category or "")]
-        marcas = sorted(list({p.brand for p in matched if p.brand}))
+        marcas = sorted({p.brand for p in matched if p.brand})
         cat_nombre = matched[0].category if matched else category
         return {
             "tipo_consulta": "marcas_por_categoria",
@@ -116,8 +116,8 @@ def explorar_catalogo(
                     "sku": p.sku,
                     "nombre": p.name,
                     "presentacion": p.presentation,
-                    "precio": float(p.price),
-                    "stock": p.stock,
+                    "precio": str(p.price) if p.price is not None else None,
+                    "hay_stock": p.stock > 0,
                 }
                 for p in matched[:limit]
             ],

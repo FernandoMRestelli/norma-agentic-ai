@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from internal.config import Settings, get_settings
+from internal.database.connection import init_db
 
 # Un secreto exportado en la terminal (o un .env de desarrollo) cambiaría el resultado de los tests
 for campo in Settings.model_fields:
@@ -48,7 +49,5 @@ def sin_red(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def base_de_datos_inicializada():
-    from internal.database.connection import init_db
-
     init_db()
 

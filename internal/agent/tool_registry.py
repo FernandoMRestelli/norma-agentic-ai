@@ -56,9 +56,9 @@ class ToolSpec:
 _SOLO_INTERNOS = {"min_stock", "is_low_stock"}
 
 
-
 def _explorar_catalogo(data: ExplorarCatalogoInput, _: TurnContext) -> dict[str, Any]:
     return catalog_tools.explorar_catalogo(data.brand, data.category, data.limit)
+
 
 def _search_products(data: SearchProductsInput, _: TurnContext) -> dict[str, Any]:
     matches = catalog_tools.search_products(data.query, data.limit)
@@ -70,8 +70,7 @@ def _get_product(data: GetProductInput, _: TurnContext) -> dict[str, Any]:
     return {"product": product.model_dump(mode="json", exclude=_SOLO_INTERNOS) if product else None}
 
 
-def _check_stock(data: CheckStockInput,
-    ExplorarCatalogoInput, _: TurnContext) -> dict[str, Any]:
+def _check_stock(data: CheckStockInput, _: TurnContext) -> dict[str, Any]:
     return inventory_tools.check_stock(data.sku, data.quantity).model_dump(mode="json")
 
 
