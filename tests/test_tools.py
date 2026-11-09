@@ -87,14 +87,14 @@ def test_check_stock_con_sku_inexistente():
 def test_las_skills_reales_son_validas():
     """CA-40: todas las tools que nombran las skills existen."""
     tool_registry.validate_skills()
-    assert set(skill_service.get_skills()) == {
-        "aclarar",
-        "armar_pedido",
-        "corregir_pedido",
-        "fuera_de_catalogo",
-        "informar",
-        "read_catalogo",
-    }
+    assert set(skill_service.get_skills()) == {"confirmar_pedido", "informar", "tomar_pedido"}
+
+
+def test_solo_confirmar_pedido_habilita_armar_pedido():
+    """CA-37: es la única skill que puede registrar un pedido, y sus BR siguen disponibles en la skill que las usa."""
+    skills = skill_service.get_skills()
+    assert [skill.nombre for skill in skills.values() if "armar_pedido" in skill.tools] == ["confirmar_pedido"]
+    assert sorted(skills["tomar_pedido"].br) == ["BR-01", "BR-03", "BR-04", "BR-05"]
 
 
 def test_las_skills_solo_mencionan_br_que_existen():
@@ -110,12 +110,10 @@ def test_las_skills_solo_mencionan_br_que_existen():
 
 def test_las_skills_solo_nombran_tools_que_pueden_usar():
     """CA-46: el LLM no recibe instrucciones de usar una tool que su skill no le habilita."""
-    skills = skill_service.get_skills()
-    for skill in skills.values():
+    for skill in skill_service.get_skills().values():
         permitidas = {*tool_registry.BASE_TOOLS, *skill.tools}
         for tool in tool_registry.TOOLS:
-            if tool not in skills:  # armar_pedido es tool y skill: nombrarla puede ser la skill
-                assert f"`{tool}`" not in skill.instrucciones or tool in permitidas, (skill.nombre, tool)
+            assert f"`{tool}`" not in skill.instrucciones or tool in permitidas, (skill.nombre, tool)
 
 
 def test_skill_con_tool_inexistente_impide_arrancar(monkeypatch):
@@ -144,7 +142,7 @@ def test_skill_con_nombre_distinto_a_su_carpeta_impide_arrancar(tmp_path):
         load_skills(tmp_path)
 
 
-@pytest.mark.parametrize("nombre", ["../../.env", "../read_catalogo", "/etc/passwd", "read_catalogo/skill.md"])
+@pytest.mark.parametrize("nombre", ["../../.env", "../tomar_pedido", "/etc/passwd", "tomar_pedido/skill.md"])
 def test_leer_skill_no_lee_rutas(nombre):
     """CA-40: el nombre solo se compara contra el índice."""
     with pytest.raises(ToolFailure) as error:
@@ -156,12 +154,12 @@ def test_leer_skill_no_lee_rutas(nombre):
 def test_leer_br_no_lee_rutas(id_br):
     """CA-40."""
     with pytest.raises(ToolFailure) as error:
-        skill_tools.leer_br(id_br, ["read_catalogo"])
+        skill_tools.leer_br(id_br, ["tomar_pedido"])
     assert error.value.code == "br_inexistente"
 
 
 def test_leer_br_solo_de_skills_leidas():
-    assert "Falta de stock" in skill_tools.leer_br("BR-01", ["read_catalogo"])["texto"]
+    assert "Falta de stock" in skill_tools.leer_br("BR-01", ["tomar_pedido"])["texto"]
     with pytest.raises(ToolFailure) as error:
         skill_tools.leer_br("BR-01", [])
     assert error.value.code == "br_no_permitida"

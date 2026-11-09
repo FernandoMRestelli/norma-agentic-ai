@@ -15,7 +15,8 @@ Se actualiza al cerrar cada PR que cambie el estado o la lista.
 - **Flujo de trabajo**: ramas, PR, changelog, CI (lint, tests, build, secretos, reglas de PR) e imagen por release.
   Todavía no hay ninguna release publicada ni producción corriendo.
 - **Primer loop del agente**: grafo con LangGraph, skills y BR, y pedido por conversación en Telegram. El catálogo
-  sale de `data_example/catalogo.csv` y el pedido queda en la base local.
+  sale de `data_example/catalogo.csv` y el pedido queda en la base local. Son 3 skills: `tomar_pedido`,
+  `confirmar_pedido` e `informar`.
 - **Esqueletos sin implementar**: Google Sheets, chat y frontend (devuelven `501` o
   `NotImplementedError`).
 
@@ -28,7 +29,12 @@ Todavía no hay uso real: lo único medido son los tests.
 demanda o por límite de requests del free tier, así que todavía no hay medición de cómo interpreta «dale». Esos 2 casos
 son anteriores a las skills `aclarar`, `fuera_de_catalogo`, `corregir_pedido` e `informar` y al prompt actual. Con ellos,
 una segunda corrida el mismo día no pudo evaluar ninguno de los 22 casos: el LLM falló en todos, y dos pruebas sueltas
-justo antes devolvieron `503` y `504`. Hay que repetirla con `python -m internal.evaluar_agente --pausa 30`.
+justo antes devolvieron `503` y `504`.
+
+**Tercera corrida (2026-11-05), ya con 3 skills:** tampoco evaluó ninguno de los 24 casos, con `--pausa 30`. Los
+primeros errores fueron `GoogleAPIError` y después `429`: el free tier de `gemini-3.8-flash` permite 20 requests por día.
+Cada caso hace varias llamadas, así que `--pausa` no alcanza: hace falta otra cuota o correr pocos casos por día con
+`--caso`. Cuando corra, hay que mirar si el agente lee la BR de cada caso, ahora que están todas en `tomar_pedido`.
 
 - Los contratos de datos rechazan lo que tienen que rechazar (borrador sin ítems, cantidades no positivas,
   mensaje de audio sin archivo) y los precios no pierden centavos (`Decimal`).
