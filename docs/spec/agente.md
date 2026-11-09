@@ -25,7 +25,7 @@ El agente **no maneja la conversación solo**. La conversación la conduce el ba
 Así se cumple el principio rector: **el LLM interpreta; el backend valida y registra; el cliente confirma.**
 El cliente confirma conversando: el LLM interpreta su respuesta, pero solo puede registrar lo que el backend ya
 validó y guardó como propuesta (§5). El riesgo es que interprete mal una respuesta, y se mide con los casos de
-evaluación de `datos_ejemplo/mensajes.json`.
+evaluación de `data_example/mensajes.json`.
 
 ## 2. Estados de la conversación
 
@@ -153,11 +153,11 @@ Ejemplo: el cliente pide 5 unidades y hay 3.
 | Iteración | Fase | Tool | Resultado |
 |---|---|---|---|
 | 1 | L1 | `search_products` | Encuentra el producto con stock 3 |
-| 2 | L2 | `leer_skill("read_catalogo")` | Se habilitan sus tools y sus BR |
+| 2 | L2 | `leer_skill("tomar_pedido")` | Se habilitan sus tools y sus BR |
 | 3 | L2 | `leer_br("BR-01")` | Lee cómo ofrecer lo disponible |
 | 4 | L2 | `respond_to_customer(kind="sin_stock", propuesta=[{sku, 3}])` | «Me quedaron 3, ¿te armo el pedido con 3?». El backend guarda la propuesta y el grafo pausa |
 
-Si el cliente acepta, el turno siguiente lee `armar_pedido` y termina en la tool `armar_pedido`, que crea la orden
+Si el cliente acepta, el turno siguiente lee `confirmar_pedido` y termina en la tool `armar_pedido`, que crea la orden
 con esas 3 unidades (§5).
 
 > **Riesgo:** cada lectura suma una llamada al LLM, con todo el contexto. Hay que medir que el camino normal cumpla
@@ -317,7 +317,7 @@ pregunta algo sobre ella, el agente responde y la vuelve a enviar con las mismas
 | `fuera_de_catalogo` | El producto no está en el catálogo (sin inventar un SKU parecido) | `aclarando` |
 | `informacion` | Saludo o consulta general | Sin cambio |
 
-Los `kind` coinciden con los resultados esperados de [`datos_ejemplo/mensajes.json`](../../datos_ejemplo/mensajes.json),
+Los `kind` coinciden con los resultados esperados de [`data_example/mensajes.json`](../../data_example/mensajes.json),
 así cada caso de ejemplo se puede verificar contra el resultado del turno (CA-08 a CA-11).
 
 #### `escalate_to_human` (terminal)
@@ -342,22 +342,31 @@ Cada skill tiene su carpeta en `internal/skills/<nombre>/`. `skill.md` lleva los
 y las instrucciones debajo, y `BR/` guarda un `.md` por cada regla que la skill puede leer:
 
 ```text
-internal/skills/read_catalogo/
+internal/skills/tomar_pedido/
 ├── skill.md
 └── BR/
-    └── BR-01.md
+    ├── BR-01.md
+    ├── BR-03.md
+    ├── BR-04.md
+    └── BR-05.md
 ```
 
 ```markdown
 ---
-nombre: read_catalogo
-cuando: El cliente pide o consulta productos que el catálogo identifica sin dudas
+nombre: tomar_pedido
+cuando: El cliente pide o consulta productos, o quiere cambiar una cantidad o un producto de la propuesta vigente, sumar o sacar algo
 tools: [search_products, get_product, check_stock, respond_to_customer]
 ---
-1. Elegí de `search_products` el producto que coincide.
+1. Buscá cada producto y elegí el que coincide.
 2. Compará su stock con la cantidad pedida.
-3. Si alcanza, respondé con `kind = propuesta`. Si no, leé BR-01 antes de responder.
+3. Si identificaste todo y alcanza, respondé con `kind = propuesta`.
+
+Si no, seguí el caso que corresponda: por ejemplo, si no alcanza el stock, leé BR-01.
 ```
+
+**Cuándo crear una skill:** cuando habilita una tool distinta o aplica en un momento donde el resto no hace falta.
+Si solo cambia cómo se responde, va como BR dentro de una skill existente. Por eso no hay una skill por cada
+resultado de la búsqueda: el agente no lo conoce hasta buscar, y un mismo mensaje puede caer en varios.
 
 Reglas:
 
@@ -365,31 +374,31 @@ Reglas:
   desde el inicio del turno, porque el agente necesita consultar el catálogo para saber qué skill elegir.
   `leer_br` igual respeta las BR permitidas.
 - **Tools terminales:** solo se habilitan a través de una skill.
-- **Varias skills:** los permisos se suman dentro del turno. Por ejemplo, si `armar_pedido` recibe
-  `stock_insuficiente`, el agente lee `read_catalogo` para responder.
+- **Varias skills:** los permisos se suman dentro del turno. Por ejemplo, si la tool `armar_pedido` recibe
+  `stock_insuficiente`, el agente lee `tomar_pedido` para responder.
 - **Duración:** los permisos valen solo para el turno. Leer una skill en un turno anterior no habilita nada.
 - **Lectura opcional:** el agente decide si lee una BR. Las BR que hace cumplir el backend se aplican igual (§4.6).
 - **BR permitidas:** son las que están en la carpeta `BR/` de la skill. No se listan en el encabezado.
+- **Elegir la skill:** no hay una skill selectora, porque habría que leerla en todos los turnos. El agente elige del
+  índice del system prompt (§8). El índice no muestra las skills con `requiere_propuesta: true` si no hay una propuesta
+  vigente (CA-54). Es solo una ayuda para elegir: lo que protege la orden sigue siendo `sin_propuesta` (CA-42).
 - **Validación al arrancar:** `skill_service` carga los archivos y `tool_registry` verifica que toda tool
   nombrada exista. Si algo no coincide, la aplicación no arranca.
 
 | Skill | Cuándo aplica | Tools que habilita, además de las de catálogo | BR |
 |---|---|---|---|
-| `armar_pedido` | Hay una propuesta vigente y el cliente la acepta, la rechaza o duda | `armar_pedido`, `respond_to_customer` | BR-06 |
-| `read_catalogo` | El cliente pide o consulta productos que el catálogo identifica sin dudas | `respond_to_customer` | BR-01 |
-| `aclarar` | Producto, presentación, tono o cantidad no claros | `respond_to_customer` | BR-03 |
-| `fuera_de_catalogo` | El producto no está en el catálogo | `respond_to_customer` | BR-04 |
-| `corregir_pedido` | El cliente cambia una propuesta | `respond_to_customer` | BR-05 |
+| `tomar_pedido` | El cliente pide o consulta productos, o cambia la propuesta vigente | `respond_to_customer` | BR-01, BR-03, BR-04, BR-05 |
+| `confirmar_pedido` | Hay una propuesta vigente y el cliente la acepta, la rechaza o duda | `armar_pedido`, `respond_to_customer` | BR-06 |
 | `informar` | Saludo, consulta general, «dale» sin propuesta o algo que no es un pedido | `respond_to_customer` | — |
 | `derivar_o_cancelar` | Pide una persona o cancela el pedido | `escalate_to_human`, `discard_order_draft` | BR-08 |
 
 `derivar_o_cancelar` todavía no existe: depende de las tools de §4.2. Mientras tanto, `informar` no promete
-derivar a nadie, y un rechazo descarta la propuesta con `armar_pedido`.
+derivar a nadie, y un rechazo descarta la propuesta con `confirmar_pedido`.
 
 ### 4.6 Reglas de negocio (BR)
 
 Una **BR** es una regla atómica con un ID fijo. Vive en la carpeta `BR/` de su skill
-(`internal/skills/read_catalogo/BR/BR-01.md`) y cambia
+(`internal/skills/tomar_pedido/BR/BR-01.md`) y cambia
 por PR, como el código. Que el agente lea una BR **no reemplaza** su control: lo que protege datos u órdenes lo
 hace cumplir el backend, aunque el agente no la haya leído.
 
@@ -405,7 +414,7 @@ hace cumplir el backend, aunque el agente no la haya leído.
 | BR-08 | Derivar si el cliente lo pide, tras 2 fallas o tras 3 aclaraciones seguidas | LLM y backend | RF-27 |
 
 Las reglas que dependen solo del LLM, como BR-03, se controlan con la evaluación de `mensajes.json`, que registra
-qué BR leyó el agente en cada caso (§10). Falta definir dónde va una BR que usan varias skills (D-09).
+qué BR leyó el agente en cada caso (§10).
 
 ## 5. Confirmación
 
@@ -414,20 +423,22 @@ El cliente confirma conversando (RF-13). El LLM interpreta si aceptó, pero **no
 1. El bot propone un pedido con `respond_to_customer(propuesta=...)`. El backend valida SKU y stock, y guarda la
    propuesta como `OrderDraft`.
 2. El cliente responde. Si escribe exactamente `OK` o `CONFIRMAR`, el backend sigue en el paso 3 sin llamar al LLM.
-   Con otra respuesta decide el agente: si acepta sin cambios («dale», «sí»), lee la skill `armar_pedido` y llama a
+   Con otra respuesta decide el agente: si acepta sin cambios («dale», «sí»), lee la skill `confirmar_pedido` y llama a
    la tool. Si cambia algo, pone una condición o duda, propone de nuevo o pregunta (BR-06).
 3. `armar_pedido` solo puede crear lo que está en la propuesta vigente.
 4. Si ya hay una orden con ese `draft_id`, devuelve la existente (idempotencia, CA-15).
-5. **Revalida el stock** de cada línea con una lectura fresca. Si alguna no alcanza, no crea nada, y el agente
+5. **Revalida el stock disponible** de cada línea con una lectura fresca descontando las órdenes activas previas
+   (`stock_disponible = max(0, stock_base - unidades_comprometidas)`). Si alguna no alcanza, no crea nada, y el agente
    tiene que proponer de nuevo (CA-16).
-6. En **una transacción** de la base crea la `Order`, con `order_id` correlativo `ORD-0001` y `draft_id` único.
+6. En **una transacción** de la base crea la `Order`, con `order_id` correlativo `ORD-0001` y `draft_id` único,
+   comprometiendo atómicamente el stock para consultas y órdenes posteriores.
 7. Responde con un mensaje fijo armado por el backend: el detalle registrado y el número de orden.
 
 > **Primer corte:** la orden solo queda en la base local. Escribir en Google Sheet 2 y reintentar si falla
 > (`sheets_synced`, RNF-04) entra con la etapa 05.
 
 > **Riesgo:** el LLM puede tomar como aceptación algo que no lo es. El mensaje final muestra qué se registró, y los
-> casos de aceptación ambigua de `datos_ejemplo/mensajes.json` miden cuánto pasa.
+> casos de aceptación ambigua de `data_example/mensajes.json` miden cuánto pasa.
 
 ## 6. Errores
 
@@ -467,7 +478,8 @@ mensajes del cliente (ya preprocesados), respuestas, tool calls con sus resultad
 **Contexto que recibe el LLM en cada iteración**, armado por `agent/context.py`:
 
 1. El system prompt de [`agent/system_prompt.md`](../../internal/agent/system_prompt.md), más un **índice de
-   skills** con el `nombre` y el `cuando` de cada una, generado desde los archivos.
+   skills** con el `nombre` y el `cuando` de cada una, generado desde los archivos. Sin propuesta vigente, no incluye
+   las skills con `requiere_propuesta: true` (§4.5).
 2. Un bloque de **estado actual**, generado por el backend: estado de la conversación, borrador pendiente
    (líneas y versión), última pregunta hecha y opciones ofrecidas.
 3. Los **últimos 20 mensajes** de la conversación abierta (D-07), con el origen de cada uno
@@ -505,7 +517,7 @@ internal/
 │   ├── llm.py                   # NUEVO: crea el modelo de LangChain según LLM_PROVIDER
 │   └── system_prompt.md         # comportamiento del agente en lenguaje natural
 ├── skills/                      # una carpeta por skill
-│   └── read_catalogo/
+│   └── tomar_pedido/
 │       ├── skill.md             # permisos e instrucciones
 │       └── BR/                  # un .md por BR (BR-01.md)
 ├── tools/
@@ -581,10 +593,10 @@ Reemplaza al `AgentReply` actual. Es lo que devuelve `NormaAgent.handle` al orqu
 
 - **Sin red y sin LLM real** (regla de `CONTRIBUTING.md`): un modelo falso con respuestas guionadas (tool calls)
   prueba el loop, los límites, los errores y las transiciones.
-- **Tools y orquestador**: con `tests/datos_sinteticos.py` y `datos_ejemplo/catalogo.csv`, sin LLM.
+- **Tools y orquestador**: con `tests/datos_sinteticos.py` y `data_example/catalogo.csv`, sin LLM.
 - **Skills y BR**: un test carga los archivos reales y falla si una skill nombra una tool que no existe
   (CA-40). Los permisos se prueban con el modelo falso (CA-37 a CA-39).
-- **Casos de `datos_ejemplo/mensajes.json`**: cada caso es un criterio de aceptación de interpretación
+- **Casos de `data_example/mensajes.json`**: cada caso es un criterio de aceptación de interpretación
   (CA-08 a CA-11). Con el modelo falso se prueba que el orquestador produce el resultado esperado; con el LLM real se
   corren como **evaluación manual** fuera del CI (D-01), y el porcentaje de aciertos se anota en `MEJORAS.md`,
   junto con las skills y BR que leyó el agente en cada caso.

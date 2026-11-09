@@ -15,7 +15,7 @@ from internal.schemas.order_schema import (
     OrderDraft,
     OrderItem,
 )
-from internal.services.validation_service import build_summary
+from internal.services.validation_service import build_order_message, build_summary
 
 
 def make_draft(**overrides) -> OrderDraft:
@@ -101,6 +101,138 @@ def test_item_y_mensaje_recortan_espacios():
 def test_summary_lists_items():
     summary = build_summary(make_draft())
     assert "5 x Shampoo Pantene 400 ml" in summary
+
+
+def test_summary_includes_prices_and_total():
+    """D-04: el resumen muestra precio unitario y total estimado cuando están disponibles."""
+    draft = make_draft(
+        items=[
+            OrderItem(
+                sku="SH-400",
+                product_name="Shampoo Pantene",
+                presentation="400 ml",
+                quantity=2,
+                unit_price=Decimal("100.50"),
+            ),
+            OrderItem(
+                sku="AC-400",
+                product_name="Acondicionador Pantene",
+                presentation="400 ml",
+                quantity=1,
+                unit_price=Decimal("200.00"),
+            ),
+        ]
+    )
+    summary = build_summary(draft)
+    assert "2 x Shampoo Pantene 400 ml ($100.50 c/u = $201.00)" in summary
+    assert "1 x Acondicionador Pantene 400 ml ($200.00)" in summary
+    assert "Total estimado: $401.00" in summary
+
+
+def test_order_message_includes_prices_and_total():
+    """D-04: el mensaje de orden registrada muestra precios y total confirmado."""
+    order = Order(
+        order_id="ORD-0001",
+        draft_id="d-1",
+        created_at=datetime.now(),
+        customer_id="c-1",
+        channel=Channel.WEB,
+        items=[
+            OrderItem(
+                sku="SH-400",
+                product_name="Shampoo Pantene",
+                presentation="400 ml",
+                quantity=3,
+                unit_price=Decimal("150.00"),
+            ),
+        ],
+    )
+    msg = build_order_message(order)
+    assert "Listo, pedido hecho:" in msg
+    assert "3 x Shampoo Pantene 400 ml ($150.00 c/u = $450.00)" in msg
+    assert "Total: $450.00" in msg
+    assert "Tu número es ORD-0001." in msg
+
+
+def test_summary_and_order_message_sin_precios_o_precio_cero():
+    """D-04, RF-11: si los items no tienen precio (None) o es $0, no se muestran paréntesis de precio ni total."""
+    draft = make_draft(
+        items=[
+            OrderItem(
+                sku="SH-400",
+                product_name="Shampoo Pantene",
+                presentation="400 ml",
+                quantity=2,
+                unit_price=None,
+            ),
+            OrderItem(
+                sku="AC-400",
+                product_name="Acondicionador Pantene",
+                presentation="400 ml",
+                quantity=1,
+                unit_price=Decimal("0"),
+            ),
+        ]
+    )
+    summary = build_summary(draft)
+    assert "• 2 x Shampoo Pantene 400 ml" in summary
+    assert "• 1 x Acondicionador Pantene 400 ml" in summary
+    assert "c/u" not in summary
+    assert "$" not in summary
+    assert "Total estimado:" not in summary
+
+    order = Order(
+        order_id="ORD-0002",
+        draft_id="d-2",
+        created_at=datetime.now(),
+        customer_id="c-1",
+        channel=Channel.WEB,
+        items=draft.items,
+    )
+    msg = build_order_message(order)
+    assert "• 2 x Shampoo Pantene 400 ml" in msg
+    assert "• 1 x Acondicionador Pantene 400 ml" in msg
+    assert "c/u" not in msg
+    assert "Total:" not in msg
+    assert "Tu número es ORD-0002." in msg
+
+
+def test_summary_and_order_message_precios_mixtos():
+    """D-04, RF-11: si solo algunos items tienen precio > 0, se detallan y el total suma solo los válidos."""
+    items = [
+        OrderItem(
+            sku="SH-400",
+            product_name="Shampoo Pantene",
+            presentation="400 ml",
+            quantity=2,
+            unit_price=Decimal("150.00"),
+        ),
+        OrderItem(
+            sku="AC-400",
+            product_name="Acondicionador Pantene",
+            presentation="400 ml",
+            quantity=1,
+            unit_price=None,
+        ),
+    ]
+    draft = make_draft(items=items)
+    summary = build_summary(draft)
+    assert "• 2 x Shampoo Pantene 400 ml ($150.00 c/u = $300.00)" in summary
+    assert "• 1 x Acondicionador Pantene 400 ml" in summary
+    assert "Total estimado: $300.00" in summary
+
+    order = Order(
+        order_id="ORD-0003",
+        draft_id="d-3",
+        created_at=datetime.now(),
+        customer_id="c-1",
+        channel=Channel.WEB,
+        items=items,
+    )
+    msg = build_order_message(order)
+    assert "• 2 x Shampoo Pantene 400 ml ($150.00 c/u = $300.00)" in msg
+    assert "• 1 x Acondicionador Pantene 400 ml" in msg
+    assert "Total: $300.00" in msg
 
 
 def test_unit_price_is_decimal():

@@ -21,10 +21,11 @@ class Settings(BaseSettings):
     llm_vision_model: str | None = None
     llm_vision_api_key: str | None = None
 
-    # Google Sheets
+    # Google Sheets / Catálogo local
     google_credentials_file: str | None = None
     catalog_sheet_id: str | None = None
     orders_sheet_id: str | None = None
+    catalog_file: str = "data_example/catalogo.csv"
 
     # WhatsApp Cloud API
     whatsapp_verify_token: str | None = None
@@ -36,6 +37,9 @@ class Settings(BaseSettings):
     telegram_bot_token: str | None = None
     telegram_webhook_secret: str | None = None  # header X-Telegram-Bot-Api-Secret-Token
     telegram_allowed_user_ids: str = ""  # ids numéricos separados por coma
+
+    # Operador / Dashboard (autenticación de endpoints de gestión de órdenes)
+    operator_token: str | None = None
 
     # Base interna
     database_url: str = "sqlite:///./data/norma.db"

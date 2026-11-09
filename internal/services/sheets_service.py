@@ -3,20 +3,36 @@
 Es la única capa que conoce la fuente del catálogo; al migrar a la API del sistema de gestión
 real se reemplaza este servicio sin tocar agente ni tools.
 
-PROVISORIO: el primer corte del agente lee `datos_ejemplo/catalogo.csv`, que tiene las columnas de la Sheet 1.
+El catálogo se lee del archivo configurado en `Settings.catalog_file` (por defecto `data_example/catalogo.csv`),
+con fallback a este último si el archivo configurado no existe.
 """
 
 import csv
 from pathlib import Path
 
+from internal.config import get_settings
 from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import Order
 
-CATALOG_CSV = Path(__file__).resolve().parent.parent.parent / "datos_ejemplo" / "catalogo.csv"
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+FALLBACK_CATALOG_CSV = ROOT_DIR / "data_example" / "catalogo.csv"
+
+
+def get_catalog_path() -> Path:
+    """Devuelve la ruta al catálogo configurado, o el fallback si no existe."""
+    configured = Path(get_settings().catalog_file)
+    if not configured.is_absolute():
+        configured = ROOT_DIR / configured
+    if configured.is_file():
+        return configured
+    if FALLBACK_CATALOG_CSV.is_file():
+        return FALLBACK_CATALOG_CSV
+    raise FileNotFoundError(f"No se encontró el catálogo en {configured} ni en {FALLBACK_CATALOG_CSV}")
 
 
 def get_catalog() -> list[Product]:
-    with open(CATALOG_CSV, encoding="utf-8", newline="") as file:
+    path = get_catalog_path()
+    with open(path, encoding="utf-8", newline="") as file:
         return [
             Product(
                 sku=row["sku"],
@@ -24,7 +40,7 @@ def get_catalog() -> list[Product]:
                 brand=row["marca"] or None,
                 presentation=row["presentacion"] or None,
                 price=row["precio"],
-                stock=row["stock"],
+                stock=row["stock"] or 0,
                 min_stock=row["stock_minimo"] or 0,
             )
             for row in csv.DictReader(file)

@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from internal.api import chat, telegram_webhook, whatsapp_webhook
+from internal.api import chat, orders, telegram_webhook, whatsapp_webhook
 from internal.config import get_settings
 from internal.services import conversation_service
 
@@ -19,6 +19,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="Norma Agentic AI", version=get_settings().app_version, lifespan=lifespan)
 
 app.include_router(chat.router)
+app.include_router(orders.router)
 app.include_router(whatsapp_webhook.router)
 app.include_router(telegram_webhook.router)
 

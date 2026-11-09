@@ -16,8 +16,9 @@ def load_system_prompt() -> str:
     return SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
 
 
-def _skills_index() -> str:
-    lines = [f"- `{skill.nombre}`: {skill.cuando}" for skill in get_skills().values()]
+def _skills_index(hay_propuesta: bool) -> str:
+    skills = get_skills().values()
+    lines = [f"- `{skill.nombre}`: {skill.cuando}" for skill in skills if hay_propuesta or not skill.requiere_propuesta]
     return "## Índice de skills\n\n" + "\n".join(lines)
 
 
@@ -52,5 +53,6 @@ def _previous_history(messages: list[AnyMessage]) -> list[AnyMessage]:
 
 def build_messages(state: EstadoNorma) -> list[AnyMessage]:
     start = state.get("inicio_turno", 0)
-    system = "\n\n".join((load_system_prompt(), _skills_index(), _current_state(state)))
+    index = _skills_index(bool(state.get("propuesta")))
+    system = "\n\n".join((load_system_prompt(), index, _current_state(state)))
     return [SystemMessage(content=system), *_previous_history(state["messages"][:start]), *state["messages"][start:]]

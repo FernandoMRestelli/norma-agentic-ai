@@ -14,10 +14,11 @@ services:
     environment:
       # Fija la base dentro del directorio montado aunque un .env viejo apunte a otro lado
       DATABASE_URL: sqlite:////app/data/norma.db
+      OPERATOR_TOKEN: ${OPERATOR_TOKEN:-}
     volumes:
       - ./internal:/app/internal
       - ./tests:/app/tests
-      - ./datos_ejemplo:/app/datos_ejemplo:ro
+      - ./data_example:/app/data_example:ro
       - ./credentials:/app/credentials:ro
       - ./data:/app/data
     command: uvicorn internal.main:app --host 0.0.0.0 --port 8000 --reload
@@ -40,7 +41,7 @@ services:
       DATABASE_URL: sqlite:////app/data/norma.db
     volumes:
       - ./internal:/app/internal
-      - ./datos_ejemplo:/app/datos_ejemplo:ro
+      - ./data_example:/app/data_example:ro
       - ./credentials:/app/credentials:ro
       - ./data:/app/data
     command: python -m internal.telegram_polling
