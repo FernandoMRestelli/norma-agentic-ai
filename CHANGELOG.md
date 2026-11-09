@@ -11,6 +11,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 ### Cambiado
 
 - La carpeta `data/` pasa a ser espacio de archivos de trabajo locales del equipo (CSV) que los asistentes de IA pueden leer; siguen bloqueadas las bases SQLite (`*.db`) y los `.vcf` con datos de clientes. Política actualizada en `AGENTS.md` y `.claude/settings.json`.
+- `.env.example` vuelve a ser legible por los asistentes de IA (el `deny` de `.env.*` lo tapaba); los `.env` con secretos siguen bloqueados mediante patrones específicos en `.claude/settings.json`.
 
 ### Agregado
 
