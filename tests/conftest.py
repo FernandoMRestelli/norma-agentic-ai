@@ -12,7 +12,6 @@ from pathlib import Path
 import pytest
 
 from internal.config import Settings, get_settings
-from internal.database.connection import init_db
 
 # Un secreto exportado en la terminal (o un .env de desarrollo) cambiaría el resultado de los tests
 for campo in Settings.model_fields:
@@ -24,6 +23,8 @@ os.environ["DATABASE_URL"] = f"sqlite:///{DATA_DIR / 'norma.db'}"
 os.environ["CHECKPOINT_DB"] = str(DATA_DIR / "checkpoints.db")
 os.environ["ORDERS_FILE"] = str(DATA_DIR / "pedidos.csv")
 get_settings.cache_clear()
+
+from internal.database.connection import init_db  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

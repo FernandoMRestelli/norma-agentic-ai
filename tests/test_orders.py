@@ -503,6 +503,8 @@ def test_confirm_draft_falla_sheets_resiliente_y_reintento(monkeypatch, tmp_path
     get_settings.cache_clear()
 
     # Simular fallo en append_order durante confirm_draft
+    orig_append = sheets_service.append_order
+
     def fallar_append(order):
         raise OSError("Fallo simulado de conexión con planilla")
 
@@ -523,9 +525,7 @@ def test_confirm_draft_falla_sheets_resiliente_y_reintento(monkeypatch, tmp_path
     assert saved_order.sheets_synced is False
 
     # Restaurar append_order real y reintentar
-    monkeypatch.undo()
-    monkeypatch.setenv("ORDERS_FILE", str(orders_csv))
-    get_settings.cache_clear()
+    monkeypatch.setattr(sheets_service, "append_order", orig_append)
 
     synced_count = order_service.sync_pending_orders()
     assert synced_count == 1
