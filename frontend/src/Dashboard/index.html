@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Norma · Dashboard Operativo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .badge-recibido { background-color: #fef3c7; color: #92400e; }
+    .badge-preparado { background-color: #dbeafe; color: #1e40af; }
+    .badge-despachado { background-color: #f3e8ff; color: #6b21a8; }
+    .badge-retirado { background-color: #d1fae5; color: #065f46; }
+    .badge-entregado { background-color: #ccfbf1; color: #115e59; }
+    .badge-cancelado { background-color: #fee2e2; color: #991b1b; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-9 h-9 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-lg shadow-sm">
+          N
+        </div>
+        <div>
+          <h1 class="font-bold text-slate-800 text-lg leading-tight">Norma Agentic AI</h1>
+          <p class="text-xs text-slate-500">Panel Operativo & Gestión de Pedidos</p>
+        </div>
+      </div>
+
+      <!-- Controls & Auth -->
+      <div class="flex items-center space-x-3">
+        <div id="liveClock" class="text-xs text-slate-500 hidden sm:block bg-slate-100 px-2.5 py-1.5 rounded-md font-mono">
+          --:--:--
+        </div>
+
+        <!-- Auto Refresh -->
+        <div class="flex items-center bg-slate-100 rounded-lg p-1 text-xs">
+          <button id="toggleAutoRefresh" class="px-2.5 py-1 rounded bg-white font-medium text-slate-700 shadow-sm flex items-center space-x-1.5">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>Auto (60s)</span>
+          </button>
+          <span id="countdownText" class="px-2 font-mono text-slate-500">60s</span>
+        </div>
+
+        <!-- Manual Refresh Button -->
+        <button id="btnRefresh" title="Actualizar datos ahora" class="p-2 text-slate-600 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition">
+          <svg id="refreshIcon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+          </svg>
+        </button>
+
+        <!-- Token config -->
+        <button id="btnAuthModal" class="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-700 flex items-center space-x-1">
+          <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
+          </svg>
+          <span id="authLabel">Token</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full space-y-6">
+
+    <!-- KPI Summary Cards -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <!-- Card: Pedidos Hoy -->
+      <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex items-center justify-between">
+        <div>
+          <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Pedidos de Hoy</p>
+          <h3 id="metricOrdersToday" class="text-3xl font-bold text-slate-900 mt-1">--</h3>
+          <p class="text-xs text-slate-400 mt-0.5">Fecha local Argentina</p>
+        </div>
+        <div class="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path>
+          </svg>
+        </div>
+      </div>
+
+      <!-- Card: Stock Bajo -->
+      <div id="cardLowStock" class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex items-center justify-between cursor-pointer hover:border-amber-400 transition">
+        <div>
+          <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Stock Bajo</p>
+          <h3 id="metricLowStock" class="text-3xl font-bold text-slate-900 mt-1">--</h3>
+          <p class="text-xs text-slate-400 mt-0.5">Productos &lt; stock mínimo</p>
+        </div>
+        <div id="iconLowStock" class="w-12 h-12 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+          </svg>
+        </div>
+      </div>
+
+      <!-- Card: Productos Distintos Hoy -->
+      <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex items-center justify-between">
+        <div>
+          <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Variedad Pedida</p>
+          <h3 id="metricDistinctProducts" class="text-3xl font-bold text-slate-900 mt-1">--</h3>
+          <p class="text-xs text-slate-400 mt-0.5">SKUs distintos hoy</p>
+        </div>
+        <div class="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
+          </svg>
+        </div>
+      </div>
+
+      <!-- Card: Desglose Rápido de Estados -->
+      <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex flex-col justify-center">
+        <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Pedidos por Estado</p>
+        <div id="statusChips" class="flex flex-wrap gap-1.5 text-xs">
+          <!-- Filled by JS -->
+          <span class="text-slate-400">Cargando...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabs Navigation -->
+    <div class="border-b border-slate-200">
+      <nav class="flex space-x-6 text-sm font-medium">
+        <button id="tabBtnOrders" class="pb-3 border-b-2 border-indigo-600 text-indigo-600 font-semibold flex items-center space-x-2">
+          <span>📦 Pedidos</span>
+          <span id="tabBadgeOrders" class="px-2 py-0.5 text-xs rounded-full bg-indigo-100 text-indigo-700">0</span>
+        </button>
+        <button id="tabBtnStock" class="pb-3 border-b-2 border-transparent text-slate-500 hover:text-slate-700 flex items-center space-x-2">
+          <span>🏷️ Catálogo & Stock</span>
+          <span id="tabBadgeStock" class="px-2 py-0.5 text-xs rounded-full bg-slate-100 text-slate-600">0</span>
+        </button>
+        <button id="tabBtnConversations" class="pb-3 border-b-2 border-transparent text-slate-500 hover:text-slate-700 flex items-center space-x-2">
+          <span>💬 Derivaciones / Atención</span>
+          <span id="tabBadgeConversations" class="px-2 py-0.5 text-xs rounded-full bg-amber-100 text-amber-700">0</span>
+        </button>
+      </nav>
+    </div>
+
+    <!-- TAB 1: Pedidos -->
+    <section id="tabContentOrders" class="space-y-4">
+      <!-- Filters bar -->
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div class="flex items-center space-x-2 w-full sm:w-auto">
+          <label for="filterStatus" class="text-xs font-medium text-slate-500 whitespace-nowrap">Filtrar estado:</label>
+          <select id="filterStatus" class="text-sm bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <option value="">Todos los estados</option>
+            <option value="Recibido">Recibido</option>
+            <option value="Preparado">Preparado</option>
+            <option value="Despachado">Despachado</option>
+            <option value="Retirado">Retirado</option>
+            <option value="Entregado">Entregado</option>
+            <option value="Cancelado">Cancelado</option>
+          </select>
+        </div>
+
+        <div class="text-xs text-slate-500 w-full sm:w-auto text-right">
+          Mostrando los pedidos más recientes
+        </div>
+      </div>
+
+      <!-- Orders Table -->
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-slate-200 text-sm">
+            <thead class="bg-slate-50 text-slate-500 text-xs font-semibold uppercase tracking-wider text-left">
+              <tr>
+                <th class="px-4 py-3">ID</th>
+                <th class="px-4 py-3">Fecha / Hora</th>
+                <th class="px-4 py-3">Cliente</th>
+                <th class="px-4 py-3">Canal</th>
+                <th class="px-4 py-3">Productos</th>
+                <th class="px-4 py-3">Total</th>
+                <th class="px-4 py-3">Estado</th>
+                <th class="px-4 py-3 text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="ordersTableBody" class="divide-y divide-slate-100 text-slate-700">
+              <tr>
+                <td colspan="8" class="px-4 py-8 text-center text-slate-400">Cargando pedidos...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: Catálogo & Stock -->
+    <section id="tabContentStock" class="space-y-4 hidden">
+      <!-- Stock filters -->
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div class="relative w-full sm:w-80">
+          <input type="text" id="stockSearch" placeholder="Buscar por producto, marca o SKU..." class="w-full text-sm bg-slate-50 border border-slate-300 rounded-lg pl-9 pr-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <svg class="w-4 h-4 text-slate-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+          </svg>
+        </div>
+
+        <div class="flex items-center space-x-2">
+          <input type="checkbox" id="checkOnlyLowStock" class="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4">
+          <label for="checkOnlyLowStock" class="text-sm text-slate-700 cursor-pointer select-none">Mostrar únicamente stock bajo</label>
+        </div>
+      </div>
+
+      <!-- Stock Table -->
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-slate-200 text-sm">
+            <thead class="bg-slate-50 text-slate-500 text-xs font-semibold uppercase tracking-wider text-left">
+              <tr>
+                <th class="px-4 py-3">SKU</th>
+                <th class="px-4 py-3">Producto</th>
+                <th class="px-4 py-3">Marca</th>
+                <th class="px-4 py-3">Presentación</th>
+                <th class="px-4 py-3">Categoría</th>
+                <th class="px-4 py-3">Precio</th>
+                <th class="px-4 py-3">Stock Neto</th>
+                <th class="px-4 py-3">Mínimo</th>
+                <th class="px-4 py-3">Alerta</th>
+              </tr>
+            </thead>
+            <tbody id="stockTableBody" class="divide-y divide-slate-100 text-slate-700">
+              <tr>
+                <td colspan="9" class="px-4 py-8 text-center text-slate-400">Cargando catálogo...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: Conversaciones / Derivaciones -->
+    <section id="tabContentConversations" class="space-y-4 hidden">
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+        <p class="text-sm text-slate-600">
+          Conversaciones derivadas a un operador humano por consultas complejas, reclamos o fallas del bot (RF-24).
+        </p>
+        <button id="btnRefreshConversations" class="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-700">
+          Refrescar
+        </button>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-slate-200 text-sm">
+            <thead class="bg-slate-50 text-slate-500 text-xs font-semibold uppercase tracking-wider text-left">
+              <tr>
+                <th class="px-4 py-3">ID Hilo</th>
+                <th class="px-4 py-3">Cliente</th>
+                <th class="px-4 py-3">Canal</th>
+                <th class="px-4 py-3">Estado</th>
+                <th class="px-4 py-3">Última Actividad</th>
+              </tr>
+            </thead>
+            <tbody id="conversationsTableBody" class="divide-y divide-slate-100 text-slate-700">
+              <tr>
+                <td colspan="5" class="px-4 py-8 text-center text-slate-400">Cargando conversaciones...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Auth Modal -->
+  <div id="authModal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+          </svg>
+        </div>
+        <div>
+          <h3 class="font-bold text-slate-900 text-lg">Autenticación de Operador</h3>
+          <p class="text-xs text-slate-500">Ingresá el OPERATOR_TOKEN configurado en el backend</p>
+        </div>
+      </div>
+
+      <div>
+        <label for="inputToken" class="block text-xs font-semibold text-slate-700 mb-1">Token de Operador</label>
+        <input type="password" id="inputToken" placeholder="Pegá el token acá..." class="w-full text-sm bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+      </div>
+
+      <div class="flex items-center justify-end space-x-2 pt-2">
+        <button id="btnCloseModal" class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
+        <button id="btnSaveToken" class="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg shadow-sm">Guardar y Conectar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toastContainer" class="fixed bottom-4 right-4 z-50 space-y-2 pointer-events-none"></div>
+
+  <!-- App Script -->
+  <script>
+    const API_BASE = '';
+    let autoRefreshTimer = null;
+    let countdownSecs = 60;
+    let cachedStock = [];
+    let cachedOrders = [];
+
+    // Elements
+    const liveClock = document.getElementById('liveClock');
+    const metricOrdersToday = document.getElementById('metricOrdersToday');
+    const metricLowStock = document.getElementById('metricLowStock');
+    const metricDistinctProducts = document.getElementById('metricDistinctProducts');
+    const statusChips = document.getElementById('statusChips');
+    const ordersTableBody = document.getElementById('ordersTableBody');
+    const stockTableBody = document.getElementById('stockTableBody');
+    const conversationsTableBody = document.getElementById('conversationsTableBody');
+    const tabBadgeOrders = document.getElementById('tabBadgeOrders');
+    const tabBadgeStock = document.getElementById('tabBadgeStock');
+    const tabBadgeConversations = document.getElementById('tabBadgeConversations');
+
+    const authModal = document.getElementById('authModal');
+    const inputToken = document.getElementById('inputToken');
+    const btnAuthModal = document.getElementById('btnAuthModal');
+    const btnCloseModal = document.getElementById('btnCloseModal');
+    const btnSaveToken = document.getElementById('btnSaveToken');
+    const authLabel = document.getElementById('authLabel');
+
+    const btnRefresh = document.getElementById('btnRefresh');
+    const refreshIcon = document.getElementById('refreshIcon');
+    const toggleAutoRefresh = document.getElementById('toggleAutoRefresh');
+    const countdownText = document.getElementById('countdownText');
+
+    // Tabs
+    const tabBtnOrders = document.getElementById('tabBtnOrders');
+    const tabBtnStock = document.getElementById('tabBtnStock');
+    const tabBtnConversations = document.getElementById('tabBtnConversations');
+    const tabContentOrders = document.getElementById('tabContentOrders');
+    const tabContentStock = document.getElementById('tabContentStock');
+    const tabContentConversations = document.getElementById('tabContentConversations');
+
+    // Filters
+    const filterStatus = document.getElementById('filterStatus');
+    const stockSearch = document.getElementById('stockSearch');
+    const checkOnlyLowStock = document.getElementById('checkOnlyLowStock');
+
+    // Clock
+    setInterval(() => {
+      const now = new Date();
+      liveClock.textContent = now.toLocaleTimeString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' }) + ' (AR)';
+    }, 1000);
+
+    // Auth Token handling
+    function getToken() {
+      return localStorage.getItem('norma_operator_token') || '';
+    }
+
+    function setToken(val) {
+      if (val) {
+        localStorage.setItem('norma_operator_token', val.trim());
+        authLabel.textContent = 'Autenticado';
+        authLabel.classList.add('text-emerald-600');
+      } else {
+        localStorage.removeItem('norma_operator_token');
+        authLabel.textContent = 'Sin Token';
+        authLabel.classList.remove('text-emerald-600');
+      }
+    }
+
+    function getHeaders() {
+      const token = getToken();
+      return {
+        'Content-Type': 'application/json',
+        'X-Operator-Token': token
+      };
+    }
+
+    // Toast
+    function showToast(msg, type = 'info') {
+      const toast = document.createElement('div');
+      const colors = {
+        success: 'bg-emerald-600 text-white',
+        error: 'bg-red-600 text-white',
+        info: 'bg-slate-800 text-white'
+      };
+      toast.className = `pointer-events-auto px-4 py-2.5 rounded-lg text-sm shadow-lg flex items-center space-x-2 transition-all transform translate-y-2 opacity-0 duration-200 ${colors[type] || colors.info}`;
+      toast.textContent = msg;
+      document.getElementById('toastContainer').appendChild(toast);
+      setTimeout(() => {
+        toast.classList.remove('translate-y-2', 'opacity-0');
+      }, 10);
+      setTimeout(() => {
+        toast.classList.add('opacity-0');
+        setTimeout(() => toast.remove(), 200);
+      }, 3500);
+    }
+
+    // Fetch API with 401 handling
+    async function apiFetch(url, options = {}) {
+      options.headers = { ...getHeaders(), ...(options.headers || {}) };
+      const resp = await fetch(API_BASE + url, options);
+      if (resp.status === 401) {
+        showToast('Token inválido o no configurado (401)', 'error');
+        authModal.classList.remove('hidden');
+        throw new Error('Unauthorized');
+      }
+      return resp;
+    }
+
+    // Load Summary
+    async function loadSummary() {
+      try {
+        const resp = await apiFetch('/dashboard/summary');
+        if (!resp.ok) return;
+        const data = await resp.json();
+
+        metricOrdersToday.textContent = data.orders_today;
+        metricLowStock.textContent = data.low_stock_products_count;
+        metricDistinctProducts.textContent = data.distinct_products_today;
+
+        // Card colors for low stock
+        const cardLow = document.getElementById('cardLowStock');
+        const iconLow = document.getElementById('iconLowStock');
+        if (data.low_stock_products_count > 0) {
+          cardLow.classList.add('border-amber-400');
+          iconLow.classList.add('bg-amber-100', 'text-amber-700');
+        } else {
+          cardLow.classList.remove('border-amber-400');
+          iconLow.classList.remove('bg-amber-100', 'text-amber-700');
+        }
+
+        // Render chips
+        statusChips.innerHTML = '';
+        const badges = {
+          'Recibido': 'badge-recibido',
+          'Preparado': 'badge-preparado',
+          'Despachado': 'badge-despachado',
+          'Retirado': 'badge-retirado',
+          'Entregado': 'badge-entregado',
+          'Cancelado': 'badge-cancelado',
+        };
+        for (const [st, count] of Object.entries(data.orders_by_status)) {
+          const badgeClass = badges[st] || 'bg-slate-100 text-slate-700';
+          const chip = document.createElement('span');
+          chip.className = `px-2 py-0.5 rounded-full font-medium ${badgeClass} cursor-pointer hover:opacity-80`;
+          chip.textContent = `${st}: ${count}`;
+          chip.onclick = () => {
+            selectTab('orders');
+            filterStatus.value = st;
+            renderOrders();
+          };
+          statusChips.appendChild(chip);
+        }
+      } catch (err) {
+        console.error('Error al cargar summary', err);
+      }
+    }
+
+    // Load Orders
+    async function loadOrders() {
+      try {
+        const resp = await apiFetch('/dashboard/orders?limit=100');
+        if (!resp.ok) return;
+        cachedOrders = await resp.json();
+        tabBadgeOrders.textContent = cachedOrders.length;
+        renderOrders();
+      } catch (err) {
+        console.error('Error al cargar pedidos', err);
+      }
+    }
+
+    function renderOrders() {
+      const selected = filterStatus.value.toLowerCase();
+      const filtered = selected
+        ? cachedOrders.filter(o => o.status.toLowerCase() === selected)
+        : cachedOrders;
+
+      if (!filtered.length) {
+        ordersTableBody.innerHTML = `<tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">No se encontraron pedidos para este filtro.</td></tr>`;
+        return;
+      }
+
+      const badges = {
+        'recibido': 'badge-recibido',
+        'preparado': 'badge-preparado',
+        'despachado': 'badge-despachado',
+        'retirado': 'badge-retirado',
+        'entregado': 'badge-entregado',
+        'cancelado': 'badge-cancelado',
+      };
+
+      ordersTableBody.innerHTML = filtered.map(o => {
+        const stKey = o.status.toLowerCase();
+        const badgeClass = badges[stKey] || 'bg-slate-100 text-slate-700';
+        const dateStr = new Date(o.created_at).toLocaleString('es-AR', {
+          timeZone: 'America/Argentina/Buenos_Aires',
+          dateStyle: 'short',
+          timeStyle: 'short'
+        });
+
+        // Channel badge
+        const channelBadge = o.channel === 'whatsapp'
+          ? '<span class="px-1.5 py-0.5 text-[10px] rounded bg-emerald-100 text-emerald-800 font-semibold">WhatsApp</span>'
+          : o.channel === 'telegram'
+          ? '<span class="px-1.5 py-0.5 text-[10px] rounded bg-sky-100 text-sky-800 font-semibold">Telegram</span>'
+          : '<span class="px-1.5 py-0.5 text-[10px] rounded bg-slate-100 text-slate-700 font-semibold">Web</span>';
+
+        // Action buttons according to status workflow
+        let actionsHtml = '';
+        if (stKey === 'recibido') {
+          actionsHtml = `
+            <button onclick="changeStatus('${o.order_id}', 'Preparado')" class="px-2 py-1 text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 font-medium rounded">Preparar</button>
+            <button onclick="changeStatus('${o.order_id}', 'Cancelado')" class="px-2 py-1 text-xs text-red-600 hover:bg-red-50 font-medium rounded ml-1">Cancelar</button>
+          `;
+        } else if (stKey === 'preparado') {
+          actionsHtml = `
+            <button onclick="changeStatus('${o.order_id}', 'Despachado')" class="px-2 py-1 text-xs bg-purple-50 text-purple-700 hover:bg-purple-100 font-medium rounded">Despachar</button>
+            <button onclick="changeStatus('${o.order_id}', 'Retirado')" class="px-2 py-1 text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-medium rounded ml-1">Retirar</button>
+            <button onclick="changeStatus('${o.order_id}', 'Cancelado')" class="px-2 py-1 text-xs text-red-600 hover:bg-red-50 font-medium rounded ml-1">Cancelar</button>
+          `;
+        } else if (stKey === 'despachado') {
+          actionsHtml = `
+            <button onclick="changeStatus('${o.order_id}', 'Entregado')" class="px-2 py-1 text-xs bg-teal-50 text-teal-700 hover:bg-teal-100 font-medium rounded">Entregar</button>
+          `;
+        } else {
+          actionsHtml = `<span class="text-xs text-slate-400">—</span>`;
+        }
+
+        return `
+          <tr class="hover:bg-slate-50 transition">
+            <td class="px-4 py-3 font-mono font-medium text-slate-900">${o.order_id}</td>
+            <td class="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">${dateStr}</td>
+            <td class="px-4 py-3 font-medium text-slate-800">${o.customer_id}</td>
+            <td class="px-4 py-3">${channelBadge}</td>
+            <td class="px-4 py-3 text-xs text-slate-600 max-w-xs truncate" title="${o.items_summary}">
+              ${o.items_summary}
+            </td>
+            <td class="px-4 py-3 font-semibold text-slate-900">$${parseFloat(o.total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+            <td class="px-4 py-3">
+              <span class="px-2 py-0.5 rounded-full text-xs font-semibold ${badgeClass}">${o.status}</span>
+            </td>
+            <td class="px-4 py-3 text-right whitespace-nowrap">${actionsHtml}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // Change Order Status
+    window.changeStatus = async function(orderId, newStatus) {
+      if (!confirm(`¿Confirmás cambiar el pedido ${orderId} al estado "${newStatus}"?`)) return;
+      try {
+        const resp = await apiFetch(`/orders/${orderId}/status`, {
+          method: 'POST',
+          body: JSON.stringify({ status: newStatus })
+        });
+        if (!resp.ok) {
+          const errData = await resp.json();
+          showToast(`Error: ${errData.detail || 'No se pudo cambiar el estado'}`, 'error');
+          return;
+        }
+        showToast(`Pedido ${orderId} actualizado a ${newStatus}`, 'success');
+        refreshAll();
+      } catch (err) {
+        showToast('Error al conectar con la API', 'error');
+      }
+    };
+
+    // Load Stock
+    async function loadStock() {
+      try {
+        const resp = await apiFetch('/dashboard/stock');
+        if (!resp.ok) return;
+        cachedStock = await resp.json();
+        tabBadgeStock.textContent = cachedStock.length;
+        renderStock();
+      } catch (err) {
+        console.error('Error al cargar stock', err);
+      }
+    }
+
+    function renderStock() {
+      const search = stockSearch.value.trim().toLowerCase();
+      const onlyLow = checkOnlyLowStock.checked;
+
+      let filtered = cachedStock;
+      if (onlyLow) {
+        filtered = filtered.filter(p => p.is_low_stock);
+      }
+      if (search) {
+        filtered = filtered.filter(p =>
+          p.name.toLowerCase().includes(search) ||
+          p.sku.toLowerCase().includes(search) ||
+          (p.brand && p.brand.toLowerCase().includes(search))
+        );
+      }
+
+      if (!filtered.length) {
+        stockTableBody.innerHTML = `<tr><td colspan="9" class="px-4 py-8 text-center text-slate-400">No se encontraron productos para esta búsqueda.</td></tr>`;
+        return;
+      }
+
+      stockTableBody.innerHTML = filtered.map(p => {
+        const alertBadge = p.is_low_stock
+          ? '<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 animate-pulse">⚠️ Bajo</span>'
+          : '<span class="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">OK</span>';
+
+        return `
+          <tr class="hover:bg-slate-50 transition">
+            <td class="px-4 py-3 font-mono text-xs font-medium text-slate-900">${p.sku}</td>
+            <td class="px-4 py-3 font-medium text-slate-800">${p.name}</td>
+            <td class="px-4 py-3 text-xs text-slate-500">${p.brand || '—'}</td>
+            <td class="px-4 py-3 text-xs text-slate-500">${p.presentation || '—'}</td>
+            <td class="px-4 py-3 text-xs text-slate-500">${p.category || '—'}</td>
+            <td class="px-4 py-3 font-semibold text-slate-900">$${parseFloat(p.price).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+            <td class="px-4 py-3 font-bold ${p.stock === 0 ? 'text-red-600' : p.is_low_stock ? 'text-amber-600' : 'text-slate-800'}">${p.stock}</td>
+            <td class="px-4 py-3 text-xs text-slate-400">${p.min_stock}</td>
+            <td class="px-4 py-3">${alertBadge}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // Load Conversations
+    async function loadConversations() {
+      try {
+        const resp = await apiFetch('/dashboard/conversations');
+        if (!resp.ok) return;
+        const list = await resp.json();
+        tabBadgeConversations.textContent = list.length;
+
+        if (!list.length) {
+          conversationsTableBody.innerHTML = `<tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">No hay conversaciones derivadas pendientes de atención.</td></tr>`;
+          return;
+        }
+
+        conversationsTableBody.innerHTML = list.map(c => {
+          const dateStr = new Date(c.updated_at).toLocaleString('es-AR', {
+            timeZone: 'America/Argentina/Buenos_Aires',
+            dateStyle: 'short',
+            timeStyle: 'short'
+          });
+
+          return `
+            <tr class="hover:bg-slate-50 transition">
+              <td class="px-4 py-3 font-mono font-medium text-slate-900">#${c.id}</td>
+              <td class="px-4 py-3 font-medium text-slate-800">${c.customer_id}</td>
+              <td class="px-4 py-3 text-xs uppercase font-semibold text-slate-500">${c.channel}</td>
+              <td class="px-4 py-3">
+                <span class="px-2 py-0.5 rounded-full text-xs font-semibold ${c.status === 'derivada' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'}">${c.status}</span>
+              </td>
+              <td class="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">${dateStr}</td>
+            </tr>
+          `;
+        }).join('');
+      } catch (err) {
+        console.error('Error al cargar conversaciones', err);
+      }
+    }
+
+    // Tabs Switcher
+    function selectTab(tab) {
+      const activeClass = ['border-indigo-600', 'text-indigo-600', 'font-semibold'];
+      const inactiveClass = ['border-transparent', 'text-slate-500'];
+
+      tabBtnOrders.classList.remove(...activeClass);
+      tabBtnOrders.classList.add(...inactiveClass);
+      tabBtnStock.classList.remove(...activeClass);
+      tabBtnStock.classList.add(...inactiveClass);
+      tabBtnConversations.classList.remove(...activeClass);
+      tabBtnConversations.classList.add(...inactiveClass);
+
+      tabContentOrders.classList.add('hidden');
+      tabContentStock.classList.add('hidden');
+      tabContentConversations.classList.add('hidden');
+
+      if (tab === 'orders') {
+        tabBtnOrders.classList.add(...activeClass);
+        tabBtnOrders.classList.remove(...inactiveClass);
+        tabContentOrders.classList.remove('hidden');
+      } else if (tab === 'stock') {
+        tabBtnStock.classList.add(...activeClass);
+        tabBtnStock.classList.remove(...inactiveClass);
+        tabContentStock.classList.remove('hidden');
+      } else if (tab === 'conversations') {
+        tabBtnConversations.classList.add(...activeClass);
+        tabBtnConversations.classList.remove(...inactiveClass);
+        tabContentConversations.classList.remove('hidden');
+      }
+    }
+
+    tabBtnOrders.onclick = () => selectTab('orders');
+    tabBtnStock.onclick = () => selectTab('stock');
+    tabBtnConversations.onclick = () => selectTab('conversations');
+
+    document.getElementById('cardLowStock').onclick = () => {
+      selectTab('stock');
+      checkOnlyLowStock.checked = true;
+      renderStock();
+    };
+
+    filterStatus.onchange = renderOrders;
+    stockSearch.oninput = renderStock;
+    checkOnlyLowStock.onchange = renderStock;
+    document.getElementById('btnRefreshConversations').onclick = loadConversations;
+
+    // Refresh All
+    async function refreshAll() {
+      refreshIcon.classList.add('animate-spin');
+      try {
+        await Promise.all([loadSummary(), loadOrders(), loadStock(), loadConversations()]);
+      } finally {
+        setTimeout(() => refreshIcon.classList.remove('animate-spin'), 400);
+      }
+    }
+
+    btnRefresh.onclick = () => {
+      countdownSecs = 60;
+      refreshAll();
+    };
+
+    // Auto Refresh Countdown
+    let autoRefreshActive = true;
+    setInterval(() => {
+      if (!autoRefreshActive) return;
+      countdownSecs--;
+      if (countdownSecs <= 0) {
+        countdownSecs = 60;
+        refreshAll();
+      }
+      countdownText.textContent = `${countdownSecs}s`;
+    }, 1000);
+
+    toggleAutoRefresh.onclick = () => {
+      autoRefreshActive = !autoRefreshActive;
+      const dot = toggleAutoRefresh.querySelector('span');
+      if (autoRefreshActive) {
+        dot.className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse';
+        countdownText.classList.remove('line-through', 'text-slate-300');
+        countdownText.classList.add('text-slate-500');
+      } else {
+        dot.className = 'w-2 h-2 rounded-full bg-slate-400';
+        countdownText.classList.add('line-through', 'text-slate-300');
+        countdownText.classList.remove('text-slate-500');
+      }
+    };
+
+    // Auth modal controls
+    btnAuthModal.onclick = () => {
+      inputToken.value = getToken();
+      authModal.classList.remove('hidden');
+    };
+    btnCloseModal.onclick = () => authModal.classList.add('hidden');
+    btnSaveToken.onclick = () => {
+      setToken(inputToken.value);
+      authModal.classList.add('hidden');
+      showToast('Token guardado localmente', 'success');
+      refreshAll();
+    };
+
+    // Initial load
+    const currentToken = getToken();
+    setToken(currentToken);
+    if (!currentToken) {
+      authModal.classList.remove('hidden');
+    } else {
+      refreshAll();
+    }
+  </script>
+</body>
+</html>

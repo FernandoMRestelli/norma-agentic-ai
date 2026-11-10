@@ -8,6 +8,11 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Sin publicar]
 
+### Agregado
+
+- Dashboard operativo con autenticación (RF-22 a RF-25, CA-24, CA-25, Etapa 06): endpoints `/dashboard/summary`, `/dashboard/orders`, `/dashboard/stock` y `/dashboard/conversations` protegidos con token de operador; SPA interactiva servida en `/dashboard/ui` con Tailwind CSS, actualización manual, auto-refresh cada 60s y gestión de estados de pedidos (`Despachado`, `Retirado`, `Entregado`, `Cancelado`) con descuento físico de stock en el catálogo y prevención de doble descuento (Issue #61).
+- Ciclo de vida de órdenes extendido y gestión de estados (RF-20, Issue #61): nuevo endpoint `POST /orders/{order_id}/status`, estados `Despachado` y `Entregado` en `OrderStatus`, y deducción atómica e idempotente del stock de catálogo en `sheets_service` al marcar pedidos como `Retirado` o `Despachado`.
+
 ## [0.1.0] - 2026-11-10
 
 Primera versión publicada. Reúne la base del proyecto y la beta del agente de pedidos para probar entre el equipo: el agente con LangGraph, skills y reglas de negocio guardadas en el repositorio, el bot de Telegram con lista blanca, el catálogo local en CSV, las órdenes en SQLite con volcado a CSV, el detalle de cada propuesta armado por el sistema y la observabilidad con MLflow (apagada por defecto). Todavía no hay un servidor de producción (D-03): esta versión publica la imagen, pero no se despliega.

@@ -20,8 +20,10 @@ ORDER_ID_REGEX = re.compile(r"^ORD-(\d{4,})$")
 
 VALID_TRANSITIONS: dict[OrderStatus, set[OrderStatus]] = {
     OrderStatus.RECEIVED: {OrderStatus.PREPARED, OrderStatus.CANCELLED},
-    OrderStatus.PREPARED: {OrderStatus.PICKED_UP, OrderStatus.CANCELLED},
+    OrderStatus.PREPARED: {OrderStatus.PICKED_UP, OrderStatus.DISPATCHED, OrderStatus.CANCELLED},
+    OrderStatus.DISPATCHED: {OrderStatus.DELIVERED},
     OrderStatus.PICKED_UP: set(),
+    OrderStatus.DELIVERED: set(),
     OrderStatus.CANCELLED: set(),
 }
 
@@ -112,6 +114,7 @@ def _to_order(record: OrderRecord) -> Order:
         notes=record.notes,
         status=record.status,
         sheets_synced=record.sheets_synced,
+        stock_applied=getattr(record, "stock_applied", False),
     )
 
 
@@ -175,18 +178,37 @@ def confirm_draft(draft: OrderDraft) -> Order:
         return _to_order(record)
 
 
-def cancel_order(order_id: str) -> Order:
-    """Cancela una orden activa y libera su stock comprometido (RF-20)."""
+def update_order_status(order_id: str, new_status: OrderStatus) -> Order:
+    """Actualiza el estado de una orden respetando el ciclo de vida (RF-20).
+
+    Si la orden pasa a 'Retirado' o 'Despachado' y aún no se le aplicó el descuento físico
+    en el catálogo, se descuenta de Sheet 1 y se marca stock_applied = True (Issue #61).
+    """
     with SessionLocal() as session:
         record = session.scalar(select(OrderRecord).where(OrderRecord.order_id == order_id))
         if not record:
             raise OrderNotFoundError(f"Orden no encontrada: {order_id!r}")
         actual = parse_status(record.status)
-        if not can_transition(actual, OrderStatus.CANCELLED):
-            raise InvalidTransitionError(f"No se puede cancelar una orden en estado {actual.value!r}")
-        record.status = OrderStatus.CANCELLED.value
+        if not can_transition(actual, new_status):
+            if new_status == OrderStatus.CANCELLED:
+                raise InvalidTransitionError(f"No se puede cancelar una orden en estado {actual.value!r}")
+            raise InvalidTransitionError(f"No se puede cambiar el estado de {actual.value!r} a {new_status.value!r}")
+
+        # Si pasa a Retirado o Despachado y aún no se aplicó el descuento físico en el catálogo
+        target_states = (OrderStatus.PICKED_UP, OrderStatus.DISPATCHED)
+        if new_status in target_states and not getattr(record, "stock_applied", False):
+            sheets_service.deduct_catalog_stock(record.items)
+            record.stock_applied = True
+
+        record.status = new_status.value
         session.commit()
+        sheets_service.update_order_status_in_sheets(order_id, new_status.value)
         return _to_order(record)
+
+
+def cancel_order(order_id: str) -> Order:
+    """Cancela una orden activa y libera su stock comprometido (RF-20)."""
+    return update_order_status(order_id, OrderStatus.CANCELLED)
 
 
 def sync_pending_orders() -> int:

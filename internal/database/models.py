@@ -41,4 +41,5 @@ class OrderRecord(Base):
     notes: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String)
     sheets_synced: Mapped[bool] = mapped_column(default=False)
+    stock_applied: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

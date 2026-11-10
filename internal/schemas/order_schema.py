@@ -173,7 +173,9 @@ class ConfirmationAction(StrEnum):
 class OrderStatus(StrEnum):
     RECEIVED = "Recibido"
     PREPARED = "Preparado"
+    DISPATCHED = "Despachado"
     PICKED_UP = "Retirado"
+    DELIVERED = "Entregado"
     CANCELLED = "Cancelado"
 
 
@@ -191,6 +193,7 @@ class Order(BaseModel):
     notes: str | None = None
     status: OrderStatus = OrderStatus.RECEIVED
     sheets_synced: bool = False
+    stock_applied: bool = False
 
     @field_validator("order_id")
     @classmethod

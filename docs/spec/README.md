@@ -397,10 +397,11 @@ Definido en la [spec del agente](agente.md#92-agentoutcome). Sus valores de `kin
 | `POST /chat/messages` | `IncomingMessage` | `{state, outcome: AgentOutcome}` | `501` |
 | `GET /orders/{order_id}` | `order_id`, credencial de operador | `Order` o `404` (`401` sin autenticación) | Hecho |
 | `POST /orders/{order_id}/cancel` | `order_id`, credencial de operador | `Order` o `400`/`404` (`401` sin autenticación) | Hecho |
-| `GET /dashboard/summary` | — | Indicadores de RF-22 | Nuevo |
-| `GET /dashboard/orders?status=&limit=` | — | Últimos pedidos | Nuevo |
-| `GET /dashboard/stock?low=true` | — | Productos y stock | Nuevo |
-| `GET /dashboard/conversations?state=derivada` | — | Conversaciones que requieren atención | Nuevo |
+| `POST /orders/{order_id}/status` | `order_id`, nuevo estado, credencial de operador | `Order` o `400`/`404` (`401` sin autenticación) | Hecho |
+| `GET /dashboard/summary` | — | Indicadores de RF-22 | Hecho |
+| `GET /dashboard/orders?status=&limit=` | — | Últimos pedidos | Hecho |
+| `GET /dashboard/stock?low=true` | — | Productos y stock | Hecho |
+| `GET /dashboard/conversations?state=derivada` | — | Conversaciones que requieren atención | Hecho |
 
 Todos los `/dashboard/*` y `/orders/*` requieren autenticación (RNF-01) mediante token de operador (`OPERATOR_TOKEN`). Sin token configurado responden siempre `401 Unauthorized` (falla cerrado).
 
@@ -466,10 +467,10 @@ Esta versión de la spec está en revisión: todo lo que no está implementado f
 
 | ID | Requisito | Etapa | Estado |
 |---|---|---|---|
-| RF-22 | Indicadores: pedidos de hoy, pedidos por estado, productos distintos pedidos hoy y cantidad de productos con stock bajo | 06 | P |
-| RF-23 | Listados: últimos pedidos con estado y hora; stock disponible con marca de stock bajo | 06 | P |
-| RF-24 | Listado de conversaciones derivadas que requieren atención | 06 | P |
-| RF-25 | El dashboard obtiene todo de la API del backend y requiere autenticación | 06 | P |
+| RF-22 | Indicadores: pedidos de hoy, pedidos por estado, productos distintos pedidos hoy y cantidad de productos con stock bajo | 06 | I |
+| RF-23 | Listados: últimos pedidos con estado y hora; stock disponible con marca de stock bajo | 06 | I |
+| RF-24 | Listado de conversaciones derivadas que requieren atención | 06 | I |
+| RF-25 | El dashboard obtiene todo de la API del backend y requiere autenticación | 06 | I |
 
 ### Conversación
 
@@ -618,8 +619,8 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 
 | ID | Dado | Cuando | Entonces | RF | Test |
 |---|---|---|---|---|---|
-| CA-24 | — | Se pide `/dashboard/*` sin token o con uno inválido | `401` | RF-25 | pendiente |
-| CA-25 | El catálogo y los pedidos de ejemplo | Se pide `/dashboard/summary` | Productos con stock bajo = 3 (`CE-SED-340`, `ALG-EST-140`, `TIN-KOL-71`) y pedidos por estado = 2 `Recibido`, 2 `Preparado`, 2 `Retirado`, 1 `Cancelado` | RF-22, RF-23 | pendiente |
+| CA-24 | — | Se pide `/dashboard/*` sin token o con uno inválido | `401` | RF-25 | `tests/test_dashboard.py::test_dashboard_endpoints_require_authentication` |
+| CA-25 | El catálogo y los pedidos de ejemplo | Se pide `/dashboard/summary` | Productos con stock bajo = 3 (`CE-SED-340`, `ALG-EST-140`, `TIN-KOL-71`) y pedidos por estado = 2 `Recibido`, 2 `Preparado`, 2 `Retirado`, 1 `Cancelado` | RF-22, RF-23 | `tests/test_dashboard.py::test_dashboard_summary_datos_ejemplo` |
 
 ---
 

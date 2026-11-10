@@ -5,6 +5,7 @@ import secrets
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 
 from internal.config import get_settings
+from internal.schemas.dashboard_schema import UpdateOrderStatusInput
 from internal.schemas.order_schema import Order
 from internal.services import order_service
 
@@ -51,6 +52,26 @@ def cancel_order(order_id: str) -> Order:
     """
     try:
         return order_service.cancel_order(order_id)
+    except order_service.OrderNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except order_service.InvalidTransitionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post("/{order_id}/status", response_model=Order)
+def update_order_status(order_id: str, data: UpdateOrderStatusInput) -> Order:
+    """Actualiza el estado de una orden respetando el ciclo de vida (RF-20, Issue #61).
+
+    Aplica el descuento físico en el catálogo si pasa a Retirado o Despachado.
+    """
+    try:
+        return order_service.update_order_status(order_id, data.status)
     except order_service.OrderNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

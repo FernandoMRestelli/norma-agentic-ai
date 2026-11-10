@@ -20,15 +20,18 @@ if TYPE_CHECKING:
 
 
 def get_committed_stock(session: "Session | None" = None) -> dict[str, int]:
-    """Calcula las unidades comprometidas por SKU en órdenes activas (no canceladas).
+    """Calcula las unidades comprometidas por SKU en órdenes activas (no canceladas ni con stock ya aplicado).
 
-    Una orden en estado 'recibido', 'preparado' o 'retirado' reserva sus unidades.
-    Solo las órdenes 'canceladas' liberan su stock.
+    Una orden en estado 'recibido', 'preparado' (o 'despachado'/'retirado' antes de descontar) reserva sus unidades.
+    Solo las órdenes 'canceladas' o con stock_applied=True liberan su stock en memoria (Issue #61).
     """
 
     def _calculate(s: "Session") -> dict[str, int]:
         records = s.scalars(
-            select(OrderRecord).where(OrderRecord.status != OrderStatus.CANCELLED.value)
+            select(OrderRecord).where(
+                OrderRecord.status != OrderStatus.CANCELLED.value,
+                OrderRecord.stock_applied.is_(False),
+            )
         ).all()
         committed: dict[str, int] = {}
         for record in records:

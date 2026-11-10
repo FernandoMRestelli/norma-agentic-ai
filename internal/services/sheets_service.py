@@ -9,13 +9,16 @@ Las órdenes se vuelcan localmente en `Settings.orders_file` (por defecto `data/
 """
 
 import csv
-from datetime import UTC
+import re
+from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from internal.config import get_settings
 from internal.schemas.catalog_schema import Product
-from internal.schemas.order_schema import Order
+from internal.schemas.order_schema import Channel, Order, OrderItem, OrderStatus
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 FALLBACK_CATALOG_CSV = ROOT_DIR / "data_example" / "catalogo.csv"
@@ -110,3 +113,155 @@ def append_order(order: Order) -> None:
         if not file_exists:
             writer.writerow(ORDER_COLUMNS)
         writer.writerow(format_order_row(order))
+
+
+def get_orders() -> list[Order]:
+    """Lee todas las órdenes del archivo local de pedidos (Sheet 2) si existe."""
+    path = get_orders_path()
+    if not path.is_file():
+        return []
+    try:
+        catalog_map = {p.sku: p for p in get_catalog()}
+    except Exception:
+        catalog_map = {}
+    orders: list[Order] = []
+    with open(path, mode="r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if not row or not row.get("id_orden"):
+                continue
+            order_id = row["id_orden"]
+            fecha_str = row.get("fecha_hora", "")
+            try:
+                created_at = datetime.fromisoformat(fecha_str)
+            except Exception:
+                created_at = datetime.now(UTC)
+            customer_id = row.get("cliente", "")
+            canal_str = row.get("canal", "web")
+            try:
+                channel = Channel(canal_str)
+            except Exception:
+                channel = Channel.WEB
+
+            productos_str = row.get("productos", "")
+            items: list[OrderItem] = []
+            for part in productos_str.split(";"):
+                part = part.strip()
+                if not part:
+                    continue
+                match = re.match(r"^(?P<qty>\d+)\s*x\s*(?P<name>.+?)(?:\s*\((?P<sku>[A-Z0-9-]+)\))?$", part)
+                if match:
+                    qty = int(match.group("qty"))
+                    sku = match.group("sku") or ""
+                    name = match.group("name").strip()
+                    prod = catalog_map.get(sku)
+                    unit_price = prod.price if prod else Decimal("0.00")
+                    presentation = prod.presentation if prod else None
+                    items.append(
+                        OrderItem(
+                            sku=sku or "SKU-DESC",
+                            product_name=name,
+                            presentation=presentation,
+                            quantity=qty,
+                            unit_price=unit_price,
+                        )
+                    )
+            if not items:
+                items.append(
+                    OrderItem(
+                        sku="DESCONOCIDO",
+                        product_name="Producto sin detalle",
+                        quantity=1,
+                        unit_price=Decimal("0.00"),
+                    )
+                )
+
+            estado_str = row.get("estado", OrderStatus.RECEIVED.value)
+            try:
+                status = OrderStatus(estado_str)
+            except Exception:
+                status = OrderStatus.RECEIVED
+
+            orders.append(
+                Order(
+                    order_id=order_id,
+                    draft_id=f"draft-{order_id}",
+                    created_at=created_at,
+                    customer_id=customer_id,
+                    channel=channel,
+                    items=items,
+                    notes=row.get("notas") or None,
+                    status=status,
+                    sheets_synced=True,
+                )
+            )
+    return orders
+
+
+def update_order_status_in_sheets(order_id: str, new_status: str) -> bool:
+    """Actualiza el estado de una orden en el archivo local de órdenes si existe (Issue #61)."""
+    path = get_orders_path()
+    if not path.is_file():
+        return False
+    rows: list[list[str]] = []
+    updated = False
+    with open(path, mode="r", encoding="utf-8", newline="") as f:
+        reader = csv.reader(f)
+        header = next(reader, None)
+        if header:
+            rows.append(header)
+            status_idx = header.index("estado") if "estado" in header else 6
+            for row in reader:
+                if row and row[0] == order_id:
+                    if len(row) > status_idx:
+                        row[status_idx] = new_status
+                    else:
+                        row.append(new_status)
+                    updated = True
+                rows.append(row)
+    if updated:
+        with open(path, mode="w", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerows(rows)
+    return updated
+
+
+def deduct_catalog_stock(items: list[dict[str, Any]] | list[OrderItem]) -> None:
+    """Resta las cantidades de los productos del stock del catálogo local (Issue #61)."""
+    path = get_catalog_path()
+    if not path.is_file():
+        return
+    to_deduct: dict[str, int] = {}
+    for item in items:
+        if isinstance(item, dict):
+            sku = item.get("sku")
+            qty = item.get("quantity", 0)
+        else:
+            sku = item.sku
+            qty = item.quantity
+        if sku and isinstance(qty, int) and qty > 0:
+            to_deduct[sku] = to_deduct.get(sku, 0) + qty
+
+    if not to_deduct:
+        return
+
+    rows: list[dict[str, str]] = []
+    fieldnames: list[str] = []
+    with open(path, mode="r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        fieldnames = reader.fieldnames or []
+        for row in reader:
+            sku = row.get("sku")
+            if sku in to_deduct and "stock" in row:
+                try:
+                    curr_stock = int(row["stock"])
+                    new_stock = max(0, curr_stock - to_deduct[sku])
+                    row["stock"] = str(new_stock)
+                except ValueError:
+                    pass
+            rows.append(row)
+
+    with open(path, mode="w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)

@@ -3,7 +3,7 @@
 from collections.abc import Iterator
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from internal.config import get_settings
@@ -27,3 +27,10 @@ def init_db() -> None:
     if engine.url.get_backend_name() == "sqlite" and engine.url.database:
         Path(engine.url.database).parent.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(engine)
+    if engine.url.get_backend_name() == "sqlite":
+        with engine.connect() as conn:
+            try:
+                conn.execute(text("ALTER TABLE orders ADD COLUMN stock_applied BOOLEAN DEFAULT 0"))
+                conn.commit()
+            except Exception:
+                pass
