@@ -8,6 +8,14 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Sin publicar]
 
+## [0.1.1] - 2026-11-10
+
+Producción ahora levanta el bot de Telegram. Con la 0.1.0, `docker-compose.prod.yml` arrancaba solo la API y el bot no respondía. Mientras no haya un servidor siempre prendido (D-03), cada integrante corre su producción en el Docker de su máquina.
+
+### Corregido
+
+- `docker-compose.prod.yml` levanta también el bot de Telegram por polling, con la misma imagen y el mismo `data/` que la API; en la 0.1.0 solo arrancaba la API. Cada integrante corre su producción en el Docker de su máquina, con su propio bot (`TELEGRAM_BOT_TOKEN` distinto en cada `.env`). **Para desplegar:** copiá el `docker-compose.prod.yml` de esta versión a `~/norma-prod` y, si levantaste el bot a mano con `docker run`, frenalo antes (`docker rm -f norma-prod-bot`) para que no queden dos procesos con el mismo token.
+
 ## [0.1.0] - 2026-11-10
 
 Primera versión publicada. Reúne la base del proyecto y la beta del agente de pedidos para probar entre el equipo: el agente con LangGraph, skills y reglas de negocio guardadas en el repositorio, el bot de Telegram con lista blanca, el catálogo local en CSV, las órdenes en SQLite con volcado a CSV, el detalle de cada propuesta armado por el sistema y la observabilidad con MLflow (apagada por defecto). Todavía no hay un servidor de producción (D-03): esta versión publica la imagen, pero no se despliega.
@@ -88,5 +96,6 @@ Primera versión publicada. Reúne la base del proyecto y la beta del agente de 
 - Documentación en `CONTRIBUTING.md` sobre gestión de secretos en desarrollo y producción, uso de correos `noreply` en commits y procedimiento ante filtraciones.
 - El webhook de WhatsApp valida la firma `X-Hub-Signature-256` de Meta (nueva variable `WHATSAPP_APP_SECRET`) y compara el token de verificación en tiempo constante.
 
-[Sin publicar]: https://github.com/FernandoMRestelli/norma-agentic-ai/compare/v0.1.0...develop
+[Sin publicar]: https://github.com/FernandoMRestelli/norma-agentic-ai/compare/v0.1.1...develop
+[0.1.1]: https://github.com/FernandoMRestelli/norma-agentic-ai/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/FernandoMRestelli/norma-agentic-ai/releases/tag/v0.1.0
