@@ -100,6 +100,43 @@ por token y responde `409 Conflict` al segundo.
 Cada uno ya tiene su propio chat aunque el bot sea compartido: Telegram abre un chat privado por persona, y el
 sistema trata a cada integrante como un cliente distinto (`telegram:<id>`).
 
+## Monitoreo del agente con MLflow (opcional)
+
+[MLflow](https://mlflow.org/) guarda cada turno del agente como una traza: cada llamada al LLM y cada tool, con
+iteraciones, tokens, latencia, skills leídas, proveedor, modelo y versión del prompt. Está apagado por defecto y es
+solo para desarrollo (detalle en la [spec del agente §10.1](docs/spec/agente.md#101-observabilidad-con-mlflow)).
+
+1. Levantar el servidor. Queda en http://localhost:5001 (en macOS el 5000 lo ocupa AirPlay) y guarda los datos en
+   `data/mlflow/`:
+
+   ```bash
+   docker compose --profile mlflow up -d mlflow
+   ```
+
+   Con Python local:
+
+   ```bash
+   mkdir -p data/mlflow
+   mlflow server --port 5001 --backend-store-uri sqlite:///data/mlflow/mlflow.db --artifacts-destination data/mlflow/artifacts
+   ```
+
+2. En `.env`, poner `MLFLOW_ENABLED=true` y reiniciar la API o el bot. Con docker compose, la URL del servidor ya
+   está fijada; con Python local se usa `MLFLOW_TRACKING_URI` (por defecto `http://localhost:5001`).
+3. Escribirle al bot y abrir http://localhost:5001 → experimento `norma-agente` → **Traces**. Cada traza es un
+   turno; los de una misma conversación comparten la sesión (`conversation_id`).
+
+Las trazas **no guardan el texto** de los mensajes (RNF-03). Para depurar un caso con datos simulados,
+`MLFLOW_TRACE_TEXT=true` suma el mensaje, la respuesta y el prompt completo; solo funciona con `APP_ENV=development`.
+
+Para comparar prompts o proveedores, la evaluación con los casos de `data_example/mensajes.json` guarda cada corrida
+como un run con el porcentaje de aciertos, los tokens y la latencia:
+
+```bash
+python -m internal.evaluar_agente --mlflow --pausa 30
+```
+
+En MLflow, el experimento → **Runs** → seleccionar dos corridas → **Compare**.
+
 ## Cómo funciona
 
 1. El mensaje del cliente entra por `api/` (chat web, webhook de WhatsApp con la firma de Meta validada, o el bot de Telegram de la beta).

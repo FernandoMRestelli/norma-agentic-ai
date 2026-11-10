@@ -474,7 +474,8 @@ El cliente confirma conversando (RF-13). El LLM interpreta si aceptó, pero **no
 | Mensaje de WhatsApp repetido (mismo id de Meta) | Se ignora y se responde 200 | Sin cambio |
 | **2 fallas** en la misma conversación, o **3 aclaraciones seguidas** sin llegar a un borrador | Derivación automática (§7) | `derivada` |
 
-Todas las situaciones quedan registradas con `conversation_id` para poder reconstruir el turno (RNF-07).
+Todas las situaciones quedan registradas con `conversation_id` para poder reconstruir el turno (RNF-07). Con MLflow
+prendido, además quedan en la traza del turno: el tipo de error del LLM o el código de la tool (§10.1).
 
 ## 7. Derivación a una persona
 
@@ -533,6 +534,7 @@ internal/
 │   ├── tool_registry.py         # NUEVO: tools disponibles, esquemas y parámetros inyectados
 │   ├── context.py               # NUEVO: arma instrucciones + estado + historial para el LLM
 │   ├── llm.py                   # NUEVO: crea el modelo de LangChain según LLM_PROVIDER
+│   ├── observabilidad.py        # NUEVO: resumen del turno para el log y trazas opcionales en MLflow
 │   └── system_prompt.md         # comportamiento del agente en lenguaje natural
 ├── skills/                      # una carpeta por skill
 │   └── tomar_pedido/
@@ -617,4 +619,30 @@ Reemplaza al `AgentReply` actual. Es lo que devuelve `NormaAgent.handle` al orqu
 - **Casos de `data_example/mensajes.json`**: cada caso es un criterio de aceptación de interpretación
   (CA-08 a CA-11). Con el modelo falso se prueba que el orquestador produce el resultado esperado; con el LLM real se
   corren como **evaluación manual** fuera del CI (D-01), y el porcentaje de aciertos se anota en `MEJORAS.md`,
-  junto con las skills y BR que leyó el agente en cada caso.
+  junto con las skills y BR que leyó el agente en cada caso. Con `python -m internal.evaluar_agente --mlflow`, la
+  corrida queda además en MLflow para comparar prompts y proveedores (§10.1).
+
+### 10.1 Observabilidad con MLflow
+
+Cada turno deja una línea de log con `conversation_id`, `draft_id`, `order_id`, `kind`, `via`, iteraciones, fallas,
+tools, códigos de error, skills leídas, latencia, tokens y `prompt_version` (RNF-07). Ninguna lleva texto de los
+mensajes (RNF-03). `prompt_version` es un hash corto del system prompt y de las skills con sus BR.
+
+Con `MLFLOW_ENABLED=true` (D-10), `observabilidad.py` manda además cada turno a MLflow como una traza:
+
+| Span | Atributos |
+|---|---|
+| `turno` (raíz) | `conversation_id` (también como sesión de MLflow), canal, `kind`, iteraciones, fallas, tools, errores, skills, tokens, latencia, `draft_id`, `order_id`. Etiquetas para filtrar: `kind`, `via`, `cerrada`, proveedor, modelo, `prompt_version`, skills, versión y entorno |
+| `llm` (una por iteración) | iteración, proveedor, modelo, tools pedidas y tokens; si falla, solo el tipo de error |
+| una por tool (`search_products`, `armar_pedido`…) | `ok` y, si falló, el código (`tool_no_permitida`, `sin_propuesta`…) |
+
+- **Apagado** (por defecto, tests y CI): no se importa mlflow y el agente se comporta igual.
+- **Sin servidor**: un aviso en el log y el proceso sigue sin trazas hasta reiniciarlo; una falla de MLflow nunca
+  cambia la respuesta al cliente.
+- **Privacidad**: la traza no lleva el texto de los mensajes, el prompt, los argumentos de las tools ni el
+  `customer_id`, que puede ser un teléfono. `MLFLOW_TRACE_TEXT=true` suma el texto y los spans de LangChain con el
+  prompt completo, para depurar con datos simulados; con `APP_ENV` distinto de `development`, la app no arranca
+  (CA-57).
+- **Evaluación**: `evaluar_agente --mlflow` abre un run con `proveedor`, `modelo` y `prompt_version` como parámetros,
+  las métricas `aciertos_pct`, `evaluados`, `sin_evaluar`, `iteraciones_promedio`, tokens y latencia p50/p95, y la
+  tabla `casos.json` con un caso por fila. Las trazas de los casos quedan vinculadas al run.
