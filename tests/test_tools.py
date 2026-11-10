@@ -118,7 +118,7 @@ def test_las_skills_solo_nombran_tools_que_pueden_usar():
 
 def test_skill_con_tool_inexistente_impide_arrancar(monkeypatch):
     """CA-40."""
-    skill = skill_service.Skill(nombre="mala", cuando="x", tools=["no_existe"], instrucciones="", br={})
+    skill = skill_service.Skill(nombre="mala", funcion="x", cuando="x", tools=["no_existe"], instrucciones="", br={})
     monkeypatch.setattr(tool_registry, "get_skills", lambda: {"mala": skill})
     with pytest.raises(SkillError, match="no_existe"):
         tool_registry.validate_skills()
@@ -137,8 +137,15 @@ def test_skill_sin_encabezado_impide_arrancar(tmp_path):
 
 
 def test_skill_con_nombre_distinto_a_su_carpeta_impide_arrancar(tmp_path):
-    _crear_skill(tmp_path, "---\nnombre: otra\ncuando: x\ntools: [leer_br]\n---\nTexto")
+    _crear_skill(tmp_path, "---\nnombre: otra\nfuncion: x\ncuando: x\ntools: [leer_br]\n---\nTexto")
     with pytest.raises(SkillError, match="otra"):
+        load_skills(tmp_path)
+
+
+def test_skill_sin_funcion_impide_arrancar(tmp_path):
+    """El índice muestra qué hace cada skill: una skill nueva no puede omitirlo."""
+    _crear_skill(tmp_path, "---\nnombre: mi_skill\ncuando: x\ntools: [leer_br]\n---\nTexto")
+    with pytest.raises(SkillError, match="funcion"):
         load_skills(tmp_path)
 
 

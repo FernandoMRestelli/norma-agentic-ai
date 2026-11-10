@@ -1,6 +1,7 @@
 ---
 nombre: informar
-cuando: Saludo, agradecimiento, consulta general, «dale» sin propuesta vigente o algo que no es un pedido
+funcion: Responde lo que no es un pedido, como saludos, agradecimientos, horarios, envíos, pagos o pedidos de hablar con una persona. Siempre vuelve a ofrecerle tomar un pedido.
+cuando: Saludo, agradecimiento, consulta general, «dale» sin propuesta vigente o algo que no es un pedido. Si pregunta por un producto o un precio, usá `tomar_pedido`
 tools: [respond_to_customer]
 ---
 Respondé con `kind = informacion`, salvo que haya una propuesta vigente: en ese caso usá `kind = propuesta` y las mismas líneas, para que siga vigente.

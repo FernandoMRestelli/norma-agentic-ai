@@ -17,7 +17,7 @@ from internal.database.connection import SessionLocal, init_db
 from internal.database.models import ConversationRecord, OrderRecord
 from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import Channel, IncomingMessage
-from internal.services import conversation_service, order_service, sheets_service
+from internal.services import conversation_service, order_service, sheets_service, skill_service
 
 SKU = "CR-NIV-100"
 CLIENTE = {"customer_id": "telegram:1", "channel": Channel.TELEGRAM}
@@ -394,6 +394,19 @@ def test_indice_muestra_confirmar_pedido_solo_con_propuesta(catalogo):
     assert "- `informar`:" in indice_sin_propuesta
     assert "- `confirmar_pedido`:" not in indice_sin_propuesta
     assert "- `confirmar_pedido`:" in indice_con_propuesta
+
+
+def test_indice_muestra_que_hace_cada_skill_y_cuando_usarla(catalogo):
+    """El agente elige la skill con su función y su `cuando`, sin tener que leerla."""
+    agent, modelo = _agente(
+        _ai(_call("leer_skill", nombre="informar")),
+        _ai(_call("respond_to_customer", kind="informacion", message="¡Hola! ¿En qué te ayudo?")),
+    )
+    assert agent.handle("1", text="hola", **CLIENTE).kind == "informacion"
+    indice = modelo.recibidos[0][0].content
+    for skill in skill_service.get_skills().values():
+        if not skill.requiere_propuesta:
+            assert f"- `{skill.nombre}`: {skill.funcion} Cuándo: {skill.cuando}" in indice
 
 
 def test_tools_ofrecidas_dependen_de_la_skill_y_se_reinician(catalogo):

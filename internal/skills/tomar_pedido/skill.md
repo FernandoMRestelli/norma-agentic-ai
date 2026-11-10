@@ -1,5 +1,6 @@
 ---
 nombre: tomar_pedido
+funcion: Convierte lo que pide el cliente en una propuesta de pedido. Busca cada producto en el catálogo, resuelve dudas de tamaño, tono o cantidad, valida el stock y le propone el pedido. También responde consultas de precio, disponibilidad y marcas. Nunca registra el pedido.
 cuando: El cliente pide o consulta productos, o quiere cambiar una cantidad o un producto de la propuesta vigente, sumar o sacar algo
 tools: [search_products, get_product, check_stock, respond_to_customer]
 ---

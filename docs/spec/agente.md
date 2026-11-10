@@ -356,7 +356,8 @@ skills activas. Al LLM solo se le ofrecen esas, y si pide otra recibe el error `
 
 ### 4.5 Skills
 
-Una **skill** es una receta para una situación: cuándo aplica, qué tools y BR puede usar el agente y cómo proceder.
+Una **skill** es una receta para una situación: qué logra, cuándo aplica, qué tools y BR puede usar el agente y cómo
+proceder.
 Cada skill tiene su carpeta en `internal/skills/<nombre>/`. `skill.md` lleva los permisos en un encabezado YAML
 y las instrucciones debajo, y `BR/` guarda un `.md` por cada regla que la skill puede leer:
 
@@ -373,6 +374,7 @@ internal/skills/tomar_pedido/
 ```markdown
 ---
 nombre: tomar_pedido
+funcion: Convierte lo que pide el cliente en una propuesta de pedido. Busca cada producto en el catálogo, resuelve dudas de tamaño, tono o cantidad, valida el stock y le propone el pedido. También responde consultas de precio, disponibilidad y marcas. Nunca registra el pedido.
 cuando: El cliente pide o consulta productos, o quiere cambiar una cantidad o un producto de la propuesta vigente, sumar o sacar algo
 tools: [search_products, get_product, check_stock, respond_to_customer]
 ---
@@ -397,6 +399,8 @@ Reglas:
   `stock_insuficiente`, el agente lee `tomar_pedido` para responder.
 - **Duración:** los permisos valen solo para el turno. Leer una skill en un turno anterior no habilita nada.
 - **Lectura opcional:** el agente decide si lee una BR. Las BR que hace cumplir el backend se aplican igual (§4.6).
+- **Encabezado:** `nombre`, `funcion` (qué logra la skill y cómo termina el turno), `cuando` (en qué situación
+  aplica), `tools` y, opcional, `requiere_propuesta`. Sin `funcion` o `cuando`, la aplicación no arranca.
 - **BR permitidas:** son las que están en la carpeta `BR/` de la skill. No se listan en el encabezado.
 - **Elegir la skill:** no hay una skill selectora, porque habría que leerla en todos los turnos. El agente elige del
   índice del system prompt (§8). El índice no muestra las skills con `requiere_propuesta: true` si no hay una propuesta
@@ -404,12 +408,12 @@ Reglas:
 - **Validación al arrancar:** `skill_service` carga los archivos y `tool_registry` verifica que toda tool
   nombrada exista. Si algo no coincide, la aplicación no arranca.
 
-| Skill | Cuándo aplica | Tools que habilita, además de las de catálogo | BR |
-|---|---|---|---|
-| `tomar_pedido` | El cliente pide o consulta productos, o cambia la propuesta vigente | `respond_to_customer` | BR-01, BR-03, BR-04, BR-05 |
-| `confirmar_pedido` | Hay una propuesta vigente y el cliente la acepta, la rechaza o duda | `armar_pedido`, `respond_to_customer` | BR-06 |
-| `informar` | Saludo, consulta general, «dale» sin propuesta o algo que no es un pedido | `respond_to_customer` | — |
-| `derivar_o_cancelar` | Pide una persona o cancela el pedido | `escalate_to_human`, `discard_order_draft` | BR-08 |
+| Skill | Función | Cuándo aplica | Tools que habilita, además de las de catálogo | BR |
+|---|---|---|---|---|
+| `tomar_pedido` | Convierte el pedido en una propuesta y responde consultas de precio, disponibilidad y marcas. Nunca registra | El cliente pide o consulta productos, o cambia la propuesta vigente | `respond_to_customer` | BR-01, BR-03, BR-04, BR-05 |
+| `confirmar_pedido` | Registra la propuesta vigente si el cliente la acepta sin cambios; si no, le responde sin registrar | Hay una propuesta vigente y el cliente la acepta, la rechaza o duda | `armar_pedido`, `respond_to_customer` | BR-06 |
+| `informar` | Responde lo que no es un pedido y vuelve a ofrecer tomar uno | Saludo, consulta general, «dale» sin propuesta o algo que no es un pedido | `respond_to_customer` | — |
+| `derivar_o_cancelar` | Pasa la charla a una persona o descarta el pedido | Pide una persona o cancela el pedido | `escalate_to_human`, `discard_order_draft` | BR-08 |
 
 `derivar_o_cancelar` todavía no existe: depende de las tools de §4.2. Mientras tanto, `informar` no promete
 derivar a nadie, y un rechazo descarta la propuesta con `confirmar_pedido`.
@@ -497,7 +501,7 @@ mensajes del cliente (ya preprocesados), respuestas, tool calls con sus resultad
 **Contexto que recibe el LLM en cada iteración**, armado por `agent/context.py`:
 
 1. El system prompt de [`agent/system_prompt.md`](../../internal/agent/system_prompt.md), más un **índice de
-   skills** con el `nombre` y el `cuando` de cada una, generado desde los archivos. Sin propuesta vigente, no incluye
+   skills** con el `nombre`, la `funcion` y el `cuando` de cada una, generado desde los archivos. Sin propuesta vigente, no incluye
    las skills con `requiere_propuesta: true` (§4.5).
 2. Un bloque de **estado actual**, generado por el backend: estado de la conversación, borrador pendiente
    (líneas y versión), última pregunta hecha y opciones ofrecidas.
