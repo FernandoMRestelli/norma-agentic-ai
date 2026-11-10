@@ -1,6 +1,8 @@
+import csv
 import ipaddress
 from datetime import datetime
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import pytest
 from pydantic import ValidationError
@@ -14,6 +16,7 @@ from internal.schemas.order_schema import (
     Order,
     OrderDraft,
     OrderItem,
+    OrderStatus,
 )
 from internal.services.validation_service import build_order_message, build_summary
 
@@ -382,3 +385,156 @@ def test_incoming_message_telegram_keeps_rejecting_insecure_media_url(media_url:
 
 def test_stock_check_serializes_is_enough():
     assert StockCheck(sku="SH-400", requested=5, available=3).model_dump()["is_enough"] is False
+
+
+def test_append_order_crea_archivo_y_escribe_cabecera(monkeypatch, tmp_path):
+    """RF-19: append_order crea el archivo con cabeceras de Sheet 2 si no existe."""
+    from internal.config import get_settings
+    from internal.services import sheets_service
+
+    orders_csv = tmp_path / "pedidos_test.csv"
+    monkeypatch.setenv("ORDERS_FILE", str(orders_csv))
+    get_settings.cache_clear()
+
+    order = Order(
+        order_id="ORD-0001",
+        draft_id="d-1",
+        created_at=datetime(2026, 10, 27, 9, 12, tzinfo=ZoneInfo("America/Argentina/Buenos_Aires")),
+        customer_id="cli-001",
+        channel=Channel.WHATSAPP,
+        items=[
+            OrderItem(sku="SH-PAN-400", product_name="Shampoo Pantene Restauración", presentation="400 ml", quantity=5),
+            OrderItem(
+                sku="TIN-KOL-61",
+                product_name="Tintura Koleston",
+                presentation="6.1 Rubio oscuro ceniza kit",
+                quantity=3,
+            ),
+        ],
+        notes=None,
+        status=OrderStatus.RECEIVED,
+    )
+
+    sheets_service.append_order(order)
+
+    assert orders_csv.is_file()
+    with open(orders_csv, encoding="utf-8", newline="") as f:
+        reader = list(csv.reader(f))
+
+    expected_items = (
+        "5 x Shampoo Pantene Restauración 400 ml (SH-PAN-400); "
+        "3 x Tintura Koleston 6.1 Rubio oscuro ceniza kit (TIN-KOL-61)"
+    )
+    assert reader[0] == ["id_orden", "fecha_hora", "cliente", "canal", "productos", "notas", "estado"]
+    assert reader[1] == [
+        "ORD-0001",
+        "2026-10-27T09:12:00-03:00",
+        "cli-001",
+        "whatsapp",
+        expected_items,
+        "",
+        "Recibido",
+    ]
+
+
+def test_append_order_idempotente(monkeypatch, tmp_path):
+    """RNF-04: append_order no duplica filas si la orden ya existe en el archivo."""
+    from internal.config import get_settings
+    from internal.services import sheets_service
+
+    orders_csv = tmp_path / "pedidos_test.csv"
+    monkeypatch.setenv("ORDERS_FILE", str(orders_csv))
+    get_settings.cache_clear()
+
+    order = Order(
+        order_id="ORD-0001",
+        draft_id="d-1",
+        created_at=datetime(2026, 10, 27, 9, 12, tzinfo=ZoneInfo("America/Argentina/Buenos_Aires")),
+        customer_id="cli-001",
+        channel=Channel.WHATSAPP,
+        items=[OrderItem(sku="SH-PAN-400", product_name="Shampoo Pantene", quantity=1)],
+    )
+
+    sheets_service.append_order(order)
+    sheets_service.append_order(order)
+
+    with open(orders_csv, encoding="utf-8", newline="") as f:
+        rows = list(csv.reader(f))
+
+    assert len(rows) == 2  # header + 1 sola fila
+
+
+def test_confirm_draft_sincroniza_sheets_synced(monkeypatch, tmp_path):
+    """RF-15, RF-19: confirm_draft vuelca la orden al archivo y marca sheets_synced=True."""
+    from internal.config import get_settings
+    from internal.services import order_service
+
+    orders_csv = tmp_path / "pedidos_test.csv"
+    monkeypatch.setenv("ORDERS_FILE", str(orders_csv))
+    get_settings.cache_clear()
+
+    draft = make_draft(
+        draft_id="draft-sync-1",
+        items=[OrderItem(sku="SH-PAN-400", product_name="Shampoo Pantene", quantity=2)],
+    )
+    order = order_service.confirm_draft(draft)
+
+    assert order.sheets_synced is True
+
+    # Verificar que se registró en la base con sheets_synced=True
+    saved_order = order_service.get_order(order.order_id)
+    assert saved_order is not None
+    assert saved_order.sheets_synced is True
+
+    # Y que está en el CSV
+    with open(orders_csv, encoding="utf-8", newline="") as f:
+        rows = list(csv.reader(f))
+    assert len(rows) == 2
+    assert rows[1][0] == order.order_id
+
+
+def test_confirm_draft_falla_sheets_resiliente_y_reintento(monkeypatch, tmp_path):
+    """CA-19 / RNF-04: si sheets falla, la orden se crea con sheets_synced=False y el reintento sincroniza."""
+    from internal.config import get_settings
+    from internal.services import order_service, sheets_service
+
+    orders_csv = tmp_path / "pedidos_test.csv"
+    monkeypatch.setenv("ORDERS_FILE", str(orders_csv))
+    get_settings.cache_clear()
+
+    # Simular fallo en append_order durante confirm_draft
+    orig_append = sheets_service.append_order
+
+    def fallar_append(order):
+        raise OSError("Fallo simulado de conexión con planilla")
+
+    monkeypatch.setattr(sheets_service, "append_order", fallar_append)
+
+    draft = make_draft(
+        draft_id="draft-falla-1",
+        items=[OrderItem(sku="SH-PAN-400", product_name="Shampoo Pantene", quantity=2)],
+    )
+    order = order_service.confirm_draft(draft)
+
+    # La orden se creó pero no se pudo sincronizar
+    assert order.order_id is not None
+    assert order.sheets_synced is False
+
+    saved_order = order_service.get_order(order.order_id)
+    assert saved_order is not None
+    assert saved_order.sheets_synced is False
+
+    # Restaurar append_order real y reintentar
+    monkeypatch.setattr(sheets_service, "append_order", orig_append)
+
+    synced_count = order_service.sync_pending_orders()
+    assert synced_count == 1
+
+    saved_order_after = order_service.get_order(order.order_id)
+    assert saved_order_after is not None
+    assert saved_order_after.sheets_synced is True
+
+    with open(orders_csv, encoding="utf-8", newline="") as f:
+        rows = list(csv.reader(f))
+    assert len(rows) == 2
+    assert rows[1][0] == order.order_id

@@ -3,6 +3,9 @@
 # Tests
 pytest>=8.0,<10
 
+# MLflow completo: servidor local (docker compose --profile mlflow), evaluación con --mlflow y tests de las trazas
+mlflow>=3.18,<4
+
 # Lint: versión fija para que local y CI marquen exactamente lo mismo
 ruff==0.14.3
 

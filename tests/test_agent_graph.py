@@ -532,7 +532,7 @@ def test_agente_explorar_catalogo_marcas_de_shampoo(catalogo):
 
 
 def test_aclaracion_no_suma_detalle(catalogo):
-    """CA-56: sin propuesta no hay detalle; el mensaje es el del agente tal cual."""
+    """CA-58: sin propuesta no hay detalle; el mensaje es el del agente tal cual."""
     agent, _ = _agente(
         _ai(_call("search_products", query="crema")),
         _ai(_call("leer_skill", nombre="tomar_pedido")),
@@ -616,7 +616,7 @@ def _busquedas_en_paralelo(*queries):
 
 
 def test_pedido_largo_propone_lo_claro_y_junta_las_dudas(catalogo_largo):
-    """CA-56: un pedido de muchos renglones se resuelve en un turno: lo claro va en la propuesta, con el detalle
+    """CA-58: un pedido de muchos renglones se resuelve en un turno: lo claro va en la propuesta, con el detalle
     armado por el sistema, y las dudas van juntas en el mensaje del agente."""
     mensaje_agente = (
         "¡Hola! Te armé el pedido con todo lo que encontré. Me queda una duda: "

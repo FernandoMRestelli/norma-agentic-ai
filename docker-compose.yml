@@ -15,6 +15,8 @@ services:
       # Fija la base dentro del directorio montado aunque un .env viejo apunte a otro lado
       DATABASE_URL: sqlite:////app/data/norma.db
       OPERATOR_TOKEN: ${OPERATOR_TOKEN:-}
+      # Adentro de compose, MLflow es el servicio de abajo (se usa solo con MLFLOW_ENABLED=true)
+      MLFLOW_TRACKING_URI: http://mlflow:5000
     volumes:
       - ./internal:/app/internal
       - ./tests:/app/tests
@@ -39,6 +41,7 @@ services:
         required: false
     environment:
       DATABASE_URL: sqlite:////app/data/norma.db
+      MLFLOW_TRACKING_URI: http://mlflow:5000
     volumes:
       - ./internal:/app/internal
       - ./data_example:/app/data_example:ro
@@ -46,3 +49,21 @@ services:
       - ./data:/app/data
     command: python -m internal.telegram_polling
     restart: unless-stopped
+
+  # Trazas del agente y corridas de evaluación: docker compose --profile mlflow up, y MLFLOW_ENABLED=true en .env.
+  # Solo desarrollo: no tiene login, así que se publica únicamente en 127.0.0.1. Los datos quedan en data/mlflow/.
+  mlflow:
+    profiles: ["mlflow"]
+    build:
+      context: .
+      args:
+        INSTALL_DEV: "true"  # requirements-dev.txt trae mlflow completo, con el servidor
+    ports:
+      - "127.0.0.1:5001:5000"  # en macOS el 5000 lo ocupa AirPlay
+    volumes:
+      - ./data:/app/data
+    # allowed-hosts: el nombre del servicio para la api y el bot, y localhost para el navegador
+    command: >
+      sh -c "mkdir -p /app/data/mlflow && exec mlflow server --host 0.0.0.0 --port 5000 --workers 1
+      --backend-store-uri sqlite:////app/data/mlflow/mlflow.db --artifacts-destination /app/data/mlflow/artifacts
+      --allowed-hosts 'mlflow:5000,localhost:*,127.0.0.1:*'"

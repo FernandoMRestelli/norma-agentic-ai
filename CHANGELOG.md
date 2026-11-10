@@ -8,10 +8,16 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Sin publicar]
 
+### Corregido
+
+- Ocultamiento del número exacto de stock en `search_products` y `get_product` exponiendo únicamente `hay_stock: bool` para blindar la privacidad de stock frente al LLM; inmutabilidad de órdenes confirmadas evitando duplicaciones o mezclas en pedidos posteriores; corrección de voseo y proactividad comercial (RF-10, RF-15, RNF-11).
+- Renderizado de negritas en Telegram convirtiendo `**` a formato Markdown con fallback a texto plano, eliminación de Spanglish y tecnicismos de catálogo («sizes», «presentación») por lenguaje natural rioplatense («tamaño», «medida») y preguntas de cierre comerciales amables (RNF-11, RF-10).
+- Aislamiento estricto de la base SQLite en la suite de tests unitarios evitando contaminación en entornos de desarrollo local.
+
 ### Cambiado
 
 - El system prompt describe el negocio (distribuidora de peluquería y belleza para peluquerías, farmacias y perfumerías) y cómo escriben los clientes sus pedidos por WhatsApp: listas por marca, abreviaturas y la notación de coloración `tono/cantidad`. Ante un saludo, el agente lo devuelve y pregunta en qué puede ayudar.
-- Las propuestas muestran el detalle armado por el sistema: debajo del mensaje del agente, `validation_service.build_proposal_detail` agrega cada línea con su precio y el total desde el catálogo. El agente ya no repite las líneas, así entran pedidos de muchos renglones sin chocar con el tope de 600 caracteres. En un pedido largo, el agente propone lo que está claro y junta todas las dudas en un mismo mensaje (skill `tomar_pedido`, BR-03, CA-56).
+- Las propuestas muestran el detalle armado por el sistema: debajo del mensaje del agente, `validation_service.build_proposal_detail` agrega cada línea con su precio y el total desde el catálogo. El agente ya no repite las líneas, así entran pedidos de muchos renglones sin chocar con el tope de 600 caracteres. En un pedido largo, el agente propone lo que está claro y junta todas las dudas en un mismo mensaje (skill `tomar_pedido`, BR-03, CA-58).
 - Cada skill declara en su encabezado un campo obligatorio `funcion` (qué logra y cómo termina el turno), y el índice del system prompt lo muestra junto al `cuando`, así el agente elige la skill sin tener que leerla. `confirmar_pedido` e `informar` aclaran que las preguntas por productos o precios van a `tomar_pedido`.
 - Cada error de tool trae en `error.message` qué tiene que hacer el agente (buscar de nuevo, seguir BR-01, avisar al cliente sin proponer nada). El system prompt ya no lista los errores uno por uno: solo pide seguir ese mensaje, y así cubre también los que no estaban en la lista.
 - Nuevo `docs/validaciones_pendientes.md` con los supuestos que el agente usa sin confirmar con el negocio, empezando por la notación `tono/cantidad`.
@@ -19,6 +25,9 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 - `.env.example` vuelve a ser legible por los asistentes de IA (el `deny` de `.env.*` lo tapaba); los `.env` con secretos siguen bloqueados mediante patrones específicos en `.claude/settings.json`.
 
 ### Agregado
+
+- Observabilidad del agente con MLflow (RNF-07, CA-56, CA-57, D-10): con `MLFLOW_ENABLED=true`, cada turno queda como traza con un span por llamada al LLM y por tool, tokens, skills, proveedor, modelo y versión del prompt, sin el texto de los mensajes (RNF-03; `MLFLOW_TRACE_TEXT` lo suma solo en desarrollo). Apagado por defecto: no se importa mlflow. Servidor local con `docker compose --profile mlflow up`, y `python -m internal.evaluar_agente --mlflow` guarda cada evaluación como un run para comparar prompts y proveedores. La línea de log de cada turno suma `draft_id`, `order_id`, tools, errores, skills, latencia y tokens.
+- Volcado local de órdenes confirmadas a archivo CSV configurable mediante `ORDERS_FILE` (por defecto `data/pedidos.csv`) siguiendo las columnas de Sheet 2 (`id_orden,fecha_hora,cliente,canal,productos,notas,estado`), con zona horaria de Argentina (`America/Argentina/Buenos_Aires`), escritura idempotente y reintento resiliente con `sync_pending_orders` ante fallas temporales (RF-19, CA-19, RNF-04).
 
 - Proveedores de LLM de texto free tier adicionales en `internal/agent/llm.py`, seleccionables con `LLM_PROVIDER`: `groq` (Llama 3.3 70B y otros, límite amplio) y `openrouter` (API compatible con OpenAI). El import de cada paquete es diferido, así solo se carga el del proveedor configurado.
 - Exploración y agregación de catálogo por marcas y categorías con la tool base `explorar_catalogo` y categorización de productos en `Product.category` (`categoria` en `catalogo.csv`), permitiendo responder consultas exploratorias abiertas en una sola iteración y sin agotar la tasa de tokens de Gemini (RF-35, CA-55).

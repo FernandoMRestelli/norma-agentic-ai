@@ -345,7 +345,7 @@ La ruta del catálogo local se configura mediante la variable de entorno `CATALO
 `OrderItem`: `sku` (existente en el catálogo, no vacío), `product_name` (no vacío), `presentation`, `quantity` (1 ≤ quantity ≤ 999),
 `unit_price: Decimal ≥ 0` (precio del catálogo al armar el borrador). Todos los campos de texto recortan espacios automáticamente.
 
-> **Precios de la propuesta y de la orden:** las líneas, precios unitarios, subtotales y total que ve el cliente los arma `validation_service` a partir del catálogo, no el LLM: `build_proposal_detail` en cada propuesta (se agrega debajo del mensaje del agente) y `build_order_message` en la orden registrada. El agente escribe solo la introducción, los cambios y las dudas (D-04, RF-11, CA-56).
+> **Precios de la propuesta y de la orden:** las líneas, precios unitarios, subtotales y total que ve el cliente los arma `validation_service` a partir del catálogo, no el LLM: `build_proposal_detail` en cada propuesta (se agrega debajo del mensaje del agente) y `build_order_message` en la orden registrada. El agente escribe solo la introducción, los cambios y las dudas (D-04, RF-11, CA-58).
 
 ### 5.4 Orden: `Order` ↔ Google Sheet 2
 
@@ -361,6 +361,9 @@ La ruta del catálogo local se configura mediante la variable de entorno `CATALO
 | `estado` | `status` | `Recibido`, `Preparado`, `Retirado` o `Cancelado` |
 
 Una fila por pedido en Sheet 2; el detalle por ítem se guarda estructurado en la base (RF-21).
+
+#### Fuente de datos de órdenes local
+La ruta del archivo de órdenes local se configura mediante la variable de entorno `ORDERS_FILE` (por defecto `data/pedidos.csv`). `sheets_service.get_orders_path()` resuelve la ruta absoluta. Al confirmar un pedido (`confirm_draft`), se agrega la fila con el formato de Sheet 2 (`id_orden,fecha_hora,cliente,canal,productos,notas,estado`) y fecha en zona horaria de Argentina (`America/Argentina/Buenos_Aires`). Si el archivo no existe, se crea con sus cabeceras. La operación es idempotente: no duplica filas ante reintentos (RF-19, RNF-04). Si la escritura falla, la orden se persiste en la base interna con `sheets_synced = False` y se puede reintentar con `sync_pending_orders()` (CA-19).
 
 ### 5.5 Resultado del agente: `AgentOutcome` (cambia: reemplaza a `AgentReply`)
 
@@ -448,9 +451,16 @@ Esta versión de la spec está en revisión: todo lo que no está implementado f
 
 | ID | Requisito | Etapa | Estado |
 |---|---|---|---|
-| RF-19 | Cada orden se agrega como una fila en Sheet 2 con el formato de [§5.4](#54-orden-order--google-sheet-2) | 05 | P |
+| RF-19 | Cada orden se agrega como una fila en Sheet 2 con el formato de [§5.4](#54-orden-order--google-sheet-2) | 05 | I |
 | RF-20 | Las órdenes siguen `Recibido → Preparado → Retirado`, con opción `Cancelado` desde cualquier estado previo a `Retirado`; cancelar una orden libera sus unidades de stock comprometido | 05 | I |
 | RF-21 | El detalle por ítem de cada orden se guarda en la base interna | 05 | P |
+
+### Observabilidad
+
+| ID | Dado | Cuando | Entonces | RF | Test |
+|---|---|---|---|---|---|
+| CA-56 | `MLFLOW_ENABLED` apagado / prendido | Corre un turno del agente | Apagado: no se importa mlflow y el resultado es el mismo. Prendido: el turno es una traza con un span por llamada al LLM y por tool, con `kind`, iteraciones, skills, tokens, proveedor, modelo y versión del prompt, sin el texto del cliente ni su id | RNF-03, RNF-07, RNF-08 | `test_observabilidad.py::test_apagado_no_importa_mlflow`, `test_observabilidad.py::test_prendido_traza_el_turno_sin_texto` |
+| CA-57 | `MLFLOW_TRACE_TEXT=true` | `APP_ENV` es `development` / otro | La traza suma el mensaje y la respuesta / la app no arranca | RNF-03 | `test_observabilidad.py::test_con_texto_en_desarrollo_guarda_mensaje_y_respuesta`, `test_observabilidad.py::test_texto_en_la_traza_solo_en_desarrollo` |
 
 ### Dashboard
 
@@ -488,11 +498,11 @@ Detalle en la [spec del canal](canal-telegram.md).
 |---|---|---|
 | RNF-01 | Seguridad | Secretos solo en `.env` o secretos del servidor; firma de Meta y token comparados en tiempo constante; dashboard y endpoints de gestión (`/orders/*`) con autenticación (`OPERATOR_TOKEN` en el MVP, falla cerrado si no está configurado); escaneo de secretos en todo el historial |
 | RNF-02 | Control del LLM | El LLM no elige qué se registra: solo dispara `armar_pedido` sobre la propuesta vigente. No conoce identificadores del cliente o del borrador (se inyectan); toda salida del LLM que llega a una tool se valida con pydantic |
-| RNF-03 | Privacidad | Audios e imágenes no se guardan, solo el texto extraído; los logs llevan IDs, no el texto de los mensajes; ningún dato real en el repositorio; plazo de retención de conversaciones según D-08 |
+| RNF-03 | Privacidad | Audios e imágenes no se guardan, solo el texto extraído; los logs y las trazas de MLflow llevan IDs, no el texto de los mensajes (el texto en la traza solo con `MLFLOW_TRACE_TEXT`, en desarrollo y con datos simulados); ningún dato real en el repositorio; plazo de retención de conversaciones según D-08 |
 | RNF-04 | Confiabilidad | La orden se crea en una transacción de la base; si falla la escritura en Sheet 2, se reintenta en segundo plano sin duplicar la fila (se busca el `order_id` antes de agregar) |
 | RNF-05 | Concurrencia | Los turnos de una conversación se procesan de a uno; el MVP corre en una sola instancia y un solo worker (SQLite) |
 | RNF-06 | Latencia | Webhook: 200 en menos de 2 s. Respuesta a texto: p95 < 10 s. Audio o imagen: p95 < 20 s. Dashboard: < 2 s. Timeout del LLM: 30 s |
-| RNF-07 | Observabilidad | Logs estructurados con `conversation_id`, `draft_id`, `order_id`, tools llamadas, iteraciones, latencia y tokens; la versión que corre se ve en `/openapi.json` |
+| RNF-07 | Observabilidad | Logs estructurados con `conversation_id`, `draft_id`, `order_id`, tools llamadas, iteraciones, latencia y tokens; la versión que corre se ve en `/openapi.json`. Opcional: cada turno como traza en MLflow (`MLFLOW_ENABLED`, apagado por defecto; [spec del agente §10.1](agente.md#101-observabilidad-con-mlflow)) |
 | RNF-08 | Testabilidad | Tests sin red ni Docker; el LLM se reemplaza por un modelo falso; datos sintéticos deterministas; cada CA tiene al menos un test |
 | RNF-09 | Portabilidad | Cambiar de proveedor de LLM es sumar su modelo de LangChain en `agent/llm.py`; cambiar Google Sheets por el sistema real es reemplazar `sheets_service` |
 | RNF-10 | Despliegue | Producción corre la imagen de una release; la configuración va en la imagen y cambiar un parámetro es una release ([CONTRIBUTING](../../CONTRIBUTING.md#producción)) |
@@ -566,7 +576,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-47 | Una propuesta vigente | El cliente pregunta algo, el agente la vuelve a enviar y después acepta | La orden se crea una sola vez, con esas líneas | RF-13 | `test_agent_graph.py` |
 | CA-54 | Una conversación con y sin propuesta vigente | Se arma el contexto del LLM | El índice muestra `confirmar_pedido` solo con una propuesta vigente; `tomar_pedido` e `informar` aparecen siempre | RF-33 | `test_agent_graph.py::test_indice_muestra_confirmar_pedido_solo_con_propuesta` |
 | CA-55 | Una consulta exploratoria de marcas o categorías | Se invoca `explorar_catalogo` | Devuelve el desglose por categorías o marcas sin recorrer todo el catálogo en prompts | RF-35 | `test_tools.py::test_explorar_catalogo_*`, `test_agent_graph.py::test_agente_explorar_catalogo_marcas_de_shampoo` |
-| CA-56 | Un pedido de muchos renglones, con alguno dudoso | El agente responde con una propuesta | En un solo turno, lo claro queda en la propuesta y las dudas van juntas en el mensaje. Debajo, el sistema agrega cada línea con precio y el total desde el catálogo, sin contar para el tope de 600 caracteres del mensaje del agente. Sin propuesta, el mensaje va sin detalle | RF-11 | `test_agent_graph.py::test_pedido_largo_propone_lo_claro_y_junta_las_dudas`, `test_agent_graph.py::test_aclaracion_no_suma_detalle` |
+| CA-58 | Un pedido de muchos renglones, con alguno dudoso | El agente responde con una propuesta | En un solo turno, lo claro queda en la propuesta y las dudas van juntas en el mensaje. Debajo, el sistema agrega cada línea con precio y el total desde el catálogo, sin contar para el tope de 600 caracteres del mensaje del agente. Sin propuesta, el mensaje va sin detalle | RF-11 | `test_agent_graph.py::test_pedido_largo_propone_lo_claro_y_junta_las_dudas`, `test_agent_graph.py::test_aclaracion_no_suma_detalle` |
 | CA-27 | Los archivos de `data_example/` | Se validan contra los esquemas | Columnas correctas, SKU únicos, casos coherentes con el catálogo | RF-07 | `test_datos_ejemplo.py` |
 | CA-29 | El catálogo de ejemplo | Se busca «shampoo pantene 400», «Shampoo Pantene 400ML» y «shampo pantne 400» | `SH-PAN-400` aparece primero en los tres casos | RF-07 | `test_tools.py::test_busqueda_aproximada_trae_primero_el_producto` |
 
@@ -580,7 +590,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-16 | Un borrador cuyo stock se agotó después de armarlo por órdenes concurrentes | El cliente confirma | No se crea orden, se informa qué línea no alcanza, la conversación sigue en `borrador_pendiente` y se rechaza la sobreventa | RF-14 | `test_inventory.py` |
 | CA-17 | Una propuesta vigente | El cliente escribe «dale» | Se crea una sola orden con lo propuesto. Si escribe «dale, pero 2» o «no, gracias», no se crea orden | RF-13 | `test_agent_graph.py`; interpretación real: casos de `mensajes.json` |
 | CA-18 | Una propuesta vigente | El cliente responde exactamente `OK` o `CONFIRMAR` | Se registra sin llamar al LLM. Si el stock ya no alcanza, responde el agente. Sin propuesta vigente, el mensaje va al agente | RF-13 | `test_agent_graph.py` |
-| CA-19 | Una orden confirmada | Sheet 2 falla al escribir y después vuelve | La orden existe en la base con `sheets_synced = false` y el reintento agrega una sola fila con las columnas de `pedidos.csv` | RF-19, RNF-04 | pendiente |
+| CA-19 | Una orden confirmada | Sheet 2 falla al escribir y después vuelve | La orden existe en la base con `sheets_synced = false` y el reintento agrega una sola fila con las columnas de `pedidos.csv` | RF-19, RNF-04 | `test_orders.py::test_confirm_draft_falla_sheets_resiliente_y_reintento` (I) |
 | CA-21 | Una conversación con una falla previa | Ocurre una segunda falla | La conversación pasa a `derivada` y el bot no responde a ese cliente por 24 h | RF-27 | pendiente |
 | CA-22 | Cualquier conversación abierta | El cliente pide hablar con una persona | El turno termina en `derivado` | RF-27 | pendiente |
 | CA-23 | Un borrador pendiente | El cliente dice que ya no lo quiere | El borrador queda `descartado`, la conversación `descartada` y no hay orden | RF-26 | pendiente |
@@ -628,6 +638,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | D-07 | Parámetros del agente | Tomada en esta spec, a revisar | 15 iteraciones por turno, 20 mensajes de historial, 24 h de vencimiento y de silencio tras derivar, 2 fallas o 3 aclaraciones para derivar, 30 s de timeout, caché de 5 min; se ajustan con uso real |
 | D-08 | Retención de conversaciones | **Abierta** | Propuesta: 90 días |
 | D-09 | BR usadas por varias skills | Cerrada | No hay BR compartidas: las que se usan juntas (BR-01, BR-03, BR-04 y BR-05) quedaron en `tomar_pedido`, y BR-02 está en el system prompt. Si otra skill necesita una, lee `tomar_pedido`, como ya hace `confirmar_pedido` con BR-01 |
+| D-10 | Trazas y evaluación del agente | **Tomada en parte**: MLflow, apagado por defecto y solo en desarrollo (`docker compose --profile mlflow`), sin el texto de los mensajes | Producción sigue abierta: el servidor de MLflow no tiene login y la retención de las trazas depende de D-08 |
 
 ### 10.2 Riesgos
 
@@ -636,7 +647,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | El stock de la planilla no se puede reservar (dos clientes confirman el último) | Revalidación transaccional al confirmar (RF-14): la base interna descuenta las unidades de órdenes activas (`inventory_service`) evitando la sobreventa en el sistema local. |
 | El LLM interpreta mal un pedido | El cliente siempre ve el resumen antes de confirmar; `mensajes.json` como evaluación |
 | Conversaciones derivadas sin atender (no hay avisos en el MVP) | Listado en el dashboard (RF-24); avisos en v2 |
-| Costo del LLM por pedido | Límites de RNF-12 y medición de tokens (RNF-07) |
+| Costo del LLM por pedido | Límites de RNF-12 y medición de tokens (RNF-07), por turno en el log y en las trazas de MLflow |
 | SQLite con más de una instancia | Una sola instancia en el MVP; migrar de base sería MAJOR |
 | Cambios de la API de Meta o de Google | Encapsulados en `whatsapp_service` y `sheets_service` |
 

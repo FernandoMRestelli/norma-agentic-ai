@@ -52,8 +52,8 @@ class ToolSpec:
     run: Callable[[Any, TurnContext], dict[str, Any]]
 
 
-# El stock mínimo es para el dashboard: el LLM no tiene por qué contarle al cliente que queda poco
-_SOLO_INTERNOS = {"min_stock", "is_low_stock"}
+# Ni el número exacto de stock ni el stock mínimo son para el cliente: el LLM solo ve si hay o no stock
+_SOLO_INTERNOS = {"stock", "min_stock", "is_low_stock"}
 
 
 def _explorar_catalogo(data: ExplorarCatalogoInput, _: TurnContext) -> dict[str, Any]:
@@ -62,12 +62,23 @@ def _explorar_catalogo(data: ExplorarCatalogoInput, _: TurnContext) -> dict[str,
 
 def _search_products(data: SearchProductsInput, _: TurnContext) -> dict[str, Any]:
     matches = catalog_tools.search_products(data.query, data.limit)
-    return {"matches": [match.model_dump(mode="json", exclude=_SOLO_INTERNOS) for match in matches]}
+    return {
+        "matches": [
+            {**match.model_dump(mode="json", exclude=_SOLO_INTERNOS), "hay_stock": match.stock > 0}
+            for match in matches
+        ]
+    }
 
 
 def _get_product(data: GetProductInput, _: TurnContext) -> dict[str, Any]:
     product = catalog_tools.get_product(data.sku)
-    return {"product": product.model_dump(mode="json", exclude=_SOLO_INTERNOS) if product else None}
+    return {
+        "product": (
+            {**product.model_dump(mode="json", exclude=_SOLO_INTERNOS), "hay_stock": product.stock > 0}
+            if product
+            else None
+        )
+    }
 
 
 def _check_stock(data: CheckStockInput, _: TurnContext) -> dict[str, Any]:
@@ -120,9 +131,9 @@ TOOLS: dict[str, ToolSpec] = {
         ),
         ToolSpec(
             "search_products",
-            "Busca en el catálogo por producto, marca, presentación o tono. Devuelve precio, stock y `score` "
-            "(de 0 a 1). Los números tienen que coincidir: 400 no trae 340. Si no hay nada parecido, devuelve una "
-            "lista vacía.",
+            "Busca en el catálogo por producto, marca, presentación o tono. Devuelve precio, disponibilidad "
+            "(hay_stock: bool) y `score` (de 0 a 1). Los números tienen que coincidir: 400 no trae 340. "
+            "Si no hay nada parecido, devuelve una lista vacía.",
             SearchProductsInput,
             _search_products,
         ),
