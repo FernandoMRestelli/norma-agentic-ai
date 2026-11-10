@@ -8,6 +8,10 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Sin publicar]
 
+### Agregado
+
+- `docker-compose.prod.yml` levanta también el bot de Telegram por polling, con la misma imagen y el mismo `data/` que la API. Mientras no haya servidor (D-03), cada integrante corre su producción en el Docker de su máquina, con su propio bot (`TELEGRAM_BOT_TOKEN` distinto en cada `.env`). Para desplegar, copiá el `docker-compose.prod.yml` de esta versión a `~/norma-prod`.
+
 ## [0.1.0] - 2026-11-10
 
 Primera versión publicada. Reúne la base del proyecto y la beta del agente de pedidos para probar entre el equipo: el agente con LangGraph, skills y reglas de negocio guardadas en el repositorio, el bot de Telegram con lista blanca, el catálogo local en CSV, las órdenes en SQLite con volcado a CSV, el detalle de cada propuesta armado por el sistema y la observabilidad con MLflow (apagada por defecto). Todavía no hay un servidor de producción (D-03): esta versión publica la imagen, pero no se despliega.

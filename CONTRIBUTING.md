@@ -201,19 +201,31 @@ Se mergea con **Create a merge commit**.
 
 ## Producción
 
-Producción corre la **imagen de una release**, nunca la carpeta de trabajo. Vive en una carpeta propia del servidor:
+Producción corre la **imagen de una release**, nunca la carpeta de trabajo. `docker-compose.prod.yml` levanta dos
+servicios con la misma imagen: la API y el bot de Telegram por polling, que comparten `data/`.
+
+Mientras no haya un servidor siempre prendido (D-03), cada integrante corre su producción en el Docker de su máquina,
+con su propio bot y su propia API: cada `.env` lleva un `TELEGRAM_BOT_TOKEN` distinto (Telegram acepta un solo
+proceso por token y responde `409 Conflict` al segundo) y su `TELEGRAM_ALLOWED_USER_IDS`. Cada producción tiene su
+propia base y sus propios pedidos. El bot responde solo mientras la máquina y Docker estén prendidos.
+
+Vive en una carpeta propia, fuera del repo:
 
 ```text
 ~/norma-prod/
 ├── docker-compose.prod.yml   # el del tag que corre
 ├── .env                      # secretos de producción (a partir de .env.example)
 ├── credentials/              # cuenta de servicio de Google
-└── data/                     # base SQLite; el contenedor escribe con el UID 1000
+└── data/                     # base SQLite, catálogo y pedidos; el contenedor escribe con el UID 1000
 ```
 
+Para usar el catálogo real, copialo a `~/norma-prod/data/catalogo.csv` y poné `CATALOG_FILE=data/catalogo.csv` en el
+`.env`. Si la API de desarrollo está corriendo en la misma máquina, las dos usan el puerto 8000: frená una antes de
+levantar la otra.
+
 Primera vez: `mkdir -p ~/norma-prod/data ~/norma-prod/credentials` y, si tu usuario no es el UID 1000,
-`sudo chown 1000 ~/norma-prod/data`. Si el paquete de GHCR es privado, `docker login ghcr.io` con un token
-que tenga `read:packages`.
+`sudo chown 1000 ~/norma-prod/data`. La imagen es pública y se baja sin `docker login`. El bot de Telegram está en
+el compose de producción desde la versión siguiente a 0.1.0: con 0.1.0 se levanta solo la API.
 
 Desplegar la versión X.Y.Z:
 
