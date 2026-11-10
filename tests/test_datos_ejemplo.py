@@ -19,6 +19,7 @@ CATALOG_COLUMNS = {
     "nombre": "name",
     "marca": "brand",
     "presentacion": "presentation",
+    "categoria": "category",
     "precio": "price",
     "stock": "stock",
     "stock_minimo": "min_stock",

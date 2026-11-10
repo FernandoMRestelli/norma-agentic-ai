@@ -12,6 +12,7 @@ from internal.agent.state import Resultado
 from internal.schemas.agent_schema import (
     ArmarPedidoInput,
     CheckStockInput,
+    ExplorarCatalogoInput,
     GetProductInput,
     LeerBrInput,
     LeerSkillInput,
@@ -53,6 +54,10 @@ class ToolSpec:
 
 # El stock mínimo es para el dashboard: el LLM no tiene por qué contarle al cliente que queda poco
 _SOLO_INTERNOS = {"min_stock", "is_low_stock"}
+
+
+def _explorar_catalogo(data: ExplorarCatalogoInput, _: TurnContext) -> dict[str, Any]:
+    return catalog_tools.explorar_catalogo(data.brand, data.category, data.limit)
 
 
 def _search_products(data: SearchProductsInput, _: TurnContext) -> dict[str, Any]:
@@ -103,6 +108,14 @@ TOOLS: dict[str, ToolSpec] = {
     spec.name: spec
     for spec in (
         ToolSpec(
+            "explorar_catalogo",
+            "Explora el catálogo por marcas o categorías cuando el cliente hace preguntas abiertas "
+            "(por ejemplo: qué marcas de shampoo hay, qué productos tiene una marca, o qué líneas se trabajan). "
+            "Devuelve resúmenes compactos agrupados por rubro o listas de marcas.",
+            ExplorarCatalogoInput,
+            _explorar_catalogo,
+        ),
+        ToolSpec(
             "search_products",
             "Busca en el catálogo por producto, marca, presentación o tono. Devuelve precio, stock y `score` "
             "(de 0 a 1). Los números tienen que coincidir: 400 no trae 340. Si no hay nada parecido, devuelve una "
@@ -147,7 +160,7 @@ TOOLS: dict[str, ToolSpec] = {
 }
 
 # Disponibles desde el inicio del turno: sin consultar el catálogo no se puede elegir una skill
-BASE_TOOLS = ("leer_skill", "leer_br", "search_products", "get_product", "check_stock")
+BASE_TOOLS = ("leer_skill", "leer_br", "search_products", "get_product", "check_stock", "explorar_catalogo")
 
 
 def available(skills_activas: list[str]) -> list[str]:

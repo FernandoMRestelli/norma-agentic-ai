@@ -176,3 +176,52 @@ def test_argumentos_invalidos_vuelven_al_llm():
     ctx = tool_registry.TurnContext(customer_id="c", channel=Channel.WEB, disponibles=["check_stock"])
     result = tool_registry.execute("check_stock", {"sku": "SH-PAN-400", "quantity": 0}, ctx)
     assert result["error"]["code"] == "argumentos_invalidos"
+
+
+def test_check_stock_ejecuta_con_argumentos_validos():
+    ctx = tool_registry.TurnContext(customer_id="c", channel=Channel.WEB, disponibles=["check_stock"])
+    result = tool_registry.execute("check_stock", {"sku": "SH-PAN-400", "quantity": 2}, ctx)
+    assert result["ok"] is True
+    assert result["data"]["is_enough"] is True
+
+def test_explorar_catalogo_marcas_por_categoria():
+    """RF-35: Consulta marcas disponibles en una categoría."""
+    res = catalog_tools.explorar_catalogo(category="shampoo")
+    assert res["tipo_consulta"] == "marcas_por_categoria"
+    assert res["total_marcas"] > 0
+    assert any(m in res["marcas"] for m in ["Pantene", "Sedal", "Elvive", "ALFAPARF", "FIDELITE"])
+
+
+def test_explorar_catalogo_categorias_por_marca():
+    """RF-35: Consulta resumen de categorías de una marca."""
+    res = catalog_tools.explorar_catalogo(brand="pantene")
+    assert res["tipo_consulta"] == "categorias_por_marca"
+    assert res["total_productos"] > 0
+    assert "Shampoo" in res["categorias"]
+
+
+def test_explorar_catalogo_marca_no_encontrada():
+    """RF-35: Devuelve mensaje claro si la marca no existe."""
+    res = catalog_tools.explorar_catalogo(brand="marca_inexistente_xyz")
+    assert res["tipo_consulta"] == "marca_no_encontrada"
+    assert res["total_productos"] == 0
+
+
+def test_explorar_catalogo_productos_por_marca_y_categoria():
+    """RF-35: Devuelve muestra de productos acotada por limit sin fugar stock crudo."""
+    res = catalog_tools.explorar_catalogo(brand="pantene", category="shampoo", limit=2)
+    assert res["tipo_consulta"] == "productos_por_marca_y_categoria"
+    assert len(res["muestra_productos"]) <= 2
+    assert res["total_productos"] >= len(res["muestra_productos"])
+    for prod in res["muestra_productos"]:
+        assert "stock" not in prod
+        assert "hay_stock" in prod
+        assert isinstance(prod["hay_stock"], bool)
+
+
+def test_explorar_catalogo_general():
+    """RF-35: Sin parámetros devuelve categorías generales."""
+    res = catalog_tools.explorar_catalogo()
+    assert res["tipo_consulta"] == "categorias_generales"
+    assert "Shampoo" in res["categorias"]
+
