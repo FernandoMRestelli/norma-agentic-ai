@@ -8,27 +8,14 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Sin publicar]
 
-### Corregido
+## [0.1.0] - 2026-11-10
 
-- Ocultamiento del número exacto de stock en `search_products` y `get_product` exponiendo únicamente `hay_stock: bool` para blindar la privacidad de stock frente al LLM; inmutabilidad de órdenes confirmadas evitando duplicaciones o mezclas en pedidos posteriores; corrección de voseo y proactividad comercial (RF-10, RF-15, RNF-11).
-- Renderizado de negritas en Telegram convirtiendo `**` a formato Markdown con fallback a texto plano, eliminación de Spanglish y tecnicismos de catálogo («sizes», «presentación») por lenguaje natural rioplatense («tamaño», «medida») y preguntas de cierre comerciales amables (RNF-11, RF-10).
-- Aislamiento estricto de la base SQLite en la suite de tests unitarios evitando contaminación en entornos de desarrollo local.
-
-### Cambiado
-
-- El system prompt describe el negocio (distribuidora de peluquería y belleza para peluquerías, farmacias y perfumerías) y cómo escriben los clientes sus pedidos por WhatsApp: listas por marca, abreviaturas y la notación de coloración `tono/cantidad`. Ante un saludo, el agente lo devuelve y pregunta en qué puede ayudar.
-- Las propuestas muestran el detalle armado por el sistema: debajo del mensaje del agente, `validation_service.build_proposal_detail` agrega cada línea con su precio y el total desde el catálogo. El agente ya no repite las líneas, así entran pedidos de muchos renglones sin chocar con el tope de 600 caracteres. En un pedido largo, el agente propone lo que está claro y junta todas las dudas en un mismo mensaje (skill `tomar_pedido`, BR-03, CA-58).
-- Cada skill declara en su encabezado un campo obligatorio `funcion` (qué logra y cómo termina el turno), y el índice del system prompt lo muestra junto al `cuando`, así el agente elige la skill sin tener que leerla. `confirmar_pedido` e `informar` aclaran que las preguntas por productos o precios van a `tomar_pedido`.
-- Cada error de tool trae en `error.message` qué tiene que hacer el agente (buscar de nuevo, seguir BR-01, avisar al cliente sin proponer nada). El system prompt ya no lista los errores uno por uno: solo pide seguir ese mensaje, y así cubre también los que no estaban en la lista.
-- Nuevo `docs/validaciones_pendientes.md` con los supuestos que el agente usa sin confirmar con el negocio, empezando por la notación `tono/cantidad`.
-- La carpeta `data/` pasa a ser espacio de archivos de trabajo locales del equipo (CSV) que los asistentes de IA pueden leer; siguen bloqueadas las bases SQLite (`*.db`) y los `.vcf` con datos de clientes. Política actualizada en `AGENTS.md` y `.claude/settings.json`.
-- `.env.example` vuelve a ser legible por los asistentes de IA (el `deny` de `.env.*` lo tapaba); los `.env` con secretos siguen bloqueados mediante patrones específicos en `.claude/settings.json`.
+Primera versión publicada. Reúne la base del proyecto y la beta del agente de pedidos para probar entre el equipo: el agente con LangGraph, skills y reglas de negocio guardadas en el repositorio, el bot de Telegram con lista blanca, el catálogo local en CSV, las órdenes en SQLite con volcado a CSV, el detalle de cada propuesta armado por el sistema y la observabilidad con MLflow (apagada por defecto). Todavía no hay un servidor de producción (D-03): esta versión publica la imagen, pero no se despliega.
 
 ### Agregado
 
 - Observabilidad del agente con MLflow (RNF-07, CA-56, CA-57, D-10): con `MLFLOW_ENABLED=true`, cada turno queda como traza con un span por llamada al LLM y por tool, tokens, skills, proveedor, modelo y versión del prompt, sin el texto de los mensajes (RNF-03; `MLFLOW_TRACE_TEXT` lo suma solo en desarrollo). Apagado por defecto: no se importa mlflow. Servidor local con `docker compose --profile mlflow up`, y `python -m internal.evaluar_agente --mlflow` guarda cada evaluación como un run para comparar prompts y proveedores. La línea de log de cada turno suma `draft_id`, `order_id`, tools, errores, skills, latencia y tokens.
 - Volcado local de órdenes confirmadas a archivo CSV configurable mediante `ORDERS_FILE` (por defecto `data/pedidos.csv`) siguiendo las columnas de Sheet 2 (`id_orden,fecha_hora,cliente,canal,productos,notas,estado`), con zona horaria de Argentina (`America/Argentina/Buenos_Aires`), escritura idempotente y reintento resiliente con `sync_pending_orders` ante fallas temporales (RF-19, CA-19, RNF-04).
-
 - Proveedores de LLM de texto free tier adicionales en `internal/agent/llm.py`, seleccionables con `LLM_PROVIDER`: `groq` (Llama 3.3 70B y otros, límite amplio) y `openrouter` (API compatible con OpenAI). El import de cada paquete es diferido, así solo se carga el del proveedor configurado.
 - Exploración y agregación de catálogo por marcas y categorías con la tool base `explorar_catalogo` y categorización de productos en `Product.category` (`categoria` en `catalogo.csv`), permitiendo responder consultas exploratorias abiertas en una sola iteración y sin agotar la tasa de tokens de Gemini (RF-35, CA-55).
 - Endpoints HTTP `POST /orders/{order_id}/cancel` y `GET /orders/{order_id}` protegidos con credencial de operador (`operator_token`), y tool `cancelar_pedido` para cancelar órdenes activas y liberar stock comprometido (RF-20, CA-48 a CA-52).
@@ -61,8 +48,14 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Cambiado
 
+- El system prompt describe el negocio (distribuidora de peluquería y belleza para peluquerías, farmacias y perfumerías) y cómo escriben los clientes sus pedidos por WhatsApp: listas por marca, abreviaturas y la notación de coloración `tono/cantidad`. Ante un saludo, el agente lo devuelve y pregunta en qué puede ayudar.
+- Las propuestas muestran el detalle armado por el sistema: debajo del mensaje del agente, `validation_service.build_proposal_detail` agrega cada línea con su precio y el total desde el catálogo. El agente ya no repite las líneas, así entran pedidos de muchos renglones sin chocar con el tope de 600 caracteres. En un pedido largo, el agente propone lo que está claro y junta todas las dudas en un mismo mensaje (skill `tomar_pedido`, BR-03, CA-58).
+- Cada skill declara en su encabezado un campo obligatorio `funcion` (qué logra y cómo termina el turno), y el índice del system prompt lo muestra junto al `cuando`, así el agente elige la skill sin tener que leerla. `confirmar_pedido` e `informar` aclaran que las preguntas por productos o precios van a `tomar_pedido`.
+- Cada error de tool trae en `error.message` qué tiene que hacer el agente (buscar de nuevo, seguir BR-01, avisar al cliente sin proponer nada). El system prompt ya no lista los errores uno por uno: solo pide seguir ese mensaje, y así cubre también los que no estaban en la lista.
+- Nuevo `docs/validaciones_pendientes.md` con los supuestos que el agente usa sin confirmar con el negocio, empezando por la notación `tono/cantidad`.
+- La carpeta `data/` pasa a ser espacio de archivos de trabajo locales del equipo (CSV) que los asistentes de IA pueden leer; siguen bloqueadas las bases SQLite (`*.db`) y los `.vcf` con datos de clientes. Política actualizada en `AGENTS.md` y `.claude/settings.json`.
+- `.env.example` vuelve a ser legible por los asistentes de IA (el `deny` de `.env.*` lo tapaba); los `.env` con secretos siguen bloqueados mediante patrones específicos en `.claude/settings.json`.
 - La carpeta de datos de prueba `datos_ejemplo/` pasa a llamarse `data_example/` y se actualizan todas sus referencias en código, Docker y documentación.
-
 - El agente pasa de 6 skills a 3: `tomar_pedido`, `confirmar_pedido` e `informar`. Las reglas de negocio no cambian y se siguen leyendo solo cuando hacen falta. Sin propuesta vigente, el índice de skills no muestra `confirmar_pedido`.
 - `OK` o `CONFIRMAR` exactos registran la propuesta vigente sin llamar al LLM, y una aceptación con condiciones («dale, pero al lunes») ya no cuenta como aceptación (RF-13, CA-18, BR-06).
 - **El cliente confirma conversando:** una respuesta como «dale» registra el pedido si acepta la propuesta vigente, y el backend solo registra lo que validó antes (RF-11, RF-13, CA-17, CA-18).
@@ -73,11 +66,18 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 - `backend/Schema` pasa a `backend/schemas` y `test` a `tests`, según la arquitectura.
 - Roadmap actualizado a un equipo de 3 integrantes.
 
+### Eliminado
+
+- Botones Confirmar / Corregir: el cliente confirma escribiendo en todos los canales. Salen del bot de Telegram y de la API, junto con `POST /chat/drafts/{draft_id}/{action}`.
+
 ### Corregido
 
+- Ocultamiento del número exacto de stock en `search_products` y `get_product` exponiendo únicamente `hay_stock: bool` para blindar la privacidad de stock frente al LLM; inmutabilidad de órdenes confirmadas evitando duplicaciones o mezclas en pedidos posteriores; corrección de voseo y proactividad comercial (RF-10, RF-15, RNF-11).
+- Renderizado de negritas en Telegram convirtiendo `**` a formato Markdown con fallback a texto plano, eliminación de Spanglish y tecnicismos de catálogo («sizes», «presentación») por lenguaje natural rioplatense («tamaño», «medida») y preguntas de cierre comerciales amables (RNF-11, RF-10).
+- Aislamiento estricto de la base SQLite en la suite de tests unitarios evitando contaminación en entornos de desarrollo local.
 - Contratos del catálogo: `Product` rechaza stock negativo (`stock ≥ 0`) y `StockCheck` exige cantidad solicitada positiva (`requested > 0`) y disponibilidad no negativa (`available ≥ 0`) (RF-14, RF-10).
 - Validación estricta en contratos de pedidos: OrderItem rechaza sku y product_name vacíos, recorta espacios en blanco y limita quantity a MAX_QUANTITY = 999 (RF-08, RNF-02); IncomingMessage, OrderDraft y Order rechazan customer_id vacío y recortan espacios.
-- Alineación del contrato de pedidos con la spec (Issue #12, C-13, CA-14): se suma ersion: int (iniciando en 1, ge=1) a OrderDraft y sheets_synced: bool = False a Order; el endpoint POST /chat/drafts/{id}/{action} ahora exige el parámetro de consulta ersion.
+- Alineación del contrato de pedidos con la spec (Issue #12, C-13, CA-14): se suma `version`: int (iniciando en 1, ge=1) a OrderDraft y sheets_synced: bool = False a Order; el endpoint POST /chat/drafts/{id}/{action} ahora exige el parámetro de consulta `version`.
 - Los PR ya no dan conflicto en `CHANGELOG.md` cuando otro PR sumó su línea en el mismo lugar: `.gitattributes` conserva las líneas de los dos lados (`merge=union`).
 
 ### Seguridad
@@ -88,8 +88,5 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 - Documentación en `CONTRIBUTING.md` sobre gestión de secretos en desarrollo y producción, uso de correos `noreply` en commits y procedimiento ante filtraciones.
 - El webhook de WhatsApp valida la firma `X-Hub-Signature-256` de Meta (nueva variable `WHATSAPP_APP_SECRET`) y compara el token de verificación en tiempo constante.
 
-[Sin publicar]: https://github.com/FernandoMRestelli/norma-agentic-ai/compare/main...develop
-
-### Eliminado
-
-- Botones Confirmar / Corregir: el cliente confirma escribiendo en todos los canales. Salen del bot de Telegram y de la API, junto con `POST /chat/drafts/{draft_id}/{action}`.
+[Sin publicar]: https://github.com/FernandoMRestelli/norma-agentic-ai/compare/v0.1.0...develop
+[0.1.0]: https://github.com/FernandoMRestelli/norma-agentic-ai/releases/tag/v0.1.0
