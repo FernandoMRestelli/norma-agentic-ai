@@ -10,7 +10,9 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Corregido
 
-- Renderizado de negritas en Telegram convirtiendo `**` a formato Markdown con fallback a texto plano, eliminación de Spanglish y tecnicismos de catálogo («sizes», «presentación») por lenguaje natural rioplatense («tamaño», «medida»), refuerzo de privacidad estricta de stock disponible y preguntas de cierre comerciales amables con voseo («¿Querés sumar algo más o te confirmo el pedido?») (RNF-11, RF-10).
+- Ocultamiento del número exacto de stock en `search_products` y `get_product` exponiendo únicamente `hay_stock: bool` para blindar la privacidad de stock frente al LLM; inmutabilidad de órdenes confirmadas evitando duplicaciones o mezclas en pedidos posteriores; corrección de voseo y proactividad comercial (RF-10, RF-15, RNF-11).
+- Renderizado de negritas en Telegram convirtiendo `**` a formato Markdown con fallback a texto plano, eliminación de Spanglish y tecnicismos de catálogo («sizes», «presentación») por lenguaje natural rioplatense («tamaño», «medida») y preguntas de cierre comerciales amables (RNF-11, RF-10).
+- Aislamiento estricto de la base SQLite en la suite de tests unitarios evitando contaminación en entornos de desarrollo local.
 
 ### Cambiado
 
