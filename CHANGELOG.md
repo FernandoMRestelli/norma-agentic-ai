@@ -8,6 +8,10 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Sin publicar]
 
+### Corregido
+
+- Renderizado de negritas en Telegram convirtiendo `**` a formato Markdown con fallback a texto plano, eliminación de Spanglish y tecnicismos de catálogo («sizes», «presentación») por lenguaje natural rioplatense («tamaño», «medida»), refuerzo de privacidad estricta de stock disponible y preguntas de cierre comerciales amables con voseo («¿Querés sumar algo más o te confirmo el pedido?») (RNF-11, RF-10).
+
 ### Cambiado
 
 - La carpeta `data/` pasa a ser espacio de archivos de trabajo locales del equipo (CSV) que los asistentes de IA pueden leer; siguen bloqueadas las bases SQLite (`*.db`) y los `.vcf` con datos de clientes. Política actualizada en `AGENTS.md` y `.claude/settings.json`.

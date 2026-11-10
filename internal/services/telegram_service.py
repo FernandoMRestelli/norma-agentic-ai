@@ -5,6 +5,7 @@ Detalle en docs/spec/canal-telegram.md.
 """
 
 import logging
+import re
 import threading
 from collections import deque
 from typing import Any
@@ -65,7 +66,11 @@ class TelegramClient:
         return self.call("getUpdates", http_timeout=poll_seconds + 10, **params)
 
     def send_message(self, chat_id: int, text: str) -> None:
-        self.call("sendMessage", chat_id=chat_id, text=text)
+        md_text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text)
+        try:
+            self.call("sendMessage", chat_id=chat_id, text=md_text, parse_mode="Markdown")
+        except TelegramError:
+            self.call("sendMessage", chat_id=chat_id, text=text)
 
 
 def get_client() -> TelegramClient:
