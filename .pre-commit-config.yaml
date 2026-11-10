@@ -1,0 +1,38 @@
+# Configuración de pre-commit para Norma Agentic AI
+# Documentación y reglas: ver CONTRIBUTING.md (sección Seguridad)
+repos:
+  # Gitleaks: versión fijada a v8.28.0 (idéntica a la usada en el CI)
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.28.0
+    hooks:
+      - id: gitleaks
+
+  # Hooks estándar de seguridad y archivos
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: detect-private-key
+      - id: check-added-large-files
+        args: ['--maxkb=500', '--enforce-all']
+        exclude: '^docs/Flujo completo de Norma Agentic AI\.png$'
+
+  # Hooks locales: ruff fijado únicamente en requirements-dev.txt y scripts de seguridad propios
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff (lint)
+        entry: ruff check --fix
+        language: system
+        types: [python]
+
+      - id: verificar-archivos-prohibidos
+        name: Verificar archivos prohibidos y multimedia
+        entry: python .github/scripts/verificar_archivos_prohibidos.py
+        language: system
+        pass_filenames: true
+
+      - id: verificar-telefonos
+        name: Verificar números de teléfono argentinos
+        entry: python .github/scripts/verificar_telefonos.py
+        language: system
+        pass_filenames: true

@@ -1,11 +1,12 @@
 # 🚀 Norma Agentic AI | Roadmap v1
 
 > **De un pedido informal a una orden clara, validada y lista para preparar.**  
-Guía de desarrollo del MVP · Equipo de 4 personas
+Guía de desarrollo del MVP · Equipo de 3 personas  
+Requisitos y criterios de cierre de cada etapa: [spec del MVP](spec/README.md#8-roadmap-por-fases).
 
 ## 🎯 La visión en 30 segundos
 
-Un cliente envía su pedido por **texto, audio o imagen** (chat web o WhatsApp). Un asistente lo interpreta, busca los productos en el catálogo y muestra **qué entendió**. El cliente elige **✅ Confirmar** o **✏️ Corregir**. Solo después de confirmar se registra la orden en la planilla operativa y aparece en el dashboard.
+Un cliente envía su pedido por **texto, audio o imagen** (chat web o WhatsApp). Un asistente lo interpreta, busca los productos en el catálogo y muestra **qué entendió**. El cliente responde en el chat si lo acepta o qué quiere cambiar. Solo si lo acepta se registra la orden en la planilla operativa y aparece en el dashboard.
 
 ```
 flowchart LR  
@@ -23,7 +24,7 @@ flowchart LR
 | Pedidos por texto, audio e imagen | Derivación a Cristian / atención humana |
 | Catálogo, precios y stock desde Google Sheets | API del sistema de gestión real |
 | Interpretación de productos y cantidades | Órdenes registradas en el sistema real |
-| Tarjeta **Confirmar / Corregir** | Reposición sugerida a proveedores |
+| Propuesta del pedido en el chat, que el cliente acepta o corrige escribiendo | Reposición sugerida a proveedores |
 | Registro de pedidos en una segunda Google Sheet | Analítica avanzada y automatizaciones |
 | Dashboard operativo básico y conexión a WhatsApp | Funcionalidades adicionales según uso real |
 
@@ -34,7 +35,7 @@ flowchart LR
 
 **Meta:** todos pueden ejecutar el proyecto.  
 **Construimos:** repositorio, estructura, dependencias, configuración y API mínima.  
-**Listo cuando:** los cuatro integrantes pueden levantar el backend y ver una respuesta de prueba.
+**Listo cuando:** los tres integrantes pueden levantar el backend y ver una respuesta de prueba.
 
 ### 02 · 🗂️ Datos del negocio
 
@@ -51,8 +52,8 @@ flowchart LR
 ### 04 · ✅ Confirmación del cliente
 
 **Meta:** evitar órdenes incorrectas.  
-**Construimos:** tarjeta con líneas, cantidades, presentación y opciones **Confirmar / Corregir**.  
-**Listo cuando:** una corrección genera un nuevo resumen y **ningún pedido se registra sin confirmación explícita**.
+**Construimos:** propuesta en el chat con líneas, cantidades y presentación, que el cliente acepta o corrige escribiendo.  
+**Listo cuando:** una corrección genera un nuevo resumen y **ningún pedido se registra sin que el cliente acepte la propuesta**.
 
 ### 05 · 📋 Registro y seguimiento
 
@@ -69,20 +70,20 @@ flowchart LR
 ### 07 · 📱 WhatsApp de punta a punta
 
 **Meta:** operar desde el canal cotidiano del cliente.  
-**Construimos:** webhook, mensajes entrantes, multimedia y confirmación mediante botones interactivos cuando estén disponibles (o alternativa textual).  
+**Construimos:** webhook, mensajes entrantes, multimedia y confirmación por texto, igual que en los demás canales.  
 **Listo cuando:** un pedido desde WhatsApp se interpreta, confirma y aparece en el seguimiento y dashboard.
 
-## 👥 Cómo nos organizamos (4 personas)
+## 👥 Cómo nos organizamos (3 personas)
 
 | Foco | Responsabilidad principal |
 | - | - |
 | **Backend y APIs** | Rutas, lógica de pedidos, estados y persistencia |
 | **IA multimodal** | Agente, extracción de texto/audio/imagen y normalización |
 | **Datos e integraciones** | Google Sheets de entrada/salida, catálogo y stock |
-| **Frontend y experiencia** | Tarjeta de confirmación y dashboard |
+| **Frontend y experiencia** | Chat web y dashboard |
 
 
-Cada integrante también documenta y prueba sus cambios. Trabajamos con **ramas + Pull Requests** antes de integrar a `main`.
+Cada integrante también documenta y prueba sus cambios. Trabajamos con **ramas por tarea + Pull Requests** hacia `develop`, y pasamos `develop` a `main` con cada release (ver [CONTRIBUTING.md](../CONTRIBUTING.md)).
 
 ## 🏁 ¿Cuándo está listo el MVP?
 

@@ -1,0 +1,8 @@
+id_orden,fecha_hora,cliente,canal,productos,notas,estado
+ORD-0001,2026-10-27T09:12:00-03:00,cli-001,whatsapp,5 x Shampoo Pantene Restauración 400 ml (SH-PAN-400); 3 x Tintura Koleston 6.1 Rubio oscuro ceniza kit (TIN-KOL-61),,Retirado
+ORD-0002,2026-10-27T11:40:00-03:00,cli-002,web,6 x Jabón de tocador Dove Original 90 g (JAB-DOV-90),Retira por la tarde,Retirado
+ORD-0003,2026-10-28T10:05:00-03:00,cli-003,whatsapp,2 x Acondicionador Pantene Restauración 400 ml (AC-PAN-400); 2 x Shampoo Pantene Restauración 400 ml (SH-PAN-400),,Preparado
+ORD-0004,2026-10-28T16:30:00-03:00,cli-001,whatsapp,4 x Oxidante Koleston 20 vol 90 ml (OX-KOL-20); 4 x Tintura Koleston 6.0 Rubio oscuro kit (TIN-KOL-60),Para el salón,Preparado
+ORD-0005,2026-10-29T08:55:00-03:00,cli-004,web,1 x Pasta dental Colgate Triple Acción 90 g (PAS-COL-90); 1 x Cepillo dental Colgate Extra Clean medio (CEP-COL-MED),,Recibido
+ORD-0006,2026-10-29T09:20:00-03:00,cli-005,whatsapp,10 x Shampoo Sedal Ceramidas 340 ml (SH-SED-340),,Recibido
+ORD-0007,2026-10-29T10:02:00-03:00,cli-002,web,2 x Desodorante Rexona Men V8 aerosol 150 ml (DES-REX-150),El cliente avisó que no lo necesita,Cancelado

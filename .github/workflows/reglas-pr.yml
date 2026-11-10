@@ -1,0 +1,27 @@
+name: Reglas de PR
+
+on:
+  pull_request:
+    branches: [develop, main]
+    # synchronize: cada push vuelve a revisar el changelog; edited: cambiar la base de la PR también
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  reglas:
+    name: Nombre de rama y changelog
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 para tener la rama base y poder comparar contra ella
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # Por env y no con ${{ }} dentro del script: el nombre de la rama lo elige quien abre la PR
+      - name: Verificar reglas
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+        run: bash .github/scripts/verificar_reglas_pr.sh
