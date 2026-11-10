@@ -455,6 +455,13 @@ Esta versión de la spec está en revisión: todo lo que no está implementado f
 | RF-20 | Las órdenes siguen `Recibido → Preparado → Retirado`, con opción `Cancelado` desde cualquier estado previo a `Retirado`; cancelar una orden libera sus unidades de stock comprometido | 05 | I |
 | RF-21 | El detalle por ítem de cada orden se guarda en la base interna | 05 | P |
 
+### Observabilidad
+
+| ID | Dado | Cuando | Entonces | RF | Test |
+|---|---|---|---|---|---|
+| CA-56 | `MLFLOW_ENABLED` apagado / prendido | Corre un turno del agente | Apagado: no se importa mlflow y el resultado es el mismo. Prendido: el turno es una traza con un span por llamada al LLM y por tool, con `kind`, iteraciones, skills, tokens, proveedor, modelo y versión del prompt, sin el texto del cliente ni su id | RNF-03, RNF-07, RNF-08 | `test_observabilidad.py::test_apagado_no_importa_mlflow`, `test_observabilidad.py::test_prendido_traza_el_turno_sin_texto` |
+| CA-57 | `MLFLOW_TRACE_TEXT=true` | `APP_ENV` es `development` / otro | La traza suma el mensaje y la respuesta / la app no arranca | RNF-03 | `test_observabilidad.py::test_con_texto_en_desarrollo_guarda_mensaje_y_respuesta`, `test_observabilidad.py::test_texto_en_la_traza_solo_en_desarrollo` |
+
 ### Dashboard
 
 | ID | Requisito | Etapa | Estado |
@@ -491,11 +498,11 @@ Detalle en la [spec del canal](canal-telegram.md).
 |---|---|---|
 | RNF-01 | Seguridad | Secretos solo en `.env` o secretos del servidor; firma de Meta y token comparados en tiempo constante; dashboard y endpoints de gestión (`/orders/*`) con autenticación (`OPERATOR_TOKEN` en el MVP, falla cerrado si no está configurado); escaneo de secretos en todo el historial |
 | RNF-02 | Control del LLM | El LLM no elige qué se registra: solo dispara `armar_pedido` sobre la propuesta vigente. No conoce identificadores del cliente o del borrador (se inyectan); toda salida del LLM que llega a una tool se valida con pydantic |
-| RNF-03 | Privacidad | Audios e imágenes no se guardan, solo el texto extraído; los logs llevan IDs, no el texto de los mensajes; ningún dato real en el repositorio; plazo de retención de conversaciones según D-08 |
+| RNF-03 | Privacidad | Audios e imágenes no se guardan, solo el texto extraído; los logs y las trazas de MLflow llevan IDs, no el texto de los mensajes (el texto en la traza solo con `MLFLOW_TRACE_TEXT`, en desarrollo y con datos simulados); ningún dato real en el repositorio; plazo de retención de conversaciones según D-08 |
 | RNF-04 | Confiabilidad | La orden se crea en una transacción de la base; si falla la escritura en Sheet 2, se reintenta en segundo plano sin duplicar la fila (se busca el `order_id` antes de agregar) |
 | RNF-05 | Concurrencia | Los turnos de una conversación se procesan de a uno; el MVP corre en una sola instancia y un solo worker (SQLite) |
 | RNF-06 | Latencia | Webhook: 200 en menos de 2 s. Respuesta a texto: p95 < 10 s. Audio o imagen: p95 < 20 s. Dashboard: < 2 s. Timeout del LLM: 30 s |
-| RNF-07 | Observabilidad | Logs estructurados con `conversation_id`, `draft_id`, `order_id`, tools llamadas, iteraciones, latencia y tokens; la versión que corre se ve en `/openapi.json` |
+| RNF-07 | Observabilidad | Logs estructurados con `conversation_id`, `draft_id`, `order_id`, tools llamadas, iteraciones, latencia y tokens; la versión que corre se ve en `/openapi.json`. Opcional: cada turno como traza en MLflow (`MLFLOW_ENABLED`, apagado por defecto; [spec del agente §10.1](agente.md#101-observabilidad-con-mlflow)) |
 | RNF-08 | Testabilidad | Tests sin red ni Docker; el LLM se reemplaza por un modelo falso; datos sintéticos deterministas; cada CA tiene al menos un test |
 | RNF-09 | Portabilidad | Cambiar de proveedor de LLM es sumar su modelo de LangChain en `agent/llm.py`; cambiar Google Sheets por el sistema real es reemplazar `sheets_service` |
 | RNF-10 | Despliegue | Producción corre la imagen de una release; la configuración va en la imagen y cambiar un parámetro es una release ([CONTRIBUTING](../../CONTRIBUTING.md#producción)) |
@@ -630,6 +637,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | D-07 | Parámetros del agente | Tomada en esta spec, a revisar | 15 iteraciones por turno, 20 mensajes de historial, 24 h de vencimiento y de silencio tras derivar, 2 fallas o 3 aclaraciones para derivar, 30 s de timeout, caché de 5 min; se ajustan con uso real |
 | D-08 | Retención de conversaciones | **Abierta** | Propuesta: 90 días |
 | D-09 | BR usadas por varias skills | Cerrada | No hay BR compartidas: las que se usan juntas (BR-01, BR-03, BR-04 y BR-05) quedaron en `tomar_pedido`, y BR-02 está en el system prompt. Si otra skill necesita una, lee `tomar_pedido`, como ya hace `confirmar_pedido` con BR-01 |
+| D-10 | Trazas y evaluación del agente | **Tomada en parte**: MLflow, apagado por defecto y solo en desarrollo (`docker compose --profile mlflow`), sin el texto de los mensajes | Producción sigue abierta: el servidor de MLflow no tiene login y la retención de las trazas depende de D-08 |
 
 ### 10.2 Riesgos
 
@@ -638,7 +646,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | El stock de la planilla no se puede reservar (dos clientes confirman el último) | Revalidación transaccional al confirmar (RF-14): la base interna descuenta las unidades de órdenes activas (`inventory_service`) evitando la sobreventa en el sistema local. |
 | El LLM interpreta mal un pedido | El cliente siempre ve el resumen antes de confirmar; `mensajes.json` como evaluación |
 | Conversaciones derivadas sin atender (no hay avisos en el MVP) | Listado en el dashboard (RF-24); avisos en v2 |
-| Costo del LLM por pedido | Límites de RNF-12 y medición de tokens (RNF-07) |
+| Costo del LLM por pedido | Límites de RNF-12 y medición de tokens (RNF-07), por turno en el log y en las trazas de MLflow |
 | SQLite con más de una instancia | Una sola instancia en el MVP; migrar de base sería MAJOR |
 | Cambios de la API de Meta o de Google | Encapsulados en `whatsapp_service` y `sheets_service` |
 

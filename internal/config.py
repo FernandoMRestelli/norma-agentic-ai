@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -45,6 +46,19 @@ class Settings(BaseSettings):
     # Base interna
     database_url: str = "sqlite:///./data/norma.db"
     checkpoint_db: str = "data/checkpoints.db"  # estado del grafo del agente
+
+    # Trazas del agente en MLflow (internal/agent/observabilidad.py). Apagado: no se importa mlflow
+    mlflow_enabled: bool = False
+    mlflow_tracking_uri: str = "http://localhost:5001"  # en macOS el 5000 lo ocupa AirPlay
+    mlflow_experiment: str = "norma-agente"
+    # Guarda el texto de los mensajes y el prompt en la traza. Solo en desarrollo y con datos simulados (RNF-03)
+    mlflow_trace_text: bool = False
+
+    @model_validator(mode="after")
+    def _texto_solo_en_desarrollo(self) -> "Settings":
+        if self.mlflow_trace_text and self.app_env != "development":
+            raise ValueError("MLFLOW_TRACE_TEXT solo se puede prender con APP_ENV=development (RNF-03)")
+        return self
 
     @property
     def telegram_allowed_ids(self) -> set[int]:

@@ -11,7 +11,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import interrupt
 
-from internal.agent import context, tool_registry
+from internal.agent import context, observabilidad, tool_registry
 from internal.agent.state import EstadoNorma
 from internal.schemas.order_schema import Channel, ConfirmationAction, OrderDraft
 from internal.services.palabras_clave import interpretar_palabra_clave
@@ -46,13 +46,17 @@ def descubrir_tools(state: EstadoNorma) -> dict[str, Any]:
 def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> CompiledStateGraph:
     def llamar_modelo(state: EstadoNorma) -> dict[str, Any]:
         iterations = state.get("iteraciones", 0) + 1
-        try:
-            message = model.bind_tools(tool_registry.schemas(state["tools_disponibles"])).invoke(
-                context.build_messages(state)
-            )
-        except Exception as exc:  # cada proveedor lanza sus propios errores; el mensaje puede traer texto del cliente
-            logger.warning("Agente: falló el LLM (%s)", type(exc).__name__)
-            return {**_failure(state), "iteraciones": iterations}
+        with observabilidad.paso("llm", "CHAT_MODEL", iteracion=iterations) as paso:
+            try:
+                message = model.bind_tools(tool_registry.schemas(state["tools_disponibles"])).invoke(
+                    context.build_messages(state)
+                )
+            # Cada proveedor lanza sus propios errores; el mensaje puede traer texto del cliente
+            except Exception as exc:
+                logger.warning("Agente: falló el LLM (%s)", type(exc).__name__)
+                paso.fallo(type(exc).__name__)
+                return {**_failure(state), "iteraciones": iterations}
+            paso.respuesta_llm(message)
         if message.tool_calls:
             return {"messages": [message], "iteraciones": iterations}
         text = message.text.strip()
@@ -80,7 +84,9 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
         messages: list[Any] = []
         for call in state["messages"][-1].tool_calls:
             if ctx.resultado == "continuar":
-                result = tool_registry.execute(call["name"], call["args"], ctx)
+                with observabilidad.paso(call["name"], "TOOL", iteracion=state.get("iteraciones")) as paso:
+                    result = tool_registry.execute(call["name"], call["args"], ctx)
+                    paso.resultado_tool(call["args"], result)
             else:
                 # Cada llamada necesita su resultado, pero la primera tool terminal que tiene éxito cierra el turno
                 error = {"code": "turno_cerrado", "message": "El turno ya terminó", "details": {}}
@@ -124,7 +130,9 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             disponibles=["armar_pedido"],
             propuesta=OrderDraft.model_validate(state["propuesta"]),
         )
-        result = tool_registry.execute("armar_pedido", {}, ctx)
+        with observabilidad.paso("armar_pedido", "TOOL", via="confirmar_directo") as paso:
+            result = tool_registry.execute("armar_pedido", {}, ctx)
+            paso.resultado_tool({}, result)
         if not result["ok"]:
             # Por ejemplo, ya no alcanza el stock: el agente le explica al cliente y le ofrece lo que queda
             logger.info("Agente: no se pudo confirmar sin el LLM (%s)", result["error"]["code"])

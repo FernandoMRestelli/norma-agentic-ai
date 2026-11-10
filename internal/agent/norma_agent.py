@@ -2,6 +2,7 @@
 
 import logging
 import sqlite3
+import time
 from functools import lru_cache
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.errors import GraphRecursionError
 from langgraph.types import Command
 
-from internal.agent import context
+from internal.agent import context, observabilidad
 from internal.agent.graph import FAILURE_MESSAGE, RECURSION_LIMIT, build_graph
 from internal.agent.llm import get_chat_model
 from internal.agent.state import EstadoNorma
@@ -30,11 +31,42 @@ class NormaAgent:
     def __init__(self, model: BaseChatModel, checkpointer: BaseCheckpointSaver):
         self.graph = build_graph(model, checkpointer)
         self.system_prompt = context.load_system_prompt()
+        self.prompt_version = context.prompt_version()
 
     def handle(
         self, thread_id: str, customer_id: str, channel: Channel, text: str, customer_name: str | None = None
     ) -> AgentOutcome:
         """Procesa un mensaje ya preparado por message_service. `thread_id` identifica la conversación."""
+        inicio = time.perf_counter()
+        with observabilidad.turno(thread_id, channel.value, text) as turno:
+            outcome, state = self._run(thread_id, customer_id, channel, text, customer_name)
+            resumen = observabilidad.resumir(state)
+            latencia_ms = round((time.perf_counter() - inicio) * 1000)
+            turno.cerrar(outcome, resumen, latencia_ms, self.prompt_version)
+        # Solo IDs, nombres y números: sin el texto de los mensajes (RNF-03, RNF-07)
+        logger.info(
+            "Agente: conversation_id=%s draft_id=%s order_id=%s kind=%s via=%s iteraciones=%d fallas=%d tools=%s "
+            "errores=%s skills=%s latencia_ms=%d tokens_entrada=%d tokens_salida=%d prompt_version=%s",
+            thread_id,
+            resumen.draft_id or "-",
+            outcome.order_id or "-",
+            outcome.kind,
+            resumen.via,
+            outcome.iterations,
+            resumen.fallas,
+            ",".join(resumen.tools) or "-",
+            ",".join(resumen.errores) or "-",
+            ",".join(resumen.skills) or "-",
+            latencia_ms,
+            resumen.tokens_entrada,
+            resumen.tokens_salida,
+            self.prompt_version,
+        )
+        return outcome
+
+    def _run(
+        self, thread_id: str, customer_id: str, channel: Channel, text: str, customer_name: str | None
+    ) -> tuple[AgentOutcome, EstadoNorma]:
         config = {"configurable": {"thread_id": thread_id}, "recursion_limit": RECURSION_LIMIT}
         if self.graph.get_state(config).next == ("pausa",):
             entry: Command | EstadoNorma = Command(resume=text)
@@ -55,7 +87,8 @@ class NormaAgent:
             state = self.graph.invoke(entry, config)
         except GraphRecursionError:
             logger.error("Agente: conversación %s superó el límite de recursión", thread_id)
-            return AgentOutcome(kind="error", message=FAILURE_MESSAGE, cerrada=True)
+            outcome = AgentOutcome(kind="error", message=FAILURE_MESSAGE, cerrada=True)
+            return outcome, self.graph.get_state(config).values
 
         propuesta = state.get("propuesta")
         outcome = AgentOutcome(
@@ -67,9 +100,7 @@ class NormaAgent:
             iterations=state.get("iteraciones", 0),
             cerrada="__interrupt__" not in state,
         )
-        # Sin el texto de los mensajes (RNF-03)
-        logger.info("Agente: conversación %s, %s, %d iteraciones", thread_id, outcome.kind, outcome.iterations)
-        return outcome
+        return outcome, state
 
 
 @lru_cache

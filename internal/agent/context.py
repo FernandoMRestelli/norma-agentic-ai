@@ -1,12 +1,13 @@
 """Arma lo que recibe el LLM en cada iteración (spec del agente §8)."""
 
+import hashlib
 from pathlib import Path
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage
 
 from internal.agent.state import EstadoNorma
 from internal.schemas.order_schema import OrderDraft
-from internal.services.skill_service import get_skills
+from internal.services.skill_service import SKILLS_DIR, get_skills
 
 SYSTEM_PROMPT_PATH = Path(__file__).with_name("system_prompt.md")
 MAX_HISTORY = 20
@@ -14,6 +15,15 @@ MAX_HISTORY = 20
 
 def load_system_prompt() -> str:
     return SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
+
+
+def prompt_version() -> str:
+    """Hash corto del system prompt y de las skills con sus BR: identifica las instrucciones que vio el LLM."""
+    digest = hashlib.sha256(SYSTEM_PROMPT_PATH.read_bytes())
+    for path in sorted(SKILLS_DIR.rglob("*.md")):
+        digest.update(path.relative_to(SKILLS_DIR).as_posix().encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()[:10]
 
 
 def _skills_index(hay_propuesta: bool) -> str:

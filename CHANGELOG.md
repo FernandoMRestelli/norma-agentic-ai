@@ -21,6 +21,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Agregado
 
+- Observabilidad del agente con MLflow (RNF-07, CA-56, CA-57, D-10): con `MLFLOW_ENABLED=true`, cada turno queda como traza con un span por llamada al LLM y por tool, tokens, skills, proveedor, modelo y versión del prompt, sin el texto de los mensajes (RNF-03; `MLFLOW_TRACE_TEXT` lo suma solo en desarrollo). Apagado por defecto: no se importa mlflow. Servidor local con `docker compose --profile mlflow up`, y `python -m internal.evaluar_agente --mlflow` guarda cada evaluación como un run para comparar prompts y proveedores. La línea de log de cada turno suma `draft_id`, `order_id`, tools, errores, skills, latencia y tokens.
 - Volcado local de órdenes confirmadas a archivo CSV configurable mediante `ORDERS_FILE` (por defecto `data/pedidos.csv`) siguiendo las columnas de Sheet 2 (`id_orden,fecha_hora,cliente,canal,productos,notas,estado`), con zona horaria de Argentina (`America/Argentina/Buenos_Aires`), escritura idempotente y reintento resiliente con `sync_pending_orders` ante fallas temporales (RF-19, CA-19, RNF-04).
 
 - Proveedores de LLM de texto free tier adicionales en `internal/agent/llm.py`, seleccionables con `LLM_PROVIDER`: `groq` (Llama 3.3 70B y otros, límite amplio) y `openrouter` (API compatible con OpenAI). El import de cada paquete es diferido, así solo se carga el del proveedor configurado.
