@@ -99,9 +99,10 @@ los pedidos: solo recibe mensajes y envía texto.
 | **De desarrollo** | Cada integrante, el suyo | Programar y probar en su máquina sin cortarle el polling a otro | Solo su id |
 | **Beta compartido** | Uno para el equipo, cuando el agente tome pedidos (etapa 03) | Simular muchos clientes que le piden al mismo negocio: todos los pedidos en la misma base y en Sheet 2 | Los tres ids |
 
-El bot beta corre en un solo lugar, idealmente un servidor siempre prendido (D-03). Mientras no lo haya, lo corre
-un integrante y responde solo mientras su máquina tenga el polling andando. El código es el mismo para los dos:
-cambian el token y la lista blanca de cada `.env`.
+El bot beta corre en un solo lugar, idealmente un servidor siempre prendido (D-03). Mientras no lo haya, cada
+integrante corre su propia producción en el Docker de su máquina (`docker-compose.prod.yml` levanta la API y el
+bot), con su propio bot y su propia base, y responde solo mientras su máquina esté prendida. El código es el mismo
+para todos: cambian el token y la lista blanca de cada `.env`.
 
 ## 4. Contratos
 

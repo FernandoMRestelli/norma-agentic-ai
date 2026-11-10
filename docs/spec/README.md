@@ -631,7 +631,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 |---|---|---|---|
 | D-01 | Proveedor de LLM | **Tomada en parte**: LangGraph y LangChain para el loop, con Gemini free tier para texto en la beta ([canal Telegram §7](canal-telegram.md#7-decisiones-y-riesgos)). Audio, imagen y producción siguen abiertos | Tiene que soportar tool calling con JSON Schema, buen español, y transcripción de audio y lectura de imágenes (o usar otro servicio para eso). Criterios: aciertos en `mensajes.json`, latencia (RNF-06) y costo por pedido |
 | D-02 | Tecnología del frontend | **Abierta**, bloquea la etapa 06 | Chat web y dashboard en `frontend/src/` |
-| D-03 | Servidor de producción | **Abierta** | Ver `MEJORAS.md`, próximos pasos |
+| D-03 | Servidor de producción | **Tomada en parte**: por ahora cada integrante corre producción en el Docker de su máquina (`~/norma-prod`), con su propio bot de Telegram y su propia API | Sigue abierto un servidor siempre prendido para el bot beta compartido (ver `MEJORAS.md`, próximos pasos) |
 | D-04 | ¿El resumen muestra precios y total? | **Tomada** | Sí: el resumen del borrador (`build_summary`), el mensaje de confirmación (`build_order_message`) y la propuesta del agente incluyen precio unitario y total estimado cuando están disponibles en el catálogo. |
 | D-05 | Identidad del cliente en el chat web | **Abierta** | Propuesta: un id anónimo que genera el backend y el navegador guarda; sin cuentas de usuario |
 | D-06 | Dónde se cambia el estado de una orden | Tomada en esta spec, a revisar | En el MVP el equipo lo cambia en Sheet 2 y el dashboard lo lee de ahí; la base guarda la orden y su estado inicial |

@@ -60,4 +60,4 @@ Cada caso hace varias llamadas, así que `--pausa` no alcanza: hace falta otra c
    aproximado en `catalog_tools`; tests con `datos_sinteticos.catalogo()` y el helper `sin_stock`.
 3. **Elegir el proveedor de LLM** para producción; tests del agente con un modelo falso (pedido ambiguo → pide aclaración).
 4. **Base interna**: tablas de borradores y órdenes con `draft_id` único para que un reintento no duplique órdenes.
-5. **Despliegue**: definir el servidor de producción, crear `~/norma-prod` y hacer el primer despliegue con la imagen de `0.1.0`.
+5. **Despliegue**: por ahora cada integrante despliega en el Docker de su máquina (D-03, ver `CONTRIBUTING.md#producción`). Falta definir un servidor siempre prendido para el bot beta compartido.
