@@ -225,7 +225,7 @@ levantar la otra.
 
 Primera vez: `mkdir -p ~/norma-prod/data ~/norma-prod/credentials` y, si tu usuario no es el UID 1000,
 `sudo chown 1000 ~/norma-prod/data`. La imagen es pública y se baja sin `docker login`. El bot de Telegram está en
-el compose de producción desde la versión siguiente a 0.1.0: con 0.1.0 se levanta solo la API.
+el compose de producción desde la 0.1.1: con la 0.1.0 se levanta solo la API.
 
 Desplegar la versión X.Y.Z:
 
