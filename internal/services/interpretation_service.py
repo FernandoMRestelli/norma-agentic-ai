@@ -14,7 +14,12 @@ def normalize_items(items: list[ProposedItem]) -> list[OrderItem]:
 
     unknown = [sku for sku in quantities if sku not in catalog]
     if unknown:
-        raise ToolFailure("sku_inexistente", f"No existen estos SKU: {', '.join(unknown)}", skus=unknown)
+        raise ToolFailure(
+            "sku_inexistente",
+            f"No existen estos SKU: {', '.join(unknown)}. "
+            "Buscá de nuevo el producto con search_products, no pruebes SKU de memoria",
+            skus=unknown,
+        )
 
     short = [
         {"sku": sku, "requested": quantity, "available": catalog[sku].stock}
@@ -22,7 +27,12 @@ def normalize_items(items: list[ProposedItem]) -> list[OrderItem]:
         if quantity > catalog[sku].stock
     ]
     if short:
-        raise ToolFailure("stock_insuficiente", "No alcanza el stock de alguna línea", lineas=short)
+        raise ToolFailure(
+            "stock_insuficiente",
+            "No alcanza el stock de alguna línea: "
+            "usá las cantidades de `lineas` y seguí BR-01, de la skill tomar_pedido",
+            lineas=short,
+        )
 
     return [
         OrderItem(

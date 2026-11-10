@@ -463,7 +463,7 @@ El cliente confirma conversando (RF-13). El LLM interpreta si aceptó, pero **no
 
 | Situación | Qué hace el sistema | Estado |
 |---|---|---|
-| Una tool devuelve `ok: false` | El error vuelve al LLM en la misma iteración para que corrija (p. ej. buscar de nuevo) | Sin cambio |
+| Una tool devuelve `ok: false` | El error vuelve al LLM en la misma iteración para que corrija. Cada `error.message` dice qué hacer (p. ej. buscar de nuevo), así el system prompt no repite la lista de errores | Sin cambio |
 | Argumentos que no cumplen el esquema | Error `argumentos_invalidos` al LLM, con el detalle de pydantic | Sin cambio |
 | El LLM falla o tarda más de 30 s | 1 reintento. Si vuelve a fallar: mensaje fijo «Tuve un problema, probá de nuevo en unos minutos» y +1 falla | Sin cambio |
 | Se alcanzan 15 iteraciones sin tool terminal | Mensaje fijo de disculpa y +1 falla | Sin cambio |

@@ -192,6 +192,16 @@ def validate_skills() -> None:
             raise SkillError(f"La skill {skill.nombre} nombra tools inexistentes: {', '.join(unknown)}")
 
 
+# Cada error le dice al LLM qué hacer: el system prompt solo le pide seguir `error.message`
+_CATALOGO_NO_DISPONIBLE = (
+    "No se pudo consultar el catálogo: decile al cliente que no pudiste consultarlo y que pruebe en unos minutos. "
+    "No propongas nada"
+)
+_ERROR_INTERNO = (
+    "La tool falló: decile al cliente que tuviste un problema y que pruebe en unos minutos. No propongas nada"
+)
+
+
 def _failure(code: str, message: str, **details: Any) -> dict[str, Any]:
     return {"ok": False, "error": {"code": code, "message": message, "details": details}}
 
@@ -199,19 +209,25 @@ def _failure(code: str, message: str, **details: Any) -> dict[str, Any]:
 def execute(name: str, arguments: dict[str, Any], ctx: TurnContext) -> dict[str, Any]:
     """Ejecuta una tool y devuelve el sobre común. Un error vuelve al LLM para que lo corrija."""
     if name not in ctx.disponibles or name not in TOOLS:
-        return _failure("tool_no_permitida", f"La tool {name!r} no está disponible: leé la skill que la permite")
+        return _failure(
+            "tool_no_permitida", f"La tool {name!r} no está disponible: leé con leer_skill la skill que la permite"
+        )
     spec = TOOLS[name]
     try:
         data = spec.input_model.model_validate(arguments)
         return {"ok": True, "data": spec.run(data, ctx)}
     except ValidationError as exc:
         errors = exc.errors(include_url=False, include_input=False, include_context=False)
-        return _failure("argumentos_invalidos", "Los argumentos no cumplen el esquema", errores=errors)
+        return _failure(
+            "argumentos_invalidos",
+            "Los argumentos no cumplen el esquema: corregilos según `errores` y volvé a llamar a la tool",
+            errores=errors,
+        )
     except ToolFailure as exc:
         return _failure(exc.code, exc.message, **exc.details)
     except OSError:
         logger.exception("Tool %s: no se pudo leer el catálogo", name)
-        return _failure("catalogo_no_disponible", "No se pudo consultar el catálogo")
+        return _failure("catalogo_no_disponible", _CATALOGO_NO_DISPONIBLE)
     except Exception:
         logger.exception("Tool %s: error inesperado", name)
-        return _failure("error_interno", "La tool falló")
+        return _failure("error_interno", _ERROR_INTERNO)

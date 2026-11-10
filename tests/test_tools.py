@@ -178,6 +178,19 @@ def test_argumentos_invalidos_vuelven_al_llm():
     assert result["error"]["code"] == "argumentos_invalidos"
 
 
+def test_catalogo_no_disponible_le_dice_al_llm_que_no_proponga(monkeypatch):
+    """El system prompt solo pide seguir `error.message`: la regla de no proponer tiene que venir en el error."""
+
+    def sin_catalogo():
+        raise OSError("sin acceso")
+
+    monkeypatch.setattr(sheets_service, "get_catalog", sin_catalogo)
+    ctx = tool_registry.TurnContext(customer_id="c", channel=Channel.WEB, disponibles=["search_products"])
+    result = tool_registry.execute("search_products", {"query": "shampoo"}, ctx)
+    assert result["error"]["code"] == "catalogo_no_disponible"
+    assert "No propongas nada" in result["error"]["message"]
+
+
 def test_check_stock_ejecuta_con_argumentos_validos():
     ctx = tool_registry.TurnContext(customer_id="c", channel=Channel.WEB, disponibles=["check_stock"])
     result = tool_registry.execute("check_stock", {"sku": "SH-PAN-400", "quantity": 2}, ctx)

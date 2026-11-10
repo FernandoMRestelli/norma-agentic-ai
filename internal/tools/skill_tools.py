@@ -9,7 +9,7 @@ from internal.services.skill_service import get_skills
 def leer_skill(nombre: str) -> dict[str, Any]:
     skill = get_skills().get(nombre)
     if skill is None:
-        raise ToolFailure("skill_inexistente", f"No existe la skill {nombre!r}")
+        raise ToolFailure("skill_inexistente", f"No existe la skill {nombre!r}: elegí una del índice")
     return {
         "nombre": skill.nombre,
         "instrucciones": skill.instrucciones,
@@ -25,5 +25,7 @@ def leer_br(id: str, skills_activas: list[str]) -> dict[str, Any]:
         if id in skills[nombre].br:
             return {"id": id, "texto": skills[nombre].br[id]}
     if any(id in skill.br for skill in skills.values()):
-        raise ToolFailure("br_no_permitida", f"Ninguna skill leída en este turno permite {id!r}")
-    raise ToolFailure("br_inexistente", f"No existe la BR {id!r}")
+        raise ToolFailure(
+            "br_no_permitida", f"Ninguna skill leída en este turno permite {id!r}: leé primero la skill que la nombra"
+        )
+    raise ToolFailure("br_inexistente", f"No existe la BR {id!r}: leé solo las BR que nombra la skill")

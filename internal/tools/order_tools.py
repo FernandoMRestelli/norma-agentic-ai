@@ -7,11 +7,19 @@ from internal.services import order_service
 
 def armar_pedido(vigente: OrderDraft | None) -> Order:
     if vigente is None:
-        raise ToolFailure("sin_propuesta", "No hay ninguna propuesta vigente: proponé el pedido antes de armarlo")
+        raise ToolFailure(
+            "sin_propuesta",
+            "No hay ninguna propuesta vigente, así que no hay nada para registrar: "
+            "preguntale al cliente qué quiere pedir",
+        )
     try:
         return order_service.confirm_draft(vigente)
     except order_service.InsufficientStockError as exc:
-        raise ToolFailure("stock_insuficiente", "Ya no alcanza el stock: proponé de nuevo", lineas=exc.lines) from exc
+        raise ToolFailure(
+            "stock_insuficiente",
+            "Ya no alcanza el stock: usá las cantidades de `lineas` y seguí BR-01, de la skill tomar_pedido",
+            lineas=exc.lines,
+        ) from exc
 
 
 def cancelar_pedido(order_id: str) -> Order:

@@ -16,13 +16,7 @@ Los resultados de tools de turnos anteriores ya no están. Si necesitás datos d
 
 ## Si una tool devuelve un error
 
-Con `ok: false`, corregí lo que indica `error` sin mostrárselo al cliente:
-
-- `tool_no_permitida`: leé la skill que permite esa tool.
-- `sku_inexistente`: buscá de nuevo el producto. No pruebes SKU de memoria.
-- `stock_insuficiente`: usá las cantidades de `lineas` y seguí BR-01, de la skill `tomar_pedido`.
-- `sin_propuesta`: no hay nada para registrar. Preguntale al cliente qué quiere pedir.
-- `catalogo_no_disponible`: decile que no pudiste consultar el catálogo y que pruebe en unos minutos. No propongas nada.
+Con `ok: false`, hacé lo que indica `error.message`, sin mostrarle el error al cliente.
 
 ## Límites
 
