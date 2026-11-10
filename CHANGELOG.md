@@ -10,6 +10,8 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Cambiado
 
+- El system prompt describe el negocio (distribuidora de peluquería y belleza para peluquerías, farmacias y perfumerías) y cómo escriben los clientes sus pedidos por WhatsApp: listas por marca, abreviaturas y la notación de coloración `tono/cantidad`. Ante un saludo, el agente lo devuelve y pregunta en qué puede ayudar.
+- Nuevo `docs/validaciones_pendientes.md` con los supuestos que el agente usa sin confirmar con el negocio, empezando por la notación `tono/cantidad`.
 - La carpeta `data/` pasa a ser espacio de archivos de trabajo locales del equipo (CSV) que los asistentes de IA pueden leer; siguen bloqueadas las bases SQLite (`*.db`) y los `.vcf` con datos de clientes. Política actualizada en `AGENTS.md` y `.claude/settings.json`.
 - `.env.example` vuelve a ser legible por los asistentes de IA (el `deny` de `.env.*` lo tapaba); los `.env` con secretos siguen bloqueados mediante patrones específicos en `.claude/settings.json`.
 
