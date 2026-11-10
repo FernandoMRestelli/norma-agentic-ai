@@ -132,7 +132,8 @@ Reglas del loop:
 4. Las tools de lectura se pueden llamar varias veces en un turno. Las terminales, una sola vez: la primera
    que tenga éxito cierra el turno.
 5. El **mensaje final** con el pedido registrado no lo escribe el LLM: lo arma `validation_service` a partir
-   de la orden creada (RF-11).
+   de la orden creada (RF-11). El **detalle de una propuesta** tampoco: cuando `respond_to_customer` deja una
+   propuesta vigente, el backend agrega debajo del mensaje cada línea con su precio y el total (CA-56).
 6. Los turnos de una misma conversación se procesan **de a uno** (lock por `(customer_id, channel)`). Un mensaje
    que llega durante un turno espera a que termine (RNF-05).
 7. Cada turno empieza **sin skills activas**. Las tools que no son de base se habilitan al leer la skill que las
@@ -318,7 +319,7 @@ Solo se usa cuando el cliente lo pide de forma explícita. Resultado del turno: 
 | Entrada | Tipo | Reglas |
 |---|---|---|
 | `kind` | `propuesta \| aclaracion \| sin_stock \| fuera_de_catalogo \| informacion` | Ver tabla de abajo |
-| `message` | `str` | El texto para el cliente. No vacío, máx. 600 caracteres |
+| `message` | `str` | El texto para el cliente. No vacío, máx. 600 caracteres. Con `propuesta`, no repite las líneas: el backend agrega el detalle debajo |
 | `options` | `list[str]` | SKU que se le ofrecen al cliente. Cada uno tiene que existir (`sku_inexistente` si no) |
 | `propuesta` | `list[{sku: str, quantity: int}] \| None` | Solo con `kind` `propuesta` o `sin_stock`. El backend valida cada SKU y el stock (`sku_inexistente`, `stock_insuficiente`) |
 

@@ -88,6 +88,9 @@ def _leer_br(data: LeerBrInput, ctx: TurnContext) -> dict[str, Any]:
 def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict[str, Any]:
     ctx.propuesta = reply_tools.respond_to_customer(data, ctx.customer_id, ctx.channel, ctx.propuesta)
     ctx.respuesta = data.message
+    if ctx.propuesta:
+        # El detalle sale del catálogo, no del LLM: así entra un pedido de muchas líneas y los precios son exactos
+        ctx.respuesta = f"{data.message}\n\n{validation_service.build_proposal_detail(ctx.propuesta)}"
     ctx.kind = data.kind.value
     ctx.options = data.options
     ctx.resultado = "pausar"
