@@ -100,7 +100,7 @@ def mlflow_local(monkeypatch, tracking_uri):
 
 def _turno():
     agent = NormaAgent(ModeloGuionado(*_guion()), InMemorySaver())
-    outcome = agent.handle("42", customer_id="telegram:5491100000000", channel=Channel.TELEGRAM, text=TEXTO_CLIENTE)
+    outcome = agent.handle("42", customer_id="telegram:secreto-77", channel=Channel.TELEGRAM, text=TEXTO_CLIENTE)
     return agent, outcome
 
 
@@ -144,7 +144,7 @@ def test_log_del_turno_con_ids_y_sin_texto(caplog):
     ):
         assert esperado in linea
     assert "latencia_ms=" in linea
-    assert TEXTO_CLIENTE not in linea and RESPUESTA not in linea and "5491100000000" not in linea
+    assert TEXTO_CLIENTE not in linea and RESPUESTA not in linea and "secreto-77" not in linea
 
 
 def test_apagado_no_importa_mlflow(monkeypatch):
@@ -195,7 +195,7 @@ def test_prendido_traza_el_turno_sin_texto(mlflow_local):
     guardado = trace.to_json()
     assert "cremas Nivea" not in guardado
     assert RESPUESTA not in guardado
-    assert "5491100000000" not in guardado
+    assert "secreto-77" not in guardado
 
 
 def test_falla_del_llm_queda_en_la_traza_sin_el_mensaje(mlflow_local):
