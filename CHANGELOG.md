@@ -8,6 +8,12 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Sin publicar]
 
+### Corregido
+
+- Ocultamiento del número exacto de stock en `search_products` y `get_product` exponiendo únicamente `hay_stock: bool` para blindar la privacidad de stock frente al LLM; inmutabilidad de órdenes confirmadas evitando duplicaciones o mezclas en pedidos posteriores; corrección de voseo y proactividad comercial (RF-10, RF-15, RNF-11).
+- Renderizado de negritas en Telegram convirtiendo `**` a formato Markdown con fallback a texto plano, eliminación de Spanglish y tecnicismos de catálogo («sizes», «presentación») por lenguaje natural rioplatense («tamaño», «medida») y preguntas de cierre comerciales amables (RNF-11, RF-10).
+- Aislamiento estricto de la base SQLite en la suite de tests unitarios evitando contaminación en entornos de desarrollo local.
+
 ### Cambiado
 
 - La carpeta `data/` pasa a ser espacio de archivos de trabajo locales del equipo (CSV) que los asistentes de IA pueden leer; siguen bloqueadas las bases SQLite (`*.db`) y los `.vcf` con datos de clientes. Política actualizada en `AGENTS.md` y `.claude/settings.json`.
@@ -16,6 +22,8 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 ### Agregado
 
 - Observabilidad del agente con MLflow (RNF-07, CA-56, CA-57, D-10): con `MLFLOW_ENABLED=true`, cada turno queda como traza con un span por llamada al LLM y por tool, tokens, skills, proveedor, modelo y versión del prompt, sin el texto de los mensajes (RNF-03; `MLFLOW_TRACE_TEXT` lo suma solo en desarrollo). Apagado por defecto: no se importa mlflow. Servidor local con `docker compose --profile mlflow up`, y `python -m internal.evaluar_agente --mlflow` guarda cada evaluación como un run para comparar prompts y proveedores. La línea de log de cada turno suma `draft_id`, `order_id`, tools, errores, skills, latencia y tokens.
+- Volcado local de órdenes confirmadas a archivo CSV configurable mediante `ORDERS_FILE` (por defecto `data/pedidos.csv`) siguiendo las columnas de Sheet 2 (`id_orden,fecha_hora,cliente,canal,productos,notas,estado`), con zona horaria de Argentina (`America/Argentina/Buenos_Aires`), escritura idempotente y reintento resiliente con `sync_pending_orders` ante fallas temporales (RF-19, CA-19, RNF-04).
+
 - Proveedores de LLM de texto free tier adicionales en `internal/agent/llm.py`, seleccionables con `LLM_PROVIDER`: `groq` (Llama 3.3 70B y otros, límite amplio) y `openrouter` (API compatible con OpenAI). El import de cada paquete es diferido, así solo se carga el del proveedor configurado.
 - Exploración y agregación de catálogo por marcas y categorías con la tool base `explorar_catalogo` y categorización de productos en `Product.category` (`categoria` en `catalogo.csv`), permitiendo responder consultas exploratorias abiertas en una sola iteración y sin agotar la tasa de tokens de Gemini (RF-35, CA-55).
 - Endpoints HTTP `POST /orders/{order_id}/cancel` y `GET /orders/{order_id}` protegidos con credencial de operador (`operator_token`), y tool `cancelar_pedido` para cancelar órdenes activas y liberar stock comprometido (RF-20, CA-48 a CA-52).

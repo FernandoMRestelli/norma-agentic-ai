@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     catalog_sheet_id: str | None = None
     orders_sheet_id: str | None = None
     catalog_file: str = "data_example/catalogo.csv"
+    orders_file: str = "data/pedidos.csv"
 
     # WhatsApp Cloud API
     whatsapp_verify_token: str | None = None

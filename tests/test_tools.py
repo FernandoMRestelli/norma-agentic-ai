@@ -63,10 +63,12 @@ def test_resultado_al_llm_trae_score_sin_datos_internos():
     )
     match = tool_registry.execute("search_products", {"query": "jabon dove"}, ctx)["data"]["matches"][0]
     assert match["score"] == 1
-    assert not {"min_stock", "is_low_stock"} & match.keys()
+    assert not {"stock", "min_stock", "is_low_stock"} & match.keys()
+    assert match["hay_stock"] is True
     product = tool_registry.execute("get_product", {"sku": "JAB-DOV-90"}, ctx)["data"]["product"]
     assert product["sku"] == "JAB-DOV-90"
-    assert not {"min_stock", "is_low_stock"} & product.keys()
+    assert not {"stock", "min_stock", "is_low_stock"} & product.keys()
+    assert product["hay_stock"] is True
 
 
 def test_catalogo_de_ejemplo_se_lee_con_el_esquema():

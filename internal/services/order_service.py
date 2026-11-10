@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 
 from sqlalchemy import select
@@ -10,7 +11,9 @@ from sqlalchemy.exc import IntegrityError
 from internal.database.connection import SessionLocal
 from internal.database.models import OrderRecord
 from internal.schemas.order_schema import Order, OrderDraft, OrderStatus
-from internal.services import inventory_service
+from internal.services import inventory_service, sheets_service
+
+logger = logging.getLogger(__name__)
 
 ORDER_ID_PREFIX = "ORD-"
 ORDER_ID_REGEX = re.compile(r"^ORD-(\d{4,})$")
@@ -157,6 +160,18 @@ def confirm_draft(draft: OrderDraft) -> Order:
         except IntegrityError:  # otro proceso registró el mismo borrador primero
             session.rollback()
             return _to_order(session.scalars(select(OrderRecord).where(OrderRecord.draft_id == draft.draft_id)).one())
+
+        order = _to_order(record)
+        try:
+            sheets_service.append_order(order)
+            record.sheets_synced = True
+            session.commit()
+        except Exception:
+            logger.warning(
+                "Error al volcar la orden %s en la planilla/archivo de órdenes",
+                order.order_id,
+                exc_info=True,
+            )
         return _to_order(record)
 
 
@@ -172,3 +187,28 @@ def cancel_order(order_id: str) -> Order:
         record.status = OrderStatus.CANCELLED.value
         session.commit()
         return _to_order(record)
+
+
+def sync_pending_orders() -> int:
+    """Reintenta sincronizar órdenes con sheets_synced=False (CA-19, RNF-04).
+
+    Devuelve la cantidad de órdenes sincronizadas exitosamente en esta pasada.
+    """
+    synced_count = 0
+    with SessionLocal() as session:
+        records = session.scalars(select(OrderRecord).where(OrderRecord.sheets_synced.is_(False))).all()
+        for record in records:
+            order = _to_order(record)
+            try:
+                sheets_service.append_order(order)
+                record.sheets_synced = True
+                synced_count += 1
+            except Exception:
+                logger.warning(
+                    "Error al sincronizar orden %s en reintento",
+                    record.order_id,
+                    exc_info=True,
+                )
+        if synced_count > 0:
+            session.commit()
+    return synced_count
