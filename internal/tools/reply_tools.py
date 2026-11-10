@@ -17,7 +17,12 @@ def respond_to_customer(
     """
     unknown = [sku for sku in data.options if get_product(sku) is None]
     if unknown:
-        raise ToolFailure("sku_inexistente", f"No existen estos SKU: {', '.join(unknown)}", skus=unknown)
+        raise ToolFailure(
+            "sku_inexistente",
+            f"No existen estos SKU: {', '.join(unknown)}. "
+            "Buscá de nuevo el producto con search_products, no pruebes SKU de memoria",
+            skus=unknown,
+        )
     if not data.propuesta:
         return None
     return OrderDraft(
@@ -27,4 +32,3 @@ def respond_to_customer(
         items=normalize_items(data.propuesta),
         version=vigente.version + 1 if vigente else 1,
     )
-

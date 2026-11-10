@@ -20,6 +20,8 @@ from internal.services import sheets_service
 SKU = "CR-NIV-100"
 TEXTO_CLIENTE = "Hola, te encargo 5 cremas Nivea"
 RESPUESTA = "Solo me quedan 3 cremas Nivea, ¿te las preparo?"
+# Lo que ve el cliente: la respuesta del agente más el detalle de la propuesta, que arma el sistema
+MENSAJE_FINAL = f"{RESPUESTA}\n\n• 3 x Crema Nivea 100 ml ($1000.00 c/u = $3000.00)\nTotal estimado: $3000.00"
 EXPERIMENTO = "norma-tests"
 
 
@@ -162,7 +164,7 @@ def test_apagado_no_importa_mlflow(monkeypatch):
     assert observabilidad.cliente() is None
     assert outcome.kind == "sin_stock"
     assert outcome.iterations == 4
-    assert outcome.message == RESPUESTA
+    assert outcome.message == MENSAJE_FINAL
 
 
 def test_prendido_traza_el_turno_sin_texto(mlflow_local):
@@ -225,7 +227,7 @@ def test_con_texto_en_desarrollo_guarda_mensaje_y_respuesta(mlflow_local, monkey
 
     raiz = trace.data.spans[0]
     assert raiz.inputs == {"mensaje": TEXTO_CLIENTE}
-    assert raiz.outputs == {"respuesta": RESPUESTA}
+    assert raiz.outputs == {"respuesta": MENSAJE_FINAL}
 
 
 def test_texto_en_la_traza_solo_en_desarrollo():
@@ -247,7 +249,7 @@ def test_sin_servidor_el_agente_sigue_sin_trazas(monkeypatch, caplog):
 
     assert observabilidad.cliente() is None
     assert outcome.kind == "sin_stock"
-    assert outcome.message == RESPUESTA
+    assert outcome.message == MENSAJE_FINAL
     assert "MLflow: no se pudo configurar" in caplog.text
 
 

@@ -28,7 +28,11 @@ def prompt_version() -> str:
 
 def _skills_index(hay_propuesta: bool) -> str:
     skills = get_skills().values()
-    lines = [f"- `{skill.nombre}`: {skill.cuando}" for skill in skills if hay_propuesta or not skill.requiere_propuesta]
+    lines = [
+        f"- `{skill.nombre}`: {skill.funcion} Cuándo: {skill.cuando}"
+        for skill in skills
+        if hay_propuesta or not skill.requiere_propuesta
+    ]
     return "## Índice de skills\n\n" + "\n".join(lines)
 
 

@@ -345,7 +345,7 @@ La ruta del catálogo local se configura mediante la variable de entorno `CATALO
 `OrderItem`: `sku` (existente en el catálogo, no vacío), `product_name` (no vacío), `presentation`, `quantity` (1 ≤ quantity ≤ 999),
 `unit_price: Decimal ≥ 0` (precio del catálogo al armar el borrador). Todos los campos de texto recortan espacios automáticamente.
 
-> **Garantía contractual de precios vs. propuesta conversacional:** Los precios unitarios, subtotales y total garantizados y presentados al cliente de forma determinística son los generados por `validation_service` (`build_summary` en el borrador y `build_order_message` en la orden registrada). La instrucción en la skill `read_catalogo` para que el agente mencione precios unitarios y total estimado es de mejor esfuerzo (*best-effort*) conversacional y no reemplaza la validación determinística del backend (D-04, RF-11).
+> **Precios de la propuesta y de la orden:** las líneas, precios unitarios, subtotales y total que ve el cliente los arma `validation_service` a partir del catálogo, no el LLM: `build_proposal_detail` en cada propuesta (se agrega debajo del mensaje del agente) y `build_order_message` en la orden registrada. El agente escribe solo la introducción, los cambios y las dudas (D-04, RF-11, CA-58).
 
 ### 5.4 Orden: `Order` ↔ Google Sheet 2
 
@@ -576,6 +576,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-47 | Una propuesta vigente | El cliente pregunta algo, el agente la vuelve a enviar y después acepta | La orden se crea una sola vez, con esas líneas | RF-13 | `test_agent_graph.py` |
 | CA-54 | Una conversación con y sin propuesta vigente | Se arma el contexto del LLM | El índice muestra `confirmar_pedido` solo con una propuesta vigente; `tomar_pedido` e `informar` aparecen siempre | RF-33 | `test_agent_graph.py::test_indice_muestra_confirmar_pedido_solo_con_propuesta` |
 | CA-55 | Una consulta exploratoria de marcas o categorías | Se invoca `explorar_catalogo` | Devuelve el desglose por categorías o marcas sin recorrer todo el catálogo en prompts | RF-35 | `test_tools.py::test_explorar_catalogo_*`, `test_agent_graph.py::test_agente_explorar_catalogo_marcas_de_shampoo` |
+| CA-58 | Un pedido de muchos renglones, con alguno dudoso | El agente responde con una propuesta | En un solo turno, lo claro queda en la propuesta y las dudas van juntas en el mensaje. Debajo, el sistema agrega cada línea con precio y el total desde el catálogo, sin contar para el tope de 600 caracteres del mensaje del agente. Sin propuesta, el mensaje va sin detalle | RF-11 | `test_agent_graph.py::test_pedido_largo_propone_lo_claro_y_junta_las_dudas`, `test_agent_graph.py::test_aclaracion_no_suma_detalle` |
 | CA-27 | Los archivos de `data_example/` | Se validan contra los esquemas | Columnas correctas, SKU únicos, casos coherentes con el catálogo | RF-07 | `test_datos_ejemplo.py` |
 | CA-29 | El catálogo de ejemplo | Se busca «shampoo pantene 400», «Shampoo Pantene 400ML» y «shampo pantne 400» | `SH-PAN-400` aparece primero en los tres casos | RF-07 | `test_tools.py::test_busqueda_aproximada_trae_primero_el_producto` |
 

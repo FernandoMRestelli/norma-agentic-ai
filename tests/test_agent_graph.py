@@ -17,7 +17,7 @@ from internal.database.connection import SessionLocal, init_db
 from internal.database.models import ConversationRecord, OrderRecord
 from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import Channel, IncomingMessage
-from internal.services import conversation_service, order_service, sheets_service
+from internal.services import conversation_service, order_service, sheets_service, skill_service
 
 SKU = "CR-NIV-100"
 CLIENTE = {"customer_id": "telegram:1", "channel": Channel.TELEGRAM}
@@ -72,6 +72,10 @@ GUION_OFERTA = (
     ),
 )
 GUION_ACEPTA = (_ai(_call("leer_skill", nombre="confirmar_pedido")), _ai(_call("armar_pedido")))
+OFERTA_CON_DETALLE = (
+    "Hola Pedro, solo tengo 3, ¿te armo el pedido igual?\n\n"
+    "• 3 x Crema Nivea 100 ml ($1000.00 c/u = $3000.00)\nTotal estimado: $3000.00"
+)
 
 
 @pytest.fixture
@@ -111,7 +115,7 @@ def test_conversacion_completa(catalogo):
 
     primero = agent.handle("1", text="Hola Juan, te encargo 5 cremas", **CLIENTE)
     assert primero.kind == "sin_stock"
-    assert primero.message == "Hola Pedro, solo tengo 3, ¿te armo el pedido igual?"
+    assert primero.message == OFERTA_CON_DETALLE
     assert primero.iterations == 4
     assert not primero.cerrada
     assert primero.draft.items[0].quantity == 3
@@ -392,6 +396,19 @@ def test_indice_muestra_confirmar_pedido_solo_con_propuesta(catalogo):
     assert "- `confirmar_pedido`:" in indice_con_propuesta
 
 
+def test_indice_muestra_que_hace_cada_skill_y_cuando_usarla(catalogo):
+    """El agente elige la skill con su función y su `cuando`, sin tener que leerla."""
+    agent, modelo = _agente(
+        _ai(_call("leer_skill", nombre="informar")),
+        _ai(_call("respond_to_customer", kind="informacion", message="¡Hola! ¿En qué te ayudo?")),
+    )
+    assert agent.handle("1", text="hola", **CLIENTE).kind == "informacion"
+    indice = modelo.recibidos[0][0].content
+    for skill in skill_service.get_skills().values():
+        if not skill.requiere_propuesta:
+            assert f"- `{skill.nombre}`: {skill.funcion} Cuándo: {skill.cuando}" in indice
+
+
 def test_tools_ofrecidas_dependen_de_la_skill_y_se_reinician(catalogo):
     """CA-38 y CA-39."""
     agent, modelo = _agente(*GUION_OFERTA, *GUION_ACEPTA)
@@ -413,7 +430,7 @@ def test_lecturas_de_turnos_anteriores_no_se_reenvian(catalogo):
     primer_llamado_turno_2 = modelo.recibidos[4]
     assert not any(isinstance(m, ToolMessage) for m in primer_llamado_turno_2)
     textos = [m.text for m in primer_llamado_turno_2[1:]]
-    assert textos == ["5 cremas", "Hola Pedro, solo tengo 3, ¿te armo el pedido igual?", "dale"]
+    assert textos == ["5 cremas", OFERTA_CON_DETALLE, "dale"]
     assert "Propuesta vigente: 3 x Crema Nivea" in primer_llamado_turno_2[0].text
 
 
@@ -512,3 +529,141 @@ def test_agente_explorar_catalogo_marcas_de_shampoo(catalogo):
     assert resultado.kind == "informacion"
     assert "Pantene" in resultado.message
 
+
+
+def test_aclaracion_no_suma_detalle(catalogo):
+    """CA-58: sin propuesta no hay detalle; el mensaje es el del agente tal cual."""
+    agent, _ = _agente(
+        _ai(_call("search_products", query="crema")),
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _ai(_call("respond_to_customer", kind="aclaracion", message="¿Cuántas cremas querés?", options=[SKU])),
+    )
+    resultado = agent.handle("1", text="quiero crema", **CLIENTE)
+    assert resultado.message == "¿Cuántas cremas querés?"
+
+
+# Pedido ficticio con el formato de los pedidos reales por WhatsApp: marcas como encabezado, abreviaturas y
+# un renglón con dos tamaños posibles. Ver docs/validaciones_pendientes.md
+PEDIDO_LARGO = """Hola!! te paso el pedido
+
+Marca Uno
+2 sh keratina x900
+1 caja ampollas argan
+3 mascara argan
+2 gel fijacion extrema x 250
+
+Marca Dos
+2 alisado x 250
+3 crema peinar rulos
+
+Marca Tres
+2 oxi 20 vol x 1l
+4 protector termico
+1 decolorante x 700"""
+
+CATALOGO_LARGO = [
+    ("MU-SH-KER-900", "Marca Uno Shampoo Keratina", "Marca Uno", "900 ml", "4500.00"),
+    ("MU-AMP-ARG", "Marca Uno Ampolla Argan 15 ml x 12 unid", "Marca Uno", "caja x 12", "9800.00"),
+    ("MU-MAS-ARG-250", "Marca Uno Máscara Argan", "Marca Uno", "250 g", "3900.00"),
+    ("MU-MAS-ARG-1K", "Marca Uno Máscara Argan", "Marca Uno", "1 kg", "11200.00"),
+    ("MU-GEL-EXT-250", "Marca Uno Gel Fijación Extrema", "Marca Uno", "250 g", "2100.00"),
+    ("MD-ALI-250", "Marca Dos Alisado sin formol", "Marca Dos", "250 g", "15600.00"),
+    ("MD-CRE-RUL-250", "Marca Dos Crema de peinar rulos", "Marca Dos", "250 g", "3300.00"),
+    ("MT-OXI-20-1L", "Marca Tres Oxidante 20 vol", "Marca Tres", "1 L", "5200.00"),
+    ("MT-PRO-TER", "Marca Tres Protector térmico", "Marca Tres", "200 ml", "6700.00"),
+    ("MT-DECO-700", "Marca Tres Decolorante", "Marca Tres", "700 g", "18900.00"),
+]
+# Lo que el agente arma con lo claro; la máscara argan queda como duda (250 g o 1 kg)
+LINEAS_CLARAS = [
+    ("MU-SH-KER-900", 2),
+    ("MU-AMP-ARG", 1),
+    ("MU-GEL-EXT-250", 2),
+    ("MD-ALI-250", 2),
+    ("MD-CRE-RUL-250", 3),
+    ("MT-OXI-20-1L", 2),
+    ("MT-PRO-TER", 4),
+    ("MT-DECO-700", 1),
+]
+BUSQUEDAS_LARGO = (
+    "shampoo keratina 900",
+    "ampolla argan",
+    "mascara argan",
+    "gel fijacion extrema 250",
+    "alisado 250",
+    "crema peinar rulos",
+    "oxidante 20 vol 1 l",
+    "protector termico",
+    "decolorante 700",
+)
+
+
+@pytest.fixture
+def catalogo_largo(monkeypatch):
+    productos = [
+        Product(sku=sku, name=nombre, brand=marca, presentation=presentacion, price=Decimal(precio), stock=50)
+        for sku, nombre, marca, presentacion, precio in CATALOGO_LARGO
+    ]
+    monkeypatch.setattr(sheets_service, "get_catalog", lambda: productos)
+    return productos
+
+
+def _busquedas_en_paralelo(*queries):
+    calls = [
+        {"name": "search_products", "args": {"query": q}, "id": f"call-search-{i}", "type": "tool_call"}
+        for i, q in enumerate(queries)
+    ]
+    return AIMessage(content="", tool_calls=calls)
+
+
+def test_pedido_largo_propone_lo_claro_y_junta_las_dudas(catalogo_largo):
+    """CA-58: un pedido de muchos renglones se resuelve en un turno: lo claro va en la propuesta, con el detalle
+    armado por el sistema, y las dudas van juntas en el mensaje del agente."""
+    mensaje_agente = (
+        "¡Hola! Te armé el pedido con todo lo que encontré. Me queda una duda: "
+        "1) La máscara argan de Marca Uno, ¿la querés de 250 g ($3900) o de 1 kg ($11200)? "
+        "Si me confirmás así, la máscara queda afuera. ¿Te armo el pedido o me contestás la duda?"
+    )
+    propuesta = [{"sku": sku, "quantity": cantidad} for sku, cantidad in LINEAS_CLARAS]
+    agent, modelo = _agente(
+        _busquedas_en_paralelo(*BUSQUEDAS_LARGO),
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _ai(_call("leer_br", id="BR-03")),
+        _ai(
+            _call(
+                "respond_to_customer",
+                kind="propuesta",
+                message=mensaje_agente,
+                options=["MU-MAS-ARG-250", "MU-MAS-ARG-1K"],
+                propuesta=propuesta,
+            )
+        ),
+    )
+
+    resultado = agent.handle("1", text=PEDIDO_LARGO, **CLIENTE)
+
+    assert resultado.kind == "propuesta"
+    assert resultado.iterations == 4
+    busquedas = _resultados(agent, "search_products")
+    assert len(busquedas) == len(BUSQUEDAS_LARGO)
+    primeros = [b["data"]["matches"][0]["sku"] for b in busquedas]
+    assert primeros == [
+        "MU-SH-KER-900",
+        "MU-AMP-ARG",
+        primeros[2],  # la máscara argan tiene dos tamaños: cualquiera de los dos sale primero
+        "MU-GEL-EXT-250",
+        "MD-ALI-250",
+        "MD-CRE-RUL-250",
+        "MT-OXI-20-1L",
+        "MT-PRO-TER",
+        "MT-DECO-700",
+    ]
+    assert {m["sku"] for m in busquedas[2]["data"]["matches"]} >= {"MU-MAS-ARG-250", "MU-MAS-ARG-1K"}
+    assert [(item.sku, item.quantity) for item in resultado.draft.items] == LINEAS_CLARAS
+    assert resultado.options == ["MU-MAS-ARG-250", "MU-MAS-ARG-1K"]
+    assert resultado.message.startswith(mensaje_agente)
+    assert "• 4 x Marca Tres Protector térmico 200 ml ($6700.00 c/u = $26800.00)" in resultado.message
+    total = sum(Decimal(p.price) * c for p in catalogo_largo for sku, c in LINEAS_CLARAS if p.sku == sku)
+    assert resultado.message.endswith(f"Total estimado: ${total:.2f}")
+    # El detalle no cuenta para el tope de 600 caracteres del mensaje que escribe el agente
+    assert len(resultado.message) > 600
+    assert _ordenes() == 0

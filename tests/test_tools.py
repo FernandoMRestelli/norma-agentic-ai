@@ -120,7 +120,7 @@ def test_las_skills_solo_nombran_tools_que_pueden_usar():
 
 def test_skill_con_tool_inexistente_impide_arrancar(monkeypatch):
     """CA-40."""
-    skill = skill_service.Skill(nombre="mala", cuando="x", tools=["no_existe"], instrucciones="", br={})
+    skill = skill_service.Skill(nombre="mala", funcion="x", cuando="x", tools=["no_existe"], instrucciones="", br={})
     monkeypatch.setattr(tool_registry, "get_skills", lambda: {"mala": skill})
     with pytest.raises(SkillError, match="no_existe"):
         tool_registry.validate_skills()
@@ -139,8 +139,15 @@ def test_skill_sin_encabezado_impide_arrancar(tmp_path):
 
 
 def test_skill_con_nombre_distinto_a_su_carpeta_impide_arrancar(tmp_path):
-    _crear_skill(tmp_path, "---\nnombre: otra\ncuando: x\ntools: [leer_br]\n---\nTexto")
+    _crear_skill(tmp_path, "---\nnombre: otra\nfuncion: x\ncuando: x\ntools: [leer_br]\n---\nTexto")
     with pytest.raises(SkillError, match="otra"):
+        load_skills(tmp_path)
+
+
+def test_skill_sin_funcion_impide_arrancar(tmp_path):
+    """El índice muestra qué hace cada skill: una skill nueva no puede omitirlo."""
+    _crear_skill(tmp_path, "---\nnombre: mi_skill\ncuando: x\ntools: [leer_br]\n---\nTexto")
+    with pytest.raises(SkillError, match="funcion"):
         load_skills(tmp_path)
 
 
@@ -178,6 +185,19 @@ def test_argumentos_invalidos_vuelven_al_llm():
     ctx = tool_registry.TurnContext(customer_id="c", channel=Channel.WEB, disponibles=["check_stock"])
     result = tool_registry.execute("check_stock", {"sku": "SH-PAN-400", "quantity": 0}, ctx)
     assert result["error"]["code"] == "argumentos_invalidos"
+
+
+def test_catalogo_no_disponible_le_dice_al_llm_que_no_proponga(monkeypatch):
+    """El system prompt solo pide seguir `error.message`: la regla de no proponer tiene que venir en el error."""
+
+    def sin_catalogo():
+        raise OSError("sin acceso")
+
+    monkeypatch.setattr(sheets_service, "get_catalog", sin_catalogo)
+    ctx = tool_registry.TurnContext(customer_id="c", channel=Channel.WEB, disponibles=["search_products"])
+    result = tool_registry.execute("search_products", {"query": "shampoo"}, ctx)
+    assert result["error"]["code"] == "catalogo_no_disponible"
+    assert "No propongas nada" in result["error"]["message"]
 
 
 def test_check_stock_ejecuta_con_argumentos_validos():

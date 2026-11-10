@@ -1,6 +1,7 @@
 ---
 nombre: confirmar_pedido
-cuando: Hay una propuesta vigente y el cliente la acepta, la rechaza o duda
+funcion: Cierra la propuesta vigente. Si el cliente la acepta sin cambios, la registra como pedido; si duda, pone condiciones o la rechaza, le responde sin registrar nada.
+cuando: Hay una propuesta vigente y el cliente la acepta, la rechaza o duda. Si pregunta por un producto o un precio, o cambia algo, usá `tomar_pedido`
 tools: [armar_pedido, respond_to_customer]
 requiere_propuesta: true
 ---
