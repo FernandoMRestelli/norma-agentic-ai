@@ -40,3 +40,16 @@ Las dudas salen de pedidos reales. No copies acá nombres de clientes, teléfono
 - **Qué asumimos:** que no están en el catálogo, así que el agente los informa como fuera de catálogo (BR-04).
 - **Si el catálogo está incompleto o usa otros nombres:** el agente rechazaría productos que el negocio sí vende.
 - **Cómo validarlo:** revisar con el negocio si esos productos existen con otro nombre o si faltan en el catálogo.
+
+## V-06. Datos del negocio que puede dar el agente
+
+- **Qué vimos:** los clientes preguntan horarios, envíos y formas de pago, y el agente responde que no tiene ese dato porque no hay ninguna fuente con los datos del negocio.
+- **Qué asumimos:** nada. `internal/skills/informar/datos_negocio.md` tiene los cuatro temas en `null`, y con `null` el agente sigue diciendo que no tiene ese dato.
+- **Qué falta confirmar:**
+  - `horarios`: días y horarios de atención y de retiro.
+  - `zona_de_entrega`: si hacen envíos, a qué zonas, y si se retira en el local.
+  - `medios_de_pago`: con qué se puede pagar (efectivo, transferencia, cuenta corriente…).
+  - `minimo_de_compra`: si hay un monto o una cantidad mínima por pedido.
+- **Dónde está aplicado:** la skill `informar` los lee con `leer_skill` (`datos_negocio`).
+- **Si se confirma:** completar el dato en `datos_negocio.md`, en una línea como se la diría al cliente, y borrar ese tema de esta lista. Si el mínimo de compra se confirma, decidir también si el backend tiene que rechazar una propuesta que no llega.
+- **Cómo validarlo:** preguntarle al negocio cada dato y si cambia según el cliente (por ejemplo, cuenta corriente solo para clientes habituales).
