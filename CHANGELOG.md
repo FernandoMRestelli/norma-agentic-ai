@@ -10,6 +10,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Agregado
 
+- La búsqueda de productos tolera errores de tipeo y de sonido («pantne», «coleston», «zedal»), abreviaturas y variantes del rubro («sh», «champú», «ACOND.»), medidas escritas de otra forma (`x900` = `900 ml`, `1k` = `1 kg` = `1000 g`, `1 l` = `1000 cc`) y tonos sin punto (`821` = `8.21`), sin aproximar nunca los números. Cuando no hay una coincidencia confiable, `search_products` devuelve `sugerencias` para que el agente pregunte «¿quisiste decir…?», y `corregido` dice qué palabras interpretó como otra. El catálogo normalizado queda en memoria y el stock se sigue leyendo en cada búsqueda.
 - Plan de mejora del asistente en `docs/plan-mejora-asistente.md`: diagnóstico de lo que está flojo (búsqueda con errores de tipeo, guardrails, guardado de pedidos, planillas y skills) y los cinco frentes de trabajo, cada uno con su rama, su spec y sus IDs reservados.
 
 ### Cambiado

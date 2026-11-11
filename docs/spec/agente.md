@@ -266,10 +266,13 @@ Ninguna de las dos arma una ruta de archivo con lo que manda el LLM: el nombre o
 | `query` | `str` | No vacío. Texto libre del cliente o del LLM («pantene 400») |
 | `limit` | `int` | 1 a 10, por defecto 5 |
 
-Salida `data.matches`: lista de `{sku, name, brand, presentation, price, stock, score}`, ordenada por `score`
-descendente (0 a 1). La búsqueda es aproximada: tolera mayúsculas, tildes, plurales y errores de tipeo (RF-07).
+Salida `data.matches`: lista de `{sku, name, brand, presentation, price, score, aproximado, hay_stock}`, ordenada
+por `score` descendente (0 a 1), sin el número de stock. La búsqueda es aproximada: tolera mayúsculas, tildes,
+plurales, errores de tipeo y de sonido, abreviaturas y medidas escritas de otra forma (RF-07, RF-36 a RF-38).
 Los números no se aproximan: `340` no trae un producto de 400 ml, y `6.1` no trae el tono 7.1 (RF-08).
-Lista vacía si no hay coincidencias razonables. Errores: `catalogo_no_disponible`.
+Si no hay coincidencias confiables, `data.sugerencias` trae los candidatos más parecidos, y `data.corregido` dice
+qué palabras se interpretaron como otra (RF-39). Detalle en [busqueda-tolerante.md](busqueda-tolerante.md).
+Errores: `catalogo_no_disponible`.
 
 #### `get_product`
 

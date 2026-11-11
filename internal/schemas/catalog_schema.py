@@ -25,6 +25,16 @@ class ProductMatch(Product):
     """Resultado de una búsqueda: 1 si todas las palabras coinciden exactamente."""
 
     score: float = Field(ge=0, le=1)
+    # Algún término no coincidió exacto (tipeo, sonido, otra medida): es un candidato a confirmar con el cliente
+    aproximado: bool = False
+
+
+class SearchResult(BaseModel):
+    """Resultado de `search_products` (spec `busqueda-tolerante.md` §4)."""
+
+    matches: list[ProductMatch] = Field(default_factory=list)  # coincidencias confiables
+    sugerencias: list[ProductMatch] = Field(default_factory=list)  # solo si no hay matches
+    corregido: dict[str, str] = Field(default_factory=dict)  # palabra del cliente → cómo se interpretó
 
 
 class StockCheck(BaseModel):
