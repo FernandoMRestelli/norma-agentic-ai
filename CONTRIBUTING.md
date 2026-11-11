@@ -240,8 +240,9 @@ curl -s http://localhost:8000/openapi.json | grep -o '"version":"[^"]*"'   # con
 
 Volver atrás es lo mismo con la versión anterior. Antes de desplegar, leer en el changelog si la versión pide migrar algo.
 
-Como el código y la configuración van dentro de la imagen, **cambiar un parámetro es una release**.
-Solo los secretos (`.env`) y los datos (`data/`) quedan fuera.
+Como el código y los valores por defecto van dentro de la imagen, **cambiar un parámetro es una release**.
+Solo el `.env` (los secretos y las variables de entorno, como el modelo de LLM o `CATALOG_FILE`) y los datos
+(`data/`) quedan fuera.
 
 ### Lo que no puede correr en desarrollo y en producción al mismo tiempo
 

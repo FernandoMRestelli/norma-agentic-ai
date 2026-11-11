@@ -155,7 +155,7 @@ El detalle de cada pieza está en [docs/architecture.md](docs/architecture.md).
 | `internal/main.py` | App FastAPI y rutas; la versión sale de `APP_VERSION`, que fija la imagen de cada release |
 | `internal/config.py` | Configuración y secretos por variables de entorno (`.env`) |
 | `internal/api/` | Entradas: chat web, webhook de WhatsApp y webhook de Telegram |
-| `internal/agent/` | Agente Norma, sus instrucciones e interfaz neutral del LLM (con el cliente de Gemini) |
+| `internal/agent/` | Agente Norma, sus instrucciones e interfaz neutral del LLM (Gemini, Groq u OpenRouter) |
 | `internal/skills/` | Skills del agente: cada una con su `skill.md` y sus BR |
 | `internal/tools/` | Acciones que el agente puede usar (catálogo, stock, borradores) |
 | `internal/services/` | Orquestador, preprocesamiento, interpretación, confirmación, órdenes, Google Sheets y Telegram |

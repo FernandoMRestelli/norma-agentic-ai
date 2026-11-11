@@ -35,14 +35,17 @@ flowchart TD
 
 | Parte | Archivos principales | Responsabilidad |
 |---|---|---|
-| **Entradas** | `internal/api/chat.py`, `whatsapp_webhook.py` | Recibir mensajes del chat o WhatsApp |
+| **Entradas** | `internal/api/chat.py`, `whatsapp_webhook.py`, `telegram_webhook.py`; `internal/telegram_polling.py` | Recibir mensajes del chat, WhatsApp o Telegram (canal de prueba de la beta) |
+| **Gestión de órdenes** | `internal/api/orders.py` | Consultar y cancelar órdenes con token de operador |
+| **Orquestador** | `internal/services/conversation_service.py` | Abrir y cerrar la conversación y pasar cada turno al agente, de a uno por cliente |
 | **Preprocesamiento** | `internal/services/message_service.py` | Preparar texto, transcribir audio y analizar imágenes |
 | **Agente** | `internal/agent/norma_agent.py`, `graph.py`, `system_prompt.md`, `llm.py` | Entender la intención y elegir herramientas |
-| **Tools** | `internal/tools/catalog_tools.py`, `inventory_tools.py`, `order_tools.py` | Acciones controladas disponibles para el agente |
+| **Skills y BR** | `internal/skills/`, `internal/services/skill_service.py` | Recetas y reglas de negocio que el agente lee, con sus permisos |
+| **Tools** | `internal/tools/catalog_tools.py`, `inventory_tools.py`, `order_tools.py`, `reply_tools.py`, `skill_tools.py` | Acciones controladas disponibles para el agente |
 | **Interpretación** | `internal/services/interpretation_service.py` | Convertir entradas diversas a un borrador común |
 | **Contrato de datos** | `internal/schemas/order_schema.py`, `catalog_schema.py` | Definir campos y validaciones del pedido, productos y stock |
 | **Confirmación** | `internal/services/validation_service.py` | Presentar resumen y manejar confirmación/corrección |
-| **Negocio** | `internal/services/order_service.py` | Registrar el pedido confirmado una sola vez |
+| **Negocio** | `internal/services/order_service.py`, `inventory_service.py` | Registrar el pedido confirmado una sola vez y descontar del stock las órdenes activas |
 | **Google Sheets** | `internal/services/sheets_service.py` | Consultar la planilla de catálogo y escribir en la de seguimiento |
 | **Persistencia** | `internal/database/connection.py`, `models.py` | Guardar borradores, IDs, estados e historial necesario |
 | **Interfaz** | `frontend/src/Chat/`, `frontend/src/Dashboard/` | Confirmación visual del cliente y panel operativo |
@@ -87,26 +90,45 @@ norma-agentic-ai/
 ├── internal/
 │   ├── main.py
 │   ├── config.py
+│   ├── telegram_polling.py   # bot de Telegram por polling (beta)
+│   ├── verificar_claves.py
+│   ├── evaluar_agente.py     # corre los casos de mensajes.json con el LLM real
 │   ├── api/
 │   │   ├── chat.py
+│   │   ├── orders.py
+│   │   ├── telegram_webhook.py
 │   │   └── whatsapp_webhook.py
 │   ├── agent/
 │   │   ├── norma_agent.py
 │   │   ├── graph.py
+│   │   ├── state.py
+│   │   ├── context.py
+│   │   ├── tool_registry.py
 │   │   ├── llm.py
+│   │   ├── observabilidad.py
 │   │   └── system_prompt.md
+│   ├── skills/               # una carpeta por skill: skill.md y sus BR
 │   ├── tools/
 │   │   ├── catalog_tools.py
 │   │   ├── inventory_tools.py
-│   │   └── order_tools.py
+│   │   ├── order_tools.py
+│   │   ├── reply_tools.py
+│   │   └── skill_tools.py
 │   ├── services/
+│   │   ├── conversation_service.py
 │   │   ├── message_service.py
 │   │   ├── interpretation_service.py
 │   │   ├── validation_service.py
 │   │   ├── order_service.py
-│   │   └── sheets_service.py
+│   │   ├── inventory_service.py
+│   │   ├── palabras_clave.py
+│   │   ├── skill_service.py
+│   │   ├── sheets_service.py
+│   │   └── telegram_service.py
 │   ├── schemas/
+│   │   ├── agent_schema.py
 │   │   ├── catalog_schema.py
+│   │   ├── conversation_schema.py
 │   │   └── order_schema.py
 │   └── database/
 │       ├── connection.py
@@ -115,18 +137,11 @@ norma-agentic-ai/
 │   └── src/
 │       ├── Chat/
 │       └── Dashboard/
-├── tests/
-│   ├── conftest.py
-│   ├── datos_sinteticos.py
-│   ├── test_agent.py
-│   ├── test_interpretation.py
-│   ├── test_api.py
-│   ├── test_orders.py
-│   ├── test_invariantes.py
-│   └── test_datos_ejemplo.py
+├── tests/                    # conftest.py, datos_sinteticos.py y un test_*.py por área, sin red ni Docker
 ├── data/                     # base SQLite local, ignorada por git
 ├── data_example/            # catálogo, pedidos y mensajes inventados
 ├── docs/
+│   ├── spec/                 # spec del MVP, del agente y del canal Telegram (fuente de verdad)
 │   ├── architecture.md
 │   └── roadmap.md
 ├── .github/
