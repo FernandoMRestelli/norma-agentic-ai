@@ -7,10 +7,10 @@ El stock disponible resta las unidades comprometidas en órdenes activas de la b
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from internal.database.connection import SessionLocal
-from internal.database.models import OrderRecord
+from internal.database.models import OrderItemRecord, OrderRecord
 from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import OrderStatus
 from internal.services import sheets_service
@@ -23,21 +23,18 @@ def get_committed_stock(session: "Session | None" = None) -> dict[str, int]:
     """Calcula las unidades comprometidas por SKU en órdenes activas (no canceladas).
 
     Una orden en estado 'recibido', 'preparado' o 'retirado' reserva sus unidades.
-    Solo las órdenes 'canceladas' liberan su stock.
+    Solo las órdenes 'canceladas' liberan su stock. Las líneas salen de `order_items` (RF-21): un SKU puede tener
+    varias líneas en una orden (una por nota) y se suman todas.
     """
 
     def _calculate(s: "Session") -> dict[str, int]:
-        records = s.scalars(
-            select(OrderRecord).where(OrderRecord.status != OrderStatus.CANCELLED.value)
+        rows = s.execute(
+            select(OrderItemRecord.sku, func.sum(OrderItemRecord.quantity))
+            .join(OrderRecord, OrderItemRecord.order_pk == OrderRecord.id)
+            .where(OrderRecord.status != OrderStatus.CANCELLED.value, OrderItemRecord.quantity > 0)
+            .group_by(OrderItemRecord.sku)
         ).all()
-        committed: dict[str, int] = {}
-        for record in records:
-            for item in record.items:
-                sku = item.get("sku")
-                qty = item.get("quantity", 0)
-                if sku and isinstance(qty, int) and qty > 0:
-                    committed[sku] = committed.get(sku, 0) + qty
-        return committed
+        return {sku: int(quantity) for sku, quantity in rows}
 
     if session is not None:
         return _calculate(session)

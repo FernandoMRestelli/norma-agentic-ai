@@ -1,8 +1,9 @@
-"""Endpoints HTTP para la consulta y cancelación de órdenes (RF-20, etapa 05)."""
+"""Endpoints HTTP para consultar órdenes y cambiar su estado (RF-20, RF-47, etapa 05)."""
 
 import secrets
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
+from pydantic import BaseModel, Field
 
 from internal.config import get_settings
 from internal.schemas.order_schema import Order
@@ -61,3 +62,26 @@ def cancel_order(order_id: str) -> Order:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+
+
+class StatusChange(BaseModel):
+    status: str = Field(min_length=1, description="Estado nuevo: Preparado, Retirado o Cancelado")
+
+
+@router.post("/{order_id}/status", response_model=Order)
+def change_status(order_id: str, body: StatusChange) -> Order:
+    """Pasa una orden a otro estado según `can_transition` y guarda el cambio en su historial (RF-47).
+
+    `Recibido → Preparado → Retirado`, y `Cancelado` desde `Recibido` o `Preparado`. Devuelve 422 si el estado no
+    existe, 404 si la orden no existe y 400 si la transición no es válida.
+    """
+    try:
+        nuevo = order_service.parse_status(body.status)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        return order_service.change_status(order_id, nuevo)
+    except order_service.OrderNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except order_service.InvalidTransitionError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

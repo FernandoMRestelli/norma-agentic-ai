@@ -35,6 +35,8 @@ class TurnContext:
     customer_id: str
     channel: Channel
     disponibles: list[str]
+    customer_name: str | None = None  # van al borrador y a la orden (RF-45, RF-46)
+    conversation_id: int | None = None
     skills_activas: list[str] = field(default_factory=list)
     propuesta: OrderDraft | None = None
     resultado: Resultado = "continuar"
@@ -97,7 +99,9 @@ def _leer_br(data: LeerBrInput, ctx: TurnContext) -> dict[str, Any]:
 
 
 def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict[str, Any]:
-    ctx.propuesta = reply_tools.respond_to_customer(data, ctx.customer_id, ctx.channel, ctx.propuesta)
+    ctx.propuesta = reply_tools.respond_to_customer(
+        data, ctx.customer_id, ctx.channel, ctx.propuesta, ctx.customer_name, ctx.conversation_id
+    )
     ctx.respuesta = data.message
     if ctx.propuesta:
         # El detalle sale del catálogo, no del LLM: así entra un pedido de muchas líneas y los precios son exactos
