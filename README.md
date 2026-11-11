@@ -79,9 +79,10 @@ por token y responde `409 Conflict` al segundo.
 
 1. **Token de tu bot de desarrollo**: en Telegram, `/newbot` en [@BotFather](https://t.me/BotFather).
    Va en `TELEGRAM_BOT_TOKEN`.
-2. **API key del LLM**: gratis en [Google AI Studio](https://aistudio.google.com/apikey). Va en `LLM_API_KEY`
-   (`LLM_PROVIDER=gemini` y `LLM_MODEL` ya vienen en `.env.example`). El free tier usa lo que se manda para
-   mejorar los productos de Google: **solo datos simulados**.
+2. **API key del LLM**: gratis en [OpenRouter](https://openrouter.ai/keys). Va en `LLM_API_KEY`
+   (`LLM_PROVIDER=openrouter` y `LLM_MODEL` ya vienen en `.env.example`). Si el modelo no usa las tools, la
+   alternativa es Gemini con una clave de [Google AI Studio](https://aistudio.google.com/apikey) (está comentada
+   en `.env.example`). Los free tier pueden usar lo que se manda para entrenar: **solo datos simulados**.
 3. Verificar las claves (no las muestra):
 
    ```bash
