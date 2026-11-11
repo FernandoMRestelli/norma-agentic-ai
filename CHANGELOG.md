@@ -11,6 +11,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 ### Agregado
 
 - Plan de mejora del asistente en `docs/plan-mejora-asistente.md`: diagnóstico de lo que está flojo (búsqueda con errores de tipeo, guardrails, guardado de pedidos, planillas y skills) y los cinco frentes de trabajo, cada uno con su rama, su spec y sus IDs reservados.
+- Google Sheets y Excel (`docs/spec/planillas.md`, RF-50 a RF-54): con `CATALOG_SHEET_ID` el catálogo se lee de Sheet 1 con 5 minutos de caché (hasta 1 hora con la última copia buena si Google no responde) y la confirmación lee fresco; con `ORDERS_SHEET_ID` cada pedido se agrega una sola vez en Sheet 2, además del CSV local; la API reintenta cada 3 minutos los pedidos que no llegaron; `GET /orders/export` descarga los pedidos en `.xlsx` (hojas Órdenes y Líneas); la API y el bot ya no escriben el CSV de pedidos a la vez, y `python -m internal.verificar_claves` prueba el acceso a las dos planillas. Sin esas variables todo sigue como antes con los CSV. **Para desplegar con planillas:** guardar el JSON de la cuenta de servicio en `~/norma-prod/credentials/google-service-account.json`, compartir Sheet 1 como Lector y Sheet 2 como Editor con su `client_email`, y completar en `.env` `CATALOG_SHEET_ID` y `ORDERS_SHEET_ID` (opcionales: `CATALOG_WORKSHEET` y `ORDERS_WORKSHEET`). La imagen suma la dependencia `openpyxl`.
 
 ### Cambiado
 
