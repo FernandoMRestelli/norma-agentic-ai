@@ -8,6 +8,15 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Sin publicar]
 
+### Agregado
+
+- Plan de mejora del asistente en `docs/plan-mejora-asistente.md`: diagnóstico de lo que está flojo (búsqueda con errores de tipeo, guardrails, guardado de pedidos, planillas y skills) y los cinco frentes de trabajo, cada uno con su rama, su spec y sus IDs reservados.
+
+### Cambiado
+
+- `.env.example` sigue el orden y los comentarios del `.env` de producción, y trae OpenRouter como LLM de texto por defecto, con Gemini comentado como alternativa. No cambia nada para quien ya tiene su `.env`.
+- La spec del MVP, la del canal Telegram, `architecture.md`, `CONTRIBUTING.md` y `README.md` coinciden con el código de la 0.1.1: valores de `kind`, base interna, componentes y endpoints, proveedores de LLM y estado de los requisitos y las etapas.
+
 ## [0.1.1] - 2026-11-10
 
 Producción ahora levanta el bot de Telegram. Con la 0.1.0, `docker-compose.prod.yml` arrancaba solo la API y el bot no respondía. Mientras no haya un servidor siempre prendido (D-03), cada integrante corre su producción en el Docker de su máquina.
