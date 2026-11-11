@@ -192,7 +192,7 @@ def main() -> int:
     not_evaluated = sum(fila["resultado"] == "sin_evaluar" for fila in filas)
     estilo_ok = sum(fila["estilo"] == "ok" for fila in filas if fila["resultado"] != "sin_evaluar")
     evaluated = len(cases) - not_evaluated
-    print(f"\n{passed} de {evaluated} casos correctos, {estilo_ok} de {evaluated} con buen estilo, {not_evaluated} sin evaluar")
+    print(f"\n{passed} de {evaluated} casos correctos, {estilo_ok} con buen estilo, {not_evaluated} sin evaluar")
     return 0 if passed == len(cases) and estilo_ok == len(cases) else 1
 
 
@@ -259,7 +259,8 @@ def _evaluar(agent, case: dict, skus: Iterable[str] = ()) -> tuple[dict, list[di
         return fila, conversacion
     ok = _passes(case, outcome, order_items)
     fila["resultado"] = "correcto" if ok else "incorrecto"
-    print(f"{'✅' if ok else '❌'} {case['id']}: {outcome.kind}, {outcome.iterations} iteraciones, estilo {fila['estilo']}")
+    marca = "✅" if ok else "❌"
+    print(f"{marca} {case['id']}: {outcome.kind}, {outcome.iterations} iteraciones, estilo {fila['estilo']}")
     print(f"   tools: {', '.join(calls)}")
     for turno in conversacion:
         print(f"   cliente: {turno['cliente']}")
