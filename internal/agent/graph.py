@@ -6,12 +6,13 @@ from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import interrupt
 
-from internal.agent import context, observabilidad, tool_registry
+from internal.agent import context, guardrails, observabilidad, tool_registry
 from internal.agent.state import EstadoNorma
 from internal.schemas.order_schema import Channel, ConfirmationAction, OrderDraft
 from internal.services.palabras_clave import interpretar_palabra_clave
@@ -36,7 +37,28 @@ def _failure(state: EstadoNorma) -> dict[str, Any]:
     }
 
 
-def descubrir_tools(state: EstadoNorma) -> dict[str, Any]:
+def _registrar_intento(state: EstadoNorma, config: RunnableConfig) -> None:
+    """Un mensaje que pide cambiar las reglas queda en el log y en la traza, sin su texto (RNF-03).
+
+    El mensaje sigue al LLM: lo que conteste pasa por el validador de salida, y el estado actual le avisa.
+    """
+    entrada = state["messages"][state.get("inicio_turno", 0)]
+    codigos = guardrails.detectar_intento(entrada.text) if isinstance(entrada, HumanMessage) else []
+    if not codigos:
+        return
+    conversation_id = config.get("configurable", {}).get("thread_id", "-")
+    logger.warning(
+        "Guardrail: conversation_id=%s posible intento de cambiar las reglas (patrones=%s)",
+        conversation_id,
+        ",".join(codigos),
+    )
+    with observabilidad.paso("guardrail_entrada", "GUARDRAIL", patrones=codigos, intento_de_cambiar_reglas=True):
+        pass
+
+
+def descubrir_tools(state: EstadoNorma, config: RunnableConfig) -> dict[str, Any]:
+    if not state.get("iteraciones"):
+        _registrar_intento(state, config)
     if state.get("iteraciones", 0) >= MAX_ITERATIONS:
         logger.warning("Agente: se alcanzó el tope de %d iteraciones", MAX_ITERATIONS)
         return _failure(state)
@@ -64,6 +86,29 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             logger.warning("Agente: el LLM no devolvió texto ni tools")
             return {**_failure(state), "iteraciones": iterations}
         logger.warning("Agente: el LLM respondió sin una tool terminal")
+        # El texto suelto es un respond_to_customer(kind="informacion") sin propuesta: pasa por el mismo validador
+        turno = guardrails.contexto_turno(state["messages"][state.get("inicio_turno", 0) :])
+        vigente = OrderDraft.model_validate(state["propuesta"]) if state.get("propuesta") else None
+        rechazos = guardrails.validar_salida(text, "informacion", turno=turno, vigente=vigente)
+        if rechazos:
+            reglas = ",".join(rechazo.regla for rechazo in rechazos)
+            with observabilidad.paso("validar_texto_suelto", "GUARDRAIL", iteracion=iterations) as paso:
+                paso.fallo(guardrails.CODIGO_RECHAZO)
+                paso.atributos(reglas=reglas)
+            # Sin una tool call a la que contestar, el aviso va como mensaje marcado: el texto no llega al cliente
+            aviso = guardrails.aviso_texto_suelto(rechazos)
+            if turno.rechazos < guardrails.MAX_RECHAZOS:
+                logger.warning("Guardrail: texto suelto rechazado (reglas=%s)", reglas)
+                return {"messages": [message, aviso], "iteraciones": iterations}
+            logger.warning("Guardrail: intentos agotados, sale el mensaje fijo (reglas=%s)", reglas)
+            text = guardrails.mensaje_seguro(None)
+            return {
+                "messages": [message, aviso, AIMessage(content=text)],
+                "iteraciones": iterations,
+                "respuesta": text,
+                "kind": "informacion",
+                "propuesta": None,
+            }
         return {
             "messages": [message],
             "iteraciones": iterations,
@@ -80,6 +125,7 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             disponibles=state["tools_disponibles"],
             skills_activas=list(state.get("skills_activas", [])),
             propuesta=OrderDraft.model_validate(propuesta) if propuesta else None,
+            turno=guardrails.contexto_turno(state["messages"][state.get("inicio_turno", 0) :]),
         )
         messages: list[Any] = []
         for call in state["messages"][-1].tool_calls:
@@ -159,7 +205,10 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
     def decidir(state: EstadoNorma) -> str:
         if state.get("falla_turno"):
             return ruta_falla(state)
-        return "tool_calls" if state["messages"][-1].tool_calls else "texto"
+        ultimo = state["messages"][-1]
+        if guardrails.es_aviso(ultimo):
+            return "rechazado"  # el texto suelto no pasó el validador: el LLM reescribe
+        return "tool_calls" if ultimo.tool_calls else "texto"
 
     def decidir_resultado(state: EstadoNorma) -> str:
         return state["resultado"]
@@ -176,7 +225,9 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
         "descubrir_tools", decidir_iteracion, {"llm": "llm", "error": "pausa", "handoff": END}
     )
     graph.add_conditional_edges(
-        "llm", decidir, {"tool_calls": "tools", "texto": "pausa", "error": "pausa", "handoff": END}
+        "llm",
+        decidir,
+        {"tool_calls": "tools", "texto": "pausa", "rechazado": "descubrir_tools", "error": "pausa", "handoff": END},
     )
     graph.add_conditional_edges(
         "tools", decidir_resultado, {"continuar": "descubrir_tools", "pausar": "pausa", "final": END}

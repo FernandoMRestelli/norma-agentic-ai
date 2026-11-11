@@ -16,7 +16,7 @@ from functools import lru_cache
 from types import ModuleType
 from typing import Any
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from internal.agent.state import EstadoNorma
 from internal.config import get_settings
@@ -54,6 +54,8 @@ def resumir(state: EstadoNorma) -> ResumenTurno:
             result = json.loads(message.content)
             if not result.get("ok"):
                 resumen.errores.append(result["error"]["code"])
+        elif isinstance(message, HumanMessage) and "guardrail" in message.additional_kwargs:
+            resumen.errores.append("respuesta_rechazada")  # texto suelto que no pasó el validador
     if propuesta := state.get("propuesta"):
         resumen.draft_id = propuesta.get("draft_id")
     if state.get("kind") == "pedido" and not state.get("iteraciones"):

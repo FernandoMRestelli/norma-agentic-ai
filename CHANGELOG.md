@@ -11,6 +11,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 ### Agregado
 
 - Plan de mejora del asistente en `docs/plan-mejora-asistente.md`: diagnóstico de lo que está flojo (búsqueda con errores de tipeo, guardrails, guardado de pedidos, planillas y skills) y los cinco frentes de trabajo, cada uno con su rama, su spec y sus IDs reservados.
+- Guardrails en código (`docs/spec/guardrails.md`): antes de llegar al cliente, cada mensaje del asistente, incluido el texto suelto, se revisa para que no revele stock, no nombre SKU ni datos internos, no diga que el pedido está hecho, no invente precios, no prometa descuentos, envíos, plazos ni formas de pago y no use `**`; si falla, el asistente lo reescribe, y al tercer intento sale un mensaje fijo. Además, un mensaje de más de 4000 caracteres o más de 10 mensajes por minuto de un mismo cliente reciben una respuesta fija sin llamar al LLM, el nombre del perfil entra limpio al prompt y los intentos de cambiar las reglas quedan en el log y en la traza, sin el texto. No hay variables nuevas que configurar.
 
 ### Cambiado
 
