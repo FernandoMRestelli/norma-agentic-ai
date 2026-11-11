@@ -5,61 +5,173 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Norma · Dashboard Operativo</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              1: '#f6e48e',
+              2: '#f8c391',
+              3: '#f67481',
+              4: '#c06d84',
+              5: '#6c5b80',
+            }
+          }
+        }
+      }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    body { font-family: 'Inter', sans-serif; }
-    .badge-recibido { background-color: #fef3c7; color: #92400e; }
-    .badge-preparado { background-color: #dbeafe; color: #1e40af; }
-    .badge-despachado { background-color: #f3e8ff; color: #6b21a8; }
-    .badge-retirado { background-color: #d1fae5; color: #065f46; }
-    .badge-entregado { background-color: #ccfbf1; color: #115e59; }
-    .badge-cancelado { background-color: #fee2e2; color: #991b1b; }
-  </style>
-</head>
-<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
+    :root {
+      --color-1: #f6e48e;
+      --color-2: #f8c391;
+      --color-3: #f67481;
+      --color-4: #c06d84;
+      --color-5: #6c5b80;
+    }
 
-  <!-- Header -->
-  <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    }
+
+    .tabular-nums { font-variant-numeric: tabular-nums; }
+
+    /* Status badges harmonized with palette (Light & Dark) */
+    .badge-recibido {
+      background-color: rgba(246, 228, 142, 0.35);
+      color: #6b5300;
+      border: 1px solid rgba(246, 228, 142, 0.9);
+    }
+    .dark .badge-recibido {
+      background-color: rgba(246, 228, 142, 0.14);
+      color: var(--color-1);
+      border-color: rgba(246, 228, 142, 0.3);
+    }
+
+    .badge-preparado {
+      background-color: rgba(248, 195, 145, 0.32);
+      color: #7c3f0e;
+      border: 1px solid rgba(248, 195, 145, 0.85);
+    }
+    .dark .badge-preparado {
+      background-color: rgba(248, 195, 145, 0.14);
+      color: var(--color-2);
+      border-color: rgba(248, 195, 145, 0.3);
+    }
+
+    .badge-despachado {
+      background-color: rgba(192, 109, 132, 0.14);
+      color: #8c3750;
+      border: 1px solid rgba(192, 109, 132, 0.38);
+    }
+    .dark .badge-despachado {
+      background-color: rgba(192, 109, 132, 0.18);
+      color: #e49bb0;
+      border-color: rgba(192, 109, 132, 0.35);
+    }
+
+    .badge-retirado {
+      background-color: rgba(108, 91, 128, 0.13);
+      color: #4d3e5f;
+      border: 1px solid rgba(108, 91, 128, 0.32);
+    }
+    .dark .badge-retirado {
+      background-color: rgba(108, 91, 128, 0.28);
+      color: #d5c7e8;
+      border-color: rgba(169, 149, 194, 0.35);
+    }
+
+    .badge-entregado {
+      background-color: rgba(16, 185, 129, 0.12);
+      color: #065f46;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .dark .badge-entregado {
+      background-color: rgba(16, 185, 129, 0.15);
+      color: #6ee7b7;
+      border-color: rgba(16, 185, 129, 0.3);
+    }
+
+    .badge-cancelado {
+      background-color: rgba(246, 116, 129, 0.16);
+      color: #9e2130;
+      border: 1px solid rgba(246, 116, 129, 0.45);
+    }
+    .dark .badge-cancelado {
+      background-color: rgba(246, 116, 129, 0.15);
+      color: var(--color-3);
+      border-color: rgba(246, 116, 129, 0.32);
+    }
+  </style>
+  <script>
+    // Apply saved theme immediately to avoid flash
+    (function () {
+      const saved = localStorage.getItem('norma_theme');
+      if (saved === 'dark') document.documentElement.classList.add('dark');
+    })();
+  </script>
+</head>
+<body class="bg-white dark:bg-black text-zinc-900 dark:text-zinc-100 min-h-screen flex flex-col transition-colors duration-200 antialiased">
+
+  <!-- Top Navigation (Flowbite + Tremor minimalist bar) -->
+  <header class="bg-white/95 dark:bg-zinc-950/95 backdrop-blur border-b border-zinc-200 dark:border-zinc-800 sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
       <div class="flex items-center space-x-3">
-        <div class="w-9 h-9 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-lg shadow-sm">
+        <div class="w-9 h-9 rounded-xl flex items-center justify-center text-white font-semibold text-base shadow-sm" style="background: linear-gradient(135deg, var(--color-5), var(--color-4));">
           N
         </div>
         <div>
-          <h1 class="font-bold text-slate-800 text-lg leading-tight">Norma Agentic AI</h1>
-          <p class="text-xs text-slate-500">Panel Operativo & Gestión de Pedidos</p>
+          <div class="flex items-center space-x-2">
+            <h1 class="font-semibold text-zinc-900 dark:text-white text-base tracking-tight">Norma</h1>
+            <span class="text-[11px] font-medium px-2 py-0.5 rounded-md border border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400">Operativo</span>
+          </div>
+          <p class="text-xs text-zinc-500 dark:text-zinc-400 hidden sm:block">Panel de pedidos, stock y analítica</p>
         </div>
       </div>
 
-      <!-- Controls & Auth -->
-      <div class="flex items-center space-x-3">
-        <div id="liveClock" class="text-xs text-slate-500 hidden sm:block bg-slate-100 px-2.5 py-1.5 rounded-md font-mono">
+      <!-- Controls -->
+      <div class="flex items-center space-x-2">
+        <div id="liveClock" class="text-xs text-zinc-500 dark:text-zinc-400 hidden md:block px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 font-mono tabular-nums">
           --:--:--
         </div>
 
         <!-- Auto Refresh -->
-        <div class="flex items-center bg-slate-100 rounded-lg p-1 text-xs">
-          <button id="toggleAutoRefresh" class="px-2.5 py-1 rounded bg-white font-medium text-slate-700 shadow-sm flex items-center space-x-1.5">
-            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>Auto (60s)</span>
+        <div class="flex items-center rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 p-0.5 text-xs">
+          <button id="toggleAutoRefresh" class="px-2.5 py-1 rounded-md bg-white dark:bg-zinc-800 font-medium text-zinc-700 dark:text-zinc-200 shadow-xs flex items-center space-x-1.5" title="Activar o pausar recarga automática cada 60s">
+            <span class="w-2 h-2 rounded-full bg-brand-4 animate-pulse"></span>
+            <span class="hidden sm:inline">Auto</span>
           </button>
-          <span id="countdownText" class="px-2 font-mono text-slate-500">60s</span>
+          <span id="countdownText" class="px-2 font-mono tabular-nums text-zinc-500 dark:text-zinc-400">60s</span>
         </div>
 
-        <!-- Manual Refresh Button -->
-        <button id="btnRefresh" title="Actualizar datos ahora" class="p-2 text-slate-600 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition">
-          <svg id="refreshIcon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <!-- Manual Refresh -->
+        <button id="btnRefresh" title="Actualizar datos ahora" class="p-2 text-zinc-600 dark:text-zinc-300 hover:text-brand-5 dark:hover:text-brand-2 hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded-lg border border-transparent hover:border-zinc-200 dark:hover:border-zinc-800 transition">
+          <svg id="refreshIcon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
           </svg>
         </button>
 
-        <!-- Token config -->
-        <button id="btnAuthModal" class="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-700 flex items-center space-x-1">
-          <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
+        <!-- Theme Toggle (White / Black) -->
+        <button id="btnThemeToggle" title="Cambiar fondo Blanco / Negro" class="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200 flex items-center space-x-1.5 transition">
+          <svg id="iconSun" class="w-3.5 h-3.5 hidden dark:block text-brand-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>
           </svg>
+          <svg id="iconMoon" class="w-3.5 h-3.5 block dark:hidden text-brand-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>
+          </svg>
+          <span id="themeLabel" class="hidden sm:inline">Negro</span>
+        </button>
+
+        <!-- Token Auth -->
+        <button id="btnAuthModal" class="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200 flex items-center space-x-1.5 transition">
+          <span class="w-1.5 h-1.5 rounded-full bg-zinc-400" id="authDot"></span>
           <span id="authLabel">Token</span>
         </button>
       </div>
@@ -69,108 +181,120 @@
   <!-- Main Content -->
   <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full space-y-6">
 
-    <!-- KPI Summary Cards -->
+    <!-- Operational Summary Period Bar -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+      <div class="flex items-center space-x-2 text-xs text-zinc-500 dark:text-zinc-400">
+        <span class="font-semibold text-zinc-700 dark:text-zinc-200 uppercase tracking-wider text-[11px]">Resumen Operativo</span>
+        <span>·</span>
+        <span id="summaryPeriodBadge">Hoy (Argentina)</span>
+      </div>
+      <div id="summaryPeriodButtons" class="inline-flex bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 p-0.5 rounded-lg text-xs font-medium self-start sm:self-auto shadow-2xs">
+        <button data-period="today" class="summary-period-btn px-3 py-1 rounded-md bg-zinc-900 dark:bg-zinc-800 text-white shadow-xs font-semibold">Hoy</button>
+        <button data-period="yesterday" class="summary-period-btn px-3 py-1 rounded-md text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white">Ayer</button>
+        <button data-period="7d" class="summary-period-btn px-3 py-1 rounded-md text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white">Semana</button>
+        <button data-period="30d" class="summary-period-btn px-3 py-1 rounded-md text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white">Mes</button>
+        <button data-period="all" class="summary-period-btn px-3 py-1 rounded-md text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white">Todo</button>
+      </div>
+    </div>
+
+    <!-- Tremor-style Minimal KPI Row -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-      <!-- Card: Pedidos Hoy -->
-      <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex items-center justify-between">
-        <div>
-          <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Pedidos de Hoy</p>
-          <h3 id="metricOrdersToday" class="text-3xl font-bold text-slate-900 mt-1">--</h3>
-          <p class="text-xs text-slate-400 mt-0.5">Fecha local Argentina</p>
+      <div class="bg-white dark:bg-zinc-950 rounded-xl p-5 border border-zinc-200 dark:border-zinc-800 relative overflow-hidden">
+        <div class="absolute top-0 left-0 right-0 h-0.5 bg-brand-5"></div>
+        <div class="flex items-center justify-between">
+          <p id="summaryOrdersTitle" class="text-xs font-medium text-zinc-500 dark:text-zinc-400">Pedidos (Hoy)</p>
+          <span class="w-2 h-2 rounded-full bg-brand-5"></span>
         </div>
-        <div class="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path>
-          </svg>
-        </div>
+        <h3 id="metricOrdersToday" class="text-3xl font-semibold text-zinc-950 dark:text-white mt-2 tabular-nums tracking-tight">--</h3>
+        <p id="summaryOrdersSub" class="text-xs text-zinc-400 dark:text-zinc-500 mt-1">Fecha local Argentina</p>
       </div>
 
-      <!-- Card: Stock Bajo -->
-      <div id="cardLowStock" class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex items-center justify-between cursor-pointer hover:border-amber-400 transition">
-        <div>
-          <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Stock Bajo</p>
-          <h3 id="metricLowStock" class="text-3xl font-bold text-slate-900 mt-1">--</h3>
-          <p class="text-xs text-slate-400 mt-0.5">Productos &lt; stock mínimo</p>
+      <div id="cardLowStock" class="bg-white dark:bg-zinc-950 rounded-xl p-5 border border-zinc-200 dark:border-zinc-800 relative overflow-hidden cursor-pointer hover:border-brand-3 dark:hover:border-brand-3 transition" title="Clic para filtrar stock bajo">
+        <div class="absolute top-0 left-0 right-0 h-0.5 bg-brand-3"></div>
+        <div class="flex items-center justify-between">
+          <p class="text-xs font-medium text-zinc-500 dark:text-zinc-400">Stock Bajo</p>
+          <span id="iconLowStock" class="w-2 h-2 rounded-full bg-brand-3"></span>
         </div>
-        <div id="iconLowStock" class="w-12 h-12 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center">
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
-          </svg>
-        </div>
+        <h3 id="metricLowStock" class="text-3xl font-semibold text-zinc-950 dark:text-white mt-2 tabular-nums tracking-tight">--</h3>
+        <p class="text-xs text-zinc-400 dark:text-zinc-500 mt-1">Debajo del mínimo configurado</p>
       </div>
 
-      <!-- Card: Productos Distintos Hoy -->
-      <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex items-center justify-between">
-        <div>
-          <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Variedad Pedida</p>
-          <h3 id="metricDistinctProducts" class="text-3xl font-bold text-slate-900 mt-1">--</h3>
-          <p class="text-xs text-slate-400 mt-0.5">SKUs distintos hoy</p>
+      <div class="bg-white dark:bg-zinc-950 rounded-xl p-5 border border-zinc-200 dark:border-zinc-800 relative overflow-hidden">
+        <div class="absolute top-0 left-0 right-0 h-0.5 bg-brand-2"></div>
+        <div class="flex items-center justify-between">
+          <p class="text-xs font-medium text-zinc-500 dark:text-zinc-400">Variedad Pedida</p>
+          <span class="w-2 h-2 rounded-full bg-brand-2"></span>
         </div>
-        <div class="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
-          </svg>
-        </div>
+        <h3 id="metricDistinctProducts" class="text-3xl font-semibold text-zinc-950 dark:text-white mt-2 tabular-nums tracking-tight">--</h3>
+        <p id="summaryDistinctSub" class="text-xs text-zinc-400 dark:text-zinc-500 mt-1">SKUs distintos (Hoy)</p>
       </div>
 
-      <!-- Card: Desglose Rápido de Estados -->
-      <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex flex-col justify-center">
-        <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Pedidos por Estado</p>
-        <div id="statusChips" class="flex flex-wrap gap-1.5 text-xs">
-          <!-- Filled by JS -->
-          <span class="text-slate-400">Cargando...</span>
+      <div class="bg-white dark:bg-zinc-950 rounded-xl p-5 border border-zinc-200 dark:border-zinc-800 relative overflow-hidden flex flex-col justify-between">
+        <div class="absolute top-0 left-0 right-0 h-0.5 bg-brand-4"></div>
+        <p id="summaryStatusTitle" class="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-2">Pedidos por Estado (Hoy)</p>
+        <div id="statusChips" class="flex flex-wrap gap-1.5 text-[11px]">
+          <span class="text-zinc-400">Cargando...</span>
         </div>
       </div>
     </div>
 
-    <!-- Tabs Navigation -->
-    <div class="border-b border-slate-200">
-      <nav class="flex space-x-6 text-sm font-medium">
-        <button id="tabBtnOrders" class="pb-3 border-b-2 border-indigo-600 text-indigo-600 font-semibold flex items-center space-x-2">
-          <span>📦 Pedidos</span>
-          <span id="tabBadgeOrders" class="px-2 py-0.5 text-xs rounded-full bg-indigo-100 text-indigo-700">0</span>
+    <!-- Flowbite-style Underlined Tabs -->
+    <div class="border-b border-zinc-200 dark:border-zinc-800 overflow-x-auto">
+      <nav class="flex space-x-6 text-sm whitespace-nowrap">
+        <button id="tabBtnOrders" class="pb-3 border-b-2 border-brand-5 dark:border-brand-3 text-zinc-900 dark:text-white font-semibold flex items-center space-x-2 transition">
+          <span>Pedidos</span>
+          <span id="tabBadgeOrders" class="px-2 py-0.5 text-xs rounded-full bg-zinc-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 tabular-nums">0</span>
         </button>
-        <button id="tabBtnStock" class="pb-3 border-b-2 border-transparent text-slate-500 hover:text-slate-700 flex items-center space-x-2">
-          <span>🏷️ Catálogo & Stock</span>
-          <span id="tabBadgeStock" class="px-2 py-0.5 text-xs rounded-full bg-slate-100 text-slate-600">0</span>
+        <button id="tabBtnKpis" class="pb-3 border-b-2 border-transparent text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 font-medium flex items-center space-x-2 transition">
+          <span>Ventas &amp; KPIs</span>
         </button>
-        <button id="tabBtnConversations" class="pb-3 border-b-2 border-transparent text-slate-500 hover:text-slate-700 flex items-center space-x-2">
-          <span>💬 Derivaciones / Atención</span>
-          <span id="tabBadgeConversations" class="px-2 py-0.5 text-xs rounded-full bg-amber-100 text-amber-700">0</span>
+        <button id="tabBtnStock" class="pb-3 border-b-2 border-transparent text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 font-medium flex items-center space-x-2 transition">
+          <span>Catálogo &amp; Stock</span>
+          <span id="tabBadgeStock" class="px-2 py-0.5 text-xs rounded-full bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 tabular-nums">0</span>
+        </button>
+        <button id="tabBtnConversations" class="pb-3 border-b-2 border-transparent text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 font-medium flex items-center space-x-2 transition">
+          <span>Derivaciones</span>
+          <span id="tabBadgeConversations" class="px-2 py-0.5 text-xs rounded-full bg-brand-3/15 text-brand-4 dark:text-brand-3 tabular-nums">0</span>
         </button>
       </nav>
     </div>
 
     <!-- TAB 1: Pedidos -->
     <section id="tabContentOrders" class="space-y-4">
-      <!-- Filters bar -->
-      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
-        <div class="flex items-center space-x-2 w-full sm:w-auto">
-          <label for="filterStatus" class="text-xs font-medium text-slate-500 whitespace-nowrap">Filtrar estado:</label>
-          <select id="filterStatus" class="text-sm bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-            <option value="">Todos los estados</option>
-            <option value="Recibido">Recibido</option>
-            <option value="Preparado">Preparado</option>
-            <option value="Despachado">Despachado</option>
-            <option value="Retirado">Retirado</option>
-            <option value="Entregado">Entregado</option>
-            <option value="Cancelado">Cancelado</option>
-          </select>
+      <div class="bg-white dark:bg-zinc-950 p-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+        <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
+          <div class="relative flex-1 max-w-md">
+            <input type="text" id="ordersSearch" placeholder="Buscar por ID (ORD-0001), cliente o producto..." class="w-full text-sm bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg pl-9 pr-3 py-1.5 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-brand-5/40 focus:border-brand-5">
+            <svg class="w-4 h-4 text-zinc-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+            </svg>
+          </div>
+          <div class="flex items-center space-x-2">
+            <label for="filterStatus" class="text-xs font-medium text-zinc-500 dark:text-zinc-400 whitespace-nowrap">Estado:</label>
+            <select id="filterStatus" class="text-sm bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-1.5 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-brand-5/40">
+              <option value="">Todos</option>
+              <option value="Recibido">Recibido</option>
+              <option value="Preparado">Preparado</option>
+              <option value="Despachado">Despachado</option>
+              <option value="Retirado">Retirado</option>
+              <option value="Entregado">Entregado</option>
+              <option value="Cancelado">Cancelado</option>
+            </select>
+          </div>
         </div>
 
-        <div class="text-xs text-slate-500 w-full sm:w-auto text-right">
-          Mostrando los pedidos más recientes
+        <div id="ordersCountInfo" class="text-xs text-zinc-400 dark:text-zinc-500 text-right tabular-nums">
+          Clic en una fila para ver detalle
         </div>
       </div>
 
-      <!-- Orders Table -->
-      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="bg-white dark:bg-zinc-950 rounded-xl border border-zinc-200 dark:border-zinc-800 overflow-hidden">
         <div class="overflow-x-auto">
-          <table class="min-w-full divide-y divide-slate-200 text-sm">
-            <thead class="bg-slate-50 text-slate-500 text-xs font-semibold uppercase tracking-wider text-left">
+          <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800 text-sm">
+            <thead class="bg-zinc-50 dark:bg-zinc-900/70 text-zinc-500 dark:text-zinc-400 text-[11px] font-semibold uppercase tracking-wider text-left">
               <tr>
                 <th class="px-4 py-3">ID</th>
-                <th class="px-4 py-3">Fecha / Hora</th>
+                <th class="px-4 py-3">Fecha</th>
                 <th class="px-4 py-3">Cliente</th>
                 <th class="px-4 py-3">Canal</th>
                 <th class="px-4 py-3">Productos</th>
@@ -179,9 +303,9 @@
                 <th class="px-4 py-3 text-right">Acciones</th>
               </tr>
             </thead>
-            <tbody id="ordersTableBody" class="divide-y divide-slate-100 text-slate-700">
+            <tbody id="ordersTableBody" class="divide-y divide-zinc-100 dark:divide-zinc-900 text-zinc-700 dark:text-zinc-300">
               <tr>
-                <td colspan="8" class="px-4 py-8 text-center text-slate-400">Cargando pedidos...</td>
+                <td colspan="8" class="px-4 py-8 text-center text-zinc-400">Cargando pedidos...</td>
               </tr>
             </tbody>
           </table>
@@ -189,28 +313,312 @@
       </div>
     </section>
 
-    <!-- TAB 2: Catálogo & Stock -->
-    <section id="tabContentStock" class="space-y-4 hidden">
-      <!-- Stock filters -->
-      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
-        <div class="relative w-full sm:w-80">
-          <input type="text" id="stockSearch" placeholder="Buscar por producto, marca o SKU..." class="w-full text-sm bg-slate-50 border border-slate-300 rounded-lg pl-9 pr-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-          <svg class="w-4 h-4 text-slate-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-          </svg>
+    <!-- TAB 2: Ventas & KPIs -->
+    <section id="tabContentKpis" class="space-y-6 hidden">
+      <!-- Global KPI Filters Bar (Image 3 style) -->
+      <div class="bg-white dark:bg-zinc-950 p-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div class="text-xs text-zinc-500 dark:text-zinc-400 flex items-center space-x-2">
+          <span class="w-2 h-2 rounded-full bg-brand-4"></span>
+          <span>Última actualización: <strong id="kpiLastUpdate" class="font-mono text-zinc-700 dark:text-zinc-200">--:--:--</strong></span>
         </div>
-
-        <div class="flex items-center space-x-2">
-          <input type="checkbox" id="checkOnlyLowStock" class="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4">
-          <label for="checkOnlyLowStock" class="text-sm text-slate-700 cursor-pointer select-none">Mostrar únicamente stock bajo</label>
+        <div class="flex flex-wrap items-center gap-2">
+          <select id="kpiPeriodFilter" class="text-xs font-medium bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-1.5 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-brand-5/40">
+            <option value="all">Período: Histórico</option>
+            <option value="today">Período: Hoy</option>
+            <option value="yesterday">Período: Ayer</option>
+            <option value="7d">Período: Últimos 7 días</option>
+            <option value="30d">Período: Últimos 30 días</option>
+          </select>
+          <select id="kpiChannelFilter" class="text-xs font-medium bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-1.5 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-brand-5/40">
+            <option value="">Canal: Todos</option>
+            <option value="telegram">Canal: Telegram</option>
+            <option value="whatsapp">Canal: WhatsApp</option>
+            <option value="web">Canal: Web</option>
+          </select>
         </div>
       </div>
 
-      <!-- Stock Table -->
-      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <!-- Row 1: 2 Hybrid Hero Cards (KPI + Integrated Ring - Image 3 style) -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <!-- Hero Card 1: Facturación & Balance Operativo -->
+        <div class="bg-white dark:bg-zinc-950 rounded-xl p-5 border border-zinc-200 dark:border-zinc-800 flex flex-col sm:flex-row items-center justify-between gap-4 min-w-0 overflow-hidden">
+          <div class="space-y-2.5 flex-1 min-w-0 w-full">
+            <p class="text-xs font-medium text-zinc-500 dark:text-zinc-400">Facturación Total (Pedidos Válidos)</p>
+            <h3 id="kpiTotalRevenue" class="text-2xl font-semibold text-zinc-950 dark:text-white tabular-nums tracking-tight break-words">--</h3>
+            <div class="space-y-1 pt-1 border-t border-zinc-100 dark:border-zinc-900 text-xs tabular-nums">
+              <div class="flex items-center justify-between">
+                <span class="text-zinc-500 dark:text-zinc-400 flex items-center space-x-1.5"><span class="w-2 h-2 rounded-full bg-brand-5"></span><span>Concretado</span></span>
+                <span id="kpiCompletedRevenue" class="font-medium text-zinc-900 dark:text-zinc-100">--</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-zinc-500 dark:text-zinc-400 flex items-center space-x-1.5"><span class="w-2 h-2 rounded-full bg-brand-2"></span><span>En curso</span></span>
+                <span id="kpiInProgressRevenue" class="font-medium text-zinc-900 dark:text-zinc-100">--</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-zinc-500 dark:text-zinc-400 flex items-center space-x-1.5"><span class="w-2 h-2 rounded-full bg-brand-3"></span><span>Cancelado</span></span>
+                <span id="kpiCancelledRevenue" class="font-medium text-brand-3">--</span>
+              </div>
+            </div>
+          </div>
+          <div class="w-36 h-36 shrink-0 relative">
+            <canvas id="statusRingChart"></canvas>
+          </div>
+        </div>
+
+        <!-- Hero Card 2: Pedidos en Curso & Distribución por Canal -->
+        <div class="bg-white dark:bg-zinc-950 rounded-xl p-5 border border-zinc-200 dark:border-zinc-800 flex flex-col sm:flex-row items-center justify-between gap-4 min-w-0 overflow-hidden">
+          <div class="space-y-2.5 flex-1 min-w-0 w-full">
+            <p class="text-xs font-medium text-zinc-500 dark:text-zinc-400">Pedidos en Curso &amp; Canales</p>
+            <div class="flex items-baseline space-x-2">
+              <h3 id="kpiInProgressCount" class="text-2xl font-semibold text-zinc-950 dark:text-white tabular-nums tracking-tight">--</h3>
+              <span class="text-xs text-zinc-400 dark:text-zinc-500">abiertos</span>
+            </div>
+            <div class="space-y-1 pt-1 border-t border-zinc-100 dark:border-zinc-900 text-xs tabular-nums">
+              <div class="flex items-center justify-between">
+                <span class="text-zinc-500 dark:text-zinc-400">Pedidos concretados</span>
+                <span id="kpiCompletedCount" class="font-medium text-zinc-900 dark:text-zinc-100">--</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-zinc-500 dark:text-zinc-400">Tasa de concreción</span>
+                <span id="kpiCompletionRate" class="font-medium text-brand-4 dark:text-brand-2">--%</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-zinc-500 dark:text-zinc-400">Total pedidos válidos</span>
+                <span id="kpiActiveOrdersCount" class="font-medium text-zinc-900 dark:text-zinc-100">--</span>
+              </div>
+            </div>
+          </div>
+          <div class="w-36 h-36 shrink-0 relative">
+            <canvas id="channelRingChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 2: 4 Compact KPI Cards with Progress Bars -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="bg-white dark:bg-zinc-950 rounded-xl p-5 border border-zinc-200 dark:border-zinc-800 min-w-0 overflow-hidden flex flex-col justify-between">
+          <div>
+            <p class="text-xs font-medium text-zinc-500 dark:text-zinc-400">Ticket Promedio</p>
+            <h3 id="kpiAvgTicket" class="text-2xl font-semibold text-zinc-950 dark:text-white mt-1.5 tabular-nums tracking-tight break-words">--</h3>
+          </div>
+          <div class="mt-3">
+            <p id="kpiAvgTicketSub" class="text-[11px] text-zinc-400 dark:text-zinc-500 tabular-nums">Por pedido válido</p>
+            <div class="w-full h-1.5 bg-zinc-100 dark:bg-zinc-900 rounded-full mt-2 overflow-hidden">
+              <div class="h-full bg-brand-5 rounded-full" style="width: 100%"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white dark:bg-zinc-950 rounded-xl p-5 border border-zinc-200 dark:border-zinc-800 min-w-0 overflow-hidden flex flex-col justify-between">
+          <div>
+            <p class="text-xs font-medium text-zinc-500 dark:text-zinc-400">Valorización de Stock</p>
+            <h3 id="kpiCatalogValuation" class="text-xl font-semibold text-zinc-950 dark:text-white mt-1.5 tabular-nums tracking-tight break-words">--</h3>
+          </div>
+          <div class="mt-3">
+            <p class="text-[11px] text-zinc-400 dark:text-zinc-500">A precio de venta actual</p>
+            <div class="w-full h-1.5 bg-zinc-100 dark:bg-zinc-900 rounded-full mt-2 overflow-hidden">
+              <div class="h-full bg-brand-4 rounded-full" style="width: 100%"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white dark:bg-zinc-950 rounded-xl p-5 border border-zinc-200 dark:border-zinc-800 min-w-0 overflow-hidden flex flex-col justify-between">
+          <div>
+            <p class="text-xs font-medium text-zinc-500 dark:text-zinc-400">Salud de Inventario</p>
+            <h3 id="kpiStockHealthPct" class="text-2xl font-semibold text-zinc-950 dark:text-white mt-1.5 tabular-nums tracking-tight">--%</h3>
+          </div>
+          <div class="mt-3">
+            <p id="kpiStockHealthSub" class="text-[11px] text-zinc-400 dark:text-zinc-500 tabular-nums">-- / -- SKUs sobre mínimo</p>
+            <div class="w-full h-1.5 bg-zinc-100 dark:bg-zinc-900 rounded-full mt-2 overflow-hidden">
+              <div id="kpiStockHealthBar" class="h-full bg-brand-2 rounded-full transition-all duration-500" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white dark:bg-zinc-950 rounded-xl p-5 border border-zinc-200 dark:border-zinc-800 min-w-0 overflow-hidden flex flex-col justify-between">
+          <div>
+            <p class="text-xs font-medium text-zinc-500 dark:text-zinc-400">Tasa de Cancelación</p>
+            <h3 id="kpiCancellationRate" class="text-2xl font-semibold text-zinc-950 dark:text-white mt-1.5 tabular-nums tracking-tight">--%</h3>
+          </div>
+          <div class="mt-3">
+            <p id="kpiCancelledCount" class="text-[11px] text-brand-3 font-medium tabular-nums">-- cancelados</p>
+            <div class="w-full h-1.5 bg-zinc-100 dark:bg-zinc-900 rounded-full mt-2 overflow-hidden">
+              <div id="kpiCancellationBar" class="h-full bg-brand-3 rounded-full transition-all duration-500" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 3: Combo Bar + Line Chart (Image 2 style) -->
+      <div class="bg-white dark:bg-zinc-950 rounded-xl border border-zinc-200 dark:border-zinc-800 p-5 space-y-4">
+        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div>
+            <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">Evolución de Monto, Pedidos &amp; Productos</h3>
+            <p class="text-xs text-zinc-500 dark:text-zinc-400">Barras = Monto vendido ($) · Líneas = Cantidad de pedidos y productos vendidos</p>
+          </div>
+          <div class="inline-flex bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-0.5 rounded-lg text-xs font-medium self-start" id="granularityButtons">
+            <button data-granularity="day" class="granularity-btn px-3 py-1.5 rounded-md bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-xs font-semibold">Día</button>
+            <button data-granularity="week" class="granularity-btn px-3 py-1.5 rounded-md text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white">Semana</button>
+            <button data-granularity="month" class="granularity-btn px-3 py-1.5 rounded-md text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white">Mes</button>
+            <button data-granularity="year" class="granularity-btn px-3 py-1.5 rounded-md text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white">Año</button>
+          </div>
+        </div>
+
+        <!-- Series Visibility Filter Bar -->
+        <div class="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-zinc-100 dark:border-zinc-900">
+          <div class="flex flex-wrap items-center gap-1.5">
+            <span class="text-[11px] font-medium text-zinc-400 dark:text-zinc-500 mr-1">Series visibles:</span>
+            <button type="button" data-series="revenue" class="series-toggle-btn inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition" aria-pressed="true">
+              <span class="w-2 h-2 rounded-full bg-brand-5 dark:bg-brand-4"></span>
+              <span>Monto ($)</span>
+            </button>
+            <button type="button" data-series="orders" class="series-toggle-btn inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition" aria-pressed="true">
+              <span class="w-2 h-2 rounded-full bg-brand-3 dark:bg-brand-1"></span>
+              <span>Pedidos</span>
+            </button>
+            <button type="button" data-series="units" class="series-toggle-btn inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition" aria-pressed="true">
+              <span class="w-2 h-2 rounded-full bg-brand-2"></span>
+              <span>Productos vendidos</span>
+            </button>
+          </div>
+          <div class="inline-flex items-center gap-1.5 text-[11px]">
+            <button type="button" id="btnSeriesAll" class="px-2.5 py-1 rounded-md border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900 font-medium transition">Todas</button>
+            <button type="button" id="btnSeriesNone" class="px-2.5 py-1 rounded-md border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900 font-medium transition">Ninguna</button>
+          </div>
+        </div>
+
+        <div class="h-72 relative">
+          <canvas id="revenueBarChart"></canvas>
+          <div id="revenueChartEmpty" class="hidden absolute inset-0 flex items-center justify-center text-xs text-zinc-400 dark:text-zinc-500 bg-zinc-50/70 dark:bg-zinc-900/40 rounded-lg border border-dashed border-zinc-200 dark:border-zinc-800">
+            Ninguna serie seleccionada — elegí una o más métricas arriba para visualizar el gráfico.
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 4: Pie Chart + Breakdown Table -->
+      <div class="bg-white dark:bg-zinc-950 rounded-xl border border-zinc-200 dark:border-zinc-800 p-5 space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">Distribución de Ventas</h3>
+            <p class="text-xs text-zinc-500 dark:text-zinc-400">Participación por categoría o marca</p>
+          </div>
+          <div class="inline-flex bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-0.5 rounded-lg text-xs font-medium self-start" id="breakdownButtons">
+            <button data-breakdown="category" class="breakdown-btn px-3 py-1.5 rounded-md bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-xs font-semibold">Por Categoría</button>
+            <button data-breakdown="brand" class="breakdown-btn px-3 py-1.5 rounded-md text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white">Por Marca</button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+          <div class="lg:col-span-5 h-72 relative flex items-center justify-center">
+            <canvas id="breakdownPieChart"></canvas>
+          </div>
+          <div class="lg:col-span-7 overflow-x-auto border border-zinc-200 dark:border-zinc-800 rounded-xl">
+            <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800 text-sm">
+              <thead class="bg-zinc-50 dark:bg-zinc-900/70 text-zinc-500 dark:text-zinc-400 text-[11px] font-semibold uppercase text-left">
+                <tr>
+                  <th id="breakdownColHeader" class="px-4 py-2.5">Categoría</th>
+                  <th class="px-4 py-2.5 text-right">Pedidos</th>
+                  <th class="px-4 py-2.5 text-right">Unidades</th>
+                  <th class="px-4 py-2.5 text-right">Vendido</th>
+                  <th class="px-4 py-2.5 text-right">%</th>
+                </tr>
+              </thead>
+              <tbody id="breakdownTableBody" class="divide-y divide-zinc-100 dark:divide-zinc-900 text-zinc-700 dark:text-zinc-300">
+                <tr><td colspan="5" class="px-4 py-6 text-center text-zinc-400">Sin datos todavía</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 5: Product Ranking (Horizontal Bars / Detail Table / No Movement - Image 1 style) -->
+      <div class="bg-white dark:bg-zinc-950 rounded-xl border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+        <div class="px-5 py-4 border-b border-zinc-200 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">Rotación de Productos</h3>
+            <p class="text-xs text-zinc-500 dark:text-zinc-400">Top más vendidos vs. stock inmovilizado sin pedidos en el período</p>
+          </div>
+          <div class="inline-flex bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-0.5 rounded-lg text-xs font-medium self-start" id="productViewButtons">
+            <button data-prodview="bars" class="prodview-btn px-3 py-1.5 rounded-md bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-xs font-semibold">Top Barras</button>
+            <button data-prodview="table" class="prodview-btn px-3 py-1.5 rounded-md text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white">Top Tabla</button>
+            <button data-prodview="nomove" class="prodview-btn px-3 py-1.5 rounded-md text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white">Sin Movimiento</button>
+          </div>
+        </div>
+
+        <div id="prodViewBars" class="p-5 h-80 relative">
+          <canvas id="topProductsBarChart"></canvas>
+        </div>
+
+        <div id="prodViewTable" class="overflow-x-auto hidden">
+          <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800 text-sm">
+            <thead class="bg-zinc-50 dark:bg-zinc-900/70 text-zinc-500 dark:text-zinc-400 text-[11px] font-semibold uppercase text-left">
+              <tr>
+                <th class="px-4 py-3">SKU</th>
+                <th class="px-4 py-3">Producto</th>
+                <th class="px-4 py-3">Marca</th>
+                <th class="px-4 py-3">Categoría</th>
+                <th class="px-4 py-3 text-right">Unidades</th>
+                <th class="px-4 py-3 text-right">Total Vendido</th>
+              </tr>
+            </thead>
+            <tbody id="topProductsTableBody" class="divide-y divide-zinc-100 dark:divide-zinc-900 text-zinc-700 dark:text-zinc-300">
+              <tr><td colspan="6" class="px-4 py-6 text-center text-zinc-400">Sin ventas registradas</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div id="prodViewNoMove" class="overflow-x-auto hidden">
+          <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800 text-sm">
+            <thead class="bg-zinc-50 dark:bg-zinc-900/70 text-zinc-500 dark:text-zinc-400 text-[11px] font-semibold uppercase text-left">
+              <tr>
+                <th class="px-4 py-3">SKU</th>
+                <th class="px-4 py-3">Producto</th>
+                <th class="px-4 py-3">Marca</th>
+                <th class="px-4 py-3 text-right">Stock</th>
+                <th class="px-4 py-3 text-right">Precio Unit.</th>
+                <th class="px-4 py-3 text-right">Capital Inmovilizado</th>
+              </tr>
+            </thead>
+            <tbody id="noMovementTableBody" class="divide-y divide-zinc-100 dark:divide-zinc-900 text-zinc-700 dark:text-zinc-300">
+              <tr><td colspan="6" class="px-4 py-6 text-center text-zinc-400">Sin datos disponibles</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <p class="text-xs text-zinc-400 dark:text-zinc-500 text-right">
+        Nota: el catálogo actual informa únicamente precios de venta (<code class="font-mono">precio</code>), sin costos ni márgenes netos.
+      </p>
+    </section>
+
+    <!-- TAB 3: Catálogo & Stock -->
+    <section id="tabContentStock" class="space-y-4 hidden">
+      <div class="bg-white dark:bg-zinc-950 p-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
+        <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
+          <div class="relative flex-1 max-w-sm">
+            <input type="text" id="stockSearch" placeholder="Buscar por producto, marca o SKU..." class="w-full text-sm bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg pl-9 pr-3 py-1.5 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-brand-5/40">
+            <svg class="w-4 h-4 text-zinc-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+            </svg>
+          </div>
+          <select id="stockCategoryFilter" class="text-sm bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-1.5 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-brand-5/40">
+            <option value="">Todas las categorías</option>
+          </select>
+        </div>
+
+        <div class="flex items-center justify-between sm:justify-end gap-4">
+          <label class="flex items-center space-x-2 cursor-pointer select-none">
+            <input type="checkbox" id="checkOnlyLowStock" class="rounded border-zinc-300 dark:border-zinc-700 text-brand-5 focus:ring-brand-5 w-4 h-4">
+            <span class="text-sm text-zinc-700 dark:text-zinc-300">Solo stock bajo</span>
+          </label>
+          <span id="stockCountInfo" class="text-xs text-zinc-400 dark:text-zinc-500 font-mono tabular-nums"></span>
+        </div>
+      </div>
+
+      <div class="bg-white dark:bg-zinc-950 rounded-xl border border-zinc-200 dark:border-zinc-800 overflow-hidden">
         <div class="overflow-x-auto">
-          <table class="min-w-full divide-y divide-slate-200 text-sm">
-            <thead class="bg-slate-50 text-slate-500 text-xs font-semibold uppercase tracking-wider text-left">
+          <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800 text-sm">
+            <thead class="bg-zinc-50 dark:bg-zinc-900/70 text-zinc-500 dark:text-zinc-400 text-[11px] font-semibold uppercase tracking-wider text-left">
               <tr>
                 <th class="px-4 py-3">SKU</th>
                 <th class="px-4 py-3">Producto</th>
@@ -220,12 +628,12 @@
                 <th class="px-4 py-3">Precio</th>
                 <th class="px-4 py-3">Stock Neto</th>
                 <th class="px-4 py-3">Mínimo</th>
-                <th class="px-4 py-3">Alerta</th>
+                <th class="px-4 py-3">Estado</th>
               </tr>
             </thead>
-            <tbody id="stockTableBody" class="divide-y divide-slate-100 text-slate-700">
+            <tbody id="stockTableBody" class="divide-y divide-zinc-100 dark:divide-zinc-900 text-zinc-700 dark:text-zinc-300">
               <tr>
-                <td colspan="9" class="px-4 py-8 text-center text-slate-400">Cargando catálogo...</td>
+                <td colspan="9" class="px-4 py-8 text-center text-zinc-400">Cargando catálogo...</td>
               </tr>
             </tbody>
           </table>
@@ -233,21 +641,21 @@
       </div>
     </section>
 
-    <!-- TAB 3: Conversaciones / Derivaciones -->
+    <!-- TAB 4: Conversaciones / Derivaciones -->
     <section id="tabContentConversations" class="space-y-4 hidden">
-      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
-        <p class="text-sm text-slate-600">
-          Conversaciones derivadas a un operador humano por consultas complejas, reclamos o fallas del bot (RF-24).
+      <div class="bg-white dark:bg-zinc-950 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <p class="text-sm text-zinc-600 dark:text-zinc-400">
+          Conversaciones derivadas a operador humano por consultas complejas, reclamos o fallas (RF-24).
         </p>
-        <button id="btnRefreshConversations" class="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-700">
+        <button id="btnRefreshConversations" class="px-3 py-1.5 text-xs font-medium rounded-lg border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-zinc-700 dark:text-zinc-300 self-start sm:self-auto">
           Refrescar
         </button>
       </div>
 
-      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="bg-white dark:bg-zinc-950 rounded-xl border border-zinc-200 dark:border-zinc-800 overflow-hidden">
         <div class="overflow-x-auto">
-          <table class="min-w-full divide-y divide-slate-200 text-sm">
-            <thead class="bg-slate-50 text-slate-500 text-xs font-semibold uppercase tracking-wider text-left">
+          <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800 text-sm">
+            <thead class="bg-zinc-50 dark:bg-zinc-900/70 text-zinc-500 dark:text-zinc-400 text-[11px] font-semibold uppercase tracking-wider text-left">
               <tr>
                 <th class="px-4 py-3">ID Hilo</th>
                 <th class="px-4 py-3">Cliente</th>
@@ -256,9 +664,9 @@
                 <th class="px-4 py-3">Última Actividad</th>
               </tr>
             </thead>
-            <tbody id="conversationsTableBody" class="divide-y divide-slate-100 text-slate-700">
+            <tbody id="conversationsTableBody" class="divide-y divide-zinc-100 dark:divide-zinc-900 text-zinc-700 dark:text-zinc-300">
               <tr>
-                <td colspan="5" class="px-4 py-8 text-center text-slate-400">Cargando conversaciones...</td>
+                <td colspan="5" class="px-4 py-8 text-center text-zinc-400">Cargando conversaciones...</td>
               </tr>
             </tbody>
           </table>
@@ -268,29 +676,93 @@
 
   </main>
 
+  <!-- Order Detail Modal -->
+  <div id="orderDetailModal" class="fixed inset-0 bg-black/50 backdrop-blur-xs z-40 flex items-center justify-center p-4 hidden">
+    <div class="bg-white dark:bg-zinc-950 rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-zinc-200 dark:border-zinc-800 space-y-5 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-start justify-between border-b border-zinc-100 dark:border-zinc-800 pb-4">
+        <div>
+          <div class="flex flex-wrap items-center gap-2">
+            <h3 id="detailOrderId" class="font-mono font-semibold text-zinc-950 dark:text-white text-xl">ORD-0000</h3>
+            <span id="detailStatusBadge" class="px-2.5 py-0.5 rounded-full text-xs font-medium">--</span>
+            <span id="detailStockBadge" class="px-2.5 py-0.5 rounded-full text-xs font-medium">--</span>
+          </div>
+          <p id="detailMeta" class="text-xs text-zinc-500 dark:text-zinc-400 mt-1.5">--</p>
+        </div>
+        <button id="btnCloseDetailModal" class="p-1.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-900">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
+
+      <div id="detailNotesBox" class="bg-brand-1/20 dark:bg-brand-1/10 border border-brand-1/60 dark:border-brand-1/30 rounded-lg p-3 text-xs text-zinc-800 dark:text-brand-1 hidden">
+        <span class="font-semibold">Notas del cliente:</span> <span id="detailNotesText"></span>
+      </div>
+
+      <div class="border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden">
+        <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800 text-sm">
+          <thead class="bg-zinc-50 dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 text-[11px] font-semibold uppercase text-left">
+            <tr>
+              <th class="px-3 py-2.5">SKU</th>
+              <th class="px-3 py-2.5">Producto</th>
+              <th class="px-3 py-2.5 text-right">Cant.</th>
+              <th class="px-3 py-2.5 text-right">Unitario</th>
+              <th class="px-3 py-2.5 text-right">Subtotal</th>
+            </tr>
+          </thead>
+          <tbody id="detailItemsBody" class="divide-y divide-zinc-100 dark:divide-zinc-900 text-zinc-700 dark:text-zinc-300"></tbody>
+          <tfoot class="bg-zinc-50 dark:bg-zinc-900 font-semibold text-zinc-950 dark:text-white">
+            <tr>
+              <td colspan="4" class="px-3 py-2.5 text-right text-xs uppercase text-zinc-500 dark:text-zinc-400">Total Pedido</td>
+              <td id="detailTotalCell" class="px-3 py-2.5 text-right tabular-nums">$0,00</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <div class="flex items-center justify-between pt-2 border-t border-zinc-100 dark:border-zinc-800">
+        <div id="detailActionButtons" class="flex flex-wrap gap-2"></div>
+        <button id="btnCloseDetailFooter" class="px-4 py-2 text-sm text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded-lg">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Custom Confirm Status Modal -->
+  <div id="confirmStatusModal" class="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white dark:bg-zinc-950 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-zinc-200 dark:border-zinc-800 space-y-4">
+      <h3 class="font-semibold text-zinc-950 dark:text-white text-lg">Confirmar cambio de estado</h3>
+      <p id="confirmStatusMsg" class="text-sm text-zinc-600 dark:text-zinc-300">--</p>
+      <p id="confirmStatusHint" class="text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-2.5 text-zinc-600 dark:text-zinc-400 hidden"></p>
+      <div class="flex items-center justify-end space-x-2 pt-2">
+        <button id="btnCancelConfirmStatus" class="px-4 py-2 text-sm text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded-lg">Cancelar</button>
+        <button id="btnAcceptConfirmStatus" class="px-4 py-2 text-sm bg-brand-5 hover:bg-brand-4 text-white font-medium rounded-lg shadow-xs transition">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Auth Modal -->
-  <div id="authModal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
-    <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+  <div id="authModal" class="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white dark:bg-zinc-950 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-zinc-200 dark:border-zinc-800 space-y-4">
       <div class="flex items-center space-x-3">
-        <div class="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center">
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div class="w-10 h-10 rounded-xl bg-brand-5/15 text-brand-5 dark:text-brand-2 flex items-center justify-center">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
           </svg>
         </div>
         <div>
-          <h3 class="font-bold text-slate-900 text-lg">Autenticación de Operador</h3>
-          <p class="text-xs text-slate-500">Ingresá el OPERATOR_TOKEN configurado en el backend</p>
+          <h3 class="font-semibold text-zinc-950 dark:text-white text-base">Autenticación de Operador</h3>
+          <p class="text-xs text-zinc-500 dark:text-zinc-400">Ingresá el OPERATOR_TOKEN configurado en el backend</p>
         </div>
       </div>
 
       <div>
-        <label for="inputToken" class="block text-xs font-semibold text-slate-700 mb-1">Token de Operador</label>
-        <input type="password" id="inputToken" placeholder="Pegá el token acá..." class="w-full text-sm bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        <label for="inputToken" class="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">Token de Operador</label>
+        <input type="password" id="inputToken" placeholder="Pegá el token acá..." class="w-full text-sm bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-brand-5/50">
       </div>
 
       <div class="flex items-center justify-end space-x-2 pt-2">
-        <button id="btnCloseModal" class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
-        <button id="btnSaveToken" class="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg shadow-sm">Guardar y Conectar</button>
+        <button id="btnCloseModal" class="px-4 py-2 text-sm text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded-lg">Cancelar</button>
+        <button id="btnSaveToken" class="px-4 py-2 text-sm bg-brand-5 hover:bg-brand-4 text-white font-medium rounded-lg shadow-xs transition">Guardar y Conectar</button>
       </div>
     </div>
   </div>
@@ -301,10 +773,52 @@
   <!-- App Script -->
   <script>
     const API_BASE = '';
-    let autoRefreshTimer = null;
     let countdownSecs = 60;
     let cachedStock = [];
     let cachedOrders = [];
+    let lastMetricsData = null;
+    let currentGranularity = 'day';
+    let currentBreakdown = 'category';
+    let currentSummaryPeriod = 'today';
+    let activeSeries = { revenue: true, orders: true, units: true };
+    let currentTab = 'orders';
+
+    const SUMMARY_PERIOD_META = {
+      today: { label: 'Hoy', badge: 'Hoy (Argentina)', ordersSub: 'Fecha local Argentina' },
+      yesterday: { label: 'Ayer', badge: 'Ayer (Argentina)', ordersSub: 'Día anterior local' },
+      '7d': { label: 'Semana', badge: 'Últimos 7 días', ordersSub: 'Ventana móvil 7 días' },
+      '30d': { label: 'Mes', badge: 'Últimos 30 días', ordersSub: 'Ventana móvil 30 días' },
+      all: { label: 'Todo', badge: 'Histórico completo', ordersSub: 'Todos los pedidos' },
+    };
+    let revenueChartInstance = null;
+    let breakdownChartInstance = null;
+    let statusRingInstance = null;
+    let channelRingInstance = null;
+    let topProductsChartInstance = null;
+    let pendingStatusChange = null;
+
+    // User's 5-color palette + harmonious extensions
+    const PALETTE_COLORS = [
+      '#6c5b80', // --color-5
+      '#c06d84', // --color-4
+      '#f67481', // --color-3
+      '#f8c391', // --color-2
+      '#f6e48e', // --color-1
+      '#8d7ba3',
+      '#d98da1',
+      '#f998a2',
+      '#fad4ae',
+      '#524463'
+    ];
+
+    const STATUS_BADGES = {
+      'recibido': 'badge-recibido',
+      'preparado': 'badge-preparado',
+      'despachado': 'badge-despachado',
+      'retirado': 'badge-retirado',
+      'entregado': 'badge-entregado',
+      'cancelado': 'badge-cancelado',
+    };
 
     // Elements
     const liveClock = document.getElementById('liveClock');
@@ -325,32 +839,71 @@
     const btnCloseModal = document.getElementById('btnCloseModal');
     const btnSaveToken = document.getElementById('btnSaveToken');
     const authLabel = document.getElementById('authLabel');
+    const authDot = document.getElementById('authDot');
+
+    const orderDetailModal = document.getElementById('orderDetailModal');
+    const confirmStatusModal = document.getElementById('confirmStatusModal');
 
     const btnRefresh = document.getElementById('btnRefresh');
     const refreshIcon = document.getElementById('refreshIcon');
     const toggleAutoRefresh = document.getElementById('toggleAutoRefresh');
     const countdownText = document.getElementById('countdownText');
+    const btnThemeToggle = document.getElementById('btnThemeToggle');
+    const themeLabel = document.getElementById('themeLabel');
 
-    // Tabs
-    const tabBtnOrders = document.getElementById('tabBtnOrders');
-    const tabBtnStock = document.getElementById('tabBtnStock');
-    const tabBtnConversations = document.getElementById('tabBtnConversations');
-    const tabContentOrders = document.getElementById('tabContentOrders');
-    const tabContentStock = document.getElementById('tabContentStock');
-    const tabContentConversations = document.getElementById('tabContentConversations');
+    const tabMap = {
+      orders: { btn: document.getElementById('tabBtnOrders'), content: document.getElementById('tabContentOrders') },
+      kpis: { btn: document.getElementById('tabBtnKpis'), content: document.getElementById('tabContentKpis') },
+      stock: { btn: document.getElementById('tabBtnStock'), content: document.getElementById('tabContentStock') },
+      conversations: { btn: document.getElementById('tabBtnConversations'), content: document.getElementById('tabContentConversations') },
+    };
 
-    // Filters
+    const ordersSearch = document.getElementById('ordersSearch');
     const filterStatus = document.getElementById('filterStatus');
+    const ordersCountInfo = document.getElementById('ordersCountInfo');
     const stockSearch = document.getElementById('stockSearch');
+    const stockCategoryFilter = document.getElementById('stockCategoryFilter');
     const checkOnlyLowStock = document.getElementById('checkOnlyLowStock');
+    const stockCountInfo = document.getElementById('stockCountInfo');
 
-    // Clock
+    function isDarkMode() {
+      return document.documentElement.classList.contains('dark');
+    }
+
+    function syncThemeButton() {
+      themeLabel.textContent = isDarkMode() ? 'Blanco' : 'Negro';
+    }
+    syncThemeButton();
+
+    btnThemeToggle.onclick = () => {
+      document.documentElement.classList.toggle('dark');
+      localStorage.setItem('norma_theme', isDarkMode() ? 'dark' : 'light');
+      syncThemeButton();
+      if (lastMetricsData) {
+        renderAllKpiCharts(lastMetricsData);
+      }
+    };
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function formatARS(val) {
+      const num = parseFloat(val || 0);
+      return '$' + num.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
     setInterval(() => {
       const now = new Date();
-      liveClock.textContent = now.toLocaleTimeString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' }) + ' (AR)';
+      liveClock.textContent = now.toLocaleTimeString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' });
     }, 1000);
 
-    // Auth Token handling
     function getToken() {
       return localStorage.getItem('norma_operator_token') || '';
     }
@@ -358,44 +911,39 @@
     function setToken(val) {
       if (val) {
         localStorage.setItem('norma_operator_token', val.trim());
-        authLabel.textContent = 'Autenticado';
-        authLabel.classList.add('text-emerald-600');
+        authLabel.textContent = 'Conectado';
+        authDot.className = 'w-1.5 h-1.5 rounded-full bg-emerald-500';
       } else {
         localStorage.removeItem('norma_operator_token');
-        authLabel.textContent = 'Sin Token';
-        authLabel.classList.remove('text-emerald-600');
+        authLabel.textContent = 'Token';
+        authDot.className = 'w-1.5 h-1.5 rounded-full bg-brand-3';
       }
     }
 
     function getHeaders() {
-      const token = getToken();
       return {
         'Content-Type': 'application/json',
-        'X-Operator-Token': token
+        'X-Operator-Token': getToken()
       };
     }
 
-    // Toast
     function showToast(msg, type = 'info') {
       const toast = document.createElement('div');
-      const colors = {
-        success: 'bg-emerald-600 text-white',
-        error: 'bg-red-600 text-white',
-        info: 'bg-slate-800 text-white'
+      const styles = {
+        success: 'bg-brand-5 text-white border border-brand-4',
+        error: 'bg-brand-3 text-zinc-950 font-medium border border-red-400',
+        info: 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900'
       };
-      toast.className = `pointer-events-auto px-4 py-2.5 rounded-lg text-sm shadow-lg flex items-center space-x-2 transition-all transform translate-y-2 opacity-0 duration-200 ${colors[type] || colors.info}`;
+      toast.className = `pointer-events-auto px-4 py-2.5 rounded-xl text-sm shadow-lg flex items-center space-x-2 transition-all transform translate-y-2 opacity-0 duration-200 ${styles[type] || styles.info}`;
       toast.textContent = msg;
       document.getElementById('toastContainer').appendChild(toast);
-      setTimeout(() => {
-        toast.classList.remove('translate-y-2', 'opacity-0');
-      }, 10);
+      setTimeout(() => toast.classList.remove('translate-y-2', 'opacity-0'), 10);
       setTimeout(() => {
         toast.classList.add('opacity-0');
         setTimeout(() => toast.remove(), 200);
       }, 3500);
     }
 
-    // Fetch API with 401 handling
     async function apiFetch(url, options = {}) {
       options.headers = { ...getHeaders(), ...(options.headers || {}) };
       const resp = await fetch(API_BASE + url, options);
@@ -407,10 +955,42 @@
       return resp;
     }
 
-    // Load Summary
+    function buildActionButtons(order, inModal = false) {
+      const stKey = order.status.toLowerCase();
+      const pad = inModal ? 'px-3 py-1.5 text-xs' : 'px-2.5 py-1 text-xs';
+      const stop = 'event.stopPropagation();';
+
+      if (stKey === 'recibido') {
+        return `
+          <button onclick="${stop} requestStatusChange('${escapeHtml(order.order_id)}', 'Preparado')" class="${pad} bg-brand-2/30 dark:bg-brand-2/15 text-zinc-900 dark:text-brand-2 border border-brand-2/60 dark:border-brand-2/30 hover:bg-brand-2/50 font-medium rounded-lg transition">Preparar</button>
+          <button onclick="${stop} requestStatusChange('${escapeHtml(order.order_id)}', 'Cancelado')" class="${pad} text-brand-3 hover:bg-brand-3/10 font-medium rounded-lg ml-1 transition">Cancelar</button>
+        `;
+      }
+      if (stKey === 'preparado') {
+        return `
+          <button onclick="${stop} requestStatusChange('${escapeHtml(order.order_id)}', 'Despachado')" class="${pad} bg-brand-4/15 text-brand-4 dark:text-brand-3 border border-brand-4/35 hover:bg-brand-4/25 font-medium rounded-lg transition">Despachado</button>
+          <button onclick="${stop} requestStatusChange('${escapeHtml(order.order_id)}', 'Retirado')" class="${pad} bg-brand-5/15 dark:bg-brand-5/30 text-brand-5 dark:text-zinc-100 border border-brand-5/35 hover:bg-brand-5/25 font-medium rounded-lg ml-1 transition">Retirado</button>
+          <button onclick="${stop} requestStatusChange('${escapeHtml(order.order_id)}', 'Cancelado')" class="${pad} text-brand-3 hover:bg-brand-3/10 font-medium rounded-lg ml-1 transition">Cancelar</button>
+        `;
+      }
+      if (stKey === 'despachado') {
+        return `
+          <button onclick="${stop} requestStatusChange('${escapeHtml(order.order_id)}', 'Entregado')" class="${pad} bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 font-medium rounded-lg transition">Entregado</button>
+        `;
+      }
+      return inModal ? '<span class="text-xs text-zinc-400">Estado terminal</span>' : '<span class="text-xs text-zinc-400">—</span>';
+    }
+
     async function loadSummary() {
       try {
-        const resp = await apiFetch('/dashboard/summary');
+        const meta = SUMMARY_PERIOD_META[currentSummaryPeriod] || SUMMARY_PERIOD_META.today;
+        document.getElementById('summaryPeriodBadge').textContent = meta.badge;
+        document.getElementById('summaryOrdersTitle').textContent = `Pedidos (${meta.label})`;
+        document.getElementById('summaryOrdersSub').textContent = meta.ordersSub;
+        document.getElementById('summaryDistinctSub').textContent = `SKUs distintos (${meta.label})`;
+        document.getElementById('summaryStatusTitle').textContent = `Pedidos por Estado (${meta.label})`;
+
+        const resp = await apiFetch(`/dashboard/summary?period=${encodeURIComponent(currentSummaryPeriod)}`);
         if (!resp.ok) return;
         const data = await resp.json();
 
@@ -418,31 +998,12 @@
         metricLowStock.textContent = data.low_stock_products_count;
         metricDistinctProducts.textContent = data.distinct_products_today;
 
-        // Card colors for low stock
-        const cardLow = document.getElementById('cardLowStock');
-        const iconLow = document.getElementById('iconLowStock');
-        if (data.low_stock_products_count > 0) {
-          cardLow.classList.add('border-amber-400');
-          iconLow.classList.add('bg-amber-100', 'text-amber-700');
-        } else {
-          cardLow.classList.remove('border-amber-400');
-          iconLow.classList.remove('bg-amber-100', 'text-amber-700');
-        }
-
-        // Render chips
         statusChips.innerHTML = '';
-        const badges = {
-          'Recibido': 'badge-recibido',
-          'Preparado': 'badge-preparado',
-          'Despachado': 'badge-despachado',
-          'Retirado': 'badge-retirado',
-          'Entregado': 'badge-entregado',
-          'Cancelado': 'badge-cancelado',
-        };
         for (const [st, count] of Object.entries(data.orders_by_status)) {
-          const badgeClass = badges[st] || 'bg-slate-100 text-slate-700';
+          const badgeClass = STATUS_BADGES[st.toLowerCase()] || 'bg-zinc-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300';
+          const muted = count === 0 ? 'opacity-50' : '';
           const chip = document.createElement('span');
-          chip.className = `px-2 py-0.5 rounded-full font-medium ${badgeClass} cursor-pointer hover:opacity-80`;
+          chip.className = `px-2 py-0.5 rounded-full font-medium tabular-nums ${badgeClass} ${muted} cursor-pointer hover:opacity-90 transition`;
           chip.textContent = `${st}: ${count}`;
           chip.onclick = () => {
             selectTab('orders');
@@ -456,7 +1017,6 @@
       }
     }
 
-    // Load Orders
     async function loadOrders() {
       try {
         const resp = await apiFetch('/dashboard/orders?limit=100');
@@ -471,83 +1031,142 @@
 
     function renderOrders() {
       const selected = filterStatus.value.toLowerCase();
-      const filtered = selected
-        ? cachedOrders.filter(o => o.status.toLowerCase() === selected)
-        : cachedOrders;
+      const query = ordersSearch.value.trim().toLowerCase();
+
+      const filtered = cachedOrders.filter(o => {
+        if (selected && o.status.toLowerCase() !== selected) return false;
+        if (query) {
+          const hay = `${o.order_id} ${o.customer_id} ${o.items_summary}`.toLowerCase();
+          if (!hay.includes(query)) return false;
+        }
+        return true;
+      });
+
+      ordersCountInfo.textContent = `${filtered.length} de ${cachedOrders.length} · Clic para ver detalle`;
 
       if (!filtered.length) {
-        ordersTableBody.innerHTML = `<tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">No se encontraron pedidos para este filtro.</td></tr>`;
+        ordersTableBody.innerHTML = `<tr><td colspan="8" class="px-4 py-8 text-center text-zinc-400">No se encontraron pedidos para este filtro.</td></tr>`;
         return;
       }
 
-      const badges = {
-        'recibido': 'badge-recibido',
-        'preparado': 'badge-preparado',
-        'despachado': 'badge-despachado',
-        'retirado': 'badge-retirado',
-        'entregado': 'badge-entregado',
-        'cancelado': 'badge-cancelado',
-      };
-
       ordersTableBody.innerHTML = filtered.map(o => {
         const stKey = o.status.toLowerCase();
-        const badgeClass = badges[stKey] || 'bg-slate-100 text-slate-700';
+        const badgeClass = STATUS_BADGES[stKey] || 'bg-zinc-100 text-zinc-700';
         const dateStr = new Date(o.created_at).toLocaleString('es-AR', {
           timeZone: 'America/Argentina/Buenos_Aires',
           dateStyle: 'short',
           timeStyle: 'short'
         });
 
-        // Channel badge
         const channelBadge = o.channel === 'whatsapp'
-          ? '<span class="px-1.5 py-0.5 text-[10px] rounded bg-emerald-100 text-emerald-800 font-semibold">WhatsApp</span>'
+          ? '<span class="px-2 py-0.5 text-[11px] rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-medium">WhatsApp</span>'
           : o.channel === 'telegram'
-          ? '<span class="px-1.5 py-0.5 text-[10px] rounded bg-sky-100 text-sky-800 font-semibold">Telegram</span>'
-          : '<span class="px-1.5 py-0.5 text-[10px] rounded bg-slate-100 text-slate-700 font-semibold">Web</span>';
-
-        // Action buttons according to status workflow
-        let actionsHtml = '';
-        if (stKey === 'recibido') {
-          actionsHtml = `
-            <button onclick="changeStatus('${o.order_id}', 'Preparado')" class="px-2 py-1 text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 font-medium rounded">Preparar</button>
-            <button onclick="changeStatus('${o.order_id}', 'Cancelado')" class="px-2 py-1 text-xs text-red-600 hover:bg-red-50 font-medium rounded ml-1">Cancelar</button>
-          `;
-        } else if (stKey === 'preparado') {
-          actionsHtml = `
-            <button onclick="changeStatus('${o.order_id}', 'Despachado')" class="px-2 py-1 text-xs bg-purple-50 text-purple-700 hover:bg-purple-100 font-medium rounded">Despachar</button>
-            <button onclick="changeStatus('${o.order_id}', 'Retirado')" class="px-2 py-1 text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-medium rounded ml-1">Retirar</button>
-            <button onclick="changeStatus('${o.order_id}', 'Cancelado')" class="px-2 py-1 text-xs text-red-600 hover:bg-red-50 font-medium rounded ml-1">Cancelar</button>
-          `;
-        } else if (stKey === 'despachado') {
-          actionsHtml = `
-            <button onclick="changeStatus('${o.order_id}', 'Entregado')" class="px-2 py-1 text-xs bg-teal-50 text-teal-700 hover:bg-teal-100 font-medium rounded">Entregar</button>
-          `;
-        } else {
-          actionsHtml = `<span class="text-xs text-slate-400">—</span>`;
-        }
+          ? '<span class="px-2 py-0.5 text-[11px] rounded-md bg-brand-5/15 dark:bg-brand-5/30 text-brand-5 dark:text-zinc-200 font-medium">Telegram</span>'
+          : '<span class="px-2 py-0.5 text-[11px] rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-medium">Web</span>';
 
         return `
-          <tr class="hover:bg-slate-50 transition">
-            <td class="px-4 py-3 font-mono font-medium text-slate-900">${o.order_id}</td>
-            <td class="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">${dateStr}</td>
-            <td class="px-4 py-3 font-medium text-slate-800">${o.customer_id}</td>
+          <tr onclick="openOrderDetail('${escapeHtml(o.order_id)}')" class="hover:bg-zinc-50 dark:hover:bg-zinc-900/60 transition cursor-pointer">
+            <td class="px-4 py-3 font-mono font-medium text-brand-5 dark:text-brand-2">${escapeHtml(o.order_id)}</td>
+            <td class="px-4 py-3 text-xs text-zinc-500 dark:text-zinc-400 whitespace-nowrap tabular-nums">${escapeHtml(dateStr)}</td>
+            <td class="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">${escapeHtml(o.customer_id)}</td>
             <td class="px-4 py-3">${channelBadge}</td>
-            <td class="px-4 py-3 text-xs text-slate-600 max-w-xs truncate" title="${o.items_summary}">
-              ${o.items_summary}
+            <td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 max-w-xs truncate" title="${escapeHtml(o.items_summary)}">
+              ${escapeHtml(o.items_summary)}
             </td>
-            <td class="px-4 py-3 font-semibold text-slate-900">$${parseFloat(o.total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+            <td class="px-4 py-3 font-semibold text-zinc-950 dark:text-white tabular-nums">${formatARS(o.total)}</td>
             <td class="px-4 py-3">
-              <span class="px-2 py-0.5 rounded-full text-xs font-semibold ${badgeClass}">${o.status}</span>
+              <span class="px-2.5 py-0.5 rounded-full text-xs font-medium ${badgeClass}">${escapeHtml(o.status)}</span>
             </td>
-            <td class="px-4 py-3 text-right whitespace-nowrap">${actionsHtml}</td>
+            <td class="px-4 py-3 text-right whitespace-nowrap">${buildActionButtons(o, false)}</td>
           </tr>
         `;
       }).join('');
     }
 
-    // Change Order Status
-    window.changeStatus = async function(orderId, newStatus) {
-      if (!confirm(`¿Confirmás cambiar el pedido ${orderId} al estado "${newStatus}"?`)) return;
+    window.openOrderDetail = function(orderId) {
+      const order = cachedOrders.find(o => o.order_id === orderId);
+      if (!order) return;
+
+      document.getElementById('detailOrderId').textContent = order.order_id;
+      const stBadge = document.getElementById('detailStatusBadge');
+      stBadge.textContent = order.status;
+      stBadge.className = `px-2.5 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGES[order.status.toLowerCase()] || 'bg-zinc-100 text-zinc-700'}`;
+
+      const stockBadge = document.getElementById('detailStockBadge');
+      if (order.stock_applied) {
+        stockBadge.textContent = 'Stock descontado';
+        stockBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-700 dark:text-emerald-300';
+      } else if (order.status === 'Cancelado') {
+        stockBadge.textContent = 'Stock liberado';
+        stockBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400';
+      } else {
+        stockBadge.textContent = 'Stock reservado';
+        stockBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-medium bg-brand-2/30 text-zinc-800 dark:text-brand-2';
+      }
+
+      const dateStr = new Date(order.created_at).toLocaleString('es-AR', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+        dateStyle: 'medium',
+        timeStyle: 'short'
+      });
+      document.getElementById('detailMeta').textContent = `Cliente: ${order.customer_id} · Canal: ${order.channel} · ${dateStr}`;
+
+      const notesBox = document.getElementById('detailNotesBox');
+      if (order.notes) {
+        document.getElementById('detailNotesText').textContent = order.notes;
+        notesBox.classList.remove('hidden');
+      } else {
+        notesBox.classList.add('hidden');
+      }
+
+      const items = order.items && order.items.length ? order.items : [];
+      document.getElementById('detailItemsBody').innerHTML = items.length
+        ? items.map(it => `
+            <tr>
+              <td class="px-3 py-2 font-mono text-xs text-zinc-500 dark:text-zinc-400">${escapeHtml(it.sku)}</td>
+              <td class="px-3 py-2 text-zinc-900 dark:text-zinc-100">${escapeHtml(it.product_name)}${it.presentation ? ` <span class="text-xs text-zinc-400">(${escapeHtml(it.presentation)})</span>` : ''}</td>
+              <td class="px-3 py-2 text-right font-medium tabular-nums">${it.quantity}</td>
+              <td class="px-3 py-2 text-right text-zinc-500 dark:text-zinc-400 tabular-nums">${it.unit_price !== null ? formatARS(it.unit_price) : '—'}</td>
+              <td class="px-3 py-2 text-right font-semibold text-zinc-950 dark:text-white tabular-nums">${formatARS(it.subtotal)}</td>
+            </tr>
+          `).join('')
+        : `<tr><td colspan="5" class="px-3 py-4 text-center text-zinc-400 text-xs">${escapeHtml(order.items_summary)}</td></tr>`;
+
+      document.getElementById('detailTotalCell').textContent = formatARS(order.total);
+      document.getElementById('detailActionButtons').innerHTML = buildActionButtons(order, true);
+      orderDetailModal.classList.remove('hidden');
+    };
+
+    window.requestStatusChange = function(orderId, newStatus) {
+      pendingStatusChange = { orderId, newStatus };
+      document.getElementById('confirmStatusMsg').textContent =
+        `¿Confirmás cambiar el pedido ${orderId} al estado "${newStatus}"?`;
+
+      const hint = document.getElementById('confirmStatusHint');
+      if (newStatus === 'Despachado' || newStatus === 'Retirado') {
+        hint.textContent = 'Al pasar a este estado, las unidades se descontarán definitivamente del catálogo (una sola vez).';
+        hint.classList.remove('hidden');
+      } else if (newStatus === 'Cancelado') {
+        hint.textContent = 'El pedido pasará a Cancelado y liberará el stock reservado.';
+        hint.classList.remove('hidden');
+      } else {
+        hint.classList.add('hidden');
+      }
+
+      confirmStatusModal.classList.remove('hidden');
+    };
+
+    document.getElementById('btnCancelConfirmStatus').onclick = () => {
+      pendingStatusChange = null;
+      confirmStatusModal.classList.add('hidden');
+    };
+
+    document.getElementById('btnAcceptConfirmStatus').onclick = async () => {
+      if (!pendingStatusChange) return;
+      const { orderId, newStatus } = pendingStatusChange;
+      pendingStatusChange = null;
+      confirmStatusModal.classList.add('hidden');
+
       try {
         const resp = await apiFetch(`/orders/${orderId}/status`, {
           method: 'POST',
@@ -559,19 +1178,456 @@
           return;
         }
         showToast(`Pedido ${orderId} actualizado a ${newStatus}`, 'success');
+        orderDetailModal.classList.add('hidden');
         refreshAll();
       } catch (err) {
         showToast('Error al conectar con la API', 'error');
       }
     };
 
-    // Load Stock
+    function setFittedKpiAmount(elementId, rawValue) {
+      const el = document.getElementById(elementId);
+      const formatted = formatARS(rawValue);
+      el.textContent = formatted;
+      el.title = formatted;
+      el.classList.remove('text-2xl', 'text-xl', 'text-lg', 'text-base');
+      if (formatted.length > 17) {
+        el.classList.add('text-base');
+      } else if (formatted.length > 14) {
+        el.classList.add('text-lg');
+      } else if (formatted.length > 11) {
+        el.classList.add('text-xl');
+      } else {
+        el.classList.add('text-2xl');
+      }
+    }
+
+    function renderMiniRing(canvasId, prevInstance, items, colorsMap = null) {
+      const ctx = document.getElementById(canvasId).getContext('2d');
+      if (prevInstance) prevInstance.destroy();
+      const dark = isDarkMode();
+      const borderColor = dark ? '#09090b' : '#ffffff';
+      const nonZero = items.filter(it => parseFloat(it.revenue) > 0);
+      const dataItems = nonZero.length ? nonZero : [{ name: 'Sin datos', revenue: 1, percentage: 0 }];
+      const colors = nonZero.length
+        ? dataItems.map((it, idx) => (colorsMap && colorsMap[it.name]) || PALETTE_COLORS[idx % PALETTE_COLORS.length])
+        : [dark ? '#27272a' : '#e4e4e7'];
+
+      return new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: dataItems.map(it => it.name),
+          datasets: [{
+            data: dataItems.map(it => parseFloat(it.revenue)),
+            backgroundColor: colors,
+            borderWidth: 2,
+            borderColor: borderColor,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          cutout: '66%',
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              enabled: nonZero.length > 0,
+              backgroundColor: '#18181b',
+              titleColor: '#fafafa',
+              bodyColor: '#f6e48e',
+              padding: 8,
+              cornerRadius: 8,
+              callbacks: {
+                label: (ctxItem) => {
+                  const it = dataItems[ctxItem.dataIndex];
+                  return ` ${it.name}: ${formatARS(it.revenue)} (${it.percentage}%)`;
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function renderAllKpiCharts(data) {
+      statusRingInstance = renderMiniRing(
+        'statusRingChart',
+        statusRingInstance,
+        data.status_breakdown || [],
+        { 'Concretado': '#6c5b80', 'En curso': '#f8c391', 'Cancelado': '#f67481' }
+      );
+      channelRingInstance = renderMiniRing('channelRingChart', channelRingInstance, data.channel_breakdown || []);
+      renderRevenueChart(data.time_series);
+      renderBreakdown(data.breakdown, data.breakdown_by);
+      renderTopProducts(data.top_products, data.no_movement_products || []);
+    }
+
+    async function loadMetrics() {
+      try {
+        const period = document.getElementById('kpiPeriodFilter').value;
+        const channel = document.getElementById('kpiChannelFilter').value;
+        const params = new URLSearchParams({
+          granularity: currentGranularity,
+          breakdown: currentBreakdown,
+          period: period,
+        });
+        if (channel) params.set('channel', channel);
+
+        const resp = await apiFetch(`/dashboard/metrics?${params.toString()}`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        lastMetricsData = data;
+
+        document.getElementById('kpiLastUpdate').textContent = new Date().toLocaleTimeString('es-AR', {
+          timeZone: 'America/Argentina/Buenos_Aires',
+        });
+
+        setFittedKpiAmount('kpiTotalRevenue', data.total_revenue);
+        document.getElementById('kpiCompletedRevenue').textContent = formatARS(data.completed_revenue);
+        document.getElementById('kpiInProgressRevenue').textContent = formatARS(data.in_progress_revenue);
+        document.getElementById('kpiCancelledRevenue').textContent = formatARS(data.cancelled_revenue);
+
+        document.getElementById('kpiInProgressCount').textContent = data.in_progress_orders_count;
+        document.getElementById('kpiCompletedCount').textContent = data.completed_orders_count;
+        document.getElementById('kpiCompletionRate').textContent = `${data.completion_rate}%`;
+        document.getElementById('kpiActiveOrdersCount').textContent = data.active_orders_count;
+
+        setFittedKpiAmount('kpiAvgTicket', data.average_ticket);
+        document.getElementById('kpiAvgTicketSub').textContent = `Sobre ${data.active_orders_count} pedido(s) válido(s)`;
+        setFittedKpiAmount('kpiCatalogValuation', data.catalog_valuation);
+
+        document.getElementById('kpiStockHealthPct').textContent = `${data.stock_health_pct}%`;
+        document.getElementById('kpiStockHealthSub').textContent = `${data.healthy_stock_count} / ${data.total_catalog_count} SKUs OK`;
+        document.getElementById('kpiStockHealthBar').style.width = `${Math.min(100, data.stock_health_pct)}%`;
+
+        document.getElementById('kpiCancellationRate').textContent = `${data.cancellation_rate}%`;
+        document.getElementById('kpiCancelledCount').textContent = `${data.cancelled_orders_count} cancelado(s)`;
+        document.getElementById('kpiCancellationBar').style.width = `${Math.min(100, data.cancellation_rate)}%`;
+
+        renderAllKpiCharts(data);
+      } catch (err) {
+        console.error('Error al cargar métricas', err);
+      }
+    }
+
+    function renderRevenueChart(series) {
+      const ctx = document.getElementById('revenueBarChart').getContext('2d');
+      const emptyOverlay = document.getElementById('revenueChartEmpty');
+      if (revenueChartInstance) {
+        revenueChartInstance.destroy();
+        revenueChartInstance = null;
+      }
+
+      const showRevenue = activeSeries.revenue;
+      const showOrders = activeSeries.orders;
+      const showUnits = activeSeries.units;
+      const hasAny = showRevenue || showOrders || showUnits;
+
+      emptyOverlay.classList.toggle('hidden', hasAny);
+      if (!hasAny) return;
+
+      const dark = isDarkMode();
+      const gridColor = dark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(24, 24, 27, 0.07)';
+      const tickColor = dark ? '#a1a1aa' : '#71717a';
+      const barColor = dark ? '#c06d84' : '#6c5b80';
+      const hoverColor = dark ? '#f67481' : '#c06d84';
+      const ordersColor = dark ? '#f6e48e' : '#f67481';
+      const unitsColor = '#f8c391';
+
+      const datasets = [];
+      if (showUnits) {
+        datasets.push({
+          type: 'line',
+          label: 'Productos vendidos (unid.)',
+          data: series.map(p => p.units_count ?? 0),
+          borderColor: unitsColor,
+          backgroundColor: unitsColor,
+          borderWidth: 2,
+          borderDash: [5, 3],
+          pointRadius: 3.5,
+          tension: 0.3,
+          yAxisID: 'y1',
+          order: 0,
+        });
+      }
+      if (showOrders) {
+        datasets.push({
+          type: 'line',
+          label: 'Pedidos',
+          data: series.map(p => p.orders_count),
+          borderColor: ordersColor,
+          backgroundColor: ordersColor,
+          borderWidth: 2,
+          pointRadius: 3.5,
+          tension: 0.3,
+          yAxisID: 'y1',
+          order: 1,
+        });
+      }
+      if (showRevenue) {
+        datasets.push({
+          type: 'bar',
+          label: 'Monto vendido ($)',
+          data: series.map(p => parseFloat(p.revenue)),
+          backgroundColor: barColor,
+          hoverBackgroundColor: hoverColor,
+          borderRadius: 6,
+          maxBarThickness: 44,
+          yAxisID: 'y',
+          order: 2,
+        });
+      }
+
+      revenueChartInstance = new Chart(ctx, {
+        data: {
+          labels: series.map(p => p.period_label),
+          datasets: datasets
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: {
+              position: 'top',
+              align: 'end',
+              labels: { color: tickColor, boxWidth: 10, usePointStyle: true, font: { size: 11 } }
+            },
+            tooltip: {
+              backgroundColor: '#18181b',
+              titleColor: '#fafafa',
+              bodyColor: '#f6e48e',
+              padding: 10,
+              cornerRadius: 8,
+              callbacks: {
+                label: (ctxItem) => {
+                  if (ctxItem.dataset.yAxisID === 'y1') {
+                    const isUnits = ctxItem.dataset.label.startsWith('Productos');
+                    return isUnits
+                      ? ` Productos vendidos: ${ctxItem.raw} unid.`
+                      : ` Pedidos: ${ctxItem.raw}`;
+                  }
+                  return ` Facturación: ${formatARS(ctxItem.raw)}`;
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              border: { display: false },
+              ticks: { color: tickColor, font: { size: 11 } }
+            },
+            y: {
+              display: showRevenue,
+              beginAtZero: true,
+              position: 'left',
+              grid: { color: gridColor },
+              border: { display: false },
+              ticks: {
+                color: tickColor,
+                font: { size: 11 },
+                callback: (val) => '$' + Number(val).toLocaleString('es-AR')
+              }
+            },
+            y1: {
+              display: showOrders || showUnits,
+              beginAtZero: true,
+              position: showRevenue ? 'right' : 'left',
+              grid: { display: !showRevenue, color: gridColor },
+              border: { display: false },
+              ticks: {
+                stepSize: 1,
+                precision: 0,
+                color: tickColor,
+                font: { size: 11 },
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function renderBreakdown(items, breakdownBy) {
+      document.getElementById('breakdownColHeader').textContent = breakdownBy === 'brand' ? 'Marca' : 'Categoría';
+      const tbody = document.getElementById('breakdownTableBody');
+
+      if (!items.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-6 text-center text-zinc-400">Sin ventas registradas todavía</td></tr>';
+      } else {
+        tbody.innerHTML = items.map((it, idx) => `
+          <tr class="hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition">
+            <td class="px-4 py-2.5 font-medium text-zinc-900 dark:text-zinc-100 flex items-center space-x-2">
+              <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background-color: ${PALETTE_COLORS[idx % PALETTE_COLORS.length]}"></span>
+              <span>${escapeHtml(it.name)}</span>
+            </td>
+            <td class="px-4 py-2.5 text-right text-zinc-600 dark:text-zinc-400 tabular-nums">${it.orders_count}</td>
+            <td class="px-4 py-2.5 text-right text-zinc-600 dark:text-zinc-400 tabular-nums">${it.units}</td>
+            <td class="px-4 py-2.5 text-right font-semibold text-zinc-950 dark:text-white tabular-nums">${formatARS(it.revenue)}</td>
+            <td class="px-4 py-2.5 text-right text-xs font-mono text-zinc-500 dark:text-zinc-400 tabular-nums">${it.percentage}%</td>
+          </tr>
+        `).join('');
+      }
+
+      const ctx = document.getElementById('breakdownPieChart').getContext('2d');
+      if (breakdownChartInstance) breakdownChartInstance.destroy();
+
+      const dark = isDarkMode();
+      const borderColor = dark ? '#09090b' : '#ffffff';
+      const legendColor = dark ? '#d4d4d8' : '#3f3f46';
+
+      breakdownChartInstance = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: items.map(it => it.name),
+          datasets: [{
+            data: items.map(it => parseFloat(it.revenue)),
+            backgroundColor: items.map((_, idx) => PALETTE_COLORS[idx % PALETTE_COLORS.length]),
+            borderWidth: 2,
+            borderColor: borderColor,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          cutout: '62%',
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: { color: legendColor, boxWidth: 10, usePointStyle: true, pointStyle: 'circle', font: { size: 11 } }
+            },
+            tooltip: {
+              backgroundColor: '#18181b',
+              titleColor: '#fafafa',
+              bodyColor: '#f8c391',
+              padding: 10,
+              cornerRadius: 8,
+              callbacks: {
+                label: (ctxItem) => {
+                  const it = items[ctxItem.dataIndex];
+                  return ` ${it.name}: ${formatARS(it.revenue)} (${it.percentage}%)`;
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function renderTopProducts(items, noMovementItems = []) {
+      const tbody = document.getElementById('topProductsTableBody');
+      if (!items.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-6 text-center text-zinc-400">Sin ventas registradas todavía</td></tr>';
+      } else {
+        tbody.innerHTML = items.map(p => `
+          <tr class="hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition">
+            <td class="px-4 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">${escapeHtml(p.sku)}</td>
+            <td class="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">${escapeHtml(p.name)}</td>
+            <td class="px-4 py-3 text-xs text-zinc-500 dark:text-zinc-400">${escapeHtml(p.brand)}</td>
+            <td class="px-4 py-3 text-xs text-zinc-500 dark:text-zinc-400">${escapeHtml(p.category)}</td>
+            <td class="px-4 py-3 text-right font-medium tabular-nums">${p.units}</td>
+            <td class="px-4 py-3 text-right font-semibold text-zinc-950 dark:text-white tabular-nums">${formatARS(p.revenue)}</td>
+          </tr>
+        `).join('');
+      }
+
+      // Horizontal Bar Chart for Top Products
+      const ctx = document.getElementById('topProductsBarChart').getContext('2d');
+      if (topProductsChartInstance) topProductsChartInstance.destroy();
+      const dark = isDarkMode();
+      const tickColor = dark ? '#a1a1aa' : '#71717a';
+      const gridColor = dark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(24, 24, 27, 0.07)';
+
+      topProductsChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: items.map(p => p.name.length > 36 ? p.name.slice(0, 35) + '…' : p.name),
+          datasets: [{
+            label: 'Total Vendido ($)',
+            data: items.map(p => parseFloat(p.revenue)),
+            backgroundColor: items.map((_, idx) => PALETTE_COLORS[idx % PALETTE_COLORS.length]),
+            borderRadius: 6,
+            barThickness: 18,
+          }]
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#18181b',
+              titleColor: '#fafafa',
+              bodyColor: '#f8c391',
+              padding: 10,
+              cornerRadius: 8,
+              callbacks: {
+                title: (tooltipItems) => {
+                  const idx = tooltipItems[0].dataIndex;
+                  return items[idx] ? `${items[idx].name} (${items[idx].sku})` : '';
+                },
+                label: (ctxItem) => {
+                  const p = items[ctxItem.dataIndex];
+                  return ` ${formatARS(p.revenue)} · ${p.units} unid.`;
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              beginAtZero: true,
+              grid: { color: gridColor },
+              border: { display: false },
+              ticks: {
+                color: tickColor,
+                font: { size: 11 },
+                callback: (val) => '$' + Number(val).toLocaleString('es-AR')
+              }
+            },
+            y: {
+              grid: { display: false },
+              border: { display: false },
+              ticks: { color: tickColor, font: { size: 11 } }
+            }
+          }
+        }
+      });
+
+      // No movement products table
+      const noMoveBody = document.getElementById('noMovementTableBody');
+      if (!noMovementItems.length) {
+        noMoveBody.innerHTML = '<tr><td colspan="6" class="px-4 py-6 text-center text-zinc-400">Todos los productos con stock tuvieron pedidos en el período</td></tr>';
+      } else {
+        noMoveBody.innerHTML = noMovementItems.map(p => {
+          const val = parseFloat(p.price) * p.stock;
+          return `
+            <tr class="hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition">
+              <td class="px-4 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">${escapeHtml(p.sku)}</td>
+              <td class="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">${escapeHtml(p.name)}</td>
+              <td class="px-4 py-3 text-xs text-zinc-500 dark:text-zinc-400">${escapeHtml(p.brand || '—')}</td>
+              <td class="px-4 py-3 text-right font-medium tabular-nums">${p.stock}</td>
+              <td class="px-4 py-3 text-right text-zinc-600 dark:text-zinc-400 tabular-nums">${formatARS(p.price)}</td>
+              <td class="px-4 py-3 text-right font-semibold text-zinc-950 dark:text-white tabular-nums">${formatARS(val)}</td>
+            </tr>
+          `;
+        }).join('');
+      }
+    }
+
     async function loadStock() {
       try {
         const resp = await apiFetch('/dashboard/stock');
         if (!resp.ok) return;
         cachedStock = await resp.json();
         tabBadgeStock.textContent = cachedStock.length;
+
+        const prevCat = stockCategoryFilter.value;
+        const categories = [...new Set(cachedStock.map(p => p.category).filter(Boolean))].sort();
+        stockCategoryFilter.innerHTML = '<option value="">Todas las categorías</option>' +
+          categories.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+        if (categories.includes(prevCat)) stockCategoryFilter.value = prevCat;
+
         renderStock();
       } catch (err) {
         console.error('Error al cargar stock', err);
@@ -581,46 +1637,46 @@
     function renderStock() {
       const search = stockSearch.value.trim().toLowerCase();
       const onlyLow = checkOnlyLowStock.checked;
+      const catFilter = stockCategoryFilter.value;
 
-      let filtered = cachedStock;
-      if (onlyLow) {
-        filtered = filtered.filter(p => p.is_low_stock);
-      }
-      if (search) {
-        filtered = filtered.filter(p =>
-          p.name.toLowerCase().includes(search) ||
-          p.sku.toLowerCase().includes(search) ||
-          (p.brand && p.brand.toLowerCase().includes(search))
-        );
-      }
+      const filtered = cachedStock.filter(p => {
+        if (onlyLow && !p.is_low_stock) return false;
+        if (catFilter && p.category !== catFilter) return false;
+        if (search) {
+          const hay = `${p.name} ${p.sku} ${p.brand || ''}`.toLowerCase();
+          if (!hay.includes(search)) return false;
+        }
+        return true;
+      });
+
+      stockCountInfo.textContent = `${filtered.length}/${cachedStock.length}`;
 
       if (!filtered.length) {
-        stockTableBody.innerHTML = `<tr><td colspan="9" class="px-4 py-8 text-center text-slate-400">No se encontraron productos para esta búsqueda.</td></tr>`;
+        stockTableBody.innerHTML = `<tr><td colspan="9" class="px-4 py-8 text-center text-zinc-400">No se encontraron productos para esta búsqueda.</td></tr>`;
         return;
       }
 
       stockTableBody.innerHTML = filtered.map(p => {
         const alertBadge = p.is_low_stock
-          ? '<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 animate-pulse">⚠️ Bajo</span>'
-          : '<span class="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">OK</span>';
+          ? '<span class="px-2 py-0.5 rounded-full text-xs font-medium bg-brand-3/15 text-brand-3 border border-brand-3/30">Stock bajo</span>'
+          : '<span class="px-2 py-0.5 rounded-full text-xs font-medium bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400">OK</span>';
 
         return `
-          <tr class="hover:bg-slate-50 transition">
-            <td class="px-4 py-3 font-mono text-xs font-medium text-slate-900">${p.sku}</td>
-            <td class="px-4 py-3 font-medium text-slate-800">${p.name}</td>
-            <td class="px-4 py-3 text-xs text-slate-500">${p.brand || '—'}</td>
-            <td class="px-4 py-3 text-xs text-slate-500">${p.presentation || '—'}</td>
-            <td class="px-4 py-3 text-xs text-slate-500">${p.category || '—'}</td>
-            <td class="px-4 py-3 font-semibold text-slate-900">$${parseFloat(p.price).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-            <td class="px-4 py-3 font-bold ${p.stock === 0 ? 'text-red-600' : p.is_low_stock ? 'text-amber-600' : 'text-slate-800'}">${p.stock}</td>
-            <td class="px-4 py-3 text-xs text-slate-400">${p.min_stock}</td>
+          <tr class="hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition">
+            <td class="px-4 py-3 font-mono text-xs font-medium text-zinc-900 dark:text-zinc-200">${escapeHtml(p.sku)}</td>
+            <td class="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">${escapeHtml(p.name)}</td>
+            <td class="px-4 py-3 text-xs text-zinc-500 dark:text-zinc-400">${escapeHtml(p.brand || '—')}</td>
+            <td class="px-4 py-3 text-xs text-zinc-500 dark:text-zinc-400">${escapeHtml(p.presentation || '—')}</td>
+            <td class="px-4 py-3 text-xs text-zinc-500 dark:text-zinc-400">${escapeHtml(p.category || '—')}</td>
+            <td class="px-4 py-3 font-semibold text-zinc-950 dark:text-white tabular-nums">${formatARS(p.price)}</td>
+            <td class="px-4 py-3 font-semibold tabular-nums ${p.stock === 0 ? 'text-brand-3' : p.is_low_stock ? 'text-brand-4 dark:text-brand-2' : 'text-zinc-900 dark:text-zinc-100'}">${p.stock}</td>
+            <td class="px-4 py-3 text-xs text-zinc-400 tabular-nums">${p.min_stock}</td>
             <td class="px-4 py-3">${alertBadge}</td>
           </tr>
         `;
       }).join('');
     }
 
-    // Load Conversations
     async function loadConversations() {
       try {
         const resp = await apiFetch('/dashboard/conversations');
@@ -629,7 +1685,7 @@
         tabBadgeConversations.textContent = list.length;
 
         if (!list.length) {
-          conversationsTableBody.innerHTML = `<tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">No hay conversaciones derivadas pendientes de atención.</td></tr>`;
+          conversationsTableBody.innerHTML = `<tr><td colspan="5" class="px-4 py-8 text-center text-zinc-400">No hay conversaciones pendientes de atención.</td></tr>`;
           return;
         }
 
@@ -641,14 +1697,14 @@
           });
 
           return `
-            <tr class="hover:bg-slate-50 transition">
-              <td class="px-4 py-3 font-mono font-medium text-slate-900">#${c.id}</td>
-              <td class="px-4 py-3 font-medium text-slate-800">${c.customer_id}</td>
-              <td class="px-4 py-3 text-xs uppercase font-semibold text-slate-500">${c.channel}</td>
+            <tr class="hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition">
+              <td class="px-4 py-3 font-mono font-medium text-zinc-900 dark:text-zinc-100">#${c.id}</td>
+              <td class="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">${escapeHtml(c.customer_id)}</td>
+              <td class="px-4 py-3 text-xs uppercase font-semibold text-zinc-500 dark:text-zinc-400">${escapeHtml(c.channel)}</td>
               <td class="px-4 py-3">
-                <span class="px-2 py-0.5 rounded-full text-xs font-semibold ${c.status === 'derivada' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'}">${c.status}</span>
+                <span class="px-2.5 py-0.5 rounded-full text-xs font-medium ${c.status === 'derivada' ? 'bg-brand-3/15 text-brand-3 border border-brand-3/30' : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400'}">${escapeHtml(c.status)}</span>
               </td>
-              <td class="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">${dateStr}</td>
+              <td class="px-4 py-3 text-xs text-zinc-500 dark:text-zinc-400 whitespace-nowrap tabular-nums">${escapeHtml(dateStr)}</td>
             </tr>
           `;
         }).join('');
@@ -657,40 +1713,28 @@
       }
     }
 
-    // Tabs Switcher
     function selectTab(tab) {
-      const activeClass = ['border-indigo-600', 'text-indigo-600', 'font-semibold'];
-      const inactiveClass = ['border-transparent', 'text-slate-500'];
+      currentTab = tab;
+      const activeClass = ['border-brand-5', 'dark:border-brand-3', 'text-zinc-900', 'dark:text-white', 'font-semibold'];
+      const inactiveClass = ['border-transparent', 'text-zinc-500', 'dark:text-zinc-400', 'font-medium'];
 
-      tabBtnOrders.classList.remove(...activeClass);
-      tabBtnOrders.classList.add(...inactiveClass);
-      tabBtnStock.classList.remove(...activeClass);
-      tabBtnStock.classList.add(...inactiveClass);
-      tabBtnConversations.classList.remove(...activeClass);
-      tabBtnConversations.classList.add(...inactiveClass);
-
-      tabContentOrders.classList.add('hidden');
-      tabContentStock.classList.add('hidden');
-      tabContentConversations.classList.add('hidden');
-
-      if (tab === 'orders') {
-        tabBtnOrders.classList.add(...activeClass);
-        tabBtnOrders.classList.remove(...inactiveClass);
-        tabContentOrders.classList.remove('hidden');
-      } else if (tab === 'stock') {
-        tabBtnStock.classList.add(...activeClass);
-        tabBtnStock.classList.remove(...inactiveClass);
-        tabContentStock.classList.remove('hidden');
-      } else if (tab === 'conversations') {
-        tabBtnConversations.classList.add(...activeClass);
-        tabBtnConversations.classList.remove(...inactiveClass);
-        tabContentConversations.classList.remove('hidden');
+      for (const [key, item] of Object.entries(tabMap)) {
+        if (key === tab) {
+          item.btn.classList.add(...activeClass);
+          item.btn.classList.remove(...inactiveClass);
+          item.content.classList.remove('hidden');
+        } else {
+          item.btn.classList.remove(...activeClass);
+          item.btn.classList.add(...inactiveClass);
+          item.content.classList.add('hidden');
+        }
       }
     }
 
-    tabBtnOrders.onclick = () => selectTab('orders');
-    tabBtnStock.onclick = () => selectTab('stock');
-    tabBtnConversations.onclick = () => selectTab('conversations');
+    tabMap.orders.btn.onclick = () => selectTab('orders');
+    tabMap.kpis.btn.onclick = () => selectTab('kpis');
+    tabMap.stock.btn.onclick = () => selectTab('stock');
+    tabMap.conversations.btn.onclick = () => selectTab('conversations');
 
     document.getElementById('cardLowStock').onclick = () => {
       selectTab('stock');
@@ -698,16 +1742,108 @@
       renderStock();
     };
 
+    const segActive = 'px-3 py-1.5 rounded-md bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-xs font-semibold';
+    const segInactive = 'px-3 py-1.5 rounded-md text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white';
+
+    const sumBtnActive = 'summary-period-btn px-3 py-1 rounded-md bg-zinc-900 dark:bg-zinc-800 text-white shadow-xs font-semibold';
+    const sumBtnInactive = 'summary-period-btn px-3 py-1 rounded-md text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white';
+
+    document.querySelectorAll('.summary-period-btn').forEach(btn => {
+      btn.onclick = () => {
+        currentSummaryPeriod = btn.dataset.period;
+        document.querySelectorAll('.summary-period-btn').forEach(b => { b.className = sumBtnInactive; });
+        btn.className = sumBtnActive;
+        loadSummary();
+      };
+    });
+
+    function updateSeriesToggleUI() {
+      const activePill = 'border-zinc-900 dark:border-zinc-200 bg-zinc-900/5 dark:bg-zinc-800 text-zinc-900 dark:text-white';
+      const inactivePill = 'border-zinc-200 dark:border-zinc-800 bg-transparent text-zinc-400 dark:text-zinc-500 opacity-60 hover:opacity-90';
+      document.querySelectorAll('.series-toggle-btn').forEach(btn => {
+        const key = btn.dataset.series;
+        const on = !!activeSeries[key];
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        btn.className = `series-toggle-btn inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition ${on ? activePill : inactivePill}`;
+      });
+      const allOn = activeSeries.revenue && activeSeries.orders && activeSeries.units;
+      const allOff = !activeSeries.revenue && !activeSeries.orders && !activeSeries.units;
+      document.getElementById('btnSeriesAll').classList.toggle('ring-1', allOn);
+      document.getElementById('btnSeriesAll').classList.toggle('ring-brand-5', allOn);
+      document.getElementById('btnSeriesNone').classList.toggle('ring-1', allOff);
+      document.getElementById('btnSeriesNone').classList.toggle('ring-brand-3', allOff);
+    }
+
+    document.querySelectorAll('.series-toggle-btn').forEach(btn => {
+      btn.onclick = () => {
+        const key = btn.dataset.series;
+        activeSeries[key] = !activeSeries[key];
+        updateSeriesToggleUI();
+        if (lastMetricsData) renderRevenueChart(lastMetricsData.time_series);
+      };
+    });
+
+    document.getElementById('btnSeriesAll').onclick = () => {
+      activeSeries = { revenue: true, orders: true, units: true };
+      updateSeriesToggleUI();
+      if (lastMetricsData) renderRevenueChart(lastMetricsData.time_series);
+    };
+
+    document.getElementById('btnSeriesNone').onclick = () => {
+      activeSeries = { revenue: false, orders: false, units: false };
+      updateSeriesToggleUI();
+      if (lastMetricsData) renderRevenueChart(lastMetricsData.time_series);
+    };
+
+    updateSeriesToggleUI();
+
+    document.querySelectorAll('.granularity-btn').forEach(btn => {
+      btn.onclick = () => {
+        currentGranularity = btn.dataset.granularity;
+        document.querySelectorAll('.granularity-btn').forEach(b => { b.className = 'granularity-btn ' + segInactive; });
+        btn.className = 'granularity-btn ' + segActive;
+        loadMetrics();
+      };
+    });
+
+    document.querySelectorAll('.breakdown-btn').forEach(btn => {
+      btn.onclick = () => {
+        currentBreakdown = btn.dataset.breakdown;
+        document.querySelectorAll('.breakdown-btn').forEach(b => { b.className = 'breakdown-btn ' + segInactive; });
+        btn.className = 'breakdown-btn ' + segActive;
+        loadMetrics();
+      };
+    });
+
+    document.querySelectorAll('.prodview-btn').forEach(btn => {
+      btn.onclick = () => {
+        const view = btn.dataset.prodview;
+        document.querySelectorAll('.prodview-btn').forEach(b => { b.className = 'prodview-btn ' + segInactive; });
+        btn.className = 'prodview-btn ' + segActive;
+        document.getElementById('prodViewBars').classList.toggle('hidden', view !== 'bars');
+        document.getElementById('prodViewTable').classList.toggle('hidden', view !== 'table');
+        document.getElementById('prodViewNoMove').classList.toggle('hidden', view !== 'nomove');
+      };
+    });
+
+    document.getElementById('kpiPeriodFilter').onchange = loadMetrics;
+    document.getElementById('kpiChannelFilter').onchange = loadMetrics;
+
+    ordersSearch.oninput = renderOrders;
     filterStatus.onchange = renderOrders;
     stockSearch.oninput = renderStock;
+    stockCategoryFilter.onchange = renderStock;
     checkOnlyLowStock.onchange = renderStock;
     document.getElementById('btnRefreshConversations').onclick = loadConversations;
 
-    // Refresh All
+    document.getElementById('btnCloseDetailModal').onclick = () => orderDetailModal.classList.add('hidden');
+    document.getElementById('btnCloseDetailFooter').onclick = () => orderDetailModal.classList.add('hidden');
+    orderDetailModal.onclick = (e) => { if (e.target === orderDetailModal) orderDetailModal.classList.add('hidden'); };
+
     async function refreshAll() {
       refreshIcon.classList.add('animate-spin');
       try {
-        await Promise.all([loadSummary(), loadOrders(), loadStock(), loadConversations()]);
+        await Promise.all([loadSummary(), loadOrders(), loadStock(), loadConversations(), loadMetrics()]);
       } finally {
         setTimeout(() => refreshIcon.classList.remove('animate-spin'), 400);
       }
@@ -718,7 +1854,6 @@
       refreshAll();
     };
 
-    // Auto Refresh Countdown
     let autoRefreshActive = true;
     setInterval(() => {
       if (!autoRefreshActive) return;
@@ -734,30 +1869,29 @@
       autoRefreshActive = !autoRefreshActive;
       const dot = toggleAutoRefresh.querySelector('span');
       if (autoRefreshActive) {
-        dot.className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse';
-        countdownText.classList.remove('line-through', 'text-slate-300');
-        countdownText.classList.add('text-slate-500');
+        dot.className = 'w-2 h-2 rounded-full bg-brand-4 animate-pulse';
+        countdownText.classList.remove('line-through', 'opacity-40');
       } else {
-        dot.className = 'w-2 h-2 rounded-full bg-slate-400';
-        countdownText.classList.add('line-through', 'text-slate-300');
-        countdownText.classList.remove('text-slate-500');
+        dot.className = 'w-2 h-2 rounded-full bg-zinc-400';
+        countdownText.classList.add('line-through', 'opacity-40');
       }
     };
 
-    // Auth modal controls
     btnAuthModal.onclick = () => {
       inputToken.value = getToken();
       authModal.classList.remove('hidden');
+      inputToken.focus();
     };
     btnCloseModal.onclick = () => authModal.classList.add('hidden');
-    btnSaveToken.onclick = () => {
+    const submitToken = () => {
       setToken(inputToken.value);
       authModal.classList.add('hidden');
       showToast('Token guardado localmente', 'success');
       refreshAll();
     };
+    btnSaveToken.onclick = submitToken;
+    inputToken.onkeydown = (e) => { if (e.key === 'Enter') submitToken(); };
 
-    // Initial load
     const currentToken = getToken();
     setToken(currentToken);
     if (!currentToken) {

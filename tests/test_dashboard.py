@@ -1,13 +1,14 @@
 """Tests del dashboard operativo y endpoints de gestión de órdenes (RF-22 a RF-25, CA-24, CA-25, Issue #61)."""
 
 import csv
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from internal.config import get_settings
 from internal.database.connection import SessionLocal, init_db
@@ -52,6 +53,7 @@ def clean_state_and_auth(monkeypatch):
         "/dashboard/orders",
         "/dashboard/stock",
         "/dashboard/conversations",
+        "/dashboard/metrics",
     ],
 )
 def test_dashboard_endpoints_require_authentication(path):
@@ -282,3 +284,117 @@ def test_dashboard_ui_served():
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
     assert "Norma · Dashboard Operativo" in resp.text
+
+
+# ============================================================================
+# Métricas económicas y KPIs (/dashboard/metrics)
+# ============================================================================
+
+
+def test_dashboard_metrics_revenue_granularity_and_breakdown(monkeypatch):
+    """Verifica el cálculo de métricas económicas, series temporales y desglose por categoría/marca."""
+    monkeypatch.setenv("CATALOG_FILE", str(DATA_EXAMPLE_DIR / "catalogo.csv"))
+    monkeypatch.setenv("ORDERS_FILE", str(DATA_EXAMPLE_DIR / "pedidos.csv"))
+    get_settings.cache_clear()
+
+    # 1. Granularidad mensual y desglose por categoría sobre data_example (7 pedidos, 1 cancelado)
+    resp_cat = client.get("/dashboard/metrics?granularity=month&breakdown=category", headers=AUTH_HEADERS)
+    assert resp_cat.status_code == 200
+    data = resp_cat.json()
+
+    assert data["active_orders_count"] == 6
+    assert data["cancelled_orders_count"] == 1
+    assert Decimal(data["total_revenue"]) > 0
+    assert Decimal(data["completed_revenue"]) > 0
+    assert Decimal(data["completed_revenue"]) <= Decimal(data["total_revenue"])
+    assert Decimal(data["average_ticket"]) > 0
+    assert Decimal(data["catalog_valuation"]) > 0
+    assert data["cancellation_rate"] == pytest.approx(14.3, abs=0.2)
+    assert len(data["time_series"]) >= 1
+    assert data["breakdown_by"] == "category"
+    assert any(item["name"] == "Shampoo" for item in data["breakdown"])
+    assert len(data["top_products"]) >= 1
+    assert data["total_catalog_count"] == 15
+    assert data["healthy_stock_count"] == 12
+    assert data["stock_health_pct"] == pytest.approx(80.0, abs=0.1)
+    assert len(data["status_breakdown"]) == 3
+    assert len(data["channel_breakdown"]) >= 1
+    assert isinstance(data["no_movement_products"], list)
+
+    # 2. Granularidad semanal / anual y desglose por marca
+    for gran in ("day", "week", "year"):
+        resp_gran = client.get(f"/dashboard/metrics?granularity={gran}&breakdown=brand", headers=AUTH_HEADERS)
+        assert resp_gran.status_code == 200
+        d_gran = resp_gran.json()
+        assert d_gran["granularity"] == gran
+        assert d_gran["breakdown_by"] == "brand"
+        assert any(item["name"] == "Pantene" for item in d_gran["breakdown"])
+
+    # 3. Filtros por período y canal
+    resp_ch = client.get("/dashboard/metrics?period=all&channel=whatsapp", headers=AUTH_HEADERS)
+    assert resp_ch.status_code == 200
+    assert resp_ch.json()["channel"] == "whatsapp"
+    assert all(pt["units_count"] >= 0 for pt in data["time_series"])
+    assert sum(pt["units_count"] for pt in data["time_series"]) > 0
+
+
+def test_dashboard_summary_period_filtering_and_metrics_yesterday(monkeypatch, tmp_path):
+    """Verifica el filtrado por período en /dashboard/summary y units_count / yesterday en /dashboard/metrics."""
+    monkeypatch.setenv("CATALOG_FILE", str(DATA_EXAMPLE_DIR / "catalogo.csv"))
+    monkeypatch.setenv("ORDERS_FILE", str(tmp_path / "empty_orders.csv"))
+    get_settings.cache_clear()
+
+    ar_tz = timezone(timedelta(hours=-3))
+    now_ar = datetime.now(ar_tz).replace(hour=12, minute=0, second=0, microsecond=0)
+    dates_by_tag = {
+        "today": now_ar,
+        "yesterday": now_ar - timedelta(days=1),
+        "five_days": now_ar - timedelta(days=5),
+    }
+
+    created_ids: dict[str, str] = {}
+    for tag, qty, status_target in [
+        ("today", 2, OrderStatus.RECEIVED),
+        ("yesterday", 3, OrderStatus.PREPARED),
+        ("five_days", 4, OrderStatus.DELIVERED),
+    ]:
+        order = _create_sample_order(sku="SH-PAN-400", quantity=qty)
+        created_ids[tag] = order.order_id
+        with SessionLocal() as session:
+            rec = session.scalar(select(OrderRecord).where(OrderRecord.order_id == order.order_id))
+            assert rec is not None
+            rec.created_at = dates_by_tag[tag].astimezone(timezone.utc)
+            rec.status = status_target.value
+            session.commit()
+
+    resp_today = client.get("/dashboard/summary?period=today", headers=AUTH_HEADERS)
+    assert resp_today.status_code == 200
+    d_today = resp_today.json()
+    assert d_today["period"] == "today"
+    assert d_today["orders_today"] == 1
+    assert sum(d_today["orders_by_status"].values()) == 1
+    assert d_today["orders_by_status"]["Recibido"] == 1
+
+    resp_yest = client.get("/dashboard/summary?period=yesterday", headers=AUTH_HEADERS)
+    assert resp_yest.status_code == 200
+    d_yest = resp_yest.json()
+    assert d_yest["period"] == "yesterday"
+    assert d_yest["orders_today"] == 1
+    assert sum(d_yest["orders_by_status"].values()) == 1
+    assert d_yest["orders_by_status"]["Preparado"] == 1
+
+    resp_7d = client.get("/dashboard/summary?period=7d", headers=AUTH_HEADERS)
+    assert resp_7d.status_code == 200
+    d_7d = resp_7d.json()
+    assert d_7d["period"] == "7d"
+    assert d_7d["orders_today"] == 3
+    assert sum(d_7d["orders_by_status"].values()) == 3
+
+    resp_m_yest = client.get("/dashboard/metrics?granularity=day&period=yesterday", headers=AUTH_HEADERS)
+    assert resp_m_yest.status_code == 200
+    m_yest = resp_m_yest.json()
+    assert m_yest["period"] == "yesterday"
+    assert m_yest["active_orders_count"] == 1
+    assert len(m_yest["time_series"]) == 1
+    assert m_yest["time_series"][0]["orders_count"] == 1
+    assert m_yest["time_series"][0]["units_count"] == 3

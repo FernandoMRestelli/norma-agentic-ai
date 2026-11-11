@@ -1,10 +1,13 @@
 """Endpoints HTTP para el dashboard operativo (RF-22 a RF-25, etapa 06)."""
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, Query
 
 from internal.api.orders import require_operator
 from internal.schemas.dashboard_schema import (
     DashboardConversationItem,
+    DashboardMetrics,
     DashboardOrderItem,
     DashboardStockItem,
     DashboardSummary,
@@ -15,9 +18,11 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"], dependencies=[Depend
 
 
 @router.get("/summary", response_model=DashboardSummary)
-def get_summary() -> DashboardSummary:
-    """Indicadores principales: pedidos hoy, pedidos por estado, productos hoy y stock bajo (RF-22, CA-25)."""
-    return dashboard_service.get_summary()
+def get_summary(
+    period: Literal["all", "today", "yesterday", "7d", "30d"] = Query(default="all"),
+) -> DashboardSummary:
+    """Indicadores principales: pedidos por período, estados, productos y stock bajo (RF-22, CA-25)."""
+    return dashboard_service.get_summary(period=period)
 
 
 @router.get("/orders", response_model=list[DashboardOrderItem])
@@ -43,3 +48,19 @@ def get_stock(low: bool = Query(default=False)) -> list[DashboardStockItem]:
 def get_conversations(state: str | None = Query(default=None)) -> list[DashboardConversationItem]:
     """Conversaciones que requieren atención humana (ej. estado 'derivada') (RF-24)."""
     return dashboard_service.get_conversations(state=state)
+
+
+@router.get("/metrics", response_model=DashboardMetrics)
+def get_metrics(
+    granularity: Literal["day", "week", "month", "year"] = Query(default="day"),
+    breakdown: Literal["category", "brand"] = Query(default="category"),
+    period: Literal["all", "today", "yesterday", "7d", "30d"] = Query(default="all"),
+    channel: str | None = Query(default=None),
+) -> DashboardMetrics:
+    """Métricas económicas, evolución de ventas y desglose por categoría o marca."""
+    return dashboard_service.get_metrics(
+        granularity=granularity,
+        breakdown_by=breakdown,
+        period=period,
+        channel=channel,
+    )

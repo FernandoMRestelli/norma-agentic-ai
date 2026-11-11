@@ -10,7 +10,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Agregado
 
-- Dashboard operativo con autenticación (RF-22 a RF-25, CA-24, CA-25, Etapa 06): endpoints `/dashboard/summary`, `/dashboard/orders`, `/dashboard/stock` y `/dashboard/conversations` protegidos con token de operador; SPA interactiva servida en `/dashboard/ui` con Tailwind CSS, actualización manual, auto-refresh cada 60s y gestión de estados de pedidos (`Despachado`, `Retirado`, `Entregado`, `Cancelado`) con descuento físico de stock en el catálogo y prevención de doble descuento (Issue #61).
+- Dashboard operativo con autenticación (RF-22 a RF-25, CA-24, CA-25, Etapa 06): endpoints `/dashboard/summary` (con filtro por período `today`/`yesterday`/`7d`/`30d`/`all`), `/dashboard/orders`, `/dashboard/stock`, `/dashboard/conversations` y `/dashboard/metrics` protegidos con token de operador; SPA interactiva servida en `/dashboard/ui` (modo blanco/negro, filtro de período en resumen operativo, auto-refresh cada 60s), pestaña **Ventas & KPIs** (evolución de monto vendido, pedidos y productos vendidos por día/semana/mes/año con visibilidad seleccionable de series, desglose por categoría/marca y ranking de productos) y gestión de estados de pedidos (`Despachado`, `Retirado`, `Entregado`, `Cancelado`) con descuento físico de stock en el catálogo (Issue #61).
 - Ciclo de vida de órdenes extendido y gestión de estados (RF-20, Issue #61): nuevo endpoint `POST /orders/{order_id}/status`, estados `Despachado` y `Entregado` en `OrderStatus`, y deducción atómica e idempotente del stock de catálogo en `sheets_service` al marcar pedidos como `Retirado` o `Despachado`.
 
 ## [0.1.0] - 2026-11-10
