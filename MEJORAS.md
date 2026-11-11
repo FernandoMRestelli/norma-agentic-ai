@@ -36,6 +36,16 @@ primeros errores fueron `GoogleAPIError` y después `429`: el free tier de `gemi
 Cada caso hace varias llamadas, así que `--pausa` no alcanza: hace falta otra cuota o correr pocos casos por día con
 `--caso`. Cuando corra, hay que mirar si el agente lee la BR de cada caso, ahora que están todas en `tomar_pedido`.
 
+**Cuarta corrida (2026-11-10 y 2026-11-11), frente E de skills y respuestas, OpenRouter con el modelo por defecto:**
+antes del cambio se evaluaron 2 de 6 casos y después del cambio ninguno, todo por `OpenAIRateLimitError` del free tier
+(cada caso hace varias llamadas y la cuota diaria se agota en pocos casos). Lo poco que respondió el LLM con el prompt
+de la 0.1.1 confirma el diagnóstico del plan: en `saludo` contestó «¡Hola! ¿Buen día. En qué te ayudo?», y en
+`texto-simple` dio incorrecto, y en la respuesta repitió el detalle de precios que ya agrega el sistema,
+le dijo al cliente «Stock disponible: 24 unidades» y cerró con la frase fija «¿Querés sumar algo más o te confirmo el
+pedido?». Con el prompt nuevo **no hay medición todavía**: queda pendiente correr, con cuota, los casos de varios
+turnos y los chequeos de estilo:
+`python -m internal.evaluar_agente --pausa 30 --conversaciones data/evaluacion/conversaciones.md`.
+
 - Los contratos de datos rechazan lo que tienen que rechazar (borrador sin ítems, cantidades no positivas,
   mensaje de audio sin archivo) y los precios no pierden centavos (`Decimal`).
 - Las invariantes valen para todos los canales y tipos de mensaje: un borrador nace sin confirmar y el resumen
