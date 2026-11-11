@@ -135,7 +135,7 @@ def confirm_draft(draft: OrderDraft) -> Order:
         if existing:
             return _to_order(existing)
 
-        stock = {product.sku: product.stock for product in inventory_service.get_catalog(session=session)}
+        stock = {product.sku: product.stock for product in inventory_service.get_catalog(session=session, fresh=True)}
         short = [
             {"sku": item.sku, "requested": item.quantity, "available": stock.get(item.sku, 0)}
             for item in draft.items
@@ -212,3 +212,12 @@ def sync_pending_orders() -> int:
         if synced_count > 0:
             session.commit()
     return synced_count
+
+
+def list_orders() -> list[Order]:
+    """Todas las órdenes registradas, de la más vieja a la más nueva (exportación a Excel, RF-54)."""
+    with SessionLocal() as session:
+        records = session.scalars(
+            select(OrderRecord).where(OrderRecord.order_id.is_not(None)).order_by(OrderRecord.id)
+        ).all()
+        return [_to_order(record) for record in records]
