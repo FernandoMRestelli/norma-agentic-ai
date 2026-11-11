@@ -14,6 +14,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Cambiado
 
+- El asistente habla como alguien del mostrador de la distribuidora: el system prompt y las skills dicen cada regla una sola vez y traen ejemplos de respuestas por situación, con cierres variados. Antes de proponer un producto que la búsqueda encontró de forma aproximada pregunta «¿es este?» (BR-09), anota las observaciones del pedido sin aceptar condiciones de envío o pago (BR-10), y `informar` responde horarios, entrega, pagos y mínimo con `internal/skills/informar/datos_negocio.md` (hoy todo pendiente de confirmar, V-06). `evaluar_agente` corre conversaciones de varios turnos, chequea el estilo de cada respuesta y con `--conversaciones` las deja en un `.md` para leerlas. No hay nada que migrar al desplegar.
 - `.env.example` sigue el orden y los comentarios del `.env` de producción, y trae OpenRouter como LLM de texto por defecto, con Gemini comentado como alternativa. No cambia nada para quien ya tiene su `.env`.
 - La spec del MVP, la del canal Telegram, `architecture.md`, `CONTRIBUTING.md` y `README.md` coinciden con el código de la 0.1.1: valores de `kind`, base interna, componentes y endpoints, proveedores de LLM y estado de los requisitos y las etapas.
 

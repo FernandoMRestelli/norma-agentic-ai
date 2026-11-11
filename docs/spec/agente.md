@@ -368,8 +368,19 @@ internal/skills/tomar_pedido/
     ├── BR-01.md
     ├── BR-03.md
     ├── BR-04.md
-    └── BR-05.md
+    ├── BR-05.md
+    ├── BR-09.md
+    └── BR-10.md
 ```
+
+`informar/` suma `datos_negocio.md`: los datos del negocio que la skill le puede dar al cliente, en un encabezado YAML
+con un texto o `null` por tema. `leer_skill` los devuelve en `datos_negocio`
+([skills y respuestas §3.5](skills-y-respuestas.md#35-datos-del-negocio)).
+
+Cada `skill.md` termina con una sección «Ejemplos», una respuesta por situación, ilustrativa y con cierres distintos
+([skills y respuestas §3.2](skills-y-respuestas.md#32-ejemplos)). Cada regla se dice en un solo archivo: lo que vale
+para todas las skills está en el system prompt
+([skills y respuestas §3.1](skills-y-respuestas.md#31-dónde-vive-cada-regla)).
 
 ```markdown
 ---
@@ -410,9 +421,9 @@ Reglas:
 
 | Skill | Función | Cuándo aplica | Tools que habilita, además de las de catálogo | BR |
 |---|---|---|---|---|
-| `tomar_pedido` | Convierte el pedido en una propuesta y responde consultas de precio, disponibilidad y marcas. Nunca registra | El cliente pide o consulta productos, o cambia la propuesta vigente | `respond_to_customer` | BR-01, BR-03, BR-04, BR-05 |
+| `tomar_pedido` | Convierte el pedido en una propuesta y responde consultas de precio, disponibilidad y marcas. Nunca registra | El cliente pide o consulta productos, o cambia la propuesta vigente | `respond_to_customer` | BR-01, BR-03, BR-04, BR-05, BR-09, BR-10 |
 | `confirmar_pedido` | Registra la propuesta vigente si el cliente la acepta sin cambios; si no, le responde sin registrar | Hay una propuesta vigente y el cliente la acepta, la rechaza o duda | `armar_pedido`, `respond_to_customer` | BR-06 |
-| `informar` | Responde lo que no es un pedido y vuelve a ofrecer tomar uno | Saludo, consulta general, «dale» sin propuesta o algo que no es un pedido | `respond_to_customer` | — |
+| `informar` | Responde lo que no es un pedido y vuelve a ofrecer tomar uno | Saludo, consulta general, «dale» sin propuesta o algo que no es un pedido | `respond_to_customer` | — (lee `datos_negocio`) |
 | `derivar_o_cancelar` | Pasa la charla a una persona o descarta el pedido | Pide una persona o cancela el pedido | `escalate_to_human`, `discard_order_draft` | BR-08 |
 
 `derivar_o_cancelar` todavía no existe: depende de las tools de §4.2. Mientras tanto, `informar` no promete
@@ -435,6 +446,8 @@ hace cumplir el backend, aunque el agente no la haya leído.
 | BR-06 | Armar el pedido solo si el cliente acepta la propuesta vigente sin cambios ni condiciones; si cambia algo, proponer de nuevo; si pone una condición, duda o pregunta, responder y volver a ofrecerla | LLM interpreta, backend registra solo la propuesta | RF-13 |
 | BR-07 | Revalidar el stock al crear la orden | Backend. No la permite ninguna skill | RF-14 |
 | BR-08 | Derivar si el cliente lo pide, tras 2 fallas o tras 3 aclaraciones seguidas | LLM y backend | RF-27 |
+| BR-09 | Ante una coincidencia aproximada (`sugerencias` o `aproximado`), preguntar si se refería a ese producto antes de proponerlo; decir que no está en el catálogo solo sin `matches` ni `sugerencias` | LLM | RF-56 |
+| BR-10 | Anotar como observación lo que el cliente pide sobre cómo preparar el pedido (`notes`, `note` por línea); envío, plazo, pago o descuento no son observaciones | LLM | RF-56 |
 
 Las reglas que dependen solo del LLM, como BR-03, se controlan con la evaluación de `mensajes.json`, que registra
 qué BR leyó el agente en cada caso (§10).

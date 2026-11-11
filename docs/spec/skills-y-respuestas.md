@@ -93,7 +93,7 @@ Usa el contrato del [frente C](../plan-mejora-asistente.md#c--guardado-de-pedido
 
 ### 3.5 Datos del negocio
 
-`internal/skills/informar/datos.md` lleva un encabezado YAML con los datos que `informar` le puede dar al cliente:
+`internal/skills/informar/datos_negocio.md` lleva un encabezado YAML con los datos que `informar` le puede dar al cliente:
 `horarios`, `zona_de_entrega`, `medios_de_pago` y `minimo_de_compra`. Un dato que el negocio no confirmó va en
 `null`. `skill_service` lo carga al arrancar con el resto de la skill, y `leer_skill` lo devuelve en
 `datos_negocio`. Con `null`, el agente dice que no tiene ese dato y que por este chat toma pedidos, como en la 0.1.1.
@@ -126,9 +126,9 @@ Hoy los cuatro están en `null`: el negocio no confirmó ninguno ([V-06](../vali
 
 ## 4. Contratos
 
-- **`leer_skill`** suma `datos_negocio` (objeto de texto o `null` por tema) solo para la skill que tiene `datos.md`.
+- **`leer_skill`** suma `datos_negocio` (objeto de texto o `null` por tema) solo para la skill que tiene `datos_negocio.md`.
   Las otras skills devuelven lo mismo que antes.
-- **`datos.md`** en la carpeta de una skill: encabezado YAML de claves de texto con valor de texto o `null`, y debajo
+- **`datos_negocio.md`** en la carpeta de una skill: encabezado YAML de claves de texto con valor de texto o `null`, y debajo
   una explicación para quien lo mantiene. Un valor que no es texto ni `null` impide arrancar (`SkillError`).
 - **`mensajes.json`**: `previo` acepta un texto o una lista de textos no vacía. Los casos existentes no cambian.
 - **`evaluar_agente`**: opción nueva `--conversaciones`. La consola muestra cada turno y los chequeos que fallaron. El
@@ -154,7 +154,7 @@ Hoy los cuatro están en `null`: el negocio no confirmó ninguno ([V-06](../vali
 | CA-105 | Cada skill | Se cargan los ejemplos | Hay al menos uno por situación de la skill, la sección dice que son ilustrativos, los cierres son distintos y cada ejemplo pasa los chequeos de estilo | `test_skills.py::test_cada_skill_tiene_ejemplos_que_pasan_el_estilo` |
 | CA-106 | `tomar_pedido` leída en el turno | El agente pide BR-09 o BR-10 | `leer_br` las devuelve, y BR-09 indica `aclaracion` con los SKU en `options` y cuándo recién decir que no está en el catálogo | `test_skills.py::test_br_de_coincidencia_aproximada_y_observaciones` |
 | CA-107 | La skill `informar` | Se lee con `leer_skill` | Devuelve `datos_negocio` con horarios, zona de entrega, medios de pago y mínimo de compra; las otras skills no lo traen | `test_skills.py::test_informar_trae_los_datos_del_negocio` |
-| CA-108 | Un dato del negocio en `null` | Se revisan las validaciones pendientes | Cada dato pendiente figura en V-06 de `validaciones_pendientes.md`. Un `datos.md` con un valor que no es texto impide arrancar | `test_skills.py::test_datos_pendientes_figuran_en_validaciones`, `test_skills.py::test_datos_invalidos_impiden_arrancar` |
+| CA-108 | Un dato del negocio en `null` | Se revisan las validaciones pendientes | Cada dato pendiente figura en V-06 de `validaciones_pendientes.md`. Un `datos_negocio.md` con un valor que no es texto impide arrancar | `test_skills.py::test_datos_pendientes_figuran_en_validaciones`, `test_skills.py::test_datos_invalidos_impiden_arrancar` |
 | CA-109 | Una respuesta con SKU, `**`, «presentación», dos preguntas, cantidad de stock, nombres internos o palabras en inglés | Se le pasan los chequeos de estilo | Falla el chequeo que corresponde, con su nombre | `test_skills.py::test_chequeos_de_estilo_detectan_cada_falla` |
 | CA-110 | Respuestas buenas: una propuesta, una aclaración, un `sin_stock` con lo que queda y las dudas juntas de un pedido largo | Se le pasan los chequeos | No falla ninguno | `test_skills.py::test_chequeos_de_estilo_aceptan_respuestas_buenas` |
 | CA-111 | Un caso de varios turnos y un modelo falso | Corre la evaluación | Manda todos los turnos, evalúa el último, chequea el estilo de cada respuesta del agente sin el detalle del sistema, marca un cierre repetido y escribe la conversación completa con `--conversaciones` | `test_skills.py::test_evaluacion_de_varios_turnos_con_modelo_falso` |
@@ -177,7 +177,7 @@ Hoy los cuatro están en `null`: el negocio no confirmó ninguno ([V-06](../vali
 | ID | Decisión o pregunta | Estado |
 |---|---|---|
 | D-E1 | **IDs de las BR nuevas.** El plan reserva BR-07 a BR-10, pero la [spec del agente](agente.md#46-reglas-de-negocio-br) ya usa BR-07 (revalidar el stock al crear la orden) y BR-08 (derivar a una persona). Las BR tienen ID fijo, así que no se renumeran: la coincidencia aproximada es **BR-09** y las observaciones, **BR-10** | Cerrada |
-| D-E2 | **Los datos del negocio viven con la skill**, en `informar/datos.md`, y no en una tool nueva: no suma una tool al registro (que es del frente B), entra en `prompt_version` porque es un `.md` de `skills/`, y cambiarlo es una PR, como una BR | Cerrada |
+| D-E2 | **Los datos del negocio viven con la skill**, en `informar/datos_negocio.md`, y no en una tool nueva: no suma una tool al registro (que es del frente B), entra en `prompt_version` porque es un `.md` de `skills/`, y cambiarlo es una PR, como una BR | Cerrada |
 | D-E3 | **Pedido confirmado en el system prompt.** Aplica a `tomar_pedido` (pide más después de confirmar) y a `informar` (quiere modificarlo): como D-09 no permite BR compartidas, va en «Límites» | Cerrada |
 | D-E4 | **Los chequeos de estilo no corrigen nada**: miden. Lo que hay que impedir en producción lo valida el backend (frente B) | Cerrada |
 | D-E5 | ¿Cuáles son los horarios, la zona de entrega, los medios de pago y el mínimo de compra? | Abierta: V-06 |
