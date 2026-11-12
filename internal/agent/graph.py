@@ -65,6 +65,32 @@ def descubrir_tools(state: EstadoNorma, config: RunnableConfig) -> dict[str, Any
     return {"tools_disponibles": tool_registry.available(state.get("skills_activas", []))}
 
 
+def _conversation_id(config: RunnableConfig) -> int | None:
+    """El `thread_id` es el id de la conversación en la base (conversation_service)."""
+    thread_id = str(config.get("configurable", {}).get("thread_id", ""))
+    return int(thread_id) if thread_id.isdigit() else None
+
+
+def _turn_context(state: EstadoNorma, config: RunnableConfig, disponibles: list[str]) -> tool_registry.TurnContext:
+    """Contexto de las tools. Completa la conversación y el nombre de una propuesta de un checkpoint anterior."""
+    conversation_id = _conversation_id(config)
+    customer_name = state.get("customer_name")
+    propuesta = OrderDraft.model_validate(state["propuesta"]) if state.get("propuesta") else None
+    if propuesta and propuesta.conversation_id is None:
+        propuesta = propuesta.model_copy(update={"conversation_id": conversation_id})
+    if propuesta and propuesta.customer_name is None and customer_name:
+        propuesta = OrderDraft.model_validate({**propuesta.model_dump(), "customer_name": customer_name})
+    return tool_registry.TurnContext(
+        customer_id=state["customer_id"],
+        channel=Channel(state["channel"]),
+        disponibles=disponibles,
+        customer_name=customer_name,
+        conversation_id=conversation_id,
+        skills_activas=list(state.get("skills_activas", [])),
+        propuesta=propuesta,
+    )
+
+
 def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> CompiledStateGraph:
     def llamar_modelo(state: EstadoNorma) -> dict[str, Any]:
         iterations = state.get("iteraciones", 0) + 1
@@ -117,16 +143,9 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             "propuesta": None,
         }
 
-    def ejecutar_tools(state: EstadoNorma) -> dict[str, Any]:
-        propuesta = state.get("propuesta")
-        ctx = tool_registry.TurnContext(
-            customer_id=state["customer_id"],
-            channel=Channel(state["channel"]),
-            disponibles=state["tools_disponibles"],
-            skills_activas=list(state.get("skills_activas", [])),
-            propuesta=OrderDraft.model_validate(propuesta) if propuesta else None,
-            turno=guardrails.contexto_turno(state["messages"][state.get("inicio_turno", 0) :]),
-        )
+    def ejecutar_tools(state: EstadoNorma, config: RunnableConfig) -> dict[str, Any]:
+        ctx = _turn_context(state, config, state["tools_disponibles"])
+        ctx.turno = guardrails.contexto_turno(state["messages"][state.get("inicio_turno", 0) :])
         messages: list[Any] = []
         for call in state["messages"][-1].tool_calls:
             if ctx.resultado == "continuar":
@@ -168,14 +187,9 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             "resultado": "continuar",
         }
 
-    def confirmar(state: EstadoNorma) -> dict[str, Any]:
+    def confirmar(state: EstadoNorma, config: RunnableConfig) -> dict[str, Any]:
         """`OK` o `CONFIRMAR` exactos: registra la propuesta vigente sin llamar al LLM (RF-13, CA-18)."""
-        ctx = tool_registry.TurnContext(
-            customer_id=state["customer_id"],
-            channel=Channel(state["channel"]),
-            disponibles=["armar_pedido"],
-            propuesta=OrderDraft.model_validate(state["propuesta"]),
-        )
+        ctx = _turn_context({**state, "skills_activas": []}, config, ["armar_pedido"])
         with observabilidad.paso("armar_pedido", "TOOL", via="confirmar_directo") as paso:
             result = tool_registry.execute("armar_pedido", {}, ctx)
             paso.resultado_tool({}, result)

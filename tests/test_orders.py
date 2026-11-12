@@ -425,7 +425,10 @@ def test_append_order_crea_archivo_y_escribe_cabecera(monkeypatch, tmp_path):
         "5 x Shampoo Pantene Restauración 400 ml (SH-PAN-400); "
         "3 x Tintura Koleston 6.1 Rubio oscuro ceniza kit (TIN-KOL-61)"
     )
-    assert reader[0] == ["id_orden", "fecha_hora", "cliente", "canal", "productos", "notas", "estado"]
+    # Las columnas que se sumaron después de la 0.1.1 van al final (docs/spec/guardado-de-pedidos.md §4.5)
+    assert reader[0] == [
+        "id_orden", "fecha_hora", "cliente", "canal", "productos", "notas", "estado", "nombre_cliente", "total"
+    ]
     assert reader[1] == [
         "ORD-0001",
         "2026-10-27T09:12:00-03:00",
@@ -434,6 +437,8 @@ def test_append_order_crea_archivo_y_escribe_cabecera(monkeypatch, tmp_path):
         expected_items,
         "",
         "Recibido",
+        "",
+        "0.00",
     ]
 
 

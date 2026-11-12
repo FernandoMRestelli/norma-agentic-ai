@@ -17,10 +17,25 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validat
 
 MAX_QUANTITY: int = 999
 MAX_MEDIA_URL_LENGTH: int = 2048
+MAX_LINE_NOTE_LENGTH: int = 120  # nota de una línea: tono, variante o aclaración (RF-48)
+MAX_ORDER_NOTES_LENGTH: int = 300  # observación general del pedido (RF-48)
+MAX_CUSTOMER_NAME_LENGTH: int = 64
 _NUMERIC_OR_HEX_HOST = re.compile(
     r"^(0x[0-9a-f]+|[0-9]+)(\.(0x[0-9a-f]+|[0-9]+))*$", re.IGNORECASE
 )
 _TELEGRAM_FILE_REFERENCE = re.compile(r"telegram:[A-Za-z0-9_-]+")
+
+
+def clean_note(value: str | None) -> str | None:
+    """Colapsa los espacios de una nota; una nota vacía es None."""
+    if value is None:
+        return None
+    return " ".join(value.split()) or None
+
+
+def items_total(items: "list[OrderItem]") -> Decimal:
+    """Suma de cantidad por precio de las líneas con precio: es el total que ve el cliente."""
+    return sum((item.quantity * item.unit_price for item in items if item.unit_price is not None), Decimal(0))
 
 
 class Channel(StrEnum):
@@ -41,7 +56,7 @@ class IncomingMessage(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     customer_id: str = Field(min_length=1)
-    customer_name: str | None = Field(default=None, max_length=64)  # el nombre del perfil, si el canal lo da
+    customer_name: str | None = Field(default=None, max_length=MAX_CUSTOMER_NAME_LENGTH)  # nombre del perfil
     channel: Channel
     type: MessageType = MessageType.TEXT
     text: str | None = None
@@ -143,12 +158,19 @@ class OrderItem(BaseModel):
     presentation: str | None = None
     quantity: int = Field(gt=0, le=MAX_QUANTITY)
     unit_price: Decimal | None = Field(default=None, ge=0)
+    note: str | None = Field(default=None, max_length=MAX_LINE_NOTE_LENGTH)  # el tono mientras siga abierta V-01
+
+    @field_validator("note")
+    @classmethod
+    def clean_line_note(cls, v: str | None) -> str | None:
+        return clean_note(v)
 
 
 class DraftStatus(StrEnum):
     PENDING_CONFIRMATION = "pendiente_confirmacion"
     CONFIRMED = "confirmado"
     DISCARDED = "descartado"
+    REPLACED = "reemplazado"  # llegó otra versión del mismo borrador
 
 
 class OrderDraft(BaseModel):
@@ -158,11 +180,27 @@ class OrderDraft(BaseModel):
 
     draft_id: str
     customer_id: str = Field(min_length=1)
+    customer_name: str | None = None  # lo pone el backend desde el perfil, nunca el LLM
     channel: Channel
+    conversation_id: int | None = None  # lo pone el backend
     items: list[OrderItem] = Field(min_length=1)
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=MAX_ORDER_NOTES_LENGTH)
     status: DraftStatus = DraftStatus.PENDING_CONFIRMATION
     version: int = Field(default=1, ge=1)
+
+    @field_validator("notes")
+    @classmethod
+    def clean_notes(cls, v: str | None) -> str | None:
+        return clean_note(v)
+
+    @field_validator("customer_name")
+    @classmethod
+    def clean_customer_name(cls, v: str | None) -> str | None:
+        return (clean_note(v) or "")[:MAX_CUSTOMER_NAME_LENGTH] or None
+
+    @property
+    def total(self) -> Decimal:
+        return items_total(self.items)
 
 
 class ConfirmationAction(StrEnum):
@@ -177,6 +215,15 @@ class OrderStatus(StrEnum):
     CANCELLED = "Cancelado"
 
 
+class OrderEvent(BaseModel):
+    """Un cambio de estado de una orden. `from_status` es None en el alta (RF-47)."""
+
+    from_status: OrderStatus | None = None
+    to_status: OrderStatus
+    source: str  # agente, operador o migracion
+    created_at: datetime
+
+
 class Order(BaseModel):
     """Orden confirmada; es lo que se registra en el Google Sheet de seguimiento."""
 
@@ -186,11 +233,21 @@ class Order(BaseModel):
     draft_id: str
     created_at: datetime
     customer_id: str = Field(min_length=1)
+    customer_name: str | None = None  # nombre del perfil: dato personal, nunca a logs ni trazas (RNF-03)
     channel: Channel
+    conversation_id: int | None = None
     items: list[OrderItem] = Field(min_length=1)
     notes: str | None = None
+    total: Decimal | None = None  # siempre Decimal después de validar: si no viene, sale de las líneas
     status: OrderStatus = OrderStatus.RECEIVED
     sheets_synced: bool = False
+    history: list[OrderEvent] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def fill_total(self) -> Self:
+        if self.total is None:
+            self.total = items_total(self.items)
+        return self
 
     @field_validator("order_id")
     @classmethod

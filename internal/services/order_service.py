@@ -5,12 +5,20 @@ from __future__ import annotations
 import logging
 import re
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from internal.database.connection import SessionLocal
-from internal.database.models import OrderRecord
-from internal.schemas.order_schema import Order, OrderDraft, OrderStatus
+from internal.database.models import DraftRecord, OrderEventRecord, OrderItemRecord, OrderRecord
+from internal.schemas.order_schema import (
+    DraftStatus,
+    Order,
+    OrderDraft,
+    OrderEvent,
+    OrderItem,
+    OrderStatus,
+)
 from internal.services import inventory_service, sheets_service
 
 logger = logging.getLogger(__name__)
@@ -101,45 +109,160 @@ class InsufficientStockError(Exception):
         self.lines = lines
 
 
+class EventSource:
+    """Quién hizo un cambio de estado (`order_events.source`)."""
+
+    AGENT = "agente"
+    OPERATOR = "operador"
+    MIGRATION = "migracion"
+
+
+def _begin_immediate(session: Session) -> None:
+    """Toma el lock de escritura de SQLite antes de leer: dos escrituras a la vez ven el estado de la otra."""
+    if session.bind and session.bind.dialect.name == "sqlite":
+        session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+
+
 def _to_order(record: OrderRecord) -> Order:
     return Order(
         order_id=record.order_id,
         draft_id=record.draft_id,
         created_at=record.created_at,
         customer_id=record.customer_id,
+        customer_name=record.customer_name,
         channel=record.channel,
-        items=record.items,
+        conversation_id=record.conversation_id,
+        items=[
+            OrderItem(
+                sku=line.sku,
+                product_name=line.product_name,
+                presentation=line.presentation,
+                quantity=line.quantity,
+                unit_price=line.unit_price,
+                note=line.note,
+            )
+            for line in record.lines
+        ],
         notes=record.notes,
+        total=record.total,
         status=record.status,
         sheets_synced=record.sheets_synced,
+        history=[
+            OrderEvent(
+                from_status=event.from_status,
+                to_status=event.to_status,
+                source=event.source,
+                created_at=event.created_at,
+            )
+            for event in record.events
+        ],
     )
+
+
+def _find(session: Session, order_id: str) -> OrderRecord | None:
+    return session.scalar(select(OrderRecord).where(OrderRecord.order_id == order_id))
 
 
 def get_order(order_id: str) -> Order | None:
     with SessionLocal() as session:
-        record = session.scalar(select(OrderRecord).where(OrderRecord.order_id == order_id))
+        record = _find(session, order_id)
         return _to_order(record) if record else None
+
+
+def _draft_items(draft: OrderDraft) -> list[dict]:
+    return [item.model_dump(mode="json") for item in draft.items]
+
+
+def _upsert_draft(session: Session, draft: OrderDraft, status: DraftStatus, order_id: str | None = None) -> None:
+    """Guarda una versión del borrador en `drafts`, o actualiza su estado si ya estaba (RF-46).
+
+    Si la versión ya estaba y sigue pendiente (un reintento después de una respuesta rechazada), queda con las
+    líneas, las notas y el total nuevos. Una versión con desenlace no cambia de estado por volver a registrarla
+    pendiente.
+    """
+    record = session.scalar(
+        select(DraftRecord).where(DraftRecord.draft_id == draft.draft_id, DraftRecord.version == draft.version)
+    )
+    if record is None:
+        record = DraftRecord(
+            draft_id=draft.draft_id,
+            version=draft.version,
+            conversation_id=draft.conversation_id,
+            customer_id=draft.customer_id,
+            channel=draft.channel.value,
+        )
+        session.add(record)
+    elif record.status != DraftStatus.PENDING_CONFIRMATION.value and status == DraftStatus.PENDING_CONFIRMATION:
+        return  # ya tuvo desenlace
+    if record.status in (None, DraftStatus.PENDING_CONFIRMATION.value):  # nueva, o pendiente que se repite
+        record.items = _draft_items(draft)
+        record.notes = draft.notes
+        record.total = draft.total
+    record.status = status.value
+    record.order_id = order_id
+    # Las otras versiones pendientes del mismo borrador ya no valen: solo se registra la última (RF-16)
+    session.execute(
+        update(DraftRecord)
+        .where(
+            DraftRecord.draft_id == draft.draft_id,
+            DraftRecord.version != draft.version,
+            DraftRecord.status == DraftStatus.PENDING_CONFIRMATION.value,
+        )
+        .values(status=DraftStatus.REPLACED.value)
+    )
+
+
+def record_draft(draft: OrderDraft) -> None:
+    """Registra una versión propuesta. Es trazabilidad: si falla, se anota y la conversación sigue."""
+    try:
+        with SessionLocal() as session:
+            _upsert_draft(session, draft, DraftStatus.PENDING_CONFIRMATION)
+            session.commit()
+    except Exception:
+        logger.warning(
+            "No se pudo registrar la versión %d del borrador %s", draft.version, draft.draft_id, exc_info=True
+        )
+
+
+def discard_draft(draft: OrderDraft) -> None:
+    """La propuesta dejó de valer sin convertirse en orden: el agente respondió sin volver a proponerla."""
+    try:
+        with SessionLocal() as session:
+            session.execute(
+                update(DraftRecord)
+                .where(
+                    DraftRecord.draft_id == draft.draft_id,
+                    DraftRecord.status == DraftStatus.PENDING_CONFIRMATION.value,
+                )
+                .values(status=DraftStatus.DISCARDED.value)
+            )
+            session.commit()
+    except Exception:
+        logger.warning("No se pudo descartar el borrador %s", draft.draft_id, exc_info=True)
 
 
 def confirm_draft(draft: OrderDraft) -> Order:
     """Registra la orden de un borrador UNA sola vez (RF-14, RF-15).
 
     Es idempotente: si el borrador ya tiene orden (reintento, mensaje repetido) devuelve la existente.
-    Pasos: buscar orden existente -> revalidar stock con una lectura fresca -> guardar en la base.
+    Pasos: buscar orden existente -> revalidar stock con una lectura fresca -> guardar la orden con sus líneas, su
+    primer evento y la versión aceptada del borrador, todo en la misma transacción.
     """
     with SessionLocal() as session:
-        if session.bind and session.bind.dialect.name == "sqlite":
-            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        _begin_immediate(session)
 
         existing = session.scalar(select(OrderRecord).where(OrderRecord.draft_id == draft.draft_id))
         if existing:
             return _to_order(existing)
 
         stock = {product.sku: product.stock for product in inventory_service.get_catalog(session=session, fresh=True)}
+        requested: dict[str, int] = {}
+        for item in draft.items:  # un SKU puede venir en varias líneas, una por nota
+            requested[item.sku] = requested.get(item.sku, 0) + item.quantity
         short = [
-            {"sku": item.sku, "requested": item.quantity, "available": stock.get(item.sku, 0)}
-            for item in draft.items
-            if item.quantity > stock.get(item.sku, 0)
+            {"sku": sku, "requested": quantity, "available": stock.get(sku, 0)}
+            for sku, quantity in requested.items()
+            if quantity > stock.get(sku, 0)
         ]
         if short:
             raise InsufficientStockError(short)
@@ -147,15 +270,31 @@ def confirm_draft(draft: OrderDraft) -> Order:
         record = OrderRecord(
             draft_id=draft.draft_id,
             customer_id=draft.customer_id,
+            customer_name=draft.customer_name,
             channel=draft.channel.value,
-            items=[item.model_dump(mode="json") for item in draft.items],
+            conversation_id=draft.conversation_id,
             notes=draft.notes,
+            total=draft.total,
             status=OrderStatus.RECEIVED.value,
+            lines=[
+                OrderItemRecord(
+                    position=position,
+                    sku=item.sku,
+                    product_name=item.product_name,
+                    presentation=item.presentation,
+                    quantity=item.quantity,
+                    unit_price=item.unit_price,
+                    note=item.note,
+                )
+                for position, item in enumerate(draft.items, start=1)
+            ],
+            events=[OrderEventRecord(from_status=None, to_status=OrderStatus.RECEIVED.value, source=EventSource.AGENT)],
         )
         session.add(record)
         try:
             session.flush()  # el id correlativo sale de la base
             record.order_id = format_order_id(record.id)
+            _upsert_draft(session, draft, DraftStatus.CONFIRMED, record.order_id)
             session.commit()
         except IntegrityError:  # otro proceso registró el mismo borrador primero
             session.rollback()
@@ -177,18 +316,27 @@ def confirm_draft(draft: OrderDraft) -> Order:
         return _to_order(record)
 
 
-def cancel_order(order_id: str) -> Order:
-    """Cancela una orden activa y libera su stock comprometido (RF-20)."""
+def change_status(order_id: str, nuevo: OrderStatus, source: str = EventSource.OPERATOR) -> Order:
+    """Pasa una orden a otro estado si la transición es válida y guarda el evento (RF-20, RF-47)."""
     with SessionLocal() as session:
-        record = session.scalar(select(OrderRecord).where(OrderRecord.order_id == order_id))
+        _begin_immediate(session)
+        record = _find(session, order_id)
         if not record:
             raise OrderNotFoundError(f"Orden no encontrada: {order_id!r}")
         actual = parse_status(record.status)
-        if not can_transition(actual, OrderStatus.CANCELLED):
-            raise InvalidTransitionError(f"No se puede cancelar una orden en estado {actual.value!r}")
-        record.status = OrderStatus.CANCELLED.value
+        if not can_transition(actual, nuevo):
+            if nuevo == OrderStatus.CANCELLED:
+                raise InvalidTransitionError(f"No se puede cancelar una orden en estado {actual.value!r}")
+            raise InvalidTransitionError(f"No se puede pasar una orden de {actual.value!r} a {nuevo.value!r}")
+        record.status = nuevo.value
+        record.events.append(OrderEventRecord(from_status=actual.value, to_status=nuevo.value, source=source))
         session.commit()
         return _to_order(record)
+
+
+def cancel_order(order_id: str, source: str = EventSource.OPERATOR) -> Order:
+    """Cancela una orden activa y libera su stock comprometido (RF-20)."""
+    return change_status(order_id, OrderStatus.CANCELLED, source)
 
 
 def sync_pending_orders() -> int:

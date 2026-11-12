@@ -17,6 +17,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Cambiado
 
+- Los pedidos guardados dicen quién pidió (el nombre del perfil), qué pidió línea por línea, con las observaciones del cliente (por ejemplo el tono de una coloración), cuánto suma y por qué estados pasó, y el operador puede marcarlos como `Preparado` o `Retirado` con `POST /orders/{order_id}/status`. Las propuestas, los mensajes de Telegram ya procesados y el historial de estados también quedan en la base, y la planilla de pedidos suma las columnas `nombre_cliente` y `total` al final. **Cambia el formato de la base:** al arrancar, la API y el bot la actualizan solos y copian las líneas de las órdenes que ya tenías, sin perder ninguna. **Para desplegar:** antes de levantar la versión nueva, frená la API y el bot y copiá `~/norma-prod/data/norma.db` (por ejemplo a `norma.db.antes-0.2`); es la única forma de volver atrás.
 - `.env.example` sigue el orden y los comentarios del `.env` de producción, y trae OpenRouter como LLM de texto por defecto, con Gemini comentado como alternativa. No cambia nada para quien ya tiene su `.env`.
 - La spec del MVP, la del canal Telegram, `architecture.md`, `CONTRIBUTING.md` y `README.md` coinciden con el código de la 0.1.1: valores de `kind`, base interna, componentes y endpoints, proveedores de LLM y estado de los requisitos y las etapas.
 

@@ -14,7 +14,7 @@ from internal.agent import guardrails, observabilidad
 from internal.agent.guardrails import ContextoTurno, validar_salida
 from internal.agent.norma_agent import NormaAgent
 from internal.database.connection import SessionLocal, init_db
-from internal.database.models import ConversationRecord, OrderRecord
+from internal.database.models import ConversationRecord, DraftRecord, OrderRecord
 from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import Channel, IncomingMessage, OrderDraft, OrderItem
 from internal.services import conversation_service, sheets_service
@@ -38,6 +38,7 @@ def base_limpia():
     init_db()
     with SessionLocal() as session:
         session.execute(delete(OrderRecord))
+        session.execute(delete(DraftRecord))
         session.execute(delete(ConversationRecord))
         session.commit()
 
@@ -129,6 +130,25 @@ def test_stock_revelado_se_rechaza_y_reintenta():
     assert segundo.draft.version == 2
     assert segundo.draft.items[0].quantity == 3
     assert "50" not in segundo.message.split("\n\n")[0]  # el detalle del sistema sí trae precios
+
+
+def test_mensaje_rechazado_no_registra_el_borrador():
+    """CA-69 / RF-46: la versión de un mensaje rechazado no llega a `drafts`; solo lo que vio el cliente."""
+    agent, _ = _agente(
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _responder("¿Te armo 2?", **PROPUESTA_SHAMPOO),
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _responder("Tenemos 50, te armo 5", kind="propuesta", propuesta=[{"sku": SKU_SHAMPOO, "quantity": 5}]),
+        _responder("¿Cuántos querés al final?", kind="aclaracion"),
+    )
+    agent.handle("1", text="2 shampoo pantene", **CLIENTE)
+    segundo = agent.handle("1", text="mejor 5, ¿cuántos tenés?", **CLIENTE)
+
+    assert _resultados(agent, "respond_to_customer")[-2]["error"]["details"]["reglas"] == ["stock_revelado"]
+    assert segundo.draft is None
+    with SessionLocal() as session:
+        versiones = [(r.version, r.status) for r in session.scalars(select(DraftRecord).order_by(DraftRecord.id))]
+    assert versiones == [(1, "descartado")]  # la versión 2 se rechazó: nunca se registró
 
 
 TRES_VISTOS = ContextoTurno(skus={"FI-900-A", "FI-900-B", "FI-900-C"})

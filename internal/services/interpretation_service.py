@@ -1,18 +1,27 @@
-"""Convierte lo que propone el LLM ({sku, quantity}) en líneas de pedido validadas contra el catálogo."""
+"""Convierte lo que propone el LLM ({sku, quantity, note}) en líneas de pedido validadas contra el catálogo."""
 
 from internal.schemas.agent_schema import ProposedItem, ToolFailure
-from internal.schemas.order_schema import OrderItem
+from internal.schemas.order_schema import OrderItem, clean_note
 from internal.services import inventory_service
 
 
 def normalize_items(items: list[ProposedItem]) -> list[OrderItem]:
-    """Completa nombre, presentación y precio desde el catálogo. Un SKU repetido se suma en una sola línea."""
-    catalog = {product.sku: product for product in inventory_service.get_catalog()}
-    quantities: dict[str, int] = {}
-    for item in items:
-        quantities[item.sku] = quantities.get(item.sku, 0) + item.quantity
+    """Completa nombre, presentación y precio desde el catálogo.
 
-    unknown = [sku for sku in quantities if sku not in catalog]
+    Las líneas con el mismo SKU y la misma nota se suman en una; con notas distintas quedan separadas (dos tonos
+    de una coloración que es un solo SKU, V-01). El stock se controla por SKU, con la suma de todas sus líneas.
+    """
+    catalog = {product.sku: product for product in inventory_service.get_catalog()}
+    lines: dict[tuple[str, str | None], int] = {}
+    for item in items:
+        key = (item.sku, clean_note(item.note))
+        lines[key] = lines.get(key, 0) + item.quantity
+
+    per_sku: dict[str, int] = {}
+    for (sku, _), quantity in lines.items():
+        per_sku[sku] = per_sku.get(sku, 0) + quantity
+
+    unknown = [sku for sku in per_sku if sku not in catalog]
     if unknown:
         raise ToolFailure(
             "sku_inexistente",
@@ -23,7 +32,7 @@ def normalize_items(items: list[ProposedItem]) -> list[OrderItem]:
 
     short = [
         {"sku": sku, "requested": quantity, "available": catalog[sku].stock}
-        for sku, quantity in quantities.items()
+        for sku, quantity in per_sku.items()
         if quantity > catalog[sku].stock
     ]
     if short:
@@ -41,6 +50,7 @@ def normalize_items(items: list[ProposedItem]) -> list[OrderItem]:
             presentation=catalog[sku].presentation,
             quantity=quantity,
             unit_price=catalog[sku].price,
+            note=note,
         )
-        for sku, quantity in quantities.items()
+        for (sku, note), quantity in lines.items()
     ]

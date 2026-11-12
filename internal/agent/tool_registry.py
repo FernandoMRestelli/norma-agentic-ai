@@ -23,7 +23,7 @@ from internal.schemas.agent_schema import (
 )
 from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import Channel, OrderDraft
-from internal.services import validation_service
+from internal.services import order_service, validation_service
 from internal.services.skill_service import SkillError, get_skills
 from internal.tools import catalog_tools, inventory_tools, order_tools, reply_tools, skill_tools
 
@@ -37,6 +37,8 @@ class TurnContext:
     customer_id: str
     channel: Channel
     disponibles: list[str]
+    customer_name: str | None = None  # van al borrador y a la orden (RF-45, RF-46)
+    conversation_id: int | None = None
     skills_activas: list[str] = field(default_factory=list)
     propuesta: OrderDraft | None = None
     resultado: Resultado = "continuar"
@@ -101,7 +103,9 @@ def _leer_br(data: LeerBrInput, ctx: TurnContext) -> dict[str, Any]:
 
 
 def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict[str, Any]:
-    propuesta = reply_tools.respond_to_customer(data, ctx.customer_id, ctx.channel, ctx.propuesta)
+    propuesta = reply_tools.respond_to_customer(
+        data, ctx.customer_id, ctx.channel, ctx.propuesta, ctx.customer_name, ctx.conversation_id
+    )
     message = data.message
     # Lo que escribió el LLM pasa por los guardrails antes de llegar al cliente; la vigente no cambia si falla
     rechazos = guardrails.validar_salida(message, data.kind.value, propuesta, data.options, ctx.turno, ctx.propuesta)
@@ -113,14 +117,21 @@ def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict
             "Guardrail: intentos agotados, sale el mensaje fijo (reglas=%s)", ",".join(r.regla for r in rechazos)
         )
         message = guardrails.mensaje_seguro(propuesta)
-    ctx.propuesta = propuesta
-    ctx.respuesta = message
-    if ctx.propuesta:
+    respuesta = message
+    if propuesta:
         # El detalle sale del catálogo, no del LLM: así entra un pedido de muchas líneas y los precios son exactos
-        ctx.respuesta = f"{message}\n\n{validation_service.build_proposal_detail(ctx.propuesta)}"
+        respuesta = f"{message}\n\n{validation_service.build_proposal_detail(propuesta)}"
+    ctx.respuesta = respuesta
     ctx.kind = data.kind.value
     ctx.options = data.options
     ctx.resultado = "pausar"
+    # Recién acá la respuesta quedó aceptada: si algo antes la rechaza, `drafts` y la vigente no cambian (RF-46).
+    # Todo control de la salida tiene que ir antes de este punto.
+    if propuesta:
+        order_service.record_draft(propuesta)
+    elif ctx.propuesta:
+        order_service.discard_draft(ctx.propuesta)
+    ctx.propuesta = propuesta
     return {"enviado": True}
 
 
