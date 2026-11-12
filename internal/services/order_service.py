@@ -174,7 +174,12 @@ def _draft_items(draft: OrderDraft) -> list[dict]:
 
 
 def _upsert_draft(session: Session, draft: OrderDraft, status: DraftStatus, order_id: str | None = None) -> None:
-    """Guarda una versión del borrador en `drafts`, o actualiza su estado si ya estaba (RF-46)."""
+    """Guarda una versión del borrador en `drafts`, o actualiza su estado si ya estaba (RF-46).
+
+    Si la versión ya estaba y sigue pendiente (un reintento después de una respuesta rechazada), queda con las
+    líneas, las notas y el total nuevos. Una versión con desenlace no cambia de estado por volver a registrarla
+    pendiente.
+    """
     record = session.scalar(
         select(DraftRecord).where(DraftRecord.draft_id == draft.draft_id, DraftRecord.version == draft.version)
     )
@@ -185,11 +190,14 @@ def _upsert_draft(session: Session, draft: OrderDraft, status: DraftStatus, orde
             conversation_id=draft.conversation_id,
             customer_id=draft.customer_id,
             channel=draft.channel.value,
-            items=_draft_items(draft),
-            notes=draft.notes,
-            total=draft.total,
         )
         session.add(record)
+    elif record.status != DraftStatus.PENDING_CONFIRMATION.value and status == DraftStatus.PENDING_CONFIRMATION:
+        return  # ya tuvo desenlace
+    if record.status in (None, DraftStatus.PENDING_CONFIRMATION.value):  # nueva, o pendiente que se repite
+        record.items = _draft_items(draft)
+        record.notes = draft.notes
+        record.total = draft.total
     record.status = status.value
     record.order_id = order_id
     # Las otras versiones pendientes del mismo borrador ya no valen: solo se registra la última (RF-16)

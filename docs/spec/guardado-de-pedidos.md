@@ -41,8 +41,9 @@ sequenceDiagram
     participant A as armar_pedido
     LLM->>R: propuesta [{sku, quantity, note}], notes
     R->>R: normalize_items (catálogo, stock por SKU)
+    R->>R: arma el mensaje (el cliente ve líneas, notas y total)
     R->>B: drafts: versión N pendiente, la N-1 queda reemplazada
-    R-->>LLM: enviado (el cliente ve líneas, notas y total)
+    R-->>LLM: enviado
     LLM->>A: armar_pedido
     A->>B: BEGIN IMMEDIATE, revalida stock, orders + order_items + order_events, drafts: versión N confirmada
 ```
@@ -55,8 +56,11 @@ sequenceDiagram
 3. El borrador lleva el `customer_id`, el nombre del perfil (`customer_name`) y la conversación
    (`conversation_id`), que pone el backend, nunca el LLM.
 4. Cada versión propuesta se guarda en `drafts`. La versión anterior del mismo borrador pasa a `reemplazado`. Si el
-   agente responde sin propuesta y había una vigente, esa versión pasa a `descartado`. Guardar en `drafts` es un
-   registro de trazabilidad: si falla, se anota en el log y la conversación sigue.
+   agente responde sin propuesta y había una vigente, esa versión pasa a `descartado`. Se registra al final de
+   `tool_registry._respond_to_customer`, cuando la respuesta ya quedó aceptada y se asigna la propuesta vigente: una
+   respuesta rechazada (un error de la tool o un control de la salida) no deja en `drafts` una versión que el cliente
+   no vio ni cambia la vigente. Guardar en `drafts` es un registro de trazabilidad: si falla, se anota en el log y la
+   conversación sigue.
 5. Al registrar la orden (`confirm_draft`), en la misma transacción `BEGIN IMMEDIATE` se guardan la orden con su
    total, sus líneas en `order_items`, el evento `→ Recibido` en `order_events` y la versión aceptada en `drafts`
    como `confirmado` con su `order_id`. Siguen valiendo `draft_id` único, la revalidación de stock y la
@@ -194,7 +198,7 @@ RF-31 no cambia de texto: ahora vale también después de un reinicio.
 | CA-82 | Una propuesta con `notes` y `note` por línea | Se arma la respuesta y se registra la orden | Las notas llegan a `OrderDraft`, a `Order` y a los mensajes que ve el cliente | `tests/test_guardado_pedidos.py::test_notas_llegan_a_la_orden_y_al_mensaje` |
 | CA-83 | Líneas del mismo SKU con notas iguales o distintas | Se normaliza la propuesta y se confirma | Las de igual nota se suman, las de nota distinta quedan separadas y el stock se controla con la suma por SKU | `tests/test_guardado_pedidos.py::test_lineas_del_mismo_sku_*` |
 | CA-84 | Órdenes activas y canceladas | Se calcula el stock comprometido | Sale de `order_items`, suma todas las líneas de un SKU y no cuenta las canceladas | `tests/test_guardado_pedidos.py::test_stock_comprometido_sale_de_order_items` |
-| CA-85 | Una conversación que propone, corrige, descarta y vuelve a proponer | Se registra la orden | `drafts` tiene cada versión con su conversación; las viejas quedan reemplazadas o descartadas y la aceptada confirmada con su `order_id` | `tests/test_guardado_pedidos.py::test_drafts_registra_cada_version` |
+| CA-85 | Una conversación que propone, corrige, descarta y vuelve a proponer | Se registra la orden | `drafts` tiene cada versión con su conversación; las viejas quedan reemplazadas o descartadas y la aceptada confirmada con su `order_id`. Si una versión pendiente se vuelve a registrar con otras líneas, queda con las últimas | `tests/test_guardado_pedidos.py::test_drafts_registra_cada_version`, `::test_drafts_version_repetida_queda_con_las_ultimas_lineas` |
 | CA-86 | Una orden recibida | El operador la pasa a `Preparado` y después a `Retirado`, o la cancela | Cada cambio queda en el historial con su origen | `tests/test_guardado_pedidos.py::test_operador_cambia_el_estado` |
 | CA-87 | El endpoint de estado | Sin credencial, orden inexistente, estado desconocido o transición inválida | Responde 401, 404, 422 o 400 y no cambia nada | `tests/test_guardado_pedidos.py::test_cambio_de_estado_rechazado_*` |
 | CA-88 | Una base con el esquema de la 0.1.1 y órdenes en varios estados | Arranca la versión nueva | No se pierde ninguna orden ni línea, se calculan los totales, queda el historial conocido y el stock comprometido es el mismo | `tests/test_guardado_pedidos.py::test_migra_una_base_de_la_0_1_1` |
@@ -208,6 +212,7 @@ RF-31 no cambia de texto: ahora vale también después de un reinicio.
 | Situación | Qué hace el sistema |
 |---|---|
 | Falla la escritura en `drafts` al proponer | Se anota en el log (solo ids) y la conversación sigue; al confirmar, la versión aceptada se guarda igual en `drafts` dentro de la transacción de la orden |
+| Se rechaza una respuesta y el reintento propone otra vez la misma versión | La fila pendiente de esa versión se actualiza con las líneas, las notas y el total nuevos; una versión ya confirmada, reemplazada o descartada no cambia |
 | Una propuesta guardada en un checkpoint de la 0.1.1 (sin conversación ni nombre) | Se completa con la conversación y el nombre del turno al registrar la orden |
 | Una orden vieja sin precios | Su total es 0 |
 | El JSON `items` de una orden vieja no se puede leer | La migración falla, la transacción se deshace y la aplicación no arranca: la base queda como estaba |

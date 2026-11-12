@@ -1,10 +1,9 @@
-"""Tool para responderle al cliente. Cierra el turno y, si lleva una propuesta, la deja validada y guardada."""
+"""Tool para responderle al cliente. Cierra el turno y, si lleva una propuesta, la deja validada."""
 
 from uuid import uuid4
 
 from internal.schemas.agent_schema import RespondToCustomerInput, ToolFailure
 from internal.schemas.order_schema import Channel, OrderDraft
-from internal.services import order_service
 from internal.services.interpretation_service import normalize_items
 from internal.tools.catalog_tools import get_product
 
@@ -19,8 +18,8 @@ def respond_to_customer(
 ) -> OrderDraft | None:
     """Valida la respuesta y devuelve la propuesta vigente después de ella.
 
-    Sin `propuesta`, no queda ninguna: solo sigue vigente lo último que el bot le ofreció al cliente. Cada versión
-    propuesta, y el descarte de la anterior, quedan registrados en la tabla `drafts` (RF-46).
+    Sin `propuesta`, no queda ninguna: solo sigue vigente lo último que el bot le ofreció al cliente. No escribe en
+    `drafts`: eso lo hace `tool_registry` cuando la respuesta ya quedó aceptada (RF-46).
     """
     unknown = [sku for sku in data.options if get_product(sku) is None]
     if unknown:
@@ -31,10 +30,8 @@ def respond_to_customer(
             skus=unknown,
         )
     if not data.propuesta:
-        if vigente:
-            order_service.discard_draft(vigente)
         return None
-    draft = OrderDraft(
+    return OrderDraft(
         draft_id=vigente.draft_id if vigente else uuid4().hex,
         customer_id=customer_id,
         customer_name=customer_name,
@@ -44,5 +41,3 @@ def respond_to_customer(
         notes=data.notes,
         version=vigente.version + 1 if vigente else 1,
     )
-    order_service.record_draft(draft)
-    return draft

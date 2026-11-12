@@ -13,18 +13,18 @@ from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from sqlalchemy import delete, func, inspect, select
 
+from internal.agent import tool_registry
 from internal.agent.norma_agent import NormaAgent
 from internal.config import get_settings
 from internal.database.connection import SessionLocal, init_db, make_engine
 from internal.database.migrations import LATEST
 from internal.database.models import ConversationRecord, DraftRecord, OrderRecord, ProcessedMessageRecord
 from internal.main import app
-from internal.schemas.agent_schema import ProposedItem, RespondToCustomerInput, ToolFailure
+from internal.schemas.agent_schema import ProposedItem, ToolFailure
 from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import Channel, IncomingMessage, Order, OrderDraft, OrderItem, OrderStatus
 from internal.services import conversation_service, inventory_service, order_service, sheets_service, telegram_service
 from internal.services.interpretation_service import normalize_items
-from internal.tools import reply_tools
 
 # Esquema de `orders` y `conversations` de la 0.1.1 (models.py en main)
 ESQUEMA_0_1_1 = """
@@ -300,16 +300,30 @@ def _drafts() -> list[tuple]:
         return [(r.draft_id, r.version, r.conversation_id, r.status, r.order_id) for r in rows]
 
 
+def _responder(vigente, *lineas):
+    """Una llamada a respond_to_customer por el registro de tools, como en un turno del agente."""
+    ctx = tool_registry.TurnContext(
+        customer_id="telegram:1",
+        channel=Channel.TELEGRAM,
+        disponibles=["respond_to_customer"],
+        customer_name=NOMBRE,
+        conversation_id=7,
+        propuesta=vigente,
+    )
+    args = {
+        "kind": "propuesta" if lineas else "informacion",
+        "message": "ok",
+        "propuesta": [{"sku": sku, "quantity": q} for sku, q in lineas] or None,
+    }
+    resultado = tool_registry.execute("respond_to_customer", args, ctx)
+    return ctx.propuesta, resultado
+
+
 def test_drafts_registra_cada_version(catalogo):
     """CA-85: cada versión queda en drafts con su conversación y su desenlace."""
 
     def responder(vigente, *lineas):
-        data = RespondToCustomerInput(
-            kind="propuesta" if lineas else "informacion",
-            message="ok",
-            propuesta=[ProposedItem(sku=sku, quantity=q) for sku, q in lineas] or None,
-        )
-        return reply_tools.respond_to_customer(data, "telegram:1", Channel.TELEGRAM, vigente, NOMBRE, 7)
+        return _responder(vigente, *lineas)[0]
 
     v1 = responder(None, (SKU_SHAMPOO, 1))
     v2 = responder(v1, (SKU_SHAMPOO, 2))
@@ -324,6 +338,38 @@ def test_drafts_registra_cada_version(catalogo):
     ]
     with SessionLocal() as session:  # el nombre del cliente no se guarda en drafts (D-C4)
         assert NOMBRE not in json.dumps([r.items for r in session.scalars(select(DraftRecord))])
+
+
+def test_drafts_version_repetida_queda_con_las_ultimas_lineas(catalogo, monkeypatch):
+    """CA-85: una respuesta rechazada no toca drafts, y una versión pendiente repetida queda con las últimas líneas."""
+    v1, _ = _responder(None, (SKU_SHAMPOO, 1))
+
+    # Se rechaza después de armar la propuesta, como un control de la salida: ni versión nueva ni la vigente cambia
+    def rechazar(_):
+        raise RuntimeError("respuesta rechazada")
+
+    with monkeypatch.context() as m:
+        m.setattr(tool_registry.validation_service, "build_proposal_detail", rechazar)
+        vigente, resultado = _responder(v1, (SKU_SHAMPOO, 2))
+        assert resultado["ok"] is False and vigente == v1
+    assert _drafts() == [(v1.draft_id, 1, 7, "pendiente_confirmacion", None)]
+
+    # El reintento después de un rechazo propone otra vez la versión 1, con otras líneas y notas
+    reintento = _draft((SKU_TINTURA, 2, "tono 7"), draft_id=v1.draft_id, notes="Retira el lunes")
+    order_service.record_draft(reintento)
+    with SessionLocal() as session:
+        fila = session.scalars(select(DraftRecord)).one()
+        assert (fila.version, fila.status) == (1, "pendiente_confirmacion")
+        assert [(i["sku"], i["quantity"], i["note"]) for i in fila.items] == [(SKU_TINTURA, 2, "tono 7")]
+        assert (fila.notes, fila.total) == ("Retira el lunes", Decimal("20"))
+
+    # Una versión ya confirmada no cambia aunque se registre de nuevo
+    order = order_service.confirm_draft(reintento)
+    order_service.record_draft(_draft((SKU_SHAMPOO, 5, None), draft_id=v1.draft_id))
+    with SessionLocal() as session:
+        fila = session.scalars(select(DraftRecord)).one()
+        assert (fila.status, fila.order_id, fila.total) == ("confirmado", order.order_id, Decimal("20"))
+        assert [i["sku"] for i in fila.items] == [SKU_TINTURA]
 
 
 client = TestClient(app)
