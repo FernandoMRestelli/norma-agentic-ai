@@ -12,6 +12,23 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 - Dashboard operativo con autenticación (RF-22 a RF-25, CA-24, CA-25, Etapa 06): endpoints `/dashboard/summary` (con filtro por período `today`/`yesterday`/`7d`/`30d`/`all`), `/dashboard/orders`, `/dashboard/stock`, `/dashboard/conversations` y `/dashboard/metrics` protegidos con token de operador; SPA interactiva servida en `/dashboard/ui` (modo blanco/negro, filtro de período en resumen operativo, auto-refresh cada 60s), pestaña **Ventas & KPIs** (evolución de monto vendido, pedidos y productos vendidos por día/semana/mes/año con visibilidad seleccionable de series, desglose por categoría/marca y ranking de productos) y gestión de estados de pedidos (`Despachado`, `Retirado`, `Entregado`, `Cancelado`) con descuento físico de stock en el catálogo (Issue #61).
 - Ciclo de vida de órdenes extendido y gestión de estados (RF-20, Issue #61): nuevo endpoint `POST /orders/{order_id}/status`, estados `Despachado` y `Entregado` en `OrderStatus`, y deducción atómica e idempotente del stock de catálogo en `sheets_service` al marcar pedidos como `Retirado` o `Despachado`.
+- La búsqueda de productos tolera errores de tipeo y de sonido («pantne», «coleston», «zedal»), abreviaturas y variantes del rubro («sh», «champú», «ACOND.»), medidas escritas de otra forma (`x900` = `900 ml`, `1k` = `1 kg` = `1000 g`, `1 l` = `1000 cc`) y tonos sin punto (`821` = `8.21`), sin aproximar nunca los números. La cantidad escrita al principio («2 mascara argan x 1k») no cuenta como una medida que no coincide, y «baño de crema» encuentra los baños del catálogo. Cuando no hay una coincidencia confiable, `search_products` devuelve `sugerencias` para que el agente pregunte «¿quisiste decir…?», y `corregido` dice qué palabras interpretó como otra. El catálogo normalizado queda en memoria y el stock se sigue leyendo en cada búsqueda.
+- Plan de mejora del asistente en `docs/plan-mejora-asistente.md`: diagnóstico de lo que está flojo (búsqueda con errores de tipeo, guardrails, guardado de pedidos, planillas y skills) y los cinco frentes de trabajo, cada uno con su rama, su spec y sus IDs reservados.
+- Google Sheets y Excel (`docs/spec/planillas.md`, RF-50 a RF-54): con `CATALOG_SHEET_ID` el catálogo se lee de Sheet 1 con 5 minutos de caché (hasta 1 hora con la última copia buena si Google no responde) y la confirmación lee fresco; con `ORDERS_SHEET_ID` cada pedido se agrega una sola vez en Sheet 2, además del CSV local, y tras una falla la confirmación no espera a Google durante 1 minuto; la API reintenta cada 3 minutos los pedidos que no llegaron; `GET /orders/export` descarga los pedidos en `.xlsx` (hojas Órdenes y Líneas); la API y el bot ya no escriben el CSV de pedidos a la vez, y `python -m internal.verificar_claves` prueba el acceso a las dos planillas. Sin esas variables todo sigue como antes con los CSV. **Para desplegar con planillas:** guardar el JSON de la cuenta de servicio en `~/norma-prod/credentials/google-service-account.json`, compartir Sheet 1 como Lector y Sheet 2 como Editor con su `client_email`, y completar en `.env` `CATALOG_SHEET_ID` y `ORDERS_SHEET_ID` (opcionales: `CATALOG_WORKSHEET` y `ORDERS_WORKSHEET`). La imagen suma la dependencia `openpyxl`.
+
+### Cambiado
+
+- Los pedidos guardados dicen quién pidió (el nombre del perfil), qué pidió línea por línea, con las observaciones del cliente (por ejemplo el tono de una coloración), cuánto suma y por qué estados pasó, y el operador puede marcarlos como `Preparado` o `Retirado` con `POST /orders/{order_id}/status`. Las propuestas, los mensajes de Telegram ya procesados y el historial de estados también quedan en la base, y la planilla de pedidos suma las columnas `nombre_cliente` y `total` al final. **Cambia el formato de la base:** al arrancar, la API y el bot la actualizan solos y copian las líneas de las órdenes que ya tenías, sin perder ninguna. **Para desplegar:** antes de levantar la versión nueva, frená la API y el bot y copiá `~/norma-prod/data/norma.db` (por ejemplo a `norma.db.antes-0.2`); es la única forma de volver atrás.
+- `.env.example` sigue el orden y los comentarios del `.env` de producción, y trae OpenRouter como LLM de texto por defecto, con Gemini comentado como alternativa. No cambia nada para quien ya tiene su `.env`.
+- La spec del MVP, la del canal Telegram, `architecture.md`, `CONTRIBUTING.md` y `README.md` coinciden con el código de la 0.1.1: valores de `kind`, base interna, componentes y endpoints, proveedores de LLM y estado de los requisitos y las etapas.
+
+## [0.1.1] - 2026-11-10
+
+Producción ahora levanta el bot de Telegram. Con la 0.1.0, `docker-compose.prod.yml` arrancaba solo la API y el bot no respondía. Mientras no haya un servidor siempre prendido (D-03), cada integrante corre su producción en el Docker de su máquina.
+
+### Corregido
+
+- `docker-compose.prod.yml` levanta también el bot de Telegram por polling, con la misma imagen y el mismo `data/` que la API; en la 0.1.0 solo arrancaba la API. Cada integrante corre su producción en el Docker de su máquina, con su propio bot (`TELEGRAM_BOT_TOKEN` distinto en cada `.env`). **Para desplegar:** copiá el `docker-compose.prod.yml` de esta versión a `~/norma-prod` y, si levantaste el bot a mano con `docker run`, frenalo antes (`docker rm -f norma-prod-bot`) para que no queden dos procesos con el mismo token.
 
 ## [0.1.0] - 2026-11-10
 
@@ -93,5 +110,6 @@ Primera versión publicada. Reúne la base del proyecto y la beta del agente de 
 - Documentación en `CONTRIBUTING.md` sobre gestión de secretos en desarrollo y producción, uso de correos `noreply` en commits y procedimiento ante filtraciones.
 - El webhook de WhatsApp valida la firma `X-Hub-Signature-256` de Meta (nueva variable `WHATSAPP_APP_SECRET`) y compara el token de verificación en tiempo constante.
 
-[Sin publicar]: https://github.com/FernandoMRestelli/norma-agentic-ai/compare/v0.1.0...develop
+[Sin publicar]: https://github.com/FernandoMRestelli/norma-agentic-ai/compare/v0.1.1...develop
+[0.1.1]: https://github.com/FernandoMRestelli/norma-agentic-ai/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/FernandoMRestelli/norma-agentic-ai/releases/tag/v0.1.0

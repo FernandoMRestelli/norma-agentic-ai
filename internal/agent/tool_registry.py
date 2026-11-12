@@ -20,8 +20,9 @@ from internal.schemas.agent_schema import (
     SearchProductsInput,
     ToolFailure,
 )
+from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import Channel, OrderDraft
-from internal.services import validation_service
+from internal.services import order_service, validation_service
 from internal.services.skill_service import SkillError, get_skills
 from internal.tools import catalog_tools, inventory_tools, order_tools, reply_tools, skill_tools
 
@@ -35,6 +36,8 @@ class TurnContext:
     customer_id: str
     channel: Channel
     disponibles: list[str]
+    customer_name: str | None = None  # van al borrador y a la orden (RF-45, RF-46)
+    conversation_id: int | None = None
     skills_activas: list[str] = field(default_factory=list)
     propuesta: OrderDraft | None = None
     resultado: Resultado = "continuar"
@@ -60,13 +63,16 @@ def _explorar_catalogo(data: ExplorarCatalogoInput, _: TurnContext) -> dict[str,
     return catalog_tools.explorar_catalogo(data.brand, data.category, data.limit)
 
 
+def _al_llm(product: Product) -> dict[str, Any]:
+    return {**product.model_dump(mode="json", exclude=_SOLO_INTERNOS), "hay_stock": product.stock > 0}
+
+
 def _search_products(data: SearchProductsInput, _: TurnContext) -> dict[str, Any]:
-    matches = catalog_tools.search_products(data.query, data.limit)
+    resultado = catalog_tools.buscar_productos(data.query, data.limit)
     return {
-        "matches": [
-            {**match.model_dump(mode="json", exclude=_SOLO_INTERNOS), "hay_stock": match.stock > 0}
-            for match in matches
-        ]
+        "matches": [_al_llm(match) for match in resultado.matches],
+        "sugerencias": [_al_llm(sugerencia) for sugerencia in resultado.sugerencias],
+        "corregido": resultado.corregido,
     }
 
 
@@ -74,9 +80,7 @@ def _get_product(data: GetProductInput, _: TurnContext) -> dict[str, Any]:
     product = catalog_tools.get_product(data.sku)
     return {
         "product": (
-            {**product.model_dump(mode="json", exclude=_SOLO_INTERNOS), "hay_stock": product.stock > 0}
-            if product
-            else None
+_al_llm(product) if product else None
         )
     }
 
@@ -97,14 +101,24 @@ def _leer_br(data: LeerBrInput, ctx: TurnContext) -> dict[str, Any]:
 
 
 def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict[str, Any]:
-    ctx.propuesta = reply_tools.respond_to_customer(data, ctx.customer_id, ctx.channel, ctx.propuesta)
-    ctx.respuesta = data.message
-    if ctx.propuesta:
+    propuesta = reply_tools.respond_to_customer(
+        data, ctx.customer_id, ctx.channel, ctx.propuesta, ctx.customer_name, ctx.conversation_id
+    )
+    respuesta = data.message
+    if propuesta:
         # El detalle sale del catálogo, no del LLM: así entra un pedido de muchas líneas y los precios son exactos
-        ctx.respuesta = f"{data.message}\n\n{validation_service.build_proposal_detail(ctx.propuesta)}"
+        respuesta = f"{data.message}\n\n{validation_service.build_proposal_detail(propuesta)}"
+    ctx.respuesta = respuesta
     ctx.kind = data.kind.value
     ctx.options = data.options
     ctx.resultado = "pausar"
+    # Recién acá la respuesta quedó aceptada: si algo antes la rechaza, `drafts` y la vigente no cambian (RF-46).
+    # Todo control de la salida tiene que ir antes de este punto.
+    if propuesta:
+        order_service.record_draft(propuesta)
+    elif ctx.propuesta:
+        order_service.discard_draft(ctx.propuesta)
+    ctx.propuesta = propuesta
     return {"enviado": True}
 
 
@@ -131,9 +145,12 @@ TOOLS: dict[str, ToolSpec] = {
         ),
         ToolSpec(
             "search_products",
-            "Busca en el catálogo por producto, marca, presentación o tono. Devuelve precio, disponibilidad "
-            "(hay_stock: bool) y `score` (de 0 a 1). Los números tienen que coincidir: 400 no trae 340. "
-            "Si no hay nada parecido, devuelve una lista vacía.",
+            "Busca en el catálogo por producto, marca, medida o tono, tolerando errores de tipeo y abreviaturas. "
+            "`matches` son las coincidencias confiables, con precio, disponibilidad (hay_stock: bool) y `score` "
+            "(de 0 a 1); `aproximado: true` quiere decir que algo no coincidió exacto y conviene confirmarlo. "
+            "Si no hay matches, `sugerencias` trae los productos más parecidos, todos aproximados. `corregido` dice "
+            "qué palabras se interpretaron como otra. Los números tienen que coincidir: 400 no trae 340. "
+            "Si `matches` y `sugerencias` están vacías, no hay nada parecido.",
             SearchProductsInput,
             _search_products,
         ),

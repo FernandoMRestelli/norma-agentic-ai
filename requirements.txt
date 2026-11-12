@@ -28,6 +28,9 @@ pyyaml>=6.0,<7
 # Trazas del agente (internal/agent/observabilidad.py): SDK liviano, sin el servidor. Solo se importa con MLFLOW_ENABLED
 mlflow-tracing>=3.18,<4
 
-# Google Sheets
+# Google Sheets (internal/services/google_sheets_client.py)
 gspread>=6.0,<7
 google-auth>=2.29,<3
+
+# Exportación de las órdenes a Excel (GET /orders/export)
+openpyxl>=3.1,<4

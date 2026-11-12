@@ -7,10 +7,10 @@ El stock disponible resta las unidades comprometidas en órdenes activas de la b
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from internal.database.connection import SessionLocal
-from internal.database.models import OrderRecord
+from internal.database.models import OrderItemRecord, OrderRecord
 from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import OrderStatus
 from internal.services import sheets_service
@@ -22,25 +22,23 @@ if TYPE_CHECKING:
 def get_committed_stock(session: "Session | None" = None) -> dict[str, int]:
     """Calcula las unidades comprometidas por SKU en órdenes activas (no canceladas ni con stock ya aplicado).
 
-    Una orden en estado 'recibido', 'preparado' (o 'despachado'/'retirado' antes de descontar) reserva sus unidades.
-    Solo las órdenes 'canceladas' o con stock_applied=True liberan su stock en memoria (Issue #61).
+    Una orden en estado 'recibido' o 'preparado' (o 'despachado'/'retirado' antes de descontar) reserva sus unidades.
+    Las órdenes 'canceladas' o con `stock_applied` (el catálogo ya se descontó, Issue #61) no reservan. Las líneas
+    salen de `order_items` (RF-21): un SKU puede tener varias líneas en una orden (una por nota) y se suman todas.
     """
 
     def _calculate(s: "Session") -> dict[str, int]:
-        records = s.scalars(
-            select(OrderRecord).where(
+        rows = s.execute(
+            select(OrderItemRecord.sku, func.sum(OrderItemRecord.quantity))
+            .join(OrderRecord, OrderItemRecord.order_pk == OrderRecord.id)
+            .where(
                 OrderRecord.status != OrderStatus.CANCELLED.value,
                 OrderRecord.stock_applied.is_(False),
+                OrderItemRecord.quantity > 0,
             )
+            .group_by(OrderItemRecord.sku)
         ).all()
-        committed: dict[str, int] = {}
-        for record in records:
-            for item in record.items:
-                sku = item.get("sku")
-                qty = item.get("quantity", 0)
-                if sku and isinstance(qty, int) and qty > 0:
-                    committed[sku] = committed.get(sku, 0) + qty
-        return committed
+        return {sku: int(quantity) for sku, quantity in rows}
 
     if session is not None:
         return _calculate(session)
@@ -57,13 +55,15 @@ def get_available_stock(sku: str, session: "Session | None" = None) -> int:
     return prod.stock if prod else 0
 
 
-def get_catalog(session: "Session | None" = None) -> list[Product]:
+def get_catalog(session: "Session | None" = None, fresh: bool = False) -> list[Product]:
     """Devuelve el catálogo de productos con su stock disponible actualizado.
 
     Llama a sheets_service.get_catalog() para obtener los productos base y resta
-    las unidades comprometidas en órdenes activas.
+    las unidades comprometidas en órdenes activas. Con `fresh=True` (la confirmación) lee Sheet 1
+    aunque haya una copia reciente en caché (RNF-13, RF-51).
     """
-    base_products = sheets_service.get_catalog()
+    with sheets_service.lectura_fresca(fresh):
+        base_products = sheets_service.get_catalog()
     committed = get_committed_stock(session=session)
     if not committed:
         return base_products

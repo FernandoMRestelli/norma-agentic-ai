@@ -11,11 +11,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy import delete, select
 
 from internal.config import get_settings
-from internal.database.connection import SessionLocal, init_db
+from internal.database.connection import SessionLocal, init_db, make_engine
+from internal.database.migrations import LATEST
 from internal.database.models import ConversationRecord, OrderRecord
 from internal.main import app
 from internal.schemas.order_schema import Channel, OrderDraft, OrderItem, OrderStatus
-from internal.services import inventory_service, order_service
+from internal.services import inventory_service, order_service, sheets_service
 
 client = TestClient(app)
 
@@ -271,6 +272,69 @@ def test_update_order_status_workflow_and_stock_deduction(tmp_path, monkeypatch)
     )
     assert resp_inv.status_code == 400
     assert "No se puede cancelar una orden en estado 'Entregado'" in resp_inv.json()["detail"]
+
+    # El historial guarda cada paso (RF-47)
+    historial = [(e["from_status"], e["to_status"]) for e in resp_deliv.json()["history"]]
+    assert historial == [
+        (None, "Recibido"),
+        ("Recibido", "Preparado"),
+        ("Preparado", "Despachado"),
+        ("Despachado", "Entregado"),
+    ]
+
+
+def test_con_el_catalogo_en_sheet_1_no_se_descuenta(tmp_path, monkeypatch):
+    """Issue #61 con Sheet 1: el catálogo es de solo lectura, así que la orden despachada sigue reservando su stock."""
+    monkeypatch.setenv("ORDERS_FILE", str(tmp_path / "pedidos_test.csv"))
+    get_settings.cache_clear()
+    catalogo = DATA_EXAMPLE_DIR / "catalogo.csv"
+    catalog_copy = tmp_path / "catalogo_test.csv"
+    catalog_copy.write_text(catalogo.read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.setenv("CATALOG_FILE", str(catalog_copy))
+    get_settings.cache_clear()
+    order = _create_sample_order(sku="SH-PAN-400", quantity=5)
+    # Desde acá el catálogo «está» en Sheet 1: el cambio de estado no lo lee, solo pregunta de dónde sale
+    monkeypatch.setattr(sheets_service, "catalog_from_sheet", lambda: True)
+    order_service.change_status(order.order_id, OrderStatus.PREPARED)
+    despachada = order_service.change_status(order.order_id, OrderStatus.DISPATCHED)
+
+    assert despachada.stock_applied is False
+    assert catalog_copy.read_text(encoding="utf-8") == catalogo.read_text(encoding="utf-8")
+    assert inventory_service.get_committed_stock() == {"SH-PAN-400": 5}
+
+
+def test_el_catalogo_de_ejemplo_no_se_descuenta(tmp_path, monkeypatch):
+    """Issue #61: `data_example/catalogo.csv` es versionado: retirar una orden no lo reescribe y sigue reservando."""
+    catalogo = DATA_EXAMPLE_DIR / "catalogo.csv"
+    monkeypatch.setenv("CATALOG_FILE", str(catalogo))
+    monkeypatch.setenv("ORDERS_FILE", str(tmp_path / "pedidos_test.csv"))
+    get_settings.cache_clear()
+    antes = catalogo.read_bytes()
+    order = _create_sample_order(sku="SH-PAN-400", quantity=5)
+    order_service.change_status(order.order_id, OrderStatus.PREPARED)
+    retirada = order_service.change_status(order.order_id, OrderStatus.PICKED_UP)
+
+    assert retirada.stock_applied is False
+    assert catalogo.read_bytes() == antes
+    assert inventory_service.get_committed_stock() == {"SH-PAN-400": 5}
+
+
+def test_migracion_2_agrega_stock_applied(tmp_path):
+    """Una base en la versión 1 (develop antes del dashboard) gana `orders.stock_applied` sin perder órdenes."""
+    path = tmp_path / "norma.db"
+    engine = make_engine(f"sqlite:///{path}")
+    init_db(engine)
+    with engine.begin() as conn:
+        conn.exec_driver_sql("ALTER TABLE orders DROP COLUMN stock_applied")
+        conn.exec_driver_sql(
+            "INSERT INTO orders (order_id, draft_id, customer_id, channel, status, sheets_synced, created_at) "
+            "VALUES ('ORD-0001', 'd-1', 'cust', 'web', 'Preparado', 0, '2026-01-01 00:00:00')"
+        )
+        conn.exec_driver_sql("UPDATE schema_version SET version = 1")
+
+    assert init_db(make_engine(f"sqlite:///{path}")) == LATEST == 2
+    with engine.connect() as conn:
+        assert conn.exec_driver_sql("SELECT order_id, stock_applied FROM orders").all() == [("ORD-0001", 0)]
 
 
 # ============================================================================

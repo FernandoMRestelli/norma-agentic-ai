@@ -54,10 +54,13 @@ Cada caso hace varias llamadas, así que `--pausa` no alcanza: hace falta otra c
 
 ## Próximos pasos
 
+**En curso:** el [plan de mejora del asistente](docs/plan-mejora-asistente.md), con cinco frentes en paralelo
+(búsqueda tolerante a errores, guardrails, guardado de pedidos, planillas y skills).
+
 1. **Primera release `0.1.0`**: `release/0.1.0` → `main`, tag `v0.1.0`, backport, y configurar la
    protección de ramas descrita en [CONTRIBUTING.md](CONTRIBUTING.md#protección-de-ramas).
 2. **Etapa 02, datos del negocio**: `sheets_service.get_catalog()` con gspread y búsqueda por SKU y por nombre
    aproximado en `catalog_tools`; tests con `datos_sinteticos.catalogo()` y el helper `sin_stock`.
 3. **Elegir el proveedor de LLM** para producción; tests del agente con un modelo falso (pedido ambiguo → pide aclaración).
 4. **Base interna**: tablas de borradores y órdenes con `draft_id` único para que un reintento no duplique órdenes.
-5. **Despliegue**: definir el servidor de producción, crear `~/norma-prod` y hacer el primer despliegue con la imagen de `0.1.0`.
+5. **Despliegue**: por ahora cada integrante despliega en el Docker de su máquina (D-03, ver `CONTRIBUTING.md#producción`). Falta definir un servidor siempre prendido para el bot beta compartido.

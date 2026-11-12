@@ -26,7 +26,7 @@ de teléfono ni aprobación de Meta.
 | Bot de Telegram como canal `telegram`: recibir texto, audio y foto; responder | Usar Telegram con clientes reales (es un canal de prueba) |
 | Recepción por long polling (local) y por webhook con secret token (servidor) | Grupos y canales de Telegram: solo chats privados |
 | Lista blanca de usuarios | Descargar audios y fotos (llega con el modelo de visión) |
-| Cliente de Gemini (free tier) con LangChain para texto | El loop del agente, las tools y la confirmación (etapas 03 a 05) |
+| Modelo free tier con LangChain para texto (Gemini, Groq u OpenRouter) | El loop del agente, las tools y la confirmación (etapas 03 a 05) |
 | Configuración separada para un modelo de visión pago, sin implementarlo | Elegir el LLM de producción (D-01 sigue abierta para eso) |
 
 ## 3. Comportamiento
@@ -99,9 +99,10 @@ los pedidos: solo recibe mensajes y envía texto.
 | **De desarrollo** | Cada integrante, el suyo | Programar y probar en su máquina sin cortarle el polling a otro | Solo su id |
 | **Beta compartido** | Uno para el equipo, cuando el agente tome pedidos (etapa 03) | Simular muchos clientes que le piden al mismo negocio: todos los pedidos en la misma base y en Sheet 2 | Los tres ids |
 
-El bot beta corre en un solo lugar, idealmente un servidor siempre prendido (D-03). Mientras no lo haya, lo corre
-un integrante y responde solo mientras su máquina tenga el polling andando. El código es el mismo para los dos:
-cambian el token y la lista blanca de cada `.env`.
+El bot beta corre en un solo lugar, idealmente un servidor siempre prendido (D-03). Mientras no lo haya, cada
+integrante corre su propia producción en el Docker de su máquina (`docker-compose.prod.yml` levanta la API y el
+bot), con su propio bot y su propia base, y responde solo mientras su máquina esté prendida. El código es el mismo
+para todos: cambian el token y la lista blanca de cada `.env`.
 
 ## 4. Contratos
 
@@ -117,9 +118,9 @@ Se suma `telegram` (`web | whatsapp | telegram`) en `IncomingMessage`, `OrderDra
 | `TELEGRAM_BOT_TOKEN` | Sí, para el bot | Token que da @BotFather. Nunca en el repo ni en logs |
 | `TELEGRAM_ALLOWED_USER_IDS` | Sí, para que responda | Ids numéricos separados por coma |
 | `TELEGRAM_WEBHOOK_SECRET` | Solo con webhook | Valor de `X-Telegram-Bot-Api-Secret-Token` (1 a 256 caracteres: letras, números, `_` y `-`) |
-| `LLM_PROVIDER` | Sí, para el agente | `gemini` |
-| `LLM_MODEL` | Sí, para el agente | Un modelo del free tier, p. ej. `gemini-3.8-flash` |
-| `LLM_API_KEY` | Sí, para el agente | API key de Google AI Studio |
+| `LLM_PROVIDER` | Sí, para el agente | `gemini`, `groq` u `openrouter` (`.env.example` trae `openrouter`) |
+| `LLM_MODEL` | Sí, para el agente | Un modelo del free tier, p. ej. `nvidia/nemotron-3.5-lightning:free` en OpenRouter o `gemini-3.8-flash` |
+| `LLM_API_KEY` | Sí, para el agente | API key del proveedor (OpenRouter, Groq o Google AI Studio) |
 | `LLM_VISION_PROVIDER`, `LLM_VISION_MODEL`, `LLM_VISION_API_KEY` | No | Modelo pago para audio e imagen; se leen pero todavía no se usan |
 
 ### 4.3 Modelo con LangChain
@@ -127,12 +128,14 @@ Se suma `telegram` (`web | whatsapp | telegram`) en `IncomingMessage`, `OrderDra
 `agent/llm.py` crea el modelo según `LLM_PROVIDER` (RNF-09). El agente trabaja con los mensajes de LangChain y
 guarda cada `AIMessage` completo: conserva las firmas de Gemini y no hay que reconstruirlas.
 
-**Gemini** (`ChatGoogleGenerativeAI`, `LLM_PROVIDER=gemini`):
+Proveedores: **Gemini** (`ChatGoogleGenerativeAI`, `LLM_PROVIDER=gemini`), **Groq** (`ChatGroq`, `groq`) y
+**OpenRouter** (`ChatOpenAI` apuntado a la API de OpenRouter, `openrouter`). El import de cada paquete es diferido. Con
+los tres:
 
 - Timeout de 30 s (RNF-06) y 1 reintento. Si vuelve a fallar, el grafo lo trata como una falla (§6 de la spec del
   agente).
-- **Cuidados del free tier:** tiene límites de requests por minuto y por día por proyecto, y Google **usa** lo
-  que se manda para mejorar sus productos. En la beta solo se usan datos simulados (el catálogo de
+- **Cuidados del free tier:** tiene límites de requests por minuto y por día, y el proveedor puede **usar** lo
+  que se manda para mejorar sus productos (Google lo hace). En la beta solo se usan datos simulados (el catálogo de
   `data_example/` y pedidos inventados); nunca datos reales de clientes (RNF-03).
 
 ## 5. Requisitos
@@ -155,13 +158,13 @@ guarda cada `AIMessage` completo: conserva las firmas de Gemini y no hay que rec
 | CA-33 | Un integrante de la lista blanca | Manda texto, un audio o una foto | Llega como `IncomingMessage` `text`, `audio` o `image` con `media_url = telegram:<file_id>`; audio y foto reciben el pedido de escribirlo | RF-29, RF-32, RNF-14 | `test_telegram.py::test_traduce_*`, `test_conversation.py`, `test_orders.py::test_incoming_message_*telegram*` |
 | ~~CA-34~~ | ~~Botones Confirmar / Corregir en Telegram~~ Eliminado: el cliente confirma escribiendo, en todos los canales | — | — | ~~RF-30~~ | — |
 | CA-35 | Un `AIMessage` de Gemini con tool calls | Vuelve al modelo dentro del mismo turno | Se reenvía completo, sin reconstruirlo, para conservar las firmas | RNF-09 | `test_agent_graph.py` |
-| CA-36 | `LLM_PROVIDER` = `gemini` / vacío / otro | Se pide el modelo | `ChatGoogleGenerativeAI` / error que dice qué variable falta / error de proveedor no soportado | RNF-09 | `test_llm.py` |
+| CA-36 | `LLM_PROVIDER` = `gemini`, `groq` u `openrouter` / vacío / otro | Se pide el modelo | `ChatGoogleGenerativeAI`, `ChatGroq` o `ChatOpenAI` apuntado a OpenRouter / error que dice qué variable falta / error de proveedor no soportado | RNF-09 | `test_llm.py` |
 
 ## 7. Decisiones y riesgos
 
 | Tema | Decisión |
 |---|---|
-| D-01 (parcial) | Para la beta, **Gemini free tier para texto**. Audio, imagen y el LLM de producción siguen abiertos |
+| D-01 (parcial) | Para la beta, **un modelo free tier para texto** (Gemini, Groq u OpenRouter; `.env.example` trae OpenRouter). Audio, imagen y el LLM de producción siguen abiertos |
 | Un bot por integrante para desarrollar y uno compartido para la beta | Evita el `409 Conflict` del polling al desarrollar en paralelo, y en la beta concentra los pedidos en una sola base, como en la operación real |
 | Deduplicación en memoria | Alcanza con una instancia y polling (el `offset` ya evita repetidos); se mueve a la base con `processed_messages` |
 | Riesgo: límites del free tier | Un turno sin errores hace unas 4 llamadas y puede llegar a 15 (RNF-12), así que hay que medir el consumo con tres personas probando. Si no alcanza, se pasa a un modelo `flash-lite` o a pago |

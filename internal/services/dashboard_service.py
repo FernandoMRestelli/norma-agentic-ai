@@ -455,10 +455,21 @@ def _get_all_orders() -> list[dict[str, Any]]:
                     "created_at": r.created_at,
                     "customer_id": r.customer_id,
                     "channel": r.channel,
-                    "items": r.items,
+                    # Las líneas están en order_items desde la migración 1
+                    "items": [
+                        {
+                            "sku": line.sku,
+                            "product_name": line.product_name,
+                            "presentation": line.presentation,
+                            "quantity": line.quantity,
+                            "unit_price": line.unit_price,
+                            "note": line.note,
+                        }
+                        for line in r.lines
+                    ],
                     "notes": r.notes,
                     "status": r.status,
-                    "stock_applied": getattr(r, "stock_applied", False),
+                    "stock_applied": r.stock_applied,
                 }
                 for r in records
             ]
