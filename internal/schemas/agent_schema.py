@@ -39,7 +39,10 @@ class ProposedItem(BaseModel):
 class SearchProductsInput(BaseModel):
     query: str = Field(
         min_length=1,
-        description="Producto, marca, presentación o tono, sin la cantidad. Por ejemplo: shampoo pantene 400",
+        description=(
+            "Producto, marca, medida o tono como lo escribió el cliente, sin la cantidad. "
+            "Por ejemplo: shampoo pantene 400, sh keratina x900, tintura koleston 7.1"
+        ),
     )
     limit: int = Field(default=5, ge=1, le=10, description="Cantidad máxima de resultados")
 

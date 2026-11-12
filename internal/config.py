@@ -22,10 +22,12 @@ class Settings(BaseSettings):
     llm_vision_model: str | None = None
     llm_vision_api_key: str | None = None
 
-    # Google Sheets / Catálogo local
+    # Google Sheets / Catálogo local (docs/spec/planillas.md). Sin los ids, todo sale y va a los CSV
     google_credentials_file: str | None = None
     catalog_sheet_id: str | None = None
     orders_sheet_id: str | None = None
+    catalog_worksheet: str | None = None  # hoja dentro de Sheet 1; vacío: la primera
+    orders_worksheet: str | None = None  # hoja dentro de Sheet 2; vacío: la primera
     catalog_file: str = "data_example/catalogo.csv"
     orders_file: str = "data/pedidos.csv"
 

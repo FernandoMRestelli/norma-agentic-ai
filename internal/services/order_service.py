@@ -255,7 +255,7 @@ def confirm_draft(draft: OrderDraft) -> Order:
         if existing:
             return _to_order(existing)
 
-        stock = {product.sku: product.stock for product in inventory_service.get_catalog(session=session)}
+        stock = {product.sku: product.stock for product in inventory_service.get_catalog(session=session, fresh=True)}
         requested: dict[str, int] = {}
         for item in draft.items:  # un SKU puede venir en varias líneas, una por nota
             requested[item.sku] = requested.get(item.sku, 0) + item.quantity
@@ -305,6 +305,8 @@ def confirm_draft(draft: OrderDraft) -> Order:
             sheets_service.append_order(order)
             record.sheets_synced = True
             session.commit()
+        except sheets_service.Sheet2EnPausaError as exc:
+            logger.info("%s", exc)
         except Exception:
             logger.warning(
                 "Error al volcar la orden %s en la planilla/archivo de órdenes",
@@ -348,7 +350,7 @@ def sync_pending_orders() -> int:
         for record in records:
             order = _to_order(record)
             try:
-                sheets_service.append_order(order)
+                sheets_service.append_order(order, reintento=True)
                 record.sheets_synced = True
                 synced_count += 1
             except Exception:
@@ -360,3 +362,12 @@ def sync_pending_orders() -> int:
         if synced_count > 0:
             session.commit()
     return synced_count
+
+
+def list_orders() -> list[Order]:
+    """Todas las órdenes registradas, de la más vieja a la más nueva (exportación a Excel, RF-54)."""
+    with SessionLocal() as session:
+        records = session.scalars(
+            select(OrderRecord).where(OrderRecord.order_id.is_not(None)).order_by(OrderRecord.id)
+        ).all()
+        return [_to_order(record) for record in records]

@@ -51,13 +51,15 @@ def get_available_stock(sku: str, session: "Session | None" = None) -> int:
     return prod.stock if prod else 0
 
 
-def get_catalog(session: "Session | None" = None) -> list[Product]:
+def get_catalog(session: "Session | None" = None, fresh: bool = False) -> list[Product]:
     """Devuelve el catálogo de productos con su stock disponible actualizado.
 
     Llama a sheets_service.get_catalog() para obtener los productos base y resta
-    las unidades comprometidas en órdenes activas.
+    las unidades comprometidas en órdenes activas. Con `fresh=True` (la confirmación) lee Sheet 1
+    aunque haya una copia reciente en caché (RNF-13, RF-51).
     """
-    base_products = sheets_service.get_catalog()
+    with sheets_service.lectura_fresca(fresh):
+        base_products = sheets_service.get_catalog()
     committed = get_committed_stock(session=session)
     if not committed:
         return base_products
