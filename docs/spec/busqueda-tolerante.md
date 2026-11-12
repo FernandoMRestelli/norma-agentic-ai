@@ -87,9 +87,10 @@ lo bien que aparece cada término en él (de 0 a 1).
 | Número sin unidad | Un tono que empieza igual (`6` abarca `6.0` y `6.1`) | 1 |
 | Número sin unidad | Un tono escrito sin punto (`821` = `8.21`, `71` = `7.1`), según V-01 | 1 |
 
-Las palabras de hasta 4 letras y las que tienen cifras (`system3`) no admiten errores de tipeo, solo de sonido o
-exactas: en una palabra corta, una letra de diferencia ya es otra palabra (`baño` no es `mano`, `pelo` no es
-`palo`). Los números **nunca** se aproximan: `340` no es `400`, `6.1` no es `7.1`, `20 vol` no es `30 vol`.
+Las palabras de hasta 3 letras y las que tienen cifras (`system3`) no admiten errores de tipeo, solo de sonido o
+exactas. Entre dos palabras de 4 letras tampoco: ahí una letra cambiada ya es otra palabra (`baño` no es `mano`,
+`pelo` no es `palo`). Una palabra de 4 letras sí puede ser una de 5 con una letra faltante (`wela` → `wella`,
+`igra` → `igora`, `argn` → `argan`). Los números **nunca** se aproximan: `340` no es `400`, `6.1` no es `7.1`, `20 vol` no es `30 vol`.
 
 ### 3.4 Resultado
 
@@ -168,7 +169,7 @@ precios inventados.
 | CA-61 | Máscaras de argan en `X 1 KG`, `X 1K`, `X 250 G` y `X 1000ML` | Se busca «mascara argan 1k», «mascara argan 1 kg» o «mascara argan 1000 g», también con la cantidad adelante («2 mascara argan x 1k») | Primero salen las de 1 kg, las de 250 g no aparecen, y `1 l` = `1000 ml` = `1000 cc`. La cantidad no baja el puntaje ni marca `aproximado`, salvo que el número esté en el catálogo (`6 koleston` sigue trayendo los tonos 6) | `tests/test_busqueda.py::test_unidades_equivalentes_comparan_medida_con_medida`, `tests/test_busqueda.py::test_cantidad_al_principio_*` |
 | CA-62 | Coloraciones Koleston en varios tonos escritos `7.1`, `8.21` | Se busca «tintura koleston 7.1», «tinte koleston 71» o «koleston 821» | Sale primero el tono pedido y `corregido` registra la interpretación del tono | `tests/test_busqueda.py::test_tintura_y_tono_sin_punto_encuentran_el_tono` |
 | CA-63 | Productos con nombres en mayúsculas y abreviados (`ACOND.`) | Se busca con letras cambiadas, faltantes o transpuestas, o con errores por sonido | Sale primero el producto correcto y `corregido` dice qué palabra se interpretó como otra | `tests/test_busqueda.py::test_errores_de_tipeo_y_de_sonido` |
-| CA-64 | El mismo catálogo | Se busca un número parecido a otro (340/400, 6.1/7.1, 20/30 vol, 250/1000 g), una palabra sin parecido real o una palabra corta con una letra cambiada («baño» y «manos») | No coincide nada parecido: ni en `matches` ni en `sugerencias` aparece un producto que el cliente no pidió | `tests/test_busqueda.py::test_precision_*` |
+| CA-64 | El mismo catálogo | Se busca un número parecido a otro (340/400, 6.1/7.1, 20/30 vol, 250/1000 g), una palabra sin parecido real o una palabra de 4 letras con una letra cambiada («baño» y «manos»). Una marca de 5 letras con una letra faltante («wela», «skla») sí se encuentra | No coincide nada parecido: ni en `matches` ni en `sugerencias` aparece un producto que el cliente no pidió | `tests/test_busqueda.py::test_precision_*` |
 | CA-65 | Ninguna coincidencia confiable | Se busca «pantene 340», «koleston 9.1» o «shampoo pntne» | `matches` vacío y `sugerencias` con los candidatos, todos `aproximado: true` | `tests/test_busqueda.py::test_sin_coincidencia_confiable_devuelve_sugerencias` |
 | CA-66 | El agente invoca `search_products` | Hay o no hay matches | Vienen `matches`, `sugerencias` y `corregido`; cada producto trae `score`, `aproximado` y `hay_stock`, sin `stock`, `min_stock` ni `is_low_stock` | `tests/test_busqueda.py::test_contrato_de_la_tool` |
 | CA-67 | Un catálogo ya indexado | Cambia el stock o cambia un nombre | El índice no se reconstruye por el stock, que sale fresco en el resultado; un nombre nuevo sí reconstruye el índice | `tests/test_busqueda.py::test_indice_en_memoria_con_stock_fresco` |

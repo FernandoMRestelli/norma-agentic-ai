@@ -213,8 +213,10 @@ def parecido(a: str, b: str) -> float:
     sonido_a, sonido_b = clave_sonido(a), clave_sonido(b)
     if sonido_a == sonido_b:
         return POR_SONIDO
-    if min(len(a), len(b)) <= 4:
-        return 0.0  # en una palabra corta, una letra de diferencia ya es otra palabra: «bano» no es «mano»
+    if min(len(a), len(b)) <= 3 or max(len(a), len(b)) <= 4:
+        # En una palabra corta, una letra de diferencia ya es otra palabra: «bano» no es «mano». Pero una de 4
+        # puede ser una de 5 con una letra faltante: «wela» es «wella», «igra» es «igora»
+        return 0.0
     largo = max(len(a), len(b))
     tope = int(largo * (1 - MIN_PALABRA_SUGERENCIA))
     errores = min(distancia(a, b, tope), distancia(sonido_a, sonido_b, tope))

@@ -51,6 +51,8 @@ CATALOGO = [
     ("LBC200", "LUMINA CACAO BAÑO X 200 GR", "LUMINA", 10),
     ("NBC500", "NOVA BAÑO DE CREMA PALTA X 500 GR", "NOVA", 10),
     ("LCM130", "LUMINA CREMA DE MANOS X 130 ML", "LUMINA", 10),
+    ("WO20", "WELLA OXIDANTE 20 VOL X 1L", "WELLA", 10),
+    ("SKCP1K", "SKALA CREMA DE PEINAR X 1 KG", "SKALA", 10),
 ]
 
 
@@ -180,6 +182,24 @@ def test_errores_de_tipeo_y_de_sonido(query, sku, palabra, interpretada):
         assert resultado.matches[0].aproximado
 
 
+@pytest.mark.parametrize(
+    ("query", "skus", "palabra", "interpretada"),
+    [
+        ("oxidante wela", {"WO20"}, "wela", "wella"),
+        ("coloracion igra", {"IR71"}, "igra", "igora"),
+        ("skla crema de peinar", {"SKCP1K"}, "skla", "skala"),
+        ("mascara argn", {"FAM1K", "FAM250", "FRM1K", "FRM240", "IMA1000"}, "argn", "argan"),
+    ],
+)
+def test_marca_corta_con_una_letra_faltante(query, skus, palabra, interpretada):
+    """CA-63: una palabra de 4 letras puede ser una de 5 con una letra faltante, como «wela» y «wella»."""
+    resultado = _buscar(query)
+    assert set(_skus(resultado.matches)) <= skus
+    assert resultado.matches[0].sku in skus
+    assert resultado.matches[0].score >= 0.9
+    assert resultado.corregido[palabra] == interpretada
+
+
 def test_abreviatura_del_catalogo_coincide_con_la_palabra_entera():
     """CA-63: el catálogo escribe «ACOND.» y el cliente «acondicionador»."""
     resultado = _buscar("acondicionador fidelite keratin")
@@ -241,6 +261,13 @@ def test_precision_palabra_corta_no_se_aproxima_a_otra():
     assert resultado.matches == []
     assert resultado.sugerencias == []
     assert resultado.corregido == {}
+
+
+def test_precision_bano_no_sugiere_mano():
+    """CA-64: entre dos palabras de 4 letras, una letra cambiada ya es otra palabra: «baño» no sugiere «manos»."""
+    resultado = _buscar("baño 130")  # el único producto de 130 es la crema de manos
+    assert "LCM130" not in _skus(resultado.matches + resultado.sugerencias)
+    assert "mano" not in resultado.corregido.values()
 
 
 def test_precision_el_tono_no_toma_otras_cifras():
