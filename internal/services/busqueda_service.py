@@ -25,9 +25,7 @@ POR_SONIDO = 0.95
 PREFIJO = 0.85
 OTRA_DIMENSION = 0.9  # 1 kg y 1000 ml: «la de kilo» puede ser cualquiera de las dos, pero no es la misma medida
 
-STOPWORDS = frozenset(
-    "de del el la los las un una unos unas y e o u a al en con para por favor que mas".split()
-)
+STOPWORDS = frozenset("de del el la los las un una unos unas y e o u a al en con para por favor que mas".split())
 
 # Abreviaturas y variantes: valen lo mismo que la palabra canónica (claves y valores ya normalizados)
 ABREVIATURAS = {
@@ -63,6 +61,9 @@ _GRUPOS = {
     "serum": ("serum", "suero"),
 }
 SINONIMOS = {palabra: grupo for grupo, palabras in _GRUPOS.items() for palabra in palabras}
+
+# Frases que el catálogo escribe con una palabra (sobre el texto ya en minúsculas y sin tildes)
+FRASES = ((re.compile(r"\bbanos? (?:de )?cremas?\b"), "bano"),)  # «baño de crema» es el «BAÑO» del catálogo
 
 # Unidad → (dimensión, factor a la unidad base)
 UNIDADES: dict[str, tuple[str, float]] = {
@@ -135,6 +136,9 @@ def _numero(texto: str) -> float:
 def normalizar(texto: str) -> Texto:
     """Normaliza un texto de búsqueda o de catálogo con las mismas reglas."""
     limpio = re.sub(r"['’`´]", "", _sin_tildes(texto or ""))
+    limpio = re.sub(r"\s+", " ", limpio)
+    for frase, palabra in FRASES:
+        limpio = frase.sub(palabra, limpio)
     limpio = re.sub(r"(\d),(\d)", r"\1.\2", limpio)  # 6,1 → 6.1
     limpio = re.sub(r"(\d)([a-z])", r"\1 \2", limpio)  # 400ml → 400 ml, 1k → 1 k
     limpio = re.sub(r"\bx(?=\d)", "x ", limpio)  # x900 → x 900
@@ -209,8 +213,8 @@ def parecido(a: str, b: str) -> float:
     sonido_a, sonido_b = clave_sonido(a), clave_sonido(b)
     if sonido_a == sonido_b:
         return POR_SONIDO
-    if min(len(a), len(b)) <= 3:
-        return 0.0  # en una palabra corta, una letra de diferencia ya es otra palabra
+    if min(len(a), len(b)) <= 4:
+        return 0.0  # en una palabra corta, una letra de diferencia ya es otra palabra: «bano» no es «mano»
     largo = max(len(a), len(b))
     tope = int(largo * (1 - MIN_PALABRA_SUGERENCIA))
     errores = min(distancia(a, b, tope), distancia(sonido_a, sonido_b, tope))
@@ -414,6 +418,19 @@ def _corregido(puntuado: _Puntuado) -> dict[str, str]:
     return corregido
 
 
+def _es_coloracion(producto: ProductoIndexado) -> bool:
+    return any(SINONIMOS.get(canon) == "coloracion" for canon in producto.canones)
+
+
+def _cantidad_al_principio(query: str, busqueda: Texto) -> bool:
+    """Si la búsqueda empieza con un entero sin unidad seguido de palabras, como «2 mascara argan x 1k»."""
+    inicio = re.match(r"\s*(\d+)(?![\d.,])", query)
+    if not inicio or not busqueda.palabras or not busqueda.numeros:
+        return False
+    primero = busqueda.numeros[0]
+    return primero.original == inicio.group(1) and primero.dimension is None
+
+
 def buscar(query: str, productos: list[Product], limit: int = 5) -> SearchResult:
     """Busca en `productos` (con el stock del momento) y devuelve matches, sugerencias y palabras corregidas."""
     indice = obtener_indice(productos)
@@ -425,9 +442,23 @@ def buscar(query: str, productos: list[Product], limit: int = 5) -> SearchResult
     if not busqueda.palabras and not busqueda.numeros:
         return SearchResult()
     parecidos = [indice.parecidos(palabra) for palabra in busqueda.palabras]
-    puntuados = [_puntuar(product, indice.productos[product.sku], busqueda, parecidos) for product in productos]
 
-    matches = _cortar([p for p in puntuados if p.score >= MIN_SCORE], lambda p: p.score, limit)
+    def puntuar_todos(sin_cantidad: Texto | None = None) -> tuple[list[_Puntuado], list[_Puntuado]]:
+        puntuados = []
+        for product in productos:
+            producto = indice.productos[product.sku]
+            # En una coloración, un número suelto que es el único de la búsqueda puede ser el tono: no se descarta
+            texto = sin_cantidad or busqueda
+            if _es_coloracion(producto) and sin_cantidad and not sin_cantidad.numeros:
+                texto = busqueda
+            puntuados.append(_puntuar(product, producto, texto, parecidos))
+        return puntuados, _cortar([p for p in puntuados if p.score >= MIN_SCORE], lambda p: p.score, limit)
+
+    puntuados, matches = puntuar_todos()
+    if _cantidad_al_principio(query, busqueda):
+        # El término del número va después de las palabras. Si el mejor match no lo tiene, es la cantidad del pedido
+        if not matches or matches[0].terminos[len(busqueda.palabras)][1].valor < 1:
+            puntuados, matches = puntuar_todos(Texto(busqueda.palabras, busqueda.numeros[1:]))
     if matches:
         return SearchResult(
             matches=[_match(p, p.score, p.aproximado) for p in matches], corregido=_corregido(matches[0])

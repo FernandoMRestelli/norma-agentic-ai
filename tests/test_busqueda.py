@@ -48,6 +48,9 @@ CATALOGO = [
     ("DJ90", "DOVE JABON ORIGINAL X 90 G", "DOVE", 10),
     ("VBV250", "VALMY BALSAMO VITAMINICO X 250 GR", "VALMY", 10),
     ("AAK12", "ALFAPARF AMPOLLA KERATINA X12", "ALFAPARF", 0),
+    ("LBC200", "LUMINA CACAO BAÑO X 200 GR", "LUMINA", 10),
+    ("NBC500", "NOVA BAÑO DE CREMA PALTA X 500 GR", "NOVA", 10),
+    ("LCM130", "LUMINA CREMA DE MANOS X 130 ML", "LUMINA", 10),
 ]
 
 
@@ -103,6 +106,29 @@ def test_unidades_equivalentes_comparan_medida_con_medida(query):
     assert set(_skus(resultado.matches[:2])) == {"FAM1K", "FRM1K"}
     assert not {"FAM250", "FRM240", "IMA250"} & set(_skus(resultado.matches))
     assert all(not m.aproximado for m in resultado.matches[:2])
+
+
+def test_cantidad_al_principio_no_cuenta_como_medida():
+    """CA-61: «2 mascara argan x 1k» da lo mismo que sin el 2, sin bajar el puntaje ni marcar aproximado."""
+    con_cantidad = _buscar("2 mascara argan x 1k")
+    assert _skus(con_cantidad.matches) == _skus(_buscar("mascara argan x 1k").matches)
+    assert all(m.score == 1 and not m.aproximado for m in con_cantidad.matches[:2])
+    assert _skus(_buscar("3 sh pantene 400").matches) == ["PS400"]
+    assert _skus(_buscar("12x oxidante koleston 1 l").matches) == ["KO20"]
+
+
+def test_cantidad_al_principio_sin_perder_precision():
+    """CA-61 y CA-45: un número que está en el catálogo sigue filtrando; uno que no está no trae otra medida."""
+    assert _skus(_buscar("6 koleston").matches) == ["KP61"]  # el tono 6, no los demás
+    assert _skus(_buscar("400 pantene").matches) == ["PS400"]
+    assert "KP61" in _skus(_buscar("6").matches)
+    assert _skus(_buscar("2 koleston 7.1").matches) == ["KP71"]  # cantidad y tono
+    sin_ese_tono = _buscar("9 tintura igora").matches  # en una coloración, el único número puede ser el tono
+    assert sin_ese_tono and all(m.aproximado and m.score < 1 for m in sin_ese_tono)
+    for query in ("pantene 340", "2 pantene 340"):
+        resultado = _buscar(query)
+        assert resultado.matches == []
+        assert set(_skus(resultado.sugerencias)) == {"PS400", "PS200"}
 
 
 def test_litro_es_mil_mililitros_y_mil_cc():
@@ -197,6 +223,24 @@ def test_precision_sin_parecido_real_no_trae_nada(query):
     resultado = _buscar(query)
     assert resultado.matches == []
     assert resultado.sugerencias == []
+
+
+@pytest.mark.parametrize("query", ["baño de crema", "baños de crema", "bano crema", "BAÑO DE CREMA"])
+def test_precision_bano_de_crema_es_el_bano_del_catalogo(query):
+    """CA-64: «baño de crema» es el «BAÑO» del catálogo, escrito de las dos formas; nunca la crema de manos."""
+    resultado = _buscar(query)
+    assert set(_skus(resultado.matches)) == {"LBC200", "NBC500"}
+    assert "bano" not in resultado.corregido
+
+
+def test_precision_palabra_corta_no_se_aproxima_a_otra():
+    """CA-64: «baño» no es «manos»: en una palabra de 4 letras, una letra cambiada ya es otra palabra."""
+    assert _skus(_buscar("baño de crema palta").matches) == ["NBC500"]
+    assert _skus(_buscar("crema de manos").matches) == ["LCM130"]
+    resultado = _buscar("manos nova")  # Nova solo tiene un baño: no hay que sugerirlo como si fuera «manos»
+    assert resultado.matches == []
+    assert resultado.sugerencias == []
+    assert resultado.corregido == {}
 
 
 def test_precision_el_tono_no_toma_otras_cifras():

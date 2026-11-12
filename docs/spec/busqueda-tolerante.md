@@ -55,6 +55,9 @@ falso positivo hace que el agente proponga algo que el cliente no pidió.
      `tintura`, `tinte` ~ `coloracion`; `oxigenada`, `revelador` ~ `oxidante`; `oleo`, `oil` ~ `aceite`;
      `suero` ~ `serum`. Así, «acondicionador» trae primero lo que se llama acondicionador y no mezcla las cremas de
      enjuague, pero «enjuague fidelite» encuentra el acondicionador si no hay otra cosa.
+   - **Frases** que en el catálogo se escriben con una palabra: «baño de crema» y «baño crema» son `baño`, como
+     figuran esos productos (`… KERATINA BAÑO X 200 GR`, `… BAÑO ARGAN X 1KG`). Sin esto, «crema» buscaba cremas y
+     «baño» se parecía a «manos».
 
 ### 3.2 Índice (RF-39)
 
@@ -84,24 +87,32 @@ lo bien que aparece cada término en él (de 0 a 1).
 | Número sin unidad | Un tono que empieza igual (`6` abarca `6.0` y `6.1`) | 1 |
 | Número sin unidad | Un tono escrito sin punto (`821` = `8.21`, `71` = `7.1`), según V-01 | 1 |
 
-Las palabras de hasta 3 letras y las que tienen cifras (`system3`) no admiten errores de tipeo, solo de sonido o
-exactas. Los números **nunca** se aproximan: `340` no es `400`, `6.1` no es `7.1`, `20 vol` no es `30 vol`.
+Las palabras de hasta 4 letras y las que tienen cifras (`system3`) no admiten errores de tipeo, solo de sonido o
+exactas: en una palabra corta, una letra de diferencia ya es otra palabra (`baño` no es `mano`, `pelo` no es
+`palo`). Los números **nunca** se aproximan: `340` no es `400`, `6.1` no es `7.1`, `20 vol` no es `30 vol`.
 
 ### 3.4 Resultado
 
 1. Si la búsqueda es exactamente un SKU del catálogo, ese producto sale solo con puntaje 1.
-2. **`matches`**: los productos con puntaje ≥ 0,6, ordenados de mayor a menor, quitando los que quedan a más de
+2. **Cantidad al principio:** un entero sin unidad al comienzo de la búsqueda y seguido de palabras («2 mascara
+   argan x 1k») suele ser la cantidad del pedido. Primero se busca con ese número; si el mejor match lo tiene
+   (un tono, una medida o un número del nombre: «6 koleston» trae los tonos 6), queda así. Si no, se busca de nuevo
+   sin él, y el número no baja el puntaje ni marca `aproximado`. Así no se pierde precisión: un número que está en
+   el catálogo sigue filtrando, y uno que no está no se toma como otra medida. En una coloración, si ese es el único
+   número de la búsqueda, puede ser el tono y no se descarta: «9 tintura igora» sale `aproximado` si no hay tono 9,
+   y «2 koleston 7.1» trae el 7.1.
+3. **`matches`**: los productos con puntaje ≥ 0,6, ordenados de mayor a menor, quitando los que quedan a más de
    0,1 del primero (si «shampoo pantene 400» encuentra el de 400 ml, el de 200 ml no aparece). A igual puntaje va
    primero el producto con menos palabras de sobra en el nombre. Como mucho `limit` resultados.
-3. **`aproximado`**: es `true` cuando algún término no coincidió exacto (tipeo, sonido, otra dimensión, o un número
+4. **`aproximado`**: es `true` cuando algún término no coincidió exacto (tipeo, sonido, otra dimensión, o un número
    que no está). Las abreviaturas y los sinónimos no cuentan como aproximación. Un match aproximado es candidato a
    confirmar con el cliente.
-4. **`sugerencias`**: solo si `matches` quedó vacío. Son los productos donde **todas** las palabras de la búsqueda
+5. **`sugerencias`**: solo si `matches` quedó vacío. Son los productos donde **todas** las palabras de la búsqueda
    aparecen, aunque sea con un parecido más flojo (≥ 0,7), aunque algún número no coincida: «pantene 340» sugiere
    los Pantene que hay, y «shampoo pntne» sugiere los shampoos Pantene. Si alguna palabra no aparece en el
    producto, no se sugiere: «shampoo dove» no sugiere shampoos de otra marca ni el jabón Dove, y «coca cola» no
    sugiere nada. Siempre con `aproximado: true`, con el mismo corte de 0,1 respecto de la primera.
-5. **`corregido`**: qué palabras de la búsqueda se interpretaron como otra en el primer resultado (de `matches` o, si
+6. **`corregido`**: qué palabras de la búsqueda se interpretaron como otra en el primer resultado (de `matches` o, si
    no hay, de `sugerencias`): abreviaturas (`sh` → `shampoo`), variantes (`champu` → `shampoo`), sinónimos
    (`tintura` → `coloracion`), errores de tipeo o de sonido (`pantne` → `pantene`) y tonos (`71` → `7.1`). La clave
    es la palabra como la escribió el cliente, en minúsculas y sin tildes.
@@ -154,10 +165,10 @@ precios inventados.
 |---|---|---|---|---|
 | CA-59 | Un shampoo de keratina de 900 ml escrito `… KERATIN SHAMPOO X 900 ML`, y otros de keratina en 230 ml y 5 L | Se busca «sh keratina x900» | Ese shampoo sale primero y los de otra medida no aparecen | `tests/test_busqueda.py::test_abreviatura_y_medida_pegada_encuentran_el_producto` |
 | CA-60 | Shampoos Fidelite y de otras marcas | Se busca «champu fidelite» o «champú fidelité» | Solo salen shampoos Fidelite y `corregido` dice `champu` → `shampoo` | `tests/test_busqueda.py::test_variante_de_shampoo_encuentra_la_marca` |
-| CA-61 | Máscaras de argan en `X 1 KG`, `X 1K`, `X 250 G` y `X 1000ML` | Se busca «mascara argan 1k», «mascara argan 1 kg» o «mascara argan 1000 g» | Primero salen las de 1 kg, las de 250 g no aparecen, y `1 l` = `1000 ml` = `1000 cc` | `tests/test_busqueda.py::test_unidades_equivalentes_comparan_medida_con_medida` |
+| CA-61 | Máscaras de argan en `X 1 KG`, `X 1K`, `X 250 G` y `X 1000ML` | Se busca «mascara argan 1k», «mascara argan 1 kg» o «mascara argan 1000 g», también con la cantidad adelante («2 mascara argan x 1k») | Primero salen las de 1 kg, las de 250 g no aparecen, y `1 l` = `1000 ml` = `1000 cc`. La cantidad no baja el puntaje ni marca `aproximado`, salvo que el número esté en el catálogo (`6 koleston` sigue trayendo los tonos 6) | `tests/test_busqueda.py::test_unidades_equivalentes_comparan_medida_con_medida`, `tests/test_busqueda.py::test_cantidad_al_principio_*` |
 | CA-62 | Coloraciones Koleston en varios tonos escritos `7.1`, `8.21` | Se busca «tintura koleston 7.1», «tinte koleston 71» o «koleston 821» | Sale primero el tono pedido y `corregido` registra la interpretación del tono | `tests/test_busqueda.py::test_tintura_y_tono_sin_punto_encuentran_el_tono` |
 | CA-63 | Productos con nombres en mayúsculas y abreviados (`ACOND.`) | Se busca con letras cambiadas, faltantes o transpuestas, o con errores por sonido | Sale primero el producto correcto y `corregido` dice qué palabra se interpretó como otra | `tests/test_busqueda.py::test_errores_de_tipeo_y_de_sonido` |
-| CA-64 | El mismo catálogo | Se busca un número parecido a otro (340/400, 6.1/7.1, 20/30 vol, 250/1000 g) o una palabra sin parecido real | No coincide nada parecido: ni en `matches` ni en `sugerencias` aparece un producto que el cliente no pidió | `tests/test_busqueda.py::test_precision_*` |
+| CA-64 | El mismo catálogo | Se busca un número parecido a otro (340/400, 6.1/7.1, 20/30 vol, 250/1000 g), una palabra sin parecido real o una palabra corta con una letra cambiada («baño» y «manos») | No coincide nada parecido: ni en `matches` ni en `sugerencias` aparece un producto que el cliente no pidió | `tests/test_busqueda.py::test_precision_*` |
 | CA-65 | Ninguna coincidencia confiable | Se busca «pantene 340», «koleston 9.1» o «shampoo pntne» | `matches` vacío y `sugerencias` con los candidatos, todos `aproximado: true` | `tests/test_busqueda.py::test_sin_coincidencia_confiable_devuelve_sugerencias` |
 | CA-66 | El agente invoca `search_products` | Hay o no hay matches | Vienen `matches`, `sugerencias` y `corregido`; cada producto trae `score`, `aproximado` y `hay_stock`, sin `stock`, `min_stock` ni `is_low_stock` | `tests/test_busqueda.py::test_contrato_de_la_tool` |
 | CA-67 | Un catálogo ya indexado | Cambia el stock o cambia un nombre | El índice no se reconstruye por el stock, que sale fresco en el resultado; un nombre nuevo sí reconstruye el índice | `tests/test_busqueda.py::test_indice_en_memoria_con_stock_fresco` |
@@ -173,6 +184,8 @@ Siguen pasando CA-29 y CA-45 (`tests/test_tools.py`) y CA-58 (`tests/test_agent_
 | La búsqueda es solo un número que no está | Nada en `matches` ni en `sugerencias`: sin una palabra no hay a qué parecerse |
 | La medida del producto no tiene unidad (`SHAMPOO X 900`) | Coincide con `900`, `900 ml` o `x900` |
 | El cliente escribe una medida que no existe para ese producto | El producto puede salir, pero con `aproximado: true` y puntaje menor a 1 (CA-45) |
+| La búsqueda empieza con la cantidad («2 mascara argan x 1k», «3 sh pantene 400») | Si ningún producto que coincide tiene ese número, se ignora: mismo resultado que sin la cantidad |
+| La búsqueda es solo un número («6») o el número no está al principio («pantene 340») | Cuenta como siempre: `6` abarca los tonos 6.0 y 6.1, y `340` no es `400` |
 | Dos productos empatan | Primero el que tiene menos palabras de sobra; si siguen empatados, el orden del catálogo |
 | El catálogo no se puede leer | Error `catalogo_no_disponible`, como antes |
 
