@@ -131,6 +131,43 @@ def test_stock_revelado_se_rechaza_y_reintenta():
     assert "50" not in segundo.message.split("\n\n")[0]  # el detalle del sistema sí trae precios
 
 
+TRES_VISTOS = ContextoTurno(skus={"FI-900-A", "FI-900-B", "FI-900-C"})
+
+
+@pytest.mark.parametrize(
+    ("mensaje", "kind", "options", "turno"),
+    [
+        ("Tenemos 3 Fidelité de 900, ¿cuál querés?", "aclaracion", [], TRES_VISTOS),
+        ("De esa marca tengo 2: el de 250 y el de 900", "aclaracion", [], None),
+        ("De esa marca tengo 2 presentaciones distintas: el de 250 y el de 900", "aclaracion", [], None),
+        ("Tengo 3:\n- el de 250\n- el de 500\n- el de 900", "aclaracion", [], None),
+        ("Tengo 2 de esa marca, ¿te armo alguna?", "aclaracion", ["FI-900-A", "FI-900-B"], None),
+        # Con sin_stock, contar las alternativas tampoco es el número de stock
+        ("Esa no me queda, pero tengo 2: el de 250 y el de 900", "sin_stock", [], None),
+    ],
+)
+def test_contar_opciones_no_es_revelar_stock(mensaje, kind, options, turno):
+    """CA-69: un número que cuenta opciones para elegir no es stock."""
+    assert _reglas(mensaje, kind, options=options, turno=turno) == []
+
+
+@pytest.mark.parametrize(
+    "mensaje",
+    [
+        "Tenemos 50 disponibles",
+        "Hay 30",
+        "Me quedan 41",
+        "Hay 30, ¿cuál querés?",  # el turno no mostró 30 productos
+        "Tengo 41: el de 250 y el de 900",  # la lista no tiene 41 elementos
+        "Tenemos 3 Fidelité de 900, ¿cuál querés?",  # sin productos vistos en el turno no hay opciones que contar
+    ],
+)
+def test_contar_opciones_no_deja_pasar_el_stock(mensaje):
+    """CA-69: el stock sigue sin salir aunque el mensaje pregunte cuál o traiga una lista."""
+    turno = ContextoTurno(skus={SKU, SKU_SHAMPOO}) if "Fidelité" not in mensaje else None
+    assert _reglas(mensaje, "aclaracion", turno=turno) == ["stock_revelado"]
+
+
 def test_sin_stock_exige_el_disponible_real():
     """CA-70 / BR-01: con sin_stock el número es el disponible real (3), tomado del catálogo o del turno."""
     propuesta = _draft((SKU, "Crema Nivea", 3, "1000"))
@@ -161,6 +198,21 @@ def test_datos_internos_se_rechazan(mensaje):
     """CA-71: ni SKU, ni tools, ni skills, ni BR, ni instrucciones."""
     turno = ContextoTurno(skus={SKU})
     assert _reglas(mensaje, "informacion", turno=turno) == ["dato_interno"]
+
+
+def test_palabra_interna_en_una_marca_del_catalogo(catalogo):
+    """CA-71: «tools» en la marca o el nombre de un producto del catálogo es el producto; sola sigue siendo interna."""
+    catalogo.append(
+        Product(sku="PL-MAX-25", name="Planchita Max Tools 25 mm", brand="MAX TOOLS", price=Decimal("1000"), stock=4)
+    )
+    for mensaje in (
+        "Te armé el pedido con 2 Planchita Max Tools. ¿Querés sumar algo más?",
+        "De Max Tools tengo la planchita de 25 mm",
+        "La planchita max tools sale $1000",
+    ):
+        assert _reglas(mensaje, "propuesta") == [], mensaje
+    for mensaje in ("Lo busco con mis tools", "La tool de Max Tools no me deja", "Uso la tool"):
+        assert _reglas(mensaje, "informacion") == ["dato_interno"], mensaje
 
 
 def test_pedido_hecho_sin_armar_pedido_se_rechaza():
@@ -243,6 +295,21 @@ def test_promesas_se_rechazan(mensaje):
 def test_negar_o_derivar_no_es_promesa(mensaje):
     """CA-74: negarlo o derivarlo al equipo es lo que pide el system prompt."""
     assert _reglas(mensaje, "informacion") == []
+
+
+@pytest.mark.parametrize(
+    "mensaje",
+    [
+        "Mañana te lo mandamos sin falta",
+        "Te llega mañana sin problema",
+        "Hacemos envíos, sin drama",
+        "No te preocupes, te lo mandamos el lunes",
+        "Aceptamos transferencia, no hay problema",
+    ],
+)
+def test_frases_hechas_no_niegan_la_promesa(mensaje):
+    """CA-74: «sin falta», «sin problema» o «no te preocupes» no niegan nada: la promesa se rechaza igual."""
+    assert _reglas(mensaje, "informacion") == ["promesa"]
 
 
 @pytest.mark.parametrize("mensaje", ["**Crema Nivea**", "Te paso `el detalle`", "## Tu pedido", "__hola__"])

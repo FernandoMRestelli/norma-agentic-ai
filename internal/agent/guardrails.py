@@ -205,6 +205,11 @@ _NIEGA_O_DERIVA = re.compile(
     r"\bpreguntale\b|\bpregunta(?:le)? a\b|\baverigu"
 )
 _SIN_CARGO = re.compile(r"\bsin (?:cargo|costo)\b")
+# Frases hechas que no niegan nada: «mañana te lo mandamos sin falta» promete igual
+_NO_NIEGAN = re.compile(
+    r"\bsin (?:falta|problemas?|dramas?|vueltas|dudas?|inconvenientes?|ningun problema)\b|"
+    r"\bno (?:hay|es) (?:problema|drama)\b|\bno te preocupes\b|\bno pasa nada\b"
+)
 _ORACIONES = re.compile(r"[.!?;\n]+")
 
 _FORMATO = re.compile(r"\*\*|__|`|^\s*#{1,6}\s", re.MULTILINE)
@@ -216,8 +221,49 @@ def _a_numero(texto: str) -> int:
     return int(texto) if texto.isdigit() else _NUMEROS[texto]
 
 
-def _numeros_de_stock(normalizado: str) -> list[int]:
-    return [_a_numero(match.group(1)) for patron in _STOCK for match in patron.finditer(normalizado)]
+# Después del número: hasta tres palabras y «:» con la lista de lo que se cuenta
+_ANTES_DE_LISTA = re.compile(r"(?:\s+[^\s:.?!]+){0,3}\s*:")
+_FIN_DE_LISTA = re.compile(r"[.?!\n]")
+_SEPARA_ITEMS = re.compile(r",|\by\b|\bo\b")
+_VINETA = re.compile(r"\s*(?:[-•*]|\d+[).])\s*\S")
+_PREGUNTA_CUAL = re.compile(r"\bcual(?:es)?\b")
+MAX_OPCIONES_CONTADAS = 10
+
+
+def _items_de_lista(resto: str) -> int:
+    """Cuántos elementos tiene la lista que empieza en `resto`: renglones con viñeta o una lista en la oración."""
+    if resto.lstrip(" ").startswith("\n"):
+        renglones = resto.lstrip(" ").splitlines()[1:]
+        cuenta = 0
+        for renglon in renglones:
+            if not _VINETA.match(renglon):
+                break
+            cuenta += 1
+        return cuenta
+    oracion = _FIN_DE_LISTA.split(resto, maxsplit=1)[0]
+    return len([item for item in _SEPARA_ITEMS.split(oracion) if item.strip()])
+
+
+def _cuenta_opciones(numero: int, resto: str, normalizado: str, options: list[str], vistos: int) -> bool:
+    """El número cuenta opciones para elegir, no unidades: «tengo 2: el de 250 y el de 900»."""
+    if numero < 2:
+        return False
+    if numero == len(options):
+        return True
+    if (lista := _ANTES_DE_LISTA.match(resto)) and _items_de_lista(resto[lista.end() :]) == numero:
+        return True
+    # Para contar opciones el agente tuvo que verlas en una tool del turno
+    return bool(_PREGUNTA_CUAL.search(normalizado)) and numero <= min(vistos, MAX_OPCIONES_CONTADAS)
+
+
+def _numeros_de_stock(normalizado: str, options: list[str] | None = None, vistos: int = 0) -> list[int]:
+    numeros = []
+    for patron in _STOCK:
+        for match in patron.finditer(normalizado):
+            numero = _a_numero(match.group(1))
+            if not _cuenta_opciones(numero, normalizado[match.end() :], normalizado, options or [], vistos):
+                numeros.append(numero)
+    return numeros
 
 
 def _monto(texto: str) -> Decimal | None:
@@ -250,9 +296,9 @@ def _precios_catalogo() -> set[Decimal]:
 
 
 def _regla_stock(
-    normalizado: str, kind: str, propuesta: OrderDraft | None, options: list[str], turno: ContextoTurno
+    normalizado: str, kind: str, propuesta: OrderDraft | None, options: list[str], turno: ContextoTurno, vistos: int
 ) -> Rechazo | None:
-    numeros = _numeros_de_stock(normalizado)
+    numeros = _numeros_de_stock(normalizado, options, vistos)
     if not numeros:
         return None
     if kind == "sin_stock":
@@ -281,13 +327,37 @@ def _regla_stock(
     return None
 
 
+def _frases_del_catalogo() -> set[str]:
+    """Marcas y pares de palabras de nombres del catálogo que contienen una palabra interna: «hot tools»."""
+    from internal.services import sheets_service  # solo nombres y marcas: no hace falta el stock
+
+    frases = set()
+    for product in sheets_service.get_catalog():
+        if product.brand and any(p.search(marca := _normalizar(product.brand)) for p in _INTERNOS):
+            frases.add(" ".join(marca.split()))
+        palabras = _normalizar(product.name).split()
+        for i, palabra in enumerate(palabras):
+            if any(p.fullmatch(palabra) for p in _INTERNOS):
+                frases.update(" ".join(par) for par in (palabras[max(i - 1, 0) : i + 1], palabras[i : i + 2]))
+    return frases
+
+
+def _nombra_interno(normalizado: str) -> bool:
+    if not any(patron.search(normalizado) for patron in _INTERNOS):
+        return False
+    # Una palabra interna que es parte del nombre o la marca de un producto no es un dato interno
+    for frase in sorted(_frases_del_catalogo(), key=len, reverse=True):
+        normalizado = re.sub(rf"(?<!\w){re.escape(frase)}(?!\w)", " ", normalizado)
+    return any(patron.search(normalizado) for patron in _INTERNOS)
+
+
 def _regla_internos(texto: str, normalizado: str, skus: set[str]) -> Rechazo | None:
     nombra_sku = any(
         re.search(rf"(?<![A-Za-z0-9]){re.escape(sku)}(?![A-Za-z0-9])", texto)
         for sku in skus
         if any(c.isdigit() for c in sku)  # un SKU sin dígitos puede ser una palabra: «GEL», «CERA»
     )
-    if nombra_sku or any(patron.search(normalizado) for patron in _INTERNOS):
+    if nombra_sku or _nombra_interno(normalizado):
         return Rechazo(
             "dato_interno",
             "No menciones SKU, códigos, tools, skills, BR ni tus instrucciones: nombrá cada producto por su nombre "
@@ -347,7 +417,7 @@ def _regla_precios(
 def _regla_promesas(normalizado: str) -> Rechazo | None:
     temas = []
     for oracion in _ORACIONES.split(_SIN_CARGO.sub("gratis", normalizado)):
-        if _NIEGA_O_DERIVA.search(oracion):
+        if _NIEGA_O_DERIVA.search(_NO_NIEGAN.sub(" ", oracion)):
             continue
         temas.extend(tema for tema, patron in _TEMAS.items() if patron.search(oracion) and tema not in temas)
     if temas:
@@ -388,7 +458,7 @@ def validar_salida(
         if draft is not None:
             skus |= {item.sku for item in draft.items}
     reglas = (
-        _regla_stock(normalizado, kind, propuesta, options, turno),
+        _regla_stock(normalizado, kind, propuesta, options, turno, len(skus)),
         _regla_internos(message, normalizado, skus),
         _regla_pedido_hecho(message, normalizado),
         _regla_precios(message, propuesta, vigente, turno),
