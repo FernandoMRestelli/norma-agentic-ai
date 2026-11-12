@@ -181,6 +181,7 @@ Hoy los cuatro están en `null`: el negocio no confirmó ninguno ([V-06](../vali
 | D-E3 | **Pedido confirmado en el system prompt.** Aplica a `tomar_pedido` (pide más después de confirmar) y a `informar` (quiere modificarlo): como D-09 no permite BR compartidas, va en «Límites» | Cerrada |
 | D-E4 | **Los chequeos de estilo no corrigen nada**: miden. Lo que hay que impedir en producción lo valida el backend (frente B) | Cerrada |
 | D-E5 | ¿Cuáles son los horarios, la zona de entrega, los medios de pago y el mínimo de compra? | Abierta: V-06 |
+| D-E6 | **La skill se lee primero.** `respond_to_customer` y `armar_pedido` recién están disponibles después de `leer_skill`. En la corrida con el LLM real (2026-11-11), el modelo que buscaba antes de leer la skill no tenía con qué responder y contestaba con texto suelto: en «dale» dio un número de orden inventado. El orden de «Cómo trabajás» es elegir y leer la skill, buscar y cerrar con la tool, y el prompt dice que lo que va al cliente nunca es texto suelto | Cerrada |
 
 ## 9. Plan de implementación
 

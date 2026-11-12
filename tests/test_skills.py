@@ -132,6 +132,7 @@ def test_datos_invalidos_impiden_arrancar(tmp_path, encabezado):
         ("¿El de 200 o el de 400? ¿Y cuántos?", "aclaracion", "una_pregunta"),
         ("Listo, hay 24 disponibles. ¿Lo confirmo?", "propuesta", "sin_cantidad_de_stock"),
         ("Tenemos stock: 24. ¿Te lo armo?", "informacion", "sin_cantidad_de_stock"),
+        ("- Stock disponible: 24 unidades\n¿Te lo armo?", "informacion", "sin_cantidad_de_stock"),
         ("Sí, de ese quedan 12. ¿Cuántos querés?", "informacion", "sin_cantidad_de_stock"),
         ("Lo busqué con search_products. ¿Es este?", "aclaracion", "sin_nombres_internos"),
         ("Según la BR-03 te tengo que preguntar. ¿Cuál?", "aclaracion", "sin_nombres_internos"),

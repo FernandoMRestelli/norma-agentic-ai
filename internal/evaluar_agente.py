@@ -26,7 +26,7 @@ _SKU_GENERICO = re.compile(r"\b[A-Z]{2,}-[A-Z0-9]+-[A-Z0-9]+\b")
 _PRESENTACION = re.compile(r"\bpresentaci[oó]n(es)?\b", re.IGNORECASE)
 _STOCK = re.compile(
     r"\b\d+\s*(?:unidades\s*)?(?:disponibles?|en stock|en dep[oó]sito)\b"
-    r"|\bstock\s*(?:de\s*)?:?\s*\d+"
+    r"|\bstock\s*(?:disponible\s*)?(?:de\s*)?:?\s*\d+"
     r"|\bquedan?\s+(?:solo\s+|solamente\s+)?\d+",
     re.IGNORECASE,
 )
