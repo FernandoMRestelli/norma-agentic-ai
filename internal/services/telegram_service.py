@@ -6,14 +6,17 @@ Detalle en docs/spec/canal-telegram.md.
 
 import logging
 import re
-import threading
-from collections import deque
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
 from pydantic import BaseModel
+from sqlalchemy import delete
+from sqlalchemy.exc import IntegrityError
 
 from internal.config import get_settings
+from internal.database.connection import SessionLocal
+from internal.database.models import ProcessedMessageRecord
 from internal.schemas.conversation_schema import ChannelReply
 from internal.schemas.order_schema import Channel, IncomingMessage, MessageType
 from internal.services import conversation_service
@@ -121,27 +124,35 @@ def parse_update(update: dict) -> TelegramMessage | None:
 
 
 class _ProcessedUpdates:
-    """Últimos update_id procesados, en memoria (RF-31). Pasa a la tabla processed_messages cuando exista."""
+    """update_id ya procesados, en la tabla processed_messages (RF-31): valen aunque el proceso se reinicie.
 
-    def __init__(self, size: int = 1000):
-        self._order: deque[int] = deque(maxlen=size)
-        self._ids: set[int] = set()
-        self._lock = threading.Lock()
+    Solo guarda el canal y el id, nunca el texto. Telegram no reenvía updates de más de 24 h, así que los
+    registros de más de `RETENTION` se borran al registrar uno nuevo.
+    """
+
+    CHANNEL = Channel.TELEGRAM.value
+    RETENTION = timedelta(days=7)
 
     def first_time(self, update_id: int) -> bool:
-        with self._lock:
-            if update_id in self._ids:
+        with SessionLocal() as session:
+            session.add(ProcessedMessageRecord(channel=self.CHANNEL, external_id=str(update_id)))
+            try:
+                session.flush()
+            except IntegrityError:
                 return False
-            if len(self._order) == self._order.maxlen:
-                self._ids.discard(self._order[0])
-            self._order.append(update_id)
-            self._ids.add(update_id)
+            session.execute(
+                delete(ProcessedMessageRecord).where(
+                    ProcessedMessageRecord.channel == self.CHANNEL,
+                    ProcessedMessageRecord.created_at < datetime.now(UTC) - self.RETENTION,
+                )
+            )
+            session.commit()
             return True
 
     def clear(self) -> None:
-        with self._lock:
-            self._order.clear()
-            self._ids.clear()
+        with SessionLocal() as session:
+            session.execute(delete(ProcessedMessageRecord).where(ProcessedMessageRecord.channel == self.CHANNEL))
+            session.commit()
 
 
 processed_updates = _ProcessedUpdates()
@@ -153,8 +164,14 @@ def handle_update(update: dict, client: TelegramClient) -> None:
     Los logs llevan ids, nunca el texto de los mensajes (RNF-03).
     """
     update_id = update.get("update_id")
-    if update_id is None or not processed_updates.first_time(update_id):
+    if update_id is None:
         return
+    try:
+        if not processed_updates.first_time(update_id):
+            return
+    except Exception:
+        # Sin poder registrar el update es mejor contestar que dejar al cliente sin respuesta
+        logger.warning("Telegram: no se pudo registrar el update %s como procesado", update_id, exc_info=True)
     event = parse_update(update)
     if event is None:
         return

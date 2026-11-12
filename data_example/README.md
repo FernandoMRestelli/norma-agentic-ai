@@ -33,9 +33,13 @@ otros con stock bajo (`CE-SED-340`, `ALG-EST-140`).
 | `fecha_hora` | `created_at` | ISO 8601 con zona horaria |
 | `cliente` | `customer_id` | |
 | `canal` | `channel` | `web` o `whatsapp` |
-| `productos` | `items` | `cantidad x nombre presentación (SKU)`, separados por `;` |
-| `notas` | `notes` | |
+| `productos` | `items` | `cantidad x nombre presentación (SKU)`, y ` [nota]` si la línea tiene nota; separados por `;` |
+| `notas` | `notes` | Observación general del pedido |
 | `estado` | `status` | `Recibido`, `Preparado`, `Retirado` o `Cancelado` |
+| `nombre_cliente` | `customer_name` | Nombre del perfil del cliente, si el canal lo da |
+| `total` | `total` | Suma de cantidad por precio, con punto y dos decimales |
+
+Las dos últimas columnas se sumaron después de la 0.1.1 y van al final, para que un archivo viejo siga alineado.
 
 ## `mensajes.json`
 

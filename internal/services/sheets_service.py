@@ -29,7 +29,7 @@ from pydantic import ValidationError
 
 from internal.config import get_settings
 from internal.schemas.catalog_schema import Product
-from internal.schemas.order_schema import Order
+from internal.schemas.order_schema import Order, OrderItem
 from internal.services import google_sheets_client
 
 try:  # no existe en Windows: ahí el bloqueo de pedidos es solo entre hilos del mismo proceso
@@ -42,7 +42,10 @@ logger = logging.getLogger(__name__)
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 FALLBACK_CATALOG_CSV = ROOT_DIR / "data_example" / "catalogo.csv"
 
-ORDER_COLUMNS = ["id_orden", "fecha_hora", "cliente", "canal", "productos", "notas", "estado"]
+# Las columnas nuevas van al final: un pedidos.csv de la 0.1.1 sigue alineado con su encabezado
+ORDER_COLUMNS = [
+    "id_orden", "fecha_hora", "cliente", "canal", "productos", "notas", "estado", "nombre_cliente", "total"
+]
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
 # Caché del catálogo de Sheet 1 (RNF-13, RF-51). Son parámetros, no secretos: van en el código (RNF-10)
@@ -217,17 +220,19 @@ def get_orders_path() -> Path:
     return configured
 
 
+def _product_line(item: OrderItem) -> str:
+    label = " ".join(filter(None, (item.product_name, item.presentation)))
+    # `; ` separa las líneas: dentro de una nota se escribe `,` para no partirla
+    note = f" [{item.note.replace(';', ',')}]" if item.note else ""
+    return f"{item.quantity} x {label} ({item.sku}){note}"
+
+
 def format_order_row(order: Order) -> list[str]:
-    """Formatea una orden según las columnas del Sheet 2 (pedidos.csv)."""
+    """Formatea una orden según las columnas del Sheet 2 (`ORDER_COLUMNS`, docs/spec/guardado-de-pedidos.md §4.5)."""
     created_at = order.created_at
     if created_at.tzinfo is None:
         created_at = created_at.replace(tzinfo=UTC)
     fecha_hora = created_at.astimezone(AR_TZ).isoformat()
-
-    items_str = "; ".join(
-        f"{item.quantity} x {' '.join(filter(None, (item.product_name, item.presentation)))} ({item.sku})"
-        for item in order.items
-    )
 
     canal = order.channel.value if hasattr(order.channel, "value") else str(order.channel)
     estado = order.status.value if hasattr(order.status, "value") else str(order.status)
@@ -237,9 +242,11 @@ def format_order_row(order: Order) -> list[str]:
         fecha_hora,
         order.customer_id,
         canal,
-        items_str,
+        "; ".join(_product_line(item) for item in order.items),
         order.notes or "",
         estado,
+        order.customer_name or "",
+        f"{order.total:.2f}",
     ]
 
 
