@@ -5,7 +5,7 @@ from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from internal.schemas.order_schema import MAX_QUANTITY, OrderDraft
+from internal.schemas.order_schema import MAX_LINE_NOTE_LENGTH, MAX_ORDER_NOTES_LENGTH, MAX_QUANTITY, OrderDraft
 
 
 class ToolFailure(Exception):
@@ -29,6 +29,11 @@ class ReplyKind(StrEnum):
 class ProposedItem(BaseModel):
     sku: str = Field(min_length=1, description="SKU exacto del catálogo")
     quantity: int = Field(gt=0, le=MAX_QUANTITY, description="Cantidad de unidades")
+    note: str | None = Field(
+        default=None,
+        max_length=MAX_LINE_NOTE_LENGTH,
+        description="Nota de esta línea, si el cliente la dio: tono, variante o aclaración. Por ejemplo: tono 7.1",
+    )
 
 
 class SearchProductsInput(BaseModel):
@@ -95,6 +100,13 @@ class RespondToCustomerInput(BaseModel):
             "incluí todas las líneas. Si la omitís, la vigente deja de valer."
         ),
     )
+    notes: str | None = Field(
+        default=None,
+        max_length=MAX_ORDER_NOTES_LENGTH,
+        description=(
+            "Observación general del pedido que dio el cliente, solo con `propuesta`. Por ejemplo: retira el sábado"
+        ),
+    )
 
     @model_validator(mode="after")
     def check_propuesta(self) -> Self:
@@ -104,6 +116,8 @@ class RespondToCustomerInput(BaseModel):
             raise ValueError("`propuesta` solo se usa con kind propuesta o sin_stock")
         if self.kind == ReplyKind.PROPUESTA and not self.propuesta:
             raise ValueError("Con kind propuesta hay que indicar `propuesta`")
+        if self.notes and not self.propuesta:
+            raise ValueError("`notes` es la observación de una propuesta: omitila si no estás proponiendo nada")
         return self
 
 

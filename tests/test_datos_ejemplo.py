@@ -24,8 +24,10 @@ CATALOG_COLUMNS = {
     "stock": "stock",
     "stock_minimo": "min_stock",
 }
-ORDER_COLUMNS = ["id_orden", "fecha_hora", "cliente", "canal", "productos", "notas", "estado"]
-ORDER_LINE = re.compile(r"^(?P<quantity>\d+) x (?P<label>.+) \((?P<sku>[A-Z0-9-]+)\)$")
+ORDER_COLUMNS = [
+    "id_orden", "fecha_hora", "cliente", "canal", "productos", "notas", "estado", "nombre_cliente", "total"
+]
+ORDER_LINE = re.compile(r"^(?P<quantity>\d+) x (?P<label>.+) \((?P<sku>[A-Z0-9-]+)\)( \[(?P<note>[^\]]+)\])?$")
 EXPECTED_RESULTS = {"borrador", "aclaracion", "sin_stock", "fuera_de_catalogo", "informacion", "pedido", "sin_pedido"}
 
 
@@ -56,6 +58,7 @@ def parse_order(row: dict[str, str], catalog: dict[str, Product]) -> Order:
                 presentation=product.presentation,
                 quantity=int(match["quantity"]),
                 unit_price=product.price,
+                note=match["note"],
             )
         )
     return Order(
@@ -67,6 +70,7 @@ def parse_order(row: dict[str, str], catalog: dict[str, Product]) -> Order:
         items=items,
         notes=row["notas"] or None,
         status=row["estado"],
+        customer_name=row["nombre_cliente"] or None,
     )
 
 
@@ -88,9 +92,12 @@ def test_orders_match_schema_and_catalog(catalog):
     with open(DATA_DIR / "pedidos.csv", encoding="utf-8", newline="") as file:
         assert next(csv.reader(file)) == ORDER_COLUMNS
 
-    orders = [parse_order(row, catalog) for row in read_csv("pedidos.csv")]
+    rows = read_csv("pedidos.csv")
+    orders = [parse_order(row, catalog) for row in rows]
     assert len({order.order_id for order in orders}) == len(orders)
     assert all(order.created_at.tzinfo is not None for order in orders)
+    # El total de la planilla es el de las líneas con los precios del catálogo
+    assert [row["total"] for row in rows] == [f"{order.total:.2f}" for order in orders]
 
 
 def load_cases() -> list[dict]:

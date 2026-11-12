@@ -469,7 +469,7 @@ Esta versión de la spec está en revisión: todo lo que no está implementado f
 |---|---|---|---|
 | RF-19 | Cada orden se agrega como una fila en Sheet 2 con el formato de [§5.4](#54-orden-order--google-sheet-2) | 05 | I |
 | RF-20 | Las órdenes siguen `Recibido → Preparado → Retirado`, con opción `Cancelado` desde cualquier estado previo a `Retirado`; cancelar una orden libera sus unidades de stock comprometido | 05 | I |
-| RF-21 | El detalle por ítem de cada orden se guarda en la base interna | 05 | P (hoy en la columna JSON `orders.items`; falta la tabla `order_items`) |
+| RF-21 | El detalle por ítem de cada orden se guarda en la base interna | 05 | I |
 
 Los criterios de observabilidad (CA-56 y CA-57) prueban RNF-03 y RNF-07, y están en [§9](#observabilidad).
 

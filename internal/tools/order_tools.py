@@ -25,6 +25,6 @@ def armar_pedido(vigente: OrderDraft | None) -> Order:
 def cancelar_pedido(order_id: str) -> Order:
     """Cancela una orden existente liberando su stock comprometido (RF-20)."""
     try:
-        return order_service.cancel_order(order_id)
+        return order_service.cancel_order(order_id, source=order_service.EventSource.AGENT)
     except (order_service.OrderNotFoundError, order_service.InvalidTransitionError) as exc:
         raise ToolFailure("orden_invalida", str(exc)) from exc
