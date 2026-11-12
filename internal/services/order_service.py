@@ -166,6 +166,8 @@ def confirm_draft(draft: OrderDraft) -> Order:
             sheets_service.append_order(order)
             record.sheets_synced = True
             session.commit()
+        except sheets_service.Sheet2EnPausaError as exc:
+            logger.info("%s", exc)
         except Exception:
             logger.warning(
                 "Error al volcar la orden %s en la planilla/archivo de órdenes",
@@ -200,7 +202,7 @@ def sync_pending_orders() -> int:
         for record in records:
             order = _to_order(record)
             try:
-                sheets_service.append_order(order)
+                sheets_service.append_order(order, reintento=True)
                 record.sheets_synced = True
                 synced_count += 1
             except Exception:

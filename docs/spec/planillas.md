@@ -75,13 +75,19 @@ Al confirmar, `confirm_draft` guarda la orden en la base y después llama a `she
 4. Suelta el bloqueo.
 
 Si algo falla, la orden queda en la base con `sheets_synced = false` y el cliente recibe la misma respuesta que
-si hubiera andado: la orden ya existe (CA-19). Las celdas se escriben sin interpretar (`RAW`): un texto que empieza
+si hubiera andado: la orden ya existe (CA-19).
+
+Después de una falla de Sheet 2, durante 1 minuto (`ORDERS_PAUSE_AFTER_FAILURE_SECONDS`) la confirmación no llama a
+Google: escribe el CSV, deja la orden con `sheets_synced = false` y se la pasa al reintento de §3.3. Así, con Google
+caído, cada cliente no espera los 10 segundos del timeout. La pausa es de cada proceso: la API y el bot llevan la
+suya. Las celdas se escriben sin interpretar (`RAW`): un texto que empieza
 con `=` no se vuelve una fórmula.
 
 ### 3.3 Reintento automático
 
 Al arrancar, la API lanza una tarea en segundo plano que cada 3 minutos llama a
-`order_service.sync_pending_orders()`. Un error en una pasada queda en el log y la tarea sigue con la siguiente;
+`order_service.sync_pending_orders()`. El reintento prueba Sheet 2 aunque esté en la pausa de §3.2: si anda, la
+pausa se levanta; si falla, empieza otra. Un error en una pasada queda en el log y la tarea sigue con la siguiente;
 al apagar la API se cancela. El bot no la corre: alcanza con un proceso, y el bloqueo de §3.2 evita que el
 reintento de la API y una confirmación del bot agreguen la misma orden a la vez.
 
@@ -134,7 +140,7 @@ salen de `format_order_row` y `ORDER_COLUMNS` (frente C): si suma columnas, Shee
 |---|---|
 | RF-50 | Con `CATALOG_SHEET_ID` y `GOOGLE_CREDENTIALS_FILE`, el catálogo se lee de Sheet 1 con las columnas de `catalogo.csv`; sin ellas, del CSV de `CATALOG_FILE` como en la 0.1.1 |
 | RF-51 | El catálogo de Sheet 1 se cachea 5 minutos para buscar; si Google no responde se usa la última copia buena hasta 1 hora; la confirmación lee fresco y, si Google falla, usa esa copia (detalla RNF-13) |
-| RF-52 | Con `ORDERS_SHEET_ID`, cada orden se agrega una sola vez en Sheet 2 (encabezado si la hoja está vacía, búsqueda del `order_id` antes de agregar, valores sin interpretar), además del CSV local; la escritura de pedidos se hace bajo un bloqueo de archivo compartido por la API y el bot |
+| RF-52 | Con `ORDERS_SHEET_ID`, cada orden se agrega una sola vez en Sheet 2 (encabezado si la hoja está vacía, búsqueda del `order_id` antes de agregar, valores sin interpretar), además del CSV local; la escritura de pedidos se hace bajo un bloqueo de archivo compartido por la API y el bot; tras una falla de Sheet 2, durante 1 minuto la confirmación no llama a Google y deja la orden para el reintento |
 | RF-53 | La API reintenta cada 3 minutos, en segundo plano, las órdenes con `sheets_synced = false`; una falla del reintento no tumba la API |
 | RF-54 | El operador descarga las órdenes en `.xlsx` desde `GET /orders/export`, con una hoja de órdenes y otra de líneas |
 
@@ -147,7 +153,7 @@ salen de `format_order_row` y `ORDER_COLUMNS` (frente C): si suma columnas, Shee
 | CA-95 | Una copia buena del catálogo | Google deja de responder | Antes de 1 hora se usa la copia, sin llamar a Google durante 1 minuto; pasada la hora, o sin copia, `search_products` devuelve `catalogo_no_disponible` | `test_planillas.py::test_google_caido_usa_la_copia_de_la_ultima_hora`, `test_planillas.py::test_sin_copia_y_sin_google_el_catalogo_no_esta_disponible` |
 | CA-96 | Una copia de menos de 5 minutos y un cambio de stock en Sheet 1 | El cliente confirma | La confirmación lee Sheet 1 y usa el stock nuevo; si Google falla, usa la copia y la orden se crea igual | `test_planillas.py::test_confirmar_lee_el_catalogo_fresco`, `test_planillas.py::test_confirmar_con_google_caido_usa_la_copia` |
 | CA-97 | `ORDERS_SHEET_ID` y un Sheet 2 vacío | Se agrega una orden dos veces | Queda el encabezado `ORDER_COLUMNS` y una sola fila de `format_order_row`; un texto con `=` se escribe sin interpretar | `test_planillas.py::test_pedido_en_sheet2_con_encabezado_y_sin_duplicar` |
-| CA-98 | Sheet 2 falla al confirmar, antes o después de escribir la fila | Se confirma y después corre el reintento | La orden queda en la base con `sheets_synced = false`, la confirmación devuelve la orden igual, y tras el reintento hay una sola fila de la orden en Sheet 2 | `test_planillas.py::test_falla_sheet2_y_el_reintento_agrega_una_sola_fila` |
+| CA-98 | Sheet 2 falla al confirmar, antes o después de escribir la fila | Se confirma y después corre el reintento | La orden queda en la base con `sheets_synced = false`, la confirmación devuelve la orden igual, y tras el reintento hay una sola fila de la orden en Sheet 2. Durante el minuto que sigue a la falla, confirmar no llama a Google (la orden va al CSV y queda pendiente); el reintento prueba igual y, si anda, levanta la pausa | `test_planillas.py::test_falla_sheet2_y_el_reintento_agrega_una_sola_fila`, `test_planillas.py::test_tras_una_falla_de_sheet2_la_confirmacion_no_espera_a_google`, `test_planillas.py::test_el_reintento_no_respeta_la_pausa_y_la_levanta` |
 | CA-99 | La API arrancada | Pasa el intervalo de reintento, con una pasada que falla | Se llama a `sync_pending_orders` en cada intervalo, la falla queda en el log y la tarea sigue; al apagar la API se cancela | `test_planillas.py::test_reintento_en_segundo_plano_sigue_tras_una_falla`, `test_planillas.py::test_la_api_arranca_y_apaga_el_reintento` |
 | CA-100 | Órdenes en la base | El operador pide `GET /orders/export` con y sin credencial | Con credencial, un `.xlsx` con la hoja Órdenes (como Sheet 2) y la hoja Líneas (una por producto, con números), sin fórmulas; sin credencial, `401` | `test_planillas.py::test_exportar_pedidos_a_excel`, `test_planillas.py::test_exportar_pide_credencial` |
 | CA-101 | Varios hilos que agregan pedidos al mismo CSV a la vez, algunos repetidos | Escriben | Cada orden queda una sola vez y ninguna fila queda mezclada con otra | `test_planillas.py::test_escrituras_simultaneas_no_duplican_ni_mezclan` |
@@ -167,7 +173,7 @@ También siguen pasando CA-19 (`test_orders.py::test_confirm_draft_falla_sheets_
 | Sheet 2 escribió la fila pero la respuesta no llegó | El reintento encuentra el `order_id` en la columna A y no la repite |
 | Sheet 2 tiene un encabezado viejo, con menos columnas que `ORDER_COLUMNS` | Se agrega la fila igual; el encabezado se corrige a mano |
 | La API y el bot escriben pedidos a la vez | El segundo espera el bloqueo (`fcntl.flock`); en sistemas sin `fcntl` el bloqueo es solo entre hilos del mismo proceso |
-| Google está caído un rato largo | Cada pasada del reintento prueba las órdenes pendientes y deja el error en el log; la siguiente vuelve a probar |
+| Google está caído un rato largo | Las confirmaciones no esperan a Sheet 2 durante el minuto que sigue a cada falla. Cada pasada del reintento prueba las órdenes pendientes y deja el error en el log; la siguiente vuelve a probar. Mientras una pasada espera a Google tiene tomado el bloqueo, así que una confirmación que llega justo en ese momento espera a que termine |
 | Un texto del cliente empieza con `=`, `+` o `@` | Sheet 2 y el Excel lo guardan como texto, no como fórmula |
 
 ## 8. Decisiones y preguntas abiertas
@@ -207,7 +213,8 @@ Los tests usan un cliente falso. La prueba con Google la hace una persona del eq
 6. **Acceso.** `python -m internal.verificar_claves` tiene que decir cuántos productos leyó de Sheet 1 y que pudo
    editar Sheet 2. Si dice que no tiene permiso, muestra el correo de la cuenta de servicio con el que hay que
    compartir.
-7. **Pedido.** Con el bot o `POST /chat`, hacer un pedido y confirmarlo: aparece una fila en Sheet 2. Cambiar un
+7. **Pedido.** Con el bot de Telegram, hacer un pedido y confirmarlo (`POST /chat/messages` todavía devuelve
+   `501`, así que por la API no se puede): aparece una fila en Sheet 2. Cambiar un
    precio en Sheet 1 y confirmar otro pedido: la confirmación usa el precio nuevo.
 8. **Falla.** Quitarle a la cuenta de servicio el permiso de Sheet 2, confirmar un pedido (el cliente recibe su
    número igual), devolver el permiso y esperar hasta 3 minutos con la API prendida: la fila aparece una sola vez.

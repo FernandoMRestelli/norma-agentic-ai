@@ -57,8 +57,11 @@ class FakeSheets:
         self.caida = False
         self.falla_append: str | None = None  # "antes" o "despues" de escribir la fila
         self.celdas: list[tuple] = []
+        self.llamadas_pedidos = 0  # lecturas y escrituras de Sheet 2
 
     def _hoja(self, spreadsheet_id, worksheet):
+        if spreadsheet_id == ORDERS_ID:
+            self.llamadas_pedidos += 1
         if self.caida:
             raise ConnectionError("Google no responde")
         return self.hojas.setdefault(spreadsheet_id if worksheet is None else f"{spreadsheet_id}/{worksheet}", [])
@@ -90,8 +93,10 @@ class FakeSheets:
 @pytest.fixture(autouse=True)
 def catalogo_sin_copia():
     sheets_service.reset_catalog_cache()
+    sheets_service.reset_orders_pause()
     yield
     sheets_service.reset_catalog_cache()
+    sheets_service.reset_orders_pause()
     get_settings.cache_clear()
 
 
@@ -382,6 +387,48 @@ def test_falla_sheet2_y_el_reintento_agrega_una_sola_fila(google, base_limpia, m
 
     assert order_service.sync_pending_orders() == 0
     assert [row[0] for row in google.pedidos()].count(order.order_id) == 1
+
+
+def test_tras_una_falla_de_sheet2_la_confirmacion_no_espera_a_google(google, reloj, orders_csv, base_limpia):
+    """CA-98: en el minuto que sigue a una falla de Sheet 2, confirmar no llama a Google; el CSV se escribe igual."""
+    google.hojas[ORDERS_ID] = [list(sheets_service.ORDER_COLUMNS)]
+    google.falla_append = "antes"
+    primera = order_service.confirm_draft(borrador())
+    assert primera.sheets_synced is False
+
+    google.falla_append = None  # Google ya anda, pero la pausa no lo sabe
+    google.llamadas_pedidos = 0
+    reloj[0] += sheets_service.ORDERS_PAUSE_AFTER_FAILURE_SECONDS - 1
+    segunda = order_service.confirm_draft(borrador())
+    assert segunda.order_id.startswith("ORD-")
+    assert segunda.sheets_synced is False
+    assert google.llamadas_pedidos == 0
+    assert segunda.order_id in [row[0] for row in filas_csv(orders_csv)]
+
+    reloj[0] += 2  # pasó el minuto: se vuelve a probar Sheet 2 al confirmar
+    tercera = order_service.confirm_draft(borrador())
+    assert tercera.sheets_synced is True
+    assert google.llamadas_pedidos > 0
+
+    assert order_service.sync_pending_orders() == 2
+    ids = [row[0] for row in google.pedidos()]
+    assert [ids.count(o.order_id) for o in (primera, segunda, tercera)] == [1, 1, 1]
+
+
+def test_el_reintento_no_respeta_la_pausa_y_la_levanta(google, reloj, base_limpia):
+    """CA-98: el reintento prueba Sheet 2 aunque esté en pausa; si anda, la confirmación siguiente vuelve a Google."""
+    google.hojas[ORDERS_ID] = [list(sheets_service.ORDER_COLUMNS)]
+    google.falla_append = "antes"
+    primera = order_service.confirm_draft(borrador())
+    assert primera.sheets_synced is False
+
+    google.falla_append = None
+    reloj[0] += 10
+    assert order_service.sync_pending_orders() == 1
+
+    segunda = order_service.confirm_draft(borrador())
+    assert segunda.sheets_synced is True
+    assert [row[0] for row in google.pedidos()] == ["id_orden", primera.order_id, segunda.order_id]
 
 
 # --- Reintento en segundo plano (RF-53) ---
