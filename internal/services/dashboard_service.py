@@ -88,6 +88,7 @@ def get_orders(status: str | None = None, limit: int = 50, offset: int = 0) -> l
     all_orders = _get_all_orders()
     if status:
         all_orders = [o for o in all_orders if o["status"].lower() == status.lower()]
+    catalog_prices = _catalog_prices() if all_orders else {}
 
     # Ordenar por fecha descendente
     all_orders.sort(key=lambda o: o["created_at"], reverse=True)
@@ -99,10 +100,9 @@ def get_orders(status: str | None = None, limit: int = 50, offset: int = 0) -> l
         line_items: list[DashboardOrderLineItem] = []
         total = Decimal(0)
         for it in items:
-            raw_price = it.get("unit_price")
-            unit_price = Decimal(str(raw_price)) if raw_price is not None else None
             qty = int(it.get("quantity", 0))
-            subtotal = (unit_price or Decimal(0)) * qty
+            unit_price = _line_price(it, catalog_prices)
+            subtotal = unit_price * qty
             total += subtotal
             line_items.append(
                 DashboardOrderLineItem(
@@ -114,10 +114,7 @@ def get_orders(status: str | None = None, limit: int = 50, offset: int = 0) -> l
                     subtotal=subtotal,
                 )
             )
-        items_summary = "; ".join(
-            f"{it.quantity} x {it.product_name} ({it.sku})"
-            for it in line_items
-        )
+        items_summary = "; ".join(f"{it.quantity} x {it.product_name} ({it.sku})" for it in line_items)
         result.append(
             DashboardOrderItem(
                 order_id=o["order_id"],
@@ -130,6 +127,7 @@ def get_orders(status: str | None = None, limit: int = 50, offset: int = 0) -> l
                 items=line_items,
                 total=total,
                 stock_applied=o.get("stock_applied", False),
+                read_only=o.get("read_only", False),
             )
         )
     return result
@@ -152,15 +150,25 @@ def _period_bucket(dt: datetime, granularity: Literal["day", "week", "month", "y
     return dt_ar.strftime("%Y-%m-%d"), dt_ar.strftime("%d/%m/%Y")
 
 
+def _catalog_prices() -> dict[str, Decimal]:
+    return {p.sku: p.price for p in inventory_service.get_catalog()}
+
+
+def _line_price(item: dict[str, Any], catalog_prices: dict[str, Decimal]) -> Decimal:
+    """Precio unitario de una línea: el que quedó en el pedido o, si no tiene, el del catálogo (RF-61, CA-118).
+
+    Es el único criterio: Pedidos y Ventas & KPIs muestran el mismo total para el mismo pedido.
+    """
+    raw_price = item.get("unit_price")
+    if raw_price is not None:
+        return Decimal(str(raw_price))
+    return catalog_prices.get(str(item.get("sku", "")), Decimal(0))
+
+
 def _order_revenue(order: dict[str, Any], catalog_prices: dict[str, Decimal]) -> Decimal:
-    """Calcula el total de la orden usando unit_price o fallback al precio de catálogo."""
-    total = Decimal(0)
-    for it in order.get("items", []):
-        raw_price = it.get("unit_price")
-        sku = str(it.get("sku", ""))
-        price = Decimal(str(raw_price)) if raw_price is not None else catalog_prices.get(sku, Decimal(0))
-        total += price * int(it.get("quantity", 0))
-    return total
+    """Total de la orden con `_line_price`."""
+    lineas = (_line_price(it, catalog_prices) * int(it.get("quantity", 0)) for it in order.get("items", []))
+    return sum(lineas, Decimal(0))
 
 
 def _in_period(dt: datetime, period: Literal["all", "today", "yesterday", "7d", "30d"], today_ar: Any) -> bool:
@@ -197,8 +205,7 @@ def get_metrics(
     all_orders = [
         o
         for o in raw_orders
-        if _in_period(o["created_at"], period, today_ar)
-        and (not channel or o["channel"].lower() == channel.lower())
+        if _in_period(o["created_at"], period, today_ar) and (not channel or o["channel"].lower() == channel.lower())
     ]
 
     cancelled_orders = [o for o in all_orders if o["status"] == OrderStatus.CANCELLED.value]
@@ -213,12 +220,8 @@ def get_metrics(
     cancelled_revenue = sum((_order_revenue(o, catalog_prices) for o in cancelled_orders), Decimal(0))
 
     series_map: dict[str, dict[str, Any]] = {}
-    breakdown_map: dict[str, dict[str, Any]] = defaultdict(
-        lambda: {"revenue": Decimal(0), "units": 0, "orders": set()}
-    )
-    channel_map: dict[str, dict[str, Any]] = defaultdict(
-        lambda: {"revenue": Decimal(0), "units": 0, "orders": 0}
-    )
+    breakdown_map: dict[str, dict[str, Any]] = defaultdict(lambda: {"revenue": Decimal(0), "units": 0, "orders": set()})
+    channel_map: dict[str, dict[str, Any]] = defaultdict(lambda: {"revenue": Decimal(0), "units": 0, "orders": 0})
     products_map: dict[str, dict[str, Any]] = {}
 
     for o in active_orders:
@@ -247,9 +250,7 @@ def get_metrics(
         for it in o.get("items", []):
             sku = str(it.get("sku", ""))
             qty = int(it.get("quantity", 0))
-            raw_price = it.get("unit_price")
-            unit_price = Decimal(str(raw_price)) if raw_price is not None else catalog_prices.get(sku, Decimal(0))
-            line_rev = unit_price * qty
+            line_rev = _line_price(it, catalog_prices) * qty
 
             prod = catalog_by_sku.get(sku)
             brand = (prod.brand if prod and prod.brand else None) or "Sin marca"
@@ -444,39 +445,47 @@ def get_conversations(state: str | None = None) -> list[DashboardConversationIte
         ]
 
 
-def _get_all_orders() -> list[dict[str, Any]]:
-    """Obtiene órdenes unificadas de la base interna o Sheet 2 según disponibilidad."""
-    with SessionLocal() as session:
-        records = session.scalars(select(OrderRecord)).all()
-        if records:
-            return [
-                {
-                    "order_id": r.order_id,
-                    "created_at": r.created_at,
-                    "customer_id": r.customer_id,
-                    "channel": r.channel,
-                    # Las líneas están en order_items desde la migración 1
-                    "items": [
-                        {
-                            "sku": line.sku,
-                            "product_name": line.product_name,
-                            "presentation": line.presentation,
-                            "quantity": line.quantity,
-                            "unit_price": line.unit_price,
-                            "note": line.note,
-                        }
-                        for line in r.lines
-                    ],
-                    "notes": r.notes,
-                    "status": r.status,
-                    "stock_applied": r.stock_applied,
-                }
-                for r in records
-            ]
+def _con_zona(dt: datetime) -> datetime:
+    """SQLite devuelve las fechas sin zona (se guardan en UTC); las del CSV la traen. Para ordenarlas juntas."""
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
 
-    # Si la base aún no tiene registros, lee desde Sheet 2 (ej. data_example/pedidos.csv para CA-25)
-    sheet_orders = sheets_service.get_orders()
-    return [
+
+def _get_all_orders() -> list[dict[str, Any]]:
+    """Las órdenes de la base y, de la copia de Sheet 2, las que no están en ella, marcadas de solo lectura (RF-61).
+
+    La base es la fuente: solo sus órdenes se pueden cambiar de estado. Las del CSV (por ejemplo, de antes de usar
+    la base, o `data_example/pedidos.csv` para CA-25) se siguen viendo, sin acciones.
+    """
+    with SessionLocal() as session:
+        records = session.scalars(select(OrderRecord).where(OrderRecord.order_id.is_not(None))).all()
+        orders = [
+            {
+                "order_id": r.order_id,
+                "created_at": _con_zona(r.created_at),
+                "customer_id": r.customer_id,
+                "channel": r.channel,
+                # Las líneas están en order_items desde la migración 1
+                "items": [
+                    {
+                        "sku": line.sku,
+                        "product_name": line.product_name,
+                        "presentation": line.presentation,
+                        "quantity": line.quantity,
+                        "unit_price": line.unit_price,
+                        "note": line.note,
+                    }
+                    for line in r.lines
+                ],
+                "notes": r.notes,
+                "status": r.status,
+                "stock_applied": r.stock_applied,
+                "read_only": False,
+            }
+            for r in records
+        ]
+
+    en_la_base = {o["order_id"] for o in orders}
+    orders.extend(
         {
             "order_id": o.order_id,
             "created_at": o.created_at,
@@ -485,7 +494,10 @@ def _get_all_orders() -> list[dict[str, Any]]:
             "items": [it.model_dump() for it in o.items],
             "notes": o.notes,
             "status": o.status.value if hasattr(o.status, "value") else str(o.status),
-            "stock_applied": getattr(o, "stock_applied", False),
+            "stock_applied": False,
+            "read_only": True,
         }
-        for o in sheet_orders
-    ]
+        for o in sheets_service.get_orders()
+        if o.order_id not in en_la_base
+    )
+    return orders

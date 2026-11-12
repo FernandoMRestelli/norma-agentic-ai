@@ -38,6 +38,7 @@ class DashboardOrderItem(BaseModel):
     items: list[DashboardOrderLineItem] = Field(default_factory=list)
     total: Decimal
     stock_applied: bool = False
+    read_only: bool = False  # solo está en la copia de Sheet 2: no se puede cambiar de estado (RF-61)
 
 
 class DashboardStockItem(BaseModel):

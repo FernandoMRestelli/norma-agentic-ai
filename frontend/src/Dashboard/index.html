@@ -960,6 +960,11 @@
       const pad = inModal ? 'px-3 py-1.5 text-xs' : 'px-2.5 py-1 text-xs';
       const stop = 'event.stopPropagation();';
 
+      // Solo está en la copia de Sheet 2: la API no lo puede cambiar de estado (RF-61)
+      if (order.read_only) {
+        return '<span class="text-xs text-zinc-400" title="Pedido de la planilla, no está en la base">Solo lectura</span>';
+      }
+
       if (stKey === 'recibido') {
         return `
           <button onclick="${stop} requestStatusChange('${escapeHtml(order.order_id)}', 'Preparado')" class="${pad} bg-brand-2/30 dark:bg-brand-2/15 text-zinc-900 dark:text-brand-2 border border-brand-2/60 dark:border-brand-2/30 hover:bg-brand-2/50 font-medium rounded-lg transition">Preparar</button>
@@ -1679,7 +1684,7 @@
 
     async function loadConversations() {
       try {
-        const resp = await apiFetch('/dashboard/conversations');
+        const resp = await apiFetch('/dashboard/conversations?state=derivada');  // RF-24: solo las que esperan a alguien
         if (!resp.ok) return;
         const list = await resp.json();
         tabBadgeConversations.textContent = list.length;

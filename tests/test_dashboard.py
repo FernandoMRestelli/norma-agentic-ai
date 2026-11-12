@@ -9,6 +9,8 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, select
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
 
 from internal.config import get_settings
 from internal.database.connection import SessionLocal, init_db, make_engine
@@ -16,7 +18,8 @@ from internal.database.migrations import LATEST
 from internal.database.models import ConversationRecord, OrderRecord
 from internal.main import app
 from internal.schemas.order_schema import Channel, OrderDraft, OrderItem, OrderStatus
-from internal.services import inventory_service, order_service, sheets_service
+from internal.services import google_sheets_client, inventory_service, order_service, sheets_service
+from tests.test_planillas import ORDERS_ID, FakeSheets
 
 client = TestClient(app)
 
@@ -317,6 +320,159 @@ def test_el_catalogo_de_ejemplo_no_se_descuenta(tmp_path, monkeypatch):
     assert retirada.stock_applied is False
     assert catalogo.read_bytes() == antes
     assert inventory_service.get_committed_stock() == {"SH-PAN-400": 5}
+
+
+def _catalogo_temporal(tmp_path, monkeypatch) -> Path:
+    catalog_copy = tmp_path / "catalogo_test.csv"
+    catalog_copy.write_text((DATA_EXAMPLE_DIR / "catalogo.csv").read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.setenv("CATALOG_FILE", str(catalog_copy))
+    monkeypatch.setenv("ORDERS_FILE", str(tmp_path / "pedidos_test.csv"))
+    get_settings.cache_clear()
+    return catalog_copy
+
+
+def _stock_en(path: Path, sku: str) -> int:
+    with open(path, encoding="utf-8") as f:
+        return next(int(row["stock"]) for row in csv.DictReader(f) if row["sku"] == sku)
+
+
+def test_si_falla_la_base_el_catalogo_no_queda_descontado(tmp_path, monkeypatch):
+    """CA-115: el descuento y el cambio de estado se guardan juntos; el reintento descuenta una sola vez."""
+    catalogo = _catalogo_temporal(tmp_path, monkeypatch)
+    order = _create_sample_order(sku="SH-PAN-400", quantity=5)
+    order_service.change_status(order.order_id, OrderStatus.PREPARED)
+
+    commit = Session.commit
+    llamadas = []
+
+    def commit_que_falla_una_vez(self):
+        llamadas.append(1)
+        if len(llamadas) == 1:
+            raise OperationalError("COMMIT", {}, Exception("database is locked"))
+        return commit(self)
+
+    monkeypatch.setattr(Session, "commit", commit_que_falla_una_vez)
+    with pytest.raises(OperationalError):
+        order_service.change_status(order.order_id, OrderStatus.DISPATCHED)
+
+    assert _stock_en(catalogo, "SH-PAN-400") == 24  # volvió a como estaba
+    sigue = order_service.get_order(order.order_id)
+    assert (sigue.status, sigue.stock_applied) == (OrderStatus.PREPARED, False)
+
+    despachada = order_service.change_status(order.order_id, OrderStatus.DISPATCHED)
+    assert despachada.stock_applied is True
+    assert _stock_en(catalogo, "SH-PAN-400") == 19  # una sola vez
+
+
+def test_si_falla_la_planilla_el_estado_se_reintenta(tmp_path, monkeypatch):
+    """CA-116: la API responde 200, la orden queda pendiente y el reintento escribe el estado en la planilla."""
+    _catalogo_temporal(tmp_path, monkeypatch)
+    order = _create_sample_order(sku="SH-PAN-400", quantity=2)
+    escribir_estado = sheets_service.update_order_status_in_sheets
+
+    def planilla_caida(order_id, new_status):
+        raise ConnectionError("Google no responde")
+
+    monkeypatch.setattr(sheets_service, "update_order_status_in_sheets", planilla_caida)
+    resp = client.post(f"/orders/{order.order_id}/status", headers=AUTH_HEADERS, json={"status": "Preparado"})
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "Preparado"
+    assert resp.json()["sheets_synced"] is False
+
+    monkeypatch.setattr(sheets_service, "update_order_status_in_sheets", escribir_estado)
+    assert order_service.sync_pending_orders() == 1
+    with open(tmp_path / "pedidos_test.csv", encoding="utf-8") as f:
+        fila = next(row for row in csv.DictReader(f) if row["id_orden"] == order.order_id)
+    assert fila["estado"] == "Preparado"
+    assert order_service.get_order(order.order_id).sheets_synced is True
+
+
+def test_el_estado_tambien_se_escribe_en_sheet_2(tmp_path, monkeypatch):
+    """RF-60: con Sheet 2 configurada, el cambio de estado actualiza la celda `estado` de la fila de la orden."""
+    _catalogo_temporal(tmp_path, monkeypatch)
+    fake = FakeSheets()
+    monkeypatch.setenv("GOOGLE_CREDENTIALS_FILE", "credentials/no-se-lee-en-los-tests.json")
+    monkeypatch.setenv("ORDERS_SHEET_ID", ORDERS_ID)
+    monkeypatch.setattr(google_sheets_client, "get_client", lambda: fake)
+    get_settings.cache_clear()
+    sheets_service.reset_orders_pause()
+
+    order = _create_sample_order(sku="SH-PAN-400", quantity=2)
+    order_service.change_status(order.order_id, OrderStatus.PREPARED)
+
+    fila = next(row for row in fake.pedidos() if row[0] == order.order_id)
+    assert fila[sheets_service.ORDER_COLUMNS.index("estado")] == "Preparado"
+
+
+def test_pedidos_del_csv_que_no_estan_en_la_base_son_de_solo_lectura(tmp_path, monkeypatch):
+    """CA-117: la base es la fuente; lo que solo está en el CSV de pedidos se ve, sin acciones, y no se duplica."""
+    _catalogo_temporal(tmp_path, monkeypatch)
+    order = _create_sample_order(sku="SH-PAN-400", quantity=2)  # queda en la base y en el CSV
+    with open(tmp_path / "pedidos_test.csv", "a", encoding="utf-8", newline="") as f:
+        csv.writer(f).writerow(
+            [
+                "ORD-9001",
+                "2026-10-27T09:12:00-03:00",
+                "cli-viejo",
+                "web",
+                "1 x Jabón (JAB-DOV-90)",
+                "",
+                "Retirado",
+                "",
+                "",
+            ]
+        )
+
+    resp = client.get("/dashboard/orders", headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    por_id = {o["order_id"]: o for o in resp.json()}
+    assert set(por_id) == {order.order_id, "ORD-9001"}
+    assert por_id[order.order_id]["read_only"] is False
+    assert por_id["ORD-9001"]["read_only"] is True
+
+    # El que solo está en el CSV no se puede cambiar de estado: por eso la UI no le muestra acciones
+    assert client.post("/orders/ORD-9001/status", headers=AUTH_HEADERS, json={"status": "Cancelado"}).status_code == 404
+
+
+def test_fila_con_fecha_ilegible_se_saltea(tmp_path, monkeypatch, caplog):
+    """CA-117: una fecha ilegible en el CSV no cuenta como de hoy: la fila no se muestra y queda una advertencia."""
+    pedidos = tmp_path / "pedidos.csv"
+    pedidos.write_text(
+        "id_orden,fecha_hora,cliente,canal,productos,notas,estado,nombre_cliente,total\n"
+        "ORD-0001,ayer a la tarde,cli-001,web,1 x Jabón (JAB-DOV-90),,Recibido,,\n"
+        "ORD-0002,2026-10-27T09:12:00-03:00,cli-002,web,1 x Jabón (JAB-DOV-90),,Recibido,,\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ORDERS_FILE", str(pedidos))
+    get_settings.cache_clear()
+
+    assert [o.order_id for o in sheets_service.get_orders()] == ["ORD-0002"]
+    assert "ORD-0001" in caplog.text and "fecha ilegible" in caplog.text
+    assert client.get("/dashboard/summary?period=today", headers=AUTH_HEADERS).json()["orders_today"] == 0
+
+
+def test_linea_sin_precio_usa_el_del_catalogo_en_todas_las_vistas(tmp_path, monkeypatch):
+    """CA-118: Pedidos y Ventas & KPIs calculan el total con el mismo criterio."""
+    pedidos = tmp_path / "pedidos.csv"
+    pedidos.write_text(
+        "id_orden,fecha_hora,cliente,canal,productos,notas,estado,nombre_cliente,total\n"
+        "ORD-0001,2026-10-27T09:12:00-03:00,cli-001,web,2 x Shampoo Pantene 400 ml (SH-PAN-400),,Recibido,,\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CATALOG_FILE", str(DATA_EXAMPLE_DIR / "catalogo.csv"))
+    monkeypatch.setenv("ORDERS_FILE", str(pedidos))
+    get_settings.cache_clear()
+
+    pedido = client.get("/dashboard/orders", headers=AUTH_HEADERS).json()[0]
+    metricas = client.get("/dashboard/metrics", headers=AUTH_HEADERS).json()
+    assert Decimal(str(pedido["total"])) == Decimal(str(metricas["total_revenue"])) == Decimal("14700.00")
+
+
+def test_la_ui_pide_solo_conversaciones_derivadas():
+    """CA-120: la pestaña Conversaciones lista las derivadas que esperan a alguien (RF-24), no todas."""
+    html = client.get("/dashboard/ui").text
+    assert "apiFetch('/dashboard/conversations?state=derivada')" in html
+    assert "apiFetch('/dashboard/conversations')" not in html
 
 
 def test_migracion_2_agrega_stock_applied(tmp_path):
