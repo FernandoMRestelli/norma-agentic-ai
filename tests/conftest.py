@@ -53,3 +53,10 @@ def sin_red(monkeypatch):
 def base_de_datos_inicializada():
     init_db()
 
+
+@pytest.fixture(autouse=True)
+def limitador_de_mensajes_limpio():
+    """El tope de mensajes por minuto vive en memoria: sin esto, la suite entera contaría como un solo cliente."""
+    from internal.agent import guardrails
+
+    guardrails.limitador.reiniciar()
