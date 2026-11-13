@@ -6,7 +6,7 @@
 | | |
 |---|---|
 | Etapa del roadmap | 03 · Pedidos multimodales (solo texto), 04 · Confirmación, 05 · Registro y seguimiento |
-| Estado | Propuesto |
+| Estado | Implementado en cinco ramas, una por mejora ([§10.1](#101-estado-de-implementación)). Falta medirlo con un LLM real |
 | Responsable | Federico Picado |
 | Requisitos de la spec del MVP | RF-07, RF-11, RF-13, RF-19, RF-21, RF-28, RF-36 a RF-39, RNF-03, RNF-06, RNF-07 |
 | IDs que reserva | RF-59 a RF-79, RNF-15 y RNF-16, CA-113 a CA-134, D-21 a D-29, BR-11 |
@@ -572,7 +572,8 @@ perder órdenes.
 
 ## 6. Requisitos
 
-Todos nacen en estado `Propuesto`.
+Todos están implementados en las ramas de [§10.1](#101-estado-de-implementación), con sus tests. Pasan a
+`Implementado` en la spec maestra cuando se mergea la PR de cada mejora.
 
 | ID | Mejora | Requisito |
 |---|---|---|

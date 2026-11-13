@@ -81,8 +81,19 @@ caso: `python -m internal.evaluar_agente --pausa 30 --conversaciones data/evalua
 
 ## Próximos pasos
 
-**En curso:** el [plan de mejora del asistente](docs/plan-mejora-asistente.md), con cinco frentes en paralelo
-(búsqueda tolerante a errores, guardrails, guardado de pedidos, planillas y skills).
+**En curso:** la [toma de pedidos por texto](docs/spec/toma-de-pedidos-por-texto.md), con cinco mejoras
+implementadas en ramas apiladas (evaluación, grafo, renglones, CSV por línea y memoria), cada una para su PR a
+`develop`. Lo que falta para cerrarla:
+
+- **Medir.** Todavía no hay una corrida completa con un LLM real. La primera fija la línea de base y los umbrales
+  de release: `python -m internal.evaluar_agente --set pedidos --repeticiones 3 --conversaciones data/evaluacion/pedidos.md`.
+  Hace falta un modelo que use tools de forma confiable y con cuota para los 11 casos (D-21).
+- **Decidir** la ventana para agrupar mensajes seguidos (D-26): está implementada y apagada (`MESSAGE_GROUP_SECONDS`).
+- **Probar** el volcado nuevo contra las planillas reales, con `python -m internal.verificar_claves` para que
+  Sheet 2 sume las columnas nuevas.
+
+Antes: el [plan de mejora del asistente](docs/plan-mejora-asistente.md), con cinco frentes (búsqueda tolerante a
+errores, guardrails, guardado de pedidos, planillas y skills), ya integrados en `develop`.
 
 1. **Primera release `0.1.0`**: `release/0.1.0` → `main`, tag `v0.1.0`, backport, y configurar la
    protección de ramas descrita en [CONTRIBUTING.md](CONTRIBUTING.md#protección-de-ramas).
