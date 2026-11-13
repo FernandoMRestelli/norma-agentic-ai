@@ -10,12 +10,15 @@ def leer_skill(nombre: str) -> dict[str, Any]:
     skill = get_skills().get(nombre)
     if skill is None:
         raise ToolFailure("skill_inexistente", f"No existe la skill {nombre!r}: elegí una del índice")
-    return {
+    result = {
         "nombre": skill.nombre,
         "instrucciones": skill.instrucciones,
         "tools": skill.tools,
         "br": sorted(skill.br),
     }
+    if skill.datos_negocio is not None:  # null es un dato que el negocio no confirmó (RF-57)
+        result["datos_negocio"] = skill.datos_negocio
+    return result
 
 
 def leer_br(id: str, skills_activas: list[str]) -> dict[str, Any]:

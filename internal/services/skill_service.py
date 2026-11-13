@@ -7,11 +7,15 @@ from functools import lru_cache
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
 SKILL_FILE = "skill.md"
 BR_DIR = "BR"
+DATOS_FILE = "datos_negocio.md"  # opcional: datos del negocio que la skill le puede dar al cliente (RF-57)
+
+# Un dato es un texto corto o null, si el negocio todavía no lo confirmó
+_DATOS = TypeAdapter(dict[str, str | None])
 
 
 class SkillError(ValueError):
@@ -33,25 +37,45 @@ class Skill(SkillHeader):
 
     instrucciones: str
     br: dict[str, str]
+    datos_negocio: dict[str, str | None] | None = None
+
+
+def _split_header(path: Path) -> tuple[object, str]:
+    """Separa el encabezado YAML entre --- del texto de abajo."""
+    name = f"{path.parent.name}/{path.name}"
+    parts = path.read_text(encoding="utf-8").split("---\n", 2)
+    if len(parts) != 3 or parts[0].strip():
+        raise SkillError(f"{name} tiene que empezar con un encabezado YAML entre ---")
+    try:
+        return yaml.safe_load(parts[1]), parts[2].strip()
+    except yaml.YAMLError as exc:
+        raise SkillError(f"YAML inválido en {name}: {exc}") from exc
+
+
+def _parse_datos(path: Path) -> dict[str, str | None] | None:
+    if not path.is_file():
+        return None
+    header, _ = _split_header(path)
+    try:
+        return _DATOS.validate_python(header)
+    except ValidationError as exc:
+        raise SkillError(f"Datos inválidos en {path.parent.name}/{path.name}: cada dato es un texto o null") from exc
 
 
 def _parse_skill(folder: Path) -> Skill:
     path = folder / SKILL_FILE
     if not path.is_file():
         raise SkillError(f"La skill {folder.name} no tiene {SKILL_FILE}")
-    parts = path.read_text(encoding="utf-8").split("---\n", 2)
-    if len(parts) != 3 or parts[0].strip():
-        raise SkillError(f"{folder.name}/{SKILL_FILE} tiene que empezar con un encabezado YAML entre ---")
+    data, instrucciones = _split_header(path)
     try:
-        header = SkillHeader.model_validate(yaml.safe_load(parts[1]))
-    except ValueError as exc:  # yaml.YAMLError no hereda de ValueError: se trata abajo
+        header = SkillHeader.model_validate(data)
+    except ValueError as exc:
         raise SkillError(f"Encabezado inválido en {folder.name}/{SKILL_FILE}: {exc}") from exc
-    except yaml.YAMLError as exc:
-        raise SkillError(f"YAML inválido en {folder.name}/{SKILL_FILE}: {exc}") from exc
     if header.nombre != folder.name:
         raise SkillError(f"La skill de la carpeta {folder.name} se llama {header.nombre}")
     br = {file.stem: file.read_text(encoding="utf-8") for file in sorted((folder / BR_DIR).glob("*.md"))}
-    return Skill(**header.model_dump(), instrucciones=parts[2].strip(), br=br)
+    datos = _parse_datos(folder / DATOS_FILE)
+    return Skill(**header.model_dump(), instrucciones=instrucciones, br=br, datos_negocio=datos)
 
 
 def load_skills(base: Path = SKILLS_DIR) -> dict[str, Skill]:

@@ -96,7 +96,7 @@ def test_solo_confirmar_pedido_habilita_armar_pedido():
     """CA-37: es la única skill que puede registrar un pedido, y sus BR siguen disponibles en la skill que las usa."""
     skills = skill_service.get_skills()
     assert [skill.nombre for skill in skills.values() if "armar_pedido" in skill.tools] == ["confirmar_pedido"]
-    assert sorted(skills["tomar_pedido"].br) == ["BR-01", "BR-03", "BR-04", "BR-05"]
+    assert sorted(skills["tomar_pedido"].br) == ["BR-01", "BR-03", "BR-04", "BR-05", "BR-09", "BR-10"]
 
 
 def test_las_skills_solo_mencionan_br_que_existen():
