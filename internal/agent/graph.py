@@ -98,6 +98,12 @@ def encaminar(state: EstadoNorma) -> dict[str, Any]:
     }
 
 
+def _sumar_origen(anterior: str | None, nuevo: str) -> str:
+    """Los orígenes de la conversación, sin repetir y en orden: un audio corregido por texto es `audio+texto`."""
+    origenes = [parte for parte in (anterior or "").split("+") if parte]
+    return "+".join(origenes if nuevo in origenes else [*origenes, nuevo])
+
+
 def _numerar(texto: str, renglones: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Los renglones nuevos de un mensaje con forma de lista, numerados a continuación de los que ya había (RF-65)."""
     if len(texto.splitlines()) < interpretation_service.MIN_RENGLONES:
@@ -146,6 +152,7 @@ def _turn_context(state: EstadoNorma, config: RunnableConfig, disponibles: list[
         skills_activas=list(state.get("skills_activas", [])),
         br_entregadas=list(state.get("br_entregadas", [])),
         renglones=[dict(renglon) for renglon in state.get("renglones") or []],
+        origen=state.get("origen") or "texto",
         propuesta=propuesta,
     )
 
@@ -240,9 +247,12 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
 
     def pausa(state: EstadoNorma) -> dict[str, Any]:
         # El nodo vuelve a correr desde el principio al retomar: antes de interrupt() no puede haber efectos
-        text = interrupt({"mensaje": state["respuesta"]})
+        entrada = interrupt({"mensaje": state["respuesta"]})
+        # Al retomar llega el texto y de dónde salió; un checkpoint anterior retoma con el texto solo
+        text, origen = (entrada["texto"], entrada["origen"]) if isinstance(entrada, dict) else (entrada, "texto")
         return {
             "messages": [HumanMessage(content=text)],
+            "origen": _sumar_origen(state.get("origen"), origen),
             "inicio_turno": len(state["messages"]),
             "skills_activas": [],
             "iteraciones": 0,
