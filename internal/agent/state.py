@@ -15,6 +15,9 @@ class EstadoNorma(TypedDict, total=False):
     channel: str
     inicio_turno: int  # posición en `messages` del mensaje que abrió el turno
     skills_activas: list[str]  # skills leídas en este turno: dan los permisos
+    skill_preactivada: str | None  # la que leyó el backend antes de la primera llamada al LLM (RF-62)
+    br_entregadas: list[str]  # BR que ya vio el LLM en este turno: no se repiten (RF-63)
+    turno_desde: float  # cuándo empezó el turno, para el plazo total (RNF-16)
     tools_disponibles: list[str]
     iteraciones: int  # llamadas al LLM en este turno
     fallas: int  # en toda la conversación

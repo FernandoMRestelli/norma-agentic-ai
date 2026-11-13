@@ -247,3 +247,59 @@ def test_explorar_catalogo_general():
     assert res["tipo_consulta"] == "categorias_generales"
     assert "Shampoo" in res["categorias"]
 
+
+
+def _contexto(*skills: str) -> tool_registry.TurnContext:
+    return tool_registry.TurnContext(
+        customer_id="cli-1",
+        channel=Channel.TELEGRAM,
+        disponibles=tool_registry.available(list(skills)),
+        skills_activas=list(skills),
+    )
+
+
+def test_br_junto_al_resultado():
+    """CA-119: el resultado trae la BR que dispara su señal, una sola vez por turno (RF-63)."""
+    ctx = _contexto("tomar_pedido")
+
+    primera = tool_registry.execute("search_products", {"query": "shampo pantne 400"}, ctx)
+    segunda = tool_registry.execute("search_products", {"query": "acondicionador pantne"}, ctx)
+
+    assert primera["data"]["matches"][0]["aproximado"]
+    assert primera["regla"] == {"id": "BR-09", "texto": skill_service.get_skills()["tomar_pedido"].br["BR-09"]}
+    assert "regla" not in segunda
+    assert ctx.br_entregadas == ["BR-09"]
+
+
+@pytest.mark.parametrize(
+    ("tool", "argumentos", "br"),
+    [
+        ("search_products", {"query": "shampoo pantene"}, "BR-03"),  # dos medidas
+        ("search_products", {"query": "plancha de pelo titanio"}, "BR-04"),
+        ("search_products", {"query": "koleston 7.1"}, "BR-01"),  # el único resultado está agotado
+        ("check_stock", {"sku": "CE-SED-340", "quantity": 10}, "BR-01"),
+        ("respond_to_customer",
+         {"kind": "propuesta", "message": "Van las 10.", "propuesta": [{"sku": "CE-SED-340", "quantity": 10}]},
+         "BR-01"),
+        ("search_products", {"query": "shampoo pantene 400"}, None),  # un solo producto, con stock
+        ("get_product", {"sku": "SH-PAN-400"}, None),
+    ],
+)
+def test_cada_senal_lleva_a_su_br(tool, argumentos, br):
+    """RF-63: stock corto, varias opciones, nada parecido o una coincidencia aproximada."""
+    resultado = tool_registry.execute(tool, argumentos, _contexto("tomar_pedido"))
+    assert resultado.get("regla", {}).get("id") == br
+
+
+def test_sin_skill_activa_no_se_adjunta_la_br():
+    """RF-63: una BR solo llega si una skill leída en el turno la permite; si no, el agente la lee con `leer_br`."""
+    for skills in ((), ("informar",)):
+        ctx = _contexto(*skills)
+        assert "regla" not in tool_registry.execute("search_products", {"query": "shampo pantne 400"}, ctx)
+        assert ctx.br_entregadas == []
+
+
+def test_br_leida_por_el_agente_no_se_vuelve_a_adjuntar():
+    ctx = _contexto("tomar_pedido")
+    assert tool_registry.execute("leer_br", {"id": "BR-09"}, ctx)["ok"]
+    assert "regla" not in tool_registry.execute("search_products", {"query": "shampo pantne 400"}, ctx)

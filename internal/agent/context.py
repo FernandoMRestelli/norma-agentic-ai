@@ -1,6 +1,7 @@
 """Arma lo que recibe el LLM en cada iteración (spec del agente §8)."""
 
 import hashlib
+import json
 from pathlib import Path
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage
@@ -35,6 +36,27 @@ def _skills_index(hay_propuesta: bool) -> str:
         if hay_propuesta or not skill.requiere_propuesta
     ]
     return "## Índice de skills\n\n" + "\n".join(lines)
+
+
+def _skill_activa(state: EstadoNorma) -> str | None:
+    """La skill que el backend leyó por el agente en este turno, con lo mismo que devuelve `leer_skill` (RF-62)."""
+    skill = get_skills().get(state.get("skill_preactivada") or "")
+    if skill is None:
+        return None
+    lines = [
+        f"## Skill activa: `{skill.nombre}`",
+        "",
+        "El sistema ya la leyó por vos en este turno: sus tools están habilitadas y no hace falta llamar a "
+        "`leer_skill`. Si el mensaje pide otra cosa, leé la skill del índice que corresponda.",
+        "",
+        f"Tools: {', '.join(skill.tools)}",
+        f"BR: {', '.join(sorted(skill.br)) or 'ninguna'}",
+        "",
+        skill.instrucciones,
+    ]
+    if skill.datos_negocio is not None:
+        lines += ["", f"`datos_negocio`: {json.dumps(skill.datos_negocio, ensure_ascii=False)}"]
+    return "\n".join(lines)
 
 
 def _current_state(state: EstadoNorma) -> str:
@@ -80,5 +102,6 @@ def _previous_history(messages: list[AnyMessage]) -> list[AnyMessage]:
 def build_messages(state: EstadoNorma) -> list[AnyMessage]:
     start = state.get("inicio_turno", 0)
     index = _skills_index(bool(state.get("propuesta")))
-    system = "\n\n".join((load_system_prompt(), index, _current_state(state)))
+    partes = (load_system_prompt(), index, _skill_activa(state), _current_state(state))
+    system = "\n\n".join(parte for parte in partes if parte)
     return [SystemMessage(content=system), *_previous_history(state["messages"][:start]), *state["messages"][start:]]

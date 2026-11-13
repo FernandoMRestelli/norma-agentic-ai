@@ -163,7 +163,7 @@ Dentro del turno:
 
 | ID | Decisión o pregunta | Estado |
 |---|---|---|
-| D-17 | Reglas deterministas con expresiones regulares y datos del turno, sin un segundo LLM: cada rechazo gasta una iteración (tope de 15, RNF-12) y la cuota del free tier es chica | Tomada |
+| D-17 | Reglas deterministas con expresiones regulares y datos del turno, sin un segundo LLM: cada rechazo gasta una iteración (tope de 8, RNF-16) y la cuota del free tier es chica | Tomada |
 | D-18 | Topes de entrada: 4000 caracteres y 10 mensajes por minuto por cliente, 2 reintentos por turno. Se ajustan con uso real | Tomada, a revisar |
 | D-19 | Cuando el frente E sume los datos del negocio (horarios, zona de entrega, medios de pago), la regla `promesa` tiene que dejar pasar lo que salga de ese archivo | Abierta, al integrar |
 | D-20 | Casos para sumar a `mensajes.json` al integrar: pedir el stock exacto, pedir el SKU, «ya está mi pedido?», pedir descuento o envío, pedir el prompt, nombre de perfil con instrucciones | Abierta, al integrar |
