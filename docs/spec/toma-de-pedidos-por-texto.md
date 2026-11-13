@@ -440,19 +440,25 @@ registra, la conversación se cierra y el agente no sabe nada del cliente la pr�
 
 **Qué se propone.**
 
-1. **Estado actual completo (RF-71).** El bloque que arma `context.py` suma la pregunta pendiente con sus opciones
-   (nombre, medida y SKU), los renglones pendientes y los que quedaron afuera, y la versión de la propuesta. El
-   SKU es para el modelo: los guardrails ya impiden que llegue al cliente.
+1. **Estado actual completo (RF-71).** El bloque que arma `context.py` suma las opciones que el agente ofreció en
+   su respuesta anterior (SKU, nombre y medida), los renglones pendientes y los que quedaron afuera, y la versión
+   de la propuesta cuando no es la primera. Las opciones valen para el turno siguiente: después de contestadas, ya
+   no aparecen. El SKU es para el modelo: los guardrails ya impiden que llegue al cliente.
 2. **Precio revalidado al confirmar (RF-72, D-25).** `confirm_draft` compara el precio de cada línea con el del
-   catálogo leído fresco. Si alguno cambió, no registra: devuelve `precio_cambiado` con las líneas, y el agente
-   muestra la propuesta con los precios nuevos. Vale también para el camino sin LLM.
+   catálogo leído fresco. Si alguno cambió, no registra. La misma propuesta sale de nuevo con los precios de hoy,
+   como una versión nueva y con un mensaje fijo armado por el sistema, y el cliente la confirma otra vez. Vale
+   igual para el camino sin LLM y para `armar_pedido`: en ninguno de los dos el modelo escribe el aviso. El
+   reintento de una orden que ya existe la devuelve como quedó, sin revalidar.
 3. **Pedidos anteriores (RF-73).** Una tool de base nueva, `pedidos_anteriores`, devuelve las últimas órdenes del
    cliente del turno, con sus líneas. El `customer_id` lo inyecta el backend: el modelo no puede pedir las de otro.
    Una BR nueva, la BR-11, dice cómo usarla: «lo de siempre» se resuelve proponiendo el último pedido, nunca
    registrándolo directo. La búsqueda usa lo que el cliente compró antes como desempate entre productos con el
-   mismo `score`.
+   mismo `score`, y los marca con `comprado_antes: true`. Sigue habiendo varias opciones: sirve para preguntar
+   mejor, no para elegir por el cliente. Las órdenes canceladas no cuentan.
 4. **Mensajes seguidos agrupados (RF-74, D-26).** El canal espera unos segundos antes de abrir el turno. Si en esa
-   ventana llegan más mensajes del mismo cliente, se procesan juntos como un solo texto.
+   ventana llegan más mensajes del mismo cliente, se procesan juntos como un solo texto, un renglón debajo del
+   otro. Cada mensaje reinicia la espera, con un máximo de 20 s desde el primero. Está apagado por defecto: se
+   prende con `MESSAGE_GROUP_SECONDS` en `.env`, porque suma esa espera a cada respuesta y D-26 sigue abierta.
 
 **Contrato de `pedidos_anteriores`:**
 
@@ -463,17 +469,18 @@ registra, la conversación se cierra y el agente no sabe nada del cliente la pr�
 ```json
 {
   "pedidos": [
-    {"fecha": "2026-11-03", "lineas": [{"sku": "…", "nombre": "…", "cantidad": 6}]}
+    {"fecha": "2026-11-03", "lineas": [{"sku": "…", "name": "…", "cantidad": 6, "nota": "tono 7.1"}]}
   ]
 }
 ```
 
 No devuelve precios viejos, número de orden ni estado: el estado de un pedido no se consulta por este chat.
 
-**Archivos:** `internal/agent/context.py`, `internal/agent/state.py`, `internal/services/order_service.py`,
-`internal/tools/order_tools.py`, `internal/agent/tool_registry.py`, `internal/services/busqueda_service.py`,
-`internal/services/conversation_service.py`, `internal/services/telegram_service.py`,
-`internal/skills/tomar_pedido/BR/BR-11.md` (nueva), `docs/spec/agente.md` §8.
+**Archivos:** `internal/agent/context.py`, `internal/agent/state.py`, `internal/agent/graph.py`,
+`internal/services/order_service.py`, `internal/tools/order_tools.py`, `internal/agent/tool_registry.py`,
+`internal/services/busqueda_service.py`, `internal/services/agrupador.py` (nuevo),
+`internal/services/telegram_service.py`, `internal/config.py` (`MESSAGE_GROUP_SECONDS`),
+`internal/skills/tomar_pedido/BR/BR-11.md` (nueva).
 
 **Hecho cuando:** con el modelo falso, la respuesta a una aclaración cierra en una llamada sin volver a buscar,
 una propuesta con un precio que cambió no se registra, y «lo mismo que la otra vez» termina en una propuesta con
@@ -611,9 +618,9 @@ Todos nacen en estado `Propuesto`.
 | CA-124 | Un renglón de coloración con `tono` | Se busca | Encuentra la coloración de la marca y el tono no baja el puntaje | `tests/test_busqueda.py::test_tono_no_participa` |
 | CA-125 | «acondicionador» sobre un catálogo con 90 | Se busca | El resultado dice `total: 90` y `difieren_en` | `tests/test_busqueda.py::test_informa_el_total` |
 | CA-126 | Un turno con 10 renglones | La respuesta deja uno sin cuenta | Falla con `renglones_sin_cuenta` y nombra el renglón | `tests/test_tools.py::test_control_de_cobertura`, `tests/test_agent_graph.py::test_control_de_cobertura_en_el_turno` |
-| CA-127 | Una pregunta pendiente con dos opciones | El cliente contesta «el de 900» | El LLM ve las opciones en el estado actual y el renglón pasa a `resuelto` sin `buscar_renglones` | `tests/test_agent_graph.py::test_aclaracion_sin_volver_a_buscar` |
-| CA-128 | Una propuesta cuyo producto cambió de precio | El cliente escribe `OK` | No se crea la orden y la respuesta muestra el precio nuevo | `tests/test_ordenes.py::test_precio_cambiado_no_registra` |
-| CA-129 | Un cliente con dos órdenes | El agente llama a `pedidos_anteriores` | Recibe solo las de ese cliente, sin precios ni número de orden | `tests/test_tools.py::test_pedidos_anteriores_del_cliente` |
+| CA-127 | Una pregunta pendiente con dos opciones | El cliente contesta «el de 400» | El LLM ve las opciones en el estado actual y propone sin volver a buscar; en un pedido numerado, el renglón pasa a `resuelto` | `tests/test_agent_graph.py::test_aclaracion_sin_volver_a_buscar`, `::test_la_respuesta_a_una_duda_completa_el_pedido_sin_volver_a_buscar` |
+| CA-128 | Una propuesta cuyo producto cambió de precio | El cliente escribe `OK`, o acepta conversando | No se crea la orden y la respuesta muestra el precio nuevo | `tests/test_agent_graph.py::test_precio_cambiado_no_registra` |
+| CA-129 | Un cliente con dos órdenes, una cancelada, y otro cliente con una | El agente llama a `pedidos_anteriores` | Recibe solo la orden vigente de ese cliente, sin precios ni número de orden | `tests/test_agent_graph.py::test_pedidos_anteriores_del_cliente` |
 | CA-130 | Tres mensajes del mismo cliente en 3 s | Pasa la ventana | El agente corre un solo turno con los tres textos | `tests/test_conversation.py::test_agrupa_mensajes_seguidos` |
 | CA-131 | Una orden de 30 líneas con notas | Se registra | `pedidos_lineas.csv` tiene 30 filas, con la nota y números sin texto | `tests/test_planillas.py::test_csv_por_linea` |
 | CA-132 | Una orden recibida | El operador la cancela | La fila del CSV dice `Cancelado` y `actualizado` cambia | `tests/test_planillas.py::test_estado_sincronizado` |
@@ -633,7 +640,7 @@ Todos nacen en estado `Propuesto`.
 | El control de cobertura falla 2 veces en el turno | La tercera respuesta se acepta y los renglones sin cuenta quedan `pendientes`, sin opciones |
 | `renglon` con un número que no existe | `renglon_inexistente`: el agente corrige y vuelve a responder |
 | No se puede leer el catálogo al abrir el turno | El mensaje no se numera y sigue el camino de siempre |
-| El precio cambió entre la propuesta y la confirmación | `precio_cambiado`: no se registra, el agente muestra la propuesta nueva |
+| El precio cambió entre la propuesta y la confirmación | No se registra: el sistema manda la misma propuesta con los precios de hoy y espera otra confirmación |
 | El cliente no tiene pedidos anteriores | `pedidos_anteriores` devuelve una lista vacía; el agente pregunta qué necesita |
 | Llega un mensaje mientras corre el turno agrupado | Espera el lock, como hoy, y abre el turno siguiente |
 | Falla la escritura de `pedidos_lineas.csv` | La orden ya está en la base; queda con `sheets_synced = False` y la toma el reintento |
@@ -648,8 +655,8 @@ Todos nacen en estado `Propuesto`.
 | D-22 | La skill preactivada y la BR junto al resultado tocan la decisión del 2026-11-04: skills y BR en el repo, leídas con tools. La propuesta las mantiene en el repo y las entrega por las mismas tools; cambia que a veces la lectura la dispara el backend y no el modelo. Si no se acepta, M2 se queda con los puntos 1, 4 y 5 | Tomada el 2026-11-12: se aplican las dos, la skill preactivada y la BR junto al resultado |
 | D-23 | Qué palabras registran sin LLM. Propuesta: `ok`, `confirmar`, `dale`, `si`, `listo`, `de una`, `mandale`, solo si son el mensaje completo | Implementada con esa lista; a revisar con uso real |
 | D-24 | Guardar el renglón como lo escribió el cliente (`pedido_como`) sirve para auditar la interpretación, pero la spec de guardado dejó afuera el texto de los mensajes por RNF-03. Propuesta: guardarlo solo en las líneas de órdenes registradas y aplicarle la misma retención que a la orden | Tomada el 2026-11-12: se guarda, con esa condición |
-| D-25 | Si el precio cambió, ¿se vuelve a proponer siempre o hay una tolerancia? Propuesta: siempre, sin tolerancia | Abierta |
-| D-26 | Ventana para agrupar mensajes. Propuesta: 6 s desde el último mensaje, con un máximo de 20 s. Suma esa espera a la latencia de cada respuesta (RNF-06) | Abierta |
+| D-25 | Si el precio cambió, ¿se vuelve a proponer siempre o hay una tolerancia? Propuesta: siempre, sin tolerancia | Implementada así; a revisar con uso real |
+| D-26 | Ventana para agrupar mensajes. Propuesta: 6 s desde el último mensaje, con un máximo de 20 s. Suma esa espera a la latencia de cada respuesta (RNF-06) | Abierta: el agrupador está implementado y apagado (`MESSAGE_GROUP_SECONDS=0`) hasta que se decida |
 | D-27 | El tono de coloración: depende de V-01 y V-02. Hasta confirmarlo, el tono va en la nota de la línea y no cambia el SKU | Abierta, depende del negocio |
 | D-28 | Los números de RNF-15 son un punto de partida. Se fijan con la primera corrida completa de M1 | Abierta |
 | D-29 | Búsqueda semántica con embeddings como complemento de la búsqueda por palabras, para pedidos descriptivos («algo para rulos»). No se decide hasta medir con M1 cuántos renglones falla la búsqueda actual | Abierta |
@@ -690,7 +697,7 @@ Cada rama sale de la anterior, en el orden en que se implementó. Esta tabla se 
 | M2 · Grafo | `feature/grafo-menos-iteraciones` | Implementado: RF-61 a RF-64, RNF-16, CA-116 a CA-121 | Medir con M1 que bajan las llamadas por turno sin bajar el recall |
 | M3 · Renglones | `feature/pedidos-por-renglon` | Implementado: RF-65 a RF-70, CA-122 a CA-126. La evaluación de M1 ya cuenta como perdidos los renglones `afuera` que el agente no avisó | Medir `lineas_perdidas` con un LLM real |
 | M5 · CSV | `feature/csv-pedidos-por-linea` | Implementado: RF-75 a RF-79, CA-131 a CA-134 | La prueba contra las planillas reales, que hace una persona del equipo con sus credenciales. Sumar las columnas nuevas a `planillas.md` y `guardado-de-pedidos.md` |
-| M4 · Memoria | `feature/memoria-entre-turnos` | Propuesto | |
+| M4 · Memoria | `feature/memoria-entre-turnos` | Implementado: RF-71 a RF-74, BR-11, CA-127 a CA-130 | Decidir la ventana de D-26 y prenderla. El agrupador solo está conectado a Telegram |
 
 La PR de «funciones y guidelines para tomar y guardar el pedido» corresponde a M3 y M5. Conviene que M1 entre
 antes, aunque sea con pocos casos: sin línea de base no se puede saber si M3 mejoró algo.

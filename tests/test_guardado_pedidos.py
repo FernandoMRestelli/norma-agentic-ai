@@ -118,6 +118,7 @@ def test_migracion_idempotente_y_igual_a_base_nueva(tmp_path):
 
 SKU_TINTURA = "TIN-SINT-1"
 SKU_SHAMPOO = "SH-SINT-1"
+PRECIOS = {SKU_TINTURA: Decimal("1000"), SKU_SHAMPOO: Decimal("250.50")}  # los del catálogo de estos tests
 NOMBRE = "Marta Gómez"
 OPERATOR_TOKEN = "token-operador-prueba"
 AUTH = {"X-Operator-Token": OPERATOR_TOKEN}
@@ -186,7 +187,7 @@ def _draft(*lineas, draft_id="d-guardado", version=1, conversation_id=None, note
         conversation_id=conversation_id,
         notes=notes,
         items=[
-            OrderItem(sku=sku, product_name="Producto", quantity=cantidad, unit_price=Decimal("10"), note=nota)
+            OrderItem(sku=sku, product_name="Producto", quantity=cantidad, unit_price=PRECIOS[sku], note=nota)
             for sku, cantidad, nota in lineas
         ],
     )
@@ -361,14 +362,14 @@ def test_drafts_version_repetida_queda_con_las_ultimas_lineas(catalogo, monkeypa
         fila = session.scalars(select(DraftRecord)).one()
         assert (fila.version, fila.status) == (1, "pendiente_confirmacion")
         assert [(i["sku"], i["quantity"], i["note"]) for i in fila.items] == [(SKU_TINTURA, 2, "tono 7")]
-        assert (fila.notes, fila.total) == ("Retira el lunes", Decimal("20"))
+        assert (fila.notes, fila.total) == ("Retira el lunes", Decimal("2000"))
 
     # Una versión ya confirmada no cambia aunque se registre de nuevo
     order = order_service.confirm_draft(reintento)
     order_service.record_draft(_draft((SKU_SHAMPOO, 5, None), draft_id=v1.draft_id))
     with SessionLocal() as session:
         fila = session.scalars(select(DraftRecord)).one()
-        assert (fila.status, fila.order_id, fila.total) == ("confirmado", order.order_id, Decimal("20"))
+        assert (fila.status, fila.order_id, fila.total) == ("confirmado", order.order_id, Decimal("2000"))
         assert [i["sku"] for i in fila.items] == [SKU_TINTURA]
 
 
@@ -394,7 +395,7 @@ def test_operador_cambia_el_estado(catalogo):
     detalle = client.get(f"/orders/{otra.order_id}", headers=AUTH).json()
     assert detalle["history"][-1]["to_status"] == "Cancelado"
     assert detalle["customer_name"] == NOMBRE
-    assert Decimal(detalle["total"]) == Decimal("10")
+    assert Decimal(detalle["total"]) == Decimal("250.50")
 
 
 @pytest.mark.parametrize(

@@ -1,6 +1,5 @@
 """Tests de los endpoints de consulta y cancelación de órdenes y tool cancelar_pedido (RF-20, etapa 05)."""
 
-from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -50,7 +49,7 @@ def _create_order(sku: str = SKU_PANTENE, quantity: int = 10):
                 product_name=f"Producto {sku}",
                 presentation="Unidad",
                 quantity=quantity,
-                unit_price=Decimal("100.00"),
+                unit_price=None,  # sin precio: estos tests miran el stock, y al confirmar el precio se revalida
             )
         ],
     )

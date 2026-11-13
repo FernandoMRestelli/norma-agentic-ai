@@ -391,11 +391,14 @@ def _puntuar(
     )
 
 
-def _cortar(puntuados: list[_Puntuado], clave) -> list[_Puntuado]:
-    """Los que quedan a menos de MARGEN del primero, sin tope: quien llama muestra los primeros y cuenta el total."""
+def _cortar(puntuados: list[_Puntuado], clave, preferidos: frozenset[str] = frozenset()) -> list[_Puntuado]:
+    """Los que quedan a menos de MARGEN del primero, sin tope: quien llama muestra los primeros y cuenta el total.
+
+    Con el mismo puntaje, primero van los `preferidos`: lo que ese cliente ya compró (RF-73).
+    """
     if not puntuados:
         return []
-    puntuados.sort(key=lambda p: (-clave(p), p.sobrantes))
+    puntuados.sort(key=lambda p: (-clave(p), p.product.sku not in preferidos, p.sobrantes))
     primero = clave(puntuados[0])
     return [p for p in puntuados if clave(p) >= primero - MARGEN - 1e-9]
 
@@ -413,9 +416,12 @@ def _difieren_en(cortados: list[_Puntuado], indice: Indice) -> str | None:
     return "medida" if len(medidas) > 1 else "variante"
 
 
-def _match(puntuado: _Puntuado, score: float, aproximado: bool) -> ProductMatch:
+def _match(puntuado: _Puntuado, score: float, aproximado: bool, preferidos: frozenset[str]) -> ProductMatch:
     return ProductMatch(
-        **puntuado.product.model_dump(exclude={"is_low_stock"}), score=round(score, 2), aproximado=aproximado
+        **puntuado.product.model_dump(exclude={"is_low_stock"}),
+        score=round(score, 2),
+        aproximado=aproximado,
+        comprado_antes=puntuado.product.sku in preferidos,
     )
 
 
@@ -447,8 +453,13 @@ def _cantidad_al_principio(query: str, busqueda: Texto) -> bool:
     return primero.original == inicio.group(1) and primero.dimension is None
 
 
-def buscar(query: str, productos: list[Product], limit: int = 5) -> SearchResult:
-    """Busca en `productos` (con el stock del momento) y devuelve matches, sugerencias y palabras corregidas."""
+def buscar(
+    query: str, productos: list[Product], limit: int = 5, preferidos: frozenset[str] = frozenset()
+) -> SearchResult:
+    """Busca en `productos` (con el stock del momento) y devuelve matches, sugerencias y palabras corregidas.
+
+    `preferidos` son los SKU que el cliente ya compró: desempatan entre productos con el mismo puntaje (RF-73).
+    """
     indice = obtener_indice(productos)
     por_sku = {product.sku: product for product in productos}
     sku = indice.skus.get(query.strip().lower())
@@ -469,7 +480,7 @@ def buscar(query: str, productos: list[Product], limit: int = 5) -> SearchResult
             if _es_coloracion(producto) and sin_cantidad and not sin_cantidad.numeros:
                 texto = busqueda
             puntuados.append(_puntuar(product, producto, texto, parecidos))
-        return puntuados, _cortar([p for p in puntuados if p.score >= MIN_SCORE], lambda p: p.score)
+        return puntuados, _cortar([p for p in puntuados if p.score >= MIN_SCORE], lambda p: p.score, preferidos)
 
     puntuados, matches = puntuar_todos()
     if _cantidad_al_principio(query, busqueda):
@@ -478,17 +489,17 @@ def buscar(query: str, productos: list[Product], limit: int = 5) -> SearchResult
             puntuados, matches = puntuar_todos(Texto(busqueda.palabras, busqueda.numeros[1:]))
     if matches:
         return SearchResult(
-            matches=[_match(p, p.score, p.aproximado) for p in matches[:limit]],
+            matches=[_match(p, p.score, p.aproximado, preferidos) for p in matches[:limit]],
             corregido=_corregido(matches[0]),
             total=len(matches),
             difieren_en=_difieren_en(matches, indice),
         )
     sugeribles = [p for p in puntuados if p.sugerible and p.score_sugerencia >= MIN_SUGERENCIA]
-    sugerencias = _cortar(sugeribles, lambda p: p.score_sugerencia)
+    sugerencias = _cortar(sugeribles, lambda p: p.score_sugerencia, preferidos)
     if not sugerencias:
         return SearchResult()
     return SearchResult(
-        sugerencias=[_match(p, p.score_sugerencia, True) for p in sugerencias[:limit]],
+        sugerencias=[_match(p, p.score_sugerencia, True, preferidos) for p in sugerencias[:limit]],
         corregido=_corregido(sugerencias[0]),
         total=len(sugerencias),
         difieren_en=_difieren_en(sugerencias, indice),

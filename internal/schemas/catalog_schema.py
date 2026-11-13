@@ -27,6 +27,7 @@ class ProductMatch(Product):
     score: float = Field(ge=0, le=1)
     # Algún término no coincidió exacto (tipeo, sonido, otra medida): es un candidato a confirmar con el cliente
     aproximado: bool = False
+    comprado_antes: bool = False  # el cliente del turno ya lo pidió en una orden anterior (RF-73)
 
 
 class SearchResult(BaseModel):

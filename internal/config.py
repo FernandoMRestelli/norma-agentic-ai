@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     telegram_webhook_secret: str | None = None  # header X-Telegram-Bot-Api-Secret-Token
     telegram_allowed_user_ids: str = ""  # ids numéricos separados por coma
 
+    # Segundos que el canal espera más mensajes del mismo cliente antes de abrir el turno (RF-74, D-26). 0: no espera
+    message_group_seconds: float = 0.0
+
     # Operador / Dashboard (autenticación de endpoints de gestión de órdenes)
     operator_token: str | None = None
 

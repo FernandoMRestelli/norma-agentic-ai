@@ -31,5 +31,6 @@ class EstadoNorma(TypedDict, total=False):
     respuesta: str | None  # lo que va a ver el cliente
     kind: str | None
     options: list[str]
+    opciones_previas: list[str]  # las `options` de tu respuesta anterior: lo que el cliente está contestando (RF-71)
     order_id: str | None
     resultado: Resultado
