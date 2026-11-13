@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from contextlib import nullcontext
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -28,10 +29,15 @@ ORDER_ID_REGEX = re.compile(r"^ORD-(\d{4,})$")
 
 VALID_TRANSITIONS: dict[OrderStatus, set[OrderStatus]] = {
     OrderStatus.RECEIVED: {OrderStatus.PREPARED, OrderStatus.CANCELLED},
-    OrderStatus.PREPARED: {OrderStatus.PICKED_UP, OrderStatus.CANCELLED},
+    OrderStatus.PREPARED: {OrderStatus.PICKED_UP, OrderStatus.DISPATCHED, OrderStatus.CANCELLED},
+    OrderStatus.DISPATCHED: {OrderStatus.DELIVERED},
     OrderStatus.PICKED_UP: set(),
+    OrderStatus.DELIVERED: set(),
     OrderStatus.CANCELLED: set(),
 }
+
+# Al pasar a uno de estos estados la mercadería sale: se descuenta del catálogo (Issue #61)
+STOCK_OUT_STATES = (OrderStatus.PICKED_UP, OrderStatus.DISPATCHED)
 
 STATUS_BY_LOWER: dict[str, OrderStatus] = {
     status.value.lower(): status for status in OrderStatus
@@ -147,6 +153,7 @@ def _to_order(record: OrderRecord) -> Order:
         total=record.total,
         status=record.status,
         sheets_synced=record.sheets_synced,
+        stock_applied=record.stock_applied,
         history=[
             OrderEvent(
                 from_status=event.from_status,
@@ -317,7 +324,12 @@ def confirm_draft(draft: OrderDraft) -> Order:
 
 
 def change_status(order_id: str, nuevo: OrderStatus, source: str = EventSource.OPERATOR) -> Order:
-    """Pasa una orden a otro estado si la transición es válida y guarda el evento (RF-20, RF-47)."""
+    """Pasa una orden a otro estado si la transición es válida y guarda el evento (RF-20, RF-47).
+
+    Si pasa a Despachado o Retirado y todavía no se descontó, resta sus unidades del catálogo y marca
+    `stock_applied`: desde ahí la orden deja de reservar stock (Issue #61). Con el catálogo en Sheet 1 (solo lectura)
+    o el de ejemplo no se descuenta, y la orden sigue reservando.
+    """
     with SessionLocal() as session:
         _begin_immediate(session)
         record = _find(session, order_id)
@@ -328,9 +340,24 @@ def change_status(order_id: str, nuevo: OrderStatus, source: str = EventSource.O
             if nuevo == OrderStatus.CANCELLED:
                 raise InvalidTransitionError(f"No se puede cancelar una orden en estado {actual.value!r}")
             raise InvalidTransitionError(f"No se puede pasar una orden de {actual.value!r} a {nuevo.value!r}")
-        record.status = nuevo.value
-        record.events.append(OrderEventRecord(from_status=actual.value, to_status=nuevo.value, source=source))
-        session.commit()
+        sale = nuevo in STOCK_OUT_STATES and not record.stock_applied
+        lineas = [{"sku": line.sku, "quantity": line.quantity} for line in record.lines] if sale else []
+        # Con la base bloqueada: si el commit falla, el catálogo vuelve a como estaba (RF-59)
+        with sheets_service.deduct_catalog_stock(lineas) if sale else nullcontext(False) as descontado:
+            if descontado:
+                record.stock_applied = True
+            record.status = nuevo.value
+            record.events.append(OrderEventRecord(from_status=actual.value, to_status=nuevo.value, source=source))
+            session.commit()
+        try:
+            sheets_service.update_order_status_in_sheets(order_id, nuevo.value)
+        except Exception:
+            # El cambio ya está hecho: la planilla se pone al día en el reintento (RF-60)
+            logger.warning(
+                "No se pudo escribir el estado de %s en la planilla: queda pendiente", order_id, exc_info=True
+            )
+            record.sheets_synced = False
+            session.commit()
         return _to_order(record)
 
 
@@ -340,7 +367,7 @@ def cancel_order(order_id: str, source: str = EventSource.OPERATOR) -> Order:
 
 
 def sync_pending_orders() -> int:
-    """Reintenta sincronizar órdenes con sheets_synced=False (CA-19, RNF-04).
+    """Reintenta sincronizar órdenes con sheets_synced=False: la fila y su estado (CA-19, RNF-04, RF-60).
 
     Devuelve la cantidad de órdenes sincronizadas exitosamente en esta pasada.
     """
@@ -351,6 +378,8 @@ def sync_pending_orders() -> int:
             order = _to_order(record)
             try:
                 sheets_service.append_order(order, reintento=True)
+                # Si la fila ya estaba, puede tener un estado viejo: un cambio que no llegó a la planilla (RF-60)
+                sheets_service.update_order_status_in_sheets(order.order_id, order.status.value)
                 record.sheets_synced = True
                 synced_count += 1
             except Exception:

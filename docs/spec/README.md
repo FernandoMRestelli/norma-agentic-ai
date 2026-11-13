@@ -413,10 +413,13 @@ Definido en la [spec del agente](agente.md#92-agentoutcome). Sus valores de `kin
 | `POST /chat/messages` | `IncomingMessage` | `{state, outcome: AgentOutcome}` | `501` |
 | `GET /orders/{order_id}` | `order_id`, credencial de operador | `Order` o `404` (`401` sin autenticación) | Hecho |
 | `POST /orders/{order_id}/cancel` | `order_id`, credencial de operador | `Order` o `400`/`404` (`401` sin autenticación) | Hecho |
-| `GET /dashboard/summary` | — | Indicadores de RF-22 | Nuevo |
-| `GET /dashboard/orders?status=&limit=` | — | Últimos pedidos | Nuevo |
-| `GET /dashboard/stock?low=true` | — | Productos y stock | Nuevo |
-| `GET /dashboard/conversations?state=derivada` | — | Conversaciones que requieren atención | Nuevo |
+| `POST /orders/{order_id}/status` | `order_id`, nuevo estado (`Preparado`, `Despachado`, `Retirado`, `Entregado`, `Cancelado`), credencial de operador | `Order` o `400`/`404`/`422` (`401` sin autenticación) | Hecho |
+| `GET /dashboard/summary?period=` | `period`: `all`, `today`, `yesterday`, `7d`, `30d` | Indicadores de RF-22 | Hecho |
+| `GET /dashboard/orders?status=&limit=` | — | Últimos pedidos | Hecho |
+| `GET /dashboard/stock?low=true` | — | Productos y stock | Hecho |
+| `GET /dashboard/conversations?state=derivada` | — | Conversaciones que requieren atención | Hecho |
+| `GET /dashboard/metrics` | `granularity`, `breakdown_by`, `period`, `channel` | KPIs de ventas de RF-62 | Hecho |
+| `GET /dashboard/ui` | — | La página del dashboard (sin token: lo pide la página) | Hecho |
 
 Todos los `/dashboard/*` y `/orders/*` requieren autenticación (RNF-01) mediante token de operador (`OPERATOR_TOKEN`). Sin token configurado responden siempre `401 Unauthorized` (falla cerrado).
 
@@ -468,7 +471,9 @@ Esta versión de la spec está en revisión: todo lo que no está implementado f
 | ID | Requisito | Etapa | Estado |
 |---|---|---|---|
 | RF-19 | Cada orden se agrega como una fila en Sheet 2 con el formato de [§5.4](#54-orden-order--google-sheet-2) | 05 | I |
-| RF-20 | Las órdenes siguen `Recibido → Preparado → Retirado`, con opción `Cancelado` desde cualquier estado previo a `Retirado`; cancelar una orden libera sus unidades de stock comprometido | 05 | I |
+| RF-20 | Las órdenes siguen `Recibido → Preparado → Retirado` (retira el cliente) o `Recibido → Preparado → Despachado → Entregado` (envío), con opción `Cancelado` desde `Recibido` o `Preparado`; `Retirado`, `Entregado` y `Cancelado` son terminales. Cancelar una orden libera sus unidades de stock comprometido | 05 | I |
+| RF-59 | Al pasar a `Despachado` o `Retirado`, la orden descuenta sus unidades del catálogo local una sola vez (`stock_applied`) y deja de reservarlas. El descuento y el cambio de estado se guardan juntos: si uno falla, no queda ninguno. Con el catálogo en Sheet 1 (solo lectura) o en `data_example/` no se descuenta y la orden sigue reservando | 06 | I |
+| RF-60 | Cada cambio de estado se refleja en el CSV de pedidos y, si está configurada, en Sheet 2. Si la planilla falla, el cambio queda hecho, la orden queda pendiente de sincronizar y el reintento de `sync_pending_orders` aplica el estado | 06 | I |
 | RF-21 | El detalle por ítem de cada orden se guarda en la base interna | 05 | I |
 
 Los criterios de observabilidad (CA-56 y CA-57) prueban RNF-03 y RNF-07, y están en [§9](#observabilidad).
@@ -477,10 +482,12 @@ Los criterios de observabilidad (CA-56 y CA-57) prueban RNF-03 y RNF-07, y está
 
 | ID | Requisito | Etapa | Estado |
 |---|---|---|---|
-| RF-22 | Indicadores: pedidos de hoy, pedidos por estado, productos distintos pedidos hoy y cantidad de productos con stock bajo | 06 | P |
-| RF-23 | Listados: últimos pedidos con estado y hora; stock disponible con marca de stock bajo | 06 | P |
-| RF-24 | Listado de conversaciones derivadas que requieren atención | 06 | P |
-| RF-25 | El dashboard obtiene todo de la API del backend y requiere autenticación | 06 | P |
+| RF-22 | Indicadores: pedidos de hoy, pedidos por estado, productos distintos pedidos hoy y cantidad de productos con stock bajo | 06 | I |
+| RF-23 | Listados: últimos pedidos con estado y hora; stock disponible con marca de stock bajo | 06 | I |
+| RF-24 | Listado de conversaciones derivadas que requieren atención | 06 | I |
+| RF-25 | El dashboard obtiene todo de la API del backend y requiere autenticación | 06 | I |
+| RF-61 | Pedidos del dashboard: la base es la fuente. Los pedidos de Sheet 2 (CSV local) que no están en la base se muestran como solo lectura, sin acciones; una fila con fecha ilegible se saltea. El total de cada pedido usa el precio de la línea o, si no lo tiene, el del catálogo, igual en todas las vistas. `GET /dashboard/summary` acepta `period` (`all`, `today`, `yesterday`, `7d`, `30d`) | 06 | I |
+| RF-62 | Ventas y KPIs (`GET /dashboard/metrics`): facturación total, concretada (`Retirado`, `Entregado`), en curso y cancelada; ticket promedio; tasas de cancelación y de concreción; serie temporal por día, semana, mes o año; desglose por categoría o marca, por canal y por estado; los 10 productos que más facturan y los 10 de más valor en stock sin ventas; valorización del catálogo y salud de stock. Filtros `period` y `channel` | 06 | I |
 
 ### Conversación
 
@@ -537,7 +544,7 @@ Mismas 7 etapas que [`roadmap.md`](../roadmap.md). Cerrar una etapa es una versi
 | 03 · Agente y pedidos multimodales | Del mensaje al borrador o la pregunta | RF-01, RF-04 a RF-06, RF-08 a RF-10, RF-33, RF-34 | Pasan CA-06 a CA-12, CA-20 y CA-37 a CA-44 con un modelo falso, y los casos de `mensajes.json` con el LLM elegido | 0.3.0 | En curso: loop, tools y skills con texto; faltan audio, imagen, chat web y la evaluación (D-01) |
 | 04 · Confirmación del cliente | Ningún pedido sin confirmación | RF-11 a RF-14, RF-16, RF-26 a RF-28 | Pasan CA-13, CA-14, CA-16, CA-17 y CA-21 a CA-23, CA-28 | 0.4.0 | En curso: propuesta, corrección y aceptación; faltan descarte, derivación y vencimiento |
 | 05 · Registro y seguimiento | Pedido confirmado = trabajo operativo | RF-15, RF-17 a RF-21 | Pasan CA-15, CA-19 y CA-48 a CA-52 | 0.5.0 | En curso: órdenes en SQLite y CSV local; faltan Sheet 2 real y `order_items` |
-| 06 · Dashboard | Ver qué pasa en el negocio | RF-22 a RF-25 | Pasan CA-24 y CA-25 | 0.6.0 | Pendiente (bloqueada por D-02) |
+| 06 · Dashboard | Ver qué pasa en el negocio | RF-22 a RF-25, RF-59 a RF-62 | Pasan CA-24, CA-25 y CA-113 a CA-120 | 0.6.0 | En curso: dashboard de una página (D-11), estados y KPIs de ventas |
 | 07 · WhatsApp de punta a punta | Operar desde el canal del cliente | RF-02, RF-03 | Pasan CA-05 y CA-18, y un pedido real de prueba por WhatsApp llega al dashboard | 0.7.0 | Pendiente |
 
 Orden sugerido dentro de la etapa 03: primero el loop con texto (orquestador, tools y un modelo falso), después audio e
@@ -609,7 +616,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-48 | Un request a `/orders/*` | Llega sin credencial o con token inválido | Se rechaza con `401 Unauthorized` | RF-20, RNF-01 | `test_api_orders.py::test_orders_endpoints_requieren_autenticacion` |
 | CA-49 | Una orden registrada | Se consulta por `GET /orders/{order_id}` con token de operador | Devuelve `200` con los datos de la orden; si no existe, `404` | RF-20 | `test_api_orders.py::test_get_order_*` |
 | CA-50 | Una orden activa | Se cancela por `POST /orders/{order_id}/cancel` con token de operador | Pasa a `Cancelado`, devuelve `200` y libera sus unidades comprometidas del stock disponible | RF-20 | `test_api_orders.py::test_cancel_order_api_success_and_frees_stock` |
-| CA-51 | Una orden inexistente o en estado terminal (`Cancelado`, `Retirado`) | Se cancela por `POST /orders/{order_id}/cancel` con token de operador | Devuelve `404` (inexistente) o `400` (ya terminal) | RF-20 | `test_api_orders.py::test_cancel_order_api_*` |
+| CA-51 | Una orden inexistente, en estado terminal (`Cancelado`, `Retirado`, `Entregado`) o `Despachado` | Se cancela por `POST /orders/{order_id}/cancel` o `POST /orders/{order_id}/status` con token de operador | Devuelve `404` (inexistente) o `400` (no se puede cancelar) | RF-20 | `test_api_orders.py::test_cancel_order_api_*`, `test_dashboard.py::test_update_order_status_workflow_and_stock_deduction` |
 | CA-52 | Una orden en el backend | Se cancela mediante la tool `cancelar_pedido` | Devuelve la orden cancelada, o lanza `ToolFailure("orden_invalida")` si no existe o es terminal | RF-20 | `test_api_orders.py::test_order_tools_cancelar_pedido` |
 | CA-53 | Carga de catálogo local | Se configura `CATALOG_FILE` con una ruta existente o inexistente | Se carga el archivo indicado; si no existe, recurre a `data_example/catalogo.csv` como fallback | RF-07 | `test_catalog.py::test_get_catalog_configurable_y_fallback` |
 
@@ -636,8 +643,16 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 
 | ID | Dado | Cuando | Entonces | RF | Test |
 |---|---|---|---|---|---|
-| CA-24 | — | Se pide `/dashboard/*` sin token o con uno inválido | `401` | RF-25 | pendiente |
-| CA-25 | El catálogo y los pedidos de ejemplo | Se pide `/dashboard/summary` | Productos con stock bajo = 3 (`CE-SED-340`, `ALG-EST-140`, `TIN-KOL-71`) y pedidos por estado = 2 `Recibido`, 2 `Preparado`, 2 `Retirado`, 1 `Cancelado` | RF-22, RF-23 | pendiente |
+| CA-24 | — | Se pide `/dashboard/*` sin token o con uno inválido | `401` | RF-25 | `tests/test_dashboard.py::test_dashboard_endpoints_require_authentication` |
+| CA-25 | El catálogo y los pedidos de ejemplo | Se pide `/dashboard/summary` | Productos con stock bajo = 3 (`CE-SED-340`, `ALG-EST-140`, `TIN-KOL-71`) y pedidos por estado = 2 `Recibido`, 2 `Preparado`, 2 `Retirado`, 1 `Cancelado` | RF-22, RF-23 | `tests/test_dashboard.py::test_dashboard_summary_datos_ejemplo` |
+| CA-113 | Una orden `Recibido` con stock en un catálogo local | Pasa a `Preparado`, `Despachado` y `Entregado` por `POST /orders/{order_id}/status` | Cada paso queda en el historial; al despachar el catálogo baja una vez, `stock_applied` queda en `true` y la orden deja de reservar | RF-20, RF-59 | `tests/test_dashboard.py::test_update_order_status_workflow_and_stock_deduction` |
+| CA-114 | El catálogo en Sheet 1 / en `data_example/catalogo.csv` | Una orden pasa a `Despachado` o `Retirado` | El archivo no cambia, `stock_applied` queda en `false` y la orden sigue reservando | RF-59 | `tests/test_dashboard.py::test_con_el_catalogo_en_sheet_1_no_se_descuenta`, `tests/test_dashboard.py::test_el_catalogo_de_ejemplo_no_se_descuenta` |
+| CA-115 | Una orden `Preparado` | Falla el guardado del cambio a `Despachado` en la base | El catálogo vuelve a como estaba, la orden sigue `Preparado` y un segundo intento descuenta una sola vez | RF-59 | `tests/test_dashboard.py::test_si_falla_la_base_el_catalogo_no_queda_descontado` |
+| CA-116 | Una orden registrada | Falla la planilla al cambiarle el estado | La API responde `200` con el estado nuevo, la orden queda con `sheets_synced = false` y `sync_pending_orders` escribe el estado en la planilla | RF-60 | `tests/test_dashboard.py::test_si_falla_la_planilla_el_estado_se_reintenta` |
+| CA-117 | Pedidos en la base y en el CSV de pedidos, uno solo en el CSV / una fila con fecha ilegible | Se pide `/dashboard/orders` | Aparecen todos, sin duplicar; el que está solo en el CSV viene con `read_only = true` / la fila ilegible no aparece | RF-61 | `tests/test_dashboard.py::test_pedidos_del_csv_que_no_estan_en_la_base_son_de_solo_lectura`, `tests/test_dashboard.py::test_fila_con_fecha_ilegible_se_saltea` |
+| CA-118 | Una línea sin precio de un producto del catálogo | Se piden `/dashboard/orders` y `/dashboard/metrics` | Las dos vistas dan el mismo total, con el precio del catálogo | RF-61, RF-62 | `tests/test_dashboard.py::test_linea_sin_precio_usa_el_del_catalogo_en_todas_las_vistas` |
+| CA-119 | Pedidos de distintos días, canales y estados | Se pide `/dashboard/metrics` con `granularity`, `breakdown_by`, `period` y `channel` / `/dashboard/summary?period=` | Facturación, serie, desgloses y KPIs coinciden con los pedidos del período y canal | RF-61, RF-62 | `tests/test_dashboard.py::test_dashboard_metrics_revenue_granularity_and_breakdown`, `tests/test_dashboard.py::test_dashboard_summary_period_filtering_and_metrics_yesterday` |
+| CA-120 | La pestaña Conversaciones del dashboard | Carga | Pide solo las conversaciones `derivada` (RF-24) | RF-24 | `tests/test_dashboard.py::test_la_ui_pide_solo_conversaciones_derivadas` |
 
 ---
 
@@ -648,15 +663,16 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | ID | Tema | Estado | Detalle |
 |---|---|---|---|
 | D-01 | Proveedor de LLM | **Tomada en parte**: LangGraph y LangChain para el loop, con un modelo free tier para texto en la beta: Gemini, Groq u OpenRouter según `LLM_PROVIDER`; `.env.example` trae OpenRouter y deja Gemini como alternativa ([canal Telegram §7](canal-telegram.md#7-decisiones-y-riesgos)). Audio, imagen y producción siguen abiertos | Tiene que soportar tool calling con JSON Schema, buen español, y transcripción de audio y lectura de imágenes (o usar otro servicio para eso). Criterios: aciertos en `mensajes.json`, latencia (RNF-06) y costo por pedido |
-| D-02 | Tecnología del frontend | **Abierta**, bloquea la etapa 06 | Chat web y dashboard en `frontend/src/` |
+| D-02 | Tecnología del frontend | **Abierta** para el chat web; el dashboard de la beta se resolvió sin framework (D-11) | Chat web y dashboard en `frontend/src/` |
 | D-03 | Servidor de producción | **Tomada en parte**: por ahora cada integrante corre producción en el Docker de su máquina (`~/norma-prod`), con su propio bot de Telegram y su propia API | Sigue abierto un servidor siempre prendido para el bot beta compartido (ver `MEJORAS.md`, próximos pasos) |
 | D-04 | ¿El resumen muestra precios y total? | **Tomada** | Sí: el resumen del borrador (`build_summary`), el detalle debajo de cada propuesta (`build_proposal_detail`) y el mensaje de la orden registrada (`build_order_message`) incluyen precio unitario, subtotal y total cuando están en el catálogo. Los arma `validation_service`, no el LLM ([§5.3](#53-borrador-orderdraft-orderitem)) |
 | D-05 | Identidad del cliente en el chat web | **Abierta** | Propuesta: un id anónimo que genera el backend y el navegador guarda; sin cuentas de usuario |
-| D-06 | Dónde se cambia el estado de una orden | Tomada en esta spec, a revisar | En el MVP el equipo lo cambia en Sheet 2 y el dashboard lo lee de ahí; la base guarda la orden y su estado inicial |
+| D-06 | Dónde se cambia el estado de una orden | **Tomada** | En el dashboard: la base es la fuente y el cambio se copia al CSV de pedidos y a Sheet 2 (RF-60). Un cambio hecho a mano en Sheet 2 no vuelve a la base |
 | D-07 | Parámetros del agente | Tomada en esta spec, a revisar | 15 iteraciones por turno, 20 mensajes de historial, 24 h de vencimiento y de silencio tras derivar, 2 fallas o 3 aclaraciones para derivar, 30 s de timeout, caché de 5 min; se ajustan con uso real |
 | D-08 | Retención de conversaciones | **Abierta** | Propuesta: 90 días |
 | D-09 | BR usadas por varias skills | Cerrada | No hay BR compartidas: las que se usan juntas (BR-01, BR-03, BR-04 y BR-05) quedaron en `tomar_pedido`, y BR-02 está en el system prompt. Si otra skill necesita una, lee `tomar_pedido`, como ya hace `confirmar_pedido` con BR-01 |
 | D-10 | Trazas y evaluación del agente | **Tomada en parte**: MLflow, apagado por defecto y solo en desarrollo (`docker compose --profile mlflow`), sin el texto de los mensajes | Producción sigue abierta: el servidor de MLflow no tiene login y la retención de las trazas depende de D-08 |
+| D-11 | Dashboard sin build | **Tomada para la beta** | Una sola página (`frontend/src/Dashboard/index.html`) con Tailwind y Chart.js desde CDN, sin paso de build. El token de operador queda en `localStorage` del navegador: aceptable para una beta interna en equipos del negocio. Para producción: servir los assets locales y revisar el guardado del token |
 
 ### 10.2 Riesgos
 

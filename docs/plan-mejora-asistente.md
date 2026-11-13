@@ -84,6 +84,7 @@ worktree; el plan y la revisión de los PR los hace la sesión coordinadora con 
 | C | Guardado de pedidos en la base | `feature/guardado-de-pedidos` | `docs/spec/guardado-de-pedidos.md` | RF-45 a RF-49, CA-81 a CA-92 |
 | D | Google Sheets y Excel | `feature/planillas-google-sheets` | `docs/spec/planillas.md` | RF-50 a RF-54, CA-93 a CA-102 |
 | E | Skills y respuestas más reales | `feature/skills-respuestas-reales` | `docs/spec/skills-y-respuestas.md` | RF-55 a RF-58, CA-103 a CA-112, BR-07 a BR-10 |
+| — | Dashboard operativo (PR #69, fuera del plan) | `feature/pablo-dashboard` | `docs/spec/README.md` (requisitos y criterios del dashboard) | RF-59 a RF-62, CA-113 a CA-120, D-11 |
 
 ### A · Búsqueda tolerante a errores
 

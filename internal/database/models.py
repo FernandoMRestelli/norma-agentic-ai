@@ -66,6 +66,8 @@ class OrderRecord(Base):
     # Sin clave foránea: la conversación puede borrarse por retención (D-08) y la orden tiene que quedar
     conversation_id: Mapped[int | None] = mapped_column(Integer, index=True)
     total: Mapped[Decimal | None] = mapped_column(DecimalText)
+    # Agregada en la migración 2: el stock ya se descontó del catálogo al despachar o retirar (Issue #61)
+    stock_applied: Mapped[bool] = mapped_column(default=False, server_default="0")
 
     lines: Mapped[list["OrderItemRecord"]] = relationship(
         back_populates="order",

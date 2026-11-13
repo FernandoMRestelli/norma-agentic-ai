@@ -13,14 +13,17 @@ Detalle en docs/spec/planillas.md.
 """
 
 import csv
+import io
 import logging
+import os
+import re
 import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import UTC
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -29,7 +32,7 @@ from pydantic import ValidationError
 
 from internal.config import get_settings
 from internal.schemas.catalog_schema import Product
-from internal.schemas.order_schema import Order, OrderItem
+from internal.schemas.order_schema import Channel, Order, OrderItem, OrderStatus
 from internal.services import google_sheets_client
 
 try:  # no existe en Windows: ahí el bloqueo de pedidos es solo entre hilos del mismo proceso
@@ -44,7 +47,15 @@ FALLBACK_CATALOG_CSV = ROOT_DIR / "data_example" / "catalogo.csv"
 
 # Las columnas nuevas van al final: un pedidos.csv de la 0.1.1 sigue alineado con su encabezado
 ORDER_COLUMNS = [
-    "id_orden", "fecha_hora", "cliente", "canal", "productos", "notas", "estado", "nombre_cliente", "total"
+    "id_orden",
+    "fecha_hora",
+    "cliente",
+    "canal",
+    "productos",
+    "notas",
+    "estado",
+    "nombre_cliente",
+    "total",
 ]
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
@@ -356,3 +367,186 @@ def check_orders_sheet() -> int:
         )
     client.update_cell(sheet_id, worksheet, 1, 1, ORDER_COLUMNS[0])
     return len([value for value in ids[1:] if value])
+
+
+# «2 x Shampoo 400 ml (SH-400) [sin perfume]»: la nota es opcional (`_product_line`)
+_PRODUCT_LINE = re.compile(r"^(?P<qty>\d+)\s*x\s*(?P<name>.+?)(?:\s*\((?P<sku>[A-Z0-9-]+)\))?(?:\s*\[(?P<note>.*)\])?$")
+
+
+def get_orders() -> list[Order]:
+    """Lee las órdenes del archivo local de pedidos (la copia de Sheet 2), si existe.
+
+    Una fila con la fecha ilegible se saltea: contarla como de hoy inflaría los indicadores del día.
+    """
+    path = get_orders_path()
+    if not path.is_file():
+        return []
+    try:
+        catalog_map = {p.sku: p for p in get_catalog()}
+    except Exception:
+        catalog_map = {}
+    orders: list[Order] = []
+    with open(path, mode="r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if not row or not row.get("id_orden"):
+                continue
+            order_id = row["id_orden"]
+            try:
+                created_at = datetime.fromisoformat(row.get("fecha_hora") or "")
+            except ValueError:
+                logger.warning("Pedido %s del CSV con fecha ilegible: no se muestra", order_id)
+                continue
+            customer_id = row.get("cliente", "")
+            canal_str = row.get("canal", "web")
+            try:
+                channel = Channel(canal_str)
+            except ValueError:
+                channel = Channel.WEB
+
+            productos_str = row.get("productos", "")
+            items: list[OrderItem] = []
+            for part in productos_str.split(";"):
+                part = part.strip()
+                if not part:
+                    continue
+                match = _PRODUCT_LINE.match(part)
+                if match:
+                    sku = match.group("sku") or ""
+                    prod = catalog_map.get(sku)
+                    items.append(
+                        OrderItem(
+                            sku=sku or "SKU-DESC",
+                            product_name=match.group("name").strip(),
+                            presentation=prod.presentation if prod else None,
+                            quantity=int(match.group("qty")),
+                            unit_price=prod.price if prod else None,
+                            note=match.group("note"),
+                        )
+                    )
+            if not items:
+                items.append(OrderItem(sku="DESCONOCIDO", product_name="Producto sin detalle", quantity=1))
+
+            try:
+                status = OrderStatus(row.get("estado", OrderStatus.RECEIVED.value))
+            except ValueError:
+                status = OrderStatus.RECEIVED
+
+            orders.append(
+                Order(
+                    order_id=order_id,
+                    draft_id=f"draft-{order_id}",
+                    created_at=created_at,
+                    customer_id=customer_id,
+                    channel=channel,
+                    items=items,
+                    notes=row.get("notas") or None,
+                    status=status,
+                    sheets_synced=True,
+                )
+            )
+    return orders
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    """Escribe en un archivo temporal y lo reemplaza: quien lee ve el archivo viejo o el nuevo, nunca uno a medias."""
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8", newline="")
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def update_order_status_in_sheets(order_id: str, new_status: str) -> None:
+    """Escribe el estado de una orden en el CSV de pedidos y, si está configurada, en Sheet 2 (RF-60).
+
+    Corre bajo el mismo bloqueo que `append_order` (RF-52). Si una de las dos falla, lanza la excepción: la orden queda
+    pendiente y `order_service.sync_pending_orders()` lo vuelve a intentar.
+    """
+    with _orders_lock():
+        _update_order_status_csv(order_id, new_status)
+        if orders_to_sheet():
+            _update_order_status_sheet(order_id, new_status)
+
+
+def _update_order_status_csv(order_id: str, new_status: str) -> bool:
+    path = get_orders_path()
+    if not path.is_file():
+        return False
+    with open(path, mode="r", encoding="utf-8", newline="") as f:
+        rows = list(csv.reader(f))
+    if not rows:
+        return False
+    status_idx = rows[0].index("estado") if "estado" in rows[0] else ORDER_COLUMNS.index("estado")
+    updated = False
+    for row in rows[1:]:
+        if row and row[0] == order_id:
+            row.extend([""] * (status_idx + 1 - len(row)))
+            row[status_idx] = new_status
+            updated = True
+    if updated:
+        buffer = io.StringIO()
+        csv.writer(buffer).writerows(rows)
+        _write_atomic(path, buffer.getvalue())
+    return updated
+
+
+def _update_order_status_sheet(order_id: str, new_status: str) -> bool:
+    settings = get_settings()
+    client = google_sheets_client.get_client()
+    sheet_id, worksheet = settings.orders_sheet_id, settings.orders_worksheet
+    ids = [_cell_text(value) for value in client.get_column(sheet_id, worksheet, 1)]
+    if order_id not in ids:
+        return False  # la fila todavía no llegó: la escribe `append_order` en el reintento, ya con el estado nuevo
+    client.update_cell(sheet_id, worksheet, ids.index(order_id) + 1, ORDER_COLUMNS.index("estado") + 1, new_status)
+    return True
+
+
+def _deduct_rows(path: Path, to_deduct: dict[str, int]) -> str:
+    with open(path, mode="r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        fieldnames = list(reader.fieldnames or [])
+        rows = list(reader)
+    for row in rows:
+        sku = row.get("sku")
+        if sku in to_deduct and row.get("stock"):
+            try:
+                row["stock"] = str(max(0, int(row["stock"]) - to_deduct[sku]))
+            except ValueError:
+                logger.warning("Stock ilegible para %s en el catálogo: no se descuenta", sku)
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames, lineterminator="\n")
+    writer.writeheader()
+    writer.writerows(rows)
+    return buffer.getvalue()
+
+
+@contextmanager
+def deduct_catalog_stock(items: list[dict[str, Any]] | list[OrderItem]) -> Iterator[bool]:
+    """Resta del catálogo local las unidades de una orden que sale (Issue #61, RF-59). Da si se descontó.
+
+    No descuenta con el catálogo en Sheet 1, que es de solo lectura (RF-50), ni del catálogo de ejemplo versionado:
+    en esos casos la orden sigue reservando su stock. Si el bloque falla (por ejemplo, el commit de la base), el
+    catálogo vuelve a como estaba: el descuento y el cambio de estado se guardan juntos o no se guarda ninguno.
+    Quien la usa tiene que tener la base bloqueada (`BEGIN IMMEDIATE`) para que dos cambios no se pisen.
+    """
+    path = get_catalog_path()
+    if catalog_from_sheet() or not path.is_file() or path.resolve() == FALLBACK_CATALOG_CSV.resolve():
+        yield False
+        return
+    to_deduct: dict[str, int] = {}
+    for item in items:
+        sku, qty = (item.get("sku"), item.get("quantity", 0)) if isinstance(item, dict) else (item.sku, item.quantity)
+        if sku and isinstance(qty, int) and qty > 0:
+            to_deduct[sku] = to_deduct.get(sku, 0) + qty
+    if not to_deduct:
+        yield True
+        return
+    original = path.read_text(encoding="utf-8")
+    _write_atomic(path, _deduct_rows(path, to_deduct))
+    try:
+        yield True
+    except BaseException:
+        _write_atomic(path, original)
+        raise

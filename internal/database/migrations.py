@@ -94,8 +94,14 @@ def _step_1_detalle_de_ordenes(conn: Connection) -> None:
     conn.exec_driver_sql("ALTER TABLE orders DROP COLUMN items")
 
 
+def _step_2_stock_aplicado(conn: Connection) -> None:
+    """1 → 2: `orders.stock_applied`, para no reservar el stock de una orden ya descontada del catálogo (Issue #61)."""
+    _add_column(conn, "orders", "stock_applied", "BOOLEAN NOT NULL DEFAULT 0")
+
+
 STEPS: list[tuple[int, Callable[[Connection], None]]] = [
     (1, _step_1_detalle_de_ordenes),
+    (2, _step_2_stock_aplicado),
 ]
 LATEST = STEPS[-1][0]
 
