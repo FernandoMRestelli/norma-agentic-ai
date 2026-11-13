@@ -82,6 +82,7 @@ class NormaAgent:
                 "fallas": 0,
                 "falla_turno": False,
                 "propuesta": None,
+                "renglones": [],
             }
         try:
             state = self.graph.invoke(entry, config)
