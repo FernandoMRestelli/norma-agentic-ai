@@ -36,6 +36,33 @@ primeros errores fueron `GoogleAPIError` y después `429`: el free tier de `gemi
 Cada caso hace varias llamadas, así que `--pausa` no alcanza: hace falta otra cuota o correr pocos casos por día con
 `--caso`. Cuando corra, hay que mirar si el agente lee la BR de cada caso, ahora que están todas en `tomar_pedido`.
 
+**Cuarta corrida (2026-11-10 y 2026-11-11), frente E de skills y respuestas, OpenRouter con el modelo por defecto
+(`nemotron-3.5-lightning:free`), un intento por caso:**
+
+- **Prompt de la 0.1.1 (2026-11-10):** evaluó 2 de 6 casos; el resto cortó por `OpenAIRateLimitError`. `saludo` salió
+  correcto («¡Hola! ¿Buen día. En qué te ayudo?»). `texto-simple` salió incorrecto: escribió como texto suelto el
+  detalle de precios que ya agrega el sistema, le dijo al cliente «Stock disponible: 24 unidades» y cerró con la frase
+  fija «¿Querés sumar algo más o te confirmo el pedido?».
+- **Prompt nuevo, primera versión (`8692e61bae`, 2026-11-11):** de 5 casos evaluados, 2 correctos (`saludo` y
+  `conversacion-aclara-medida-y-acepta`) y 3 con buen estilo. `ambiguo-producto-y-presentacion` quedó sin respuesta del
+  LLM. En `acepta-dale`, sin tool terminal, el modelo contestó «Pedido confirmado… Número de orden: 241003A»: inventó
+  el número y no registró nada.
+- **Por qué:** `respond_to_customer` y `armar_pedido` recién están disponibles después de `leer_skill`. Al reescribir
+  saqué «nunca respondas con texto suelto», y el prompt además pedía buscar antes de leer la skill: el modelo buscaba
+  y, al no tener con qué responder, escribía texto.
+- **Con «nunca como texto suelto» de vuelta (`6a009bac6d`):** 2 de 5 correctos (`saludo` y `acepta-dale`, este con el
+  número que da el sistema). `texto-simple`, `ambiguo-producto-y-presentacion` y `stock-insuficiente` siguen sin leer la
+  skill ni usar la tool terminal.
+- **Con la skill leída primero (`2cad7c65ba`, el del PR):** 1 de 3 correctos; los otros 3 cortaron por la cuota. Ahora
+  el modelo lee la skill, pero igual contesta con texto suelto aunque tenga `respond_to_customer`.
+
+Con un intento por caso, lo medido no alcanza para decir si el prompt nuevo es mejor que el de la 0.1.1. Cuando el
+modelo usa las tools, la voz es la buscada: «¡Buen día! ¿Qué te preparo hoy?» (copia el ejemplo de la skill), «Listo,
+te armo 2 shampoos Pantene de 400. ¿Te lo confirmás así?». Cuando no las usa, vuelven las negritas, «presentación», el
+número de stock y dos preguntas por mensaje. Lo que falla es el uso de tools, como ya advierte `.env.example`. Falta
+medir el prompt nuevo con un modelo que use tools (por ejemplo Gemini) o con más cuota, y con varias iteraciones por
+caso: `python -m internal.evaluar_agente --pausa 30 --conversaciones data/evaluacion/conversaciones.md`.
+
 - Los contratos de datos rechazan lo que tienen que rechazar (borrador sin ítems, cantidades no positivas,
   mensaje de audio sin archivo) y los precios no pierden centavos (`Decimal`).
 - Las invariantes valen para todos los canales y tipos de mensaje: un borrador nace sin confirmar y el resumen

@@ -8,6 +8,7 @@ from typing import Any
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import BaseModel, ValidationError
 
+from internal.agent import guardrails
 from internal.agent.state import Resultado
 from internal.schemas.agent_schema import (
     ArmarPedidoInput,
@@ -45,6 +46,7 @@ class TurnContext:
     kind: str | None = None
     options: list[str] = field(default_factory=list)
     order_id: str | None = None
+    turno: guardrails.ContextoTurno = field(default_factory=guardrails.ContextoTurno)  # para validar la salida
 
 
 @dataclass(frozen=True)
@@ -104,10 +106,21 @@ def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict
     propuesta = reply_tools.respond_to_customer(
         data, ctx.customer_id, ctx.channel, ctx.propuesta, ctx.customer_name, ctx.conversation_id
     )
-    respuesta = data.message
+    message = data.message
+    # Lo que escribió el LLM pasa por los guardrails antes de llegar al cliente; la vigente no cambia si falla
+    rechazos = guardrails.validar_salida(message, data.kind.value, propuesta, data.options, ctx.turno, ctx.propuesta)
+    if rechazos:
+        ctx.turno.rechazos += 1
+        if ctx.turno.rechazos <= guardrails.MAX_RECHAZOS:
+            raise guardrails.rechazar(rechazos)
+        logger.warning(
+            "Guardrail: intentos agotados, sale el mensaje fijo (reglas=%s)", ",".join(r.regla for r in rechazos)
+        )
+        message = guardrails.mensaje_seguro(propuesta)
+    respuesta = message
     if propuesta:
         # El detalle sale del catálogo, no del LLM: así entra un pedido de muchas líneas y los precios son exactos
-        respuesta = f"{data.message}\n\n{validation_service.build_proposal_detail(propuesta)}"
+        respuesta = f"{message}\n\n{validation_service.build_proposal_detail(propuesta)}"
     ctx.respuesta = respuesta
     ctx.kind = data.kind.value
     ctx.options = data.options

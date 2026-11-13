@@ -4,11 +4,13 @@ Primer corte: la conversación solo está abierta, cerrada o fallida. La máquin
 spec del agente (§2) se suma con el vencimiento y la derivación.
 """
 
+import logging
 import threading
 from collections import defaultdict
 
 from sqlalchemy import select
 
+from internal.agent import guardrails
 from internal.agent.norma_agent import get_agent
 from internal.agent.tool_registry import validate_skills
 from internal.database.connection import SessionLocal, init_db
@@ -16,6 +18,8 @@ from internal.database.models import ConversationRecord
 from internal.schemas.conversation_schema import ChannelReply
 from internal.schemas.order_schema import Channel, IncomingMessage, MessageType
 from internal.services import message_service
+
+logger = logging.getLogger(__name__)
 
 WRITE_IT_PLEASE = "Por ahora solo puedo leer pedidos escritos. ¿Me lo mandás por texto?"
 
@@ -55,6 +59,18 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
         # RF-32: sin modelo de visión, audio e imagen no llegan al LLM
         return ChannelReply(text=WRITE_IT_PLEASE)
 
+    text = message_service.prepare(message)
+    # Topes de entrada antes de abrir la conversación y sin llamar al LLM (spec de guardrails §3.3)
+    if rechazo := guardrails.revisar_entrada((message.customer_id, message.channel), text):
+        logger.warning(
+            "Guardrail: mensaje de %s por %s no llega al agente (%s, %d caracteres)",
+            message.customer_id,
+            message.channel.value,
+            "rafaga" if rechazo == guardrails.MENSAJE_RAFAGA else "largo",
+            len(text),
+        )
+        return ChannelReply(text=rechazo)
+
     # Los turnos de una conversación se procesan de a uno (RNF-05)
     with _locks[(message.customer_id, message.channel)]:
         conversation_id = _open_conversation_id(message.customer_id, message.channel)
@@ -62,7 +78,7 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
             thread_id=str(conversation_id),
             customer_id=message.customer_id,
             channel=message.channel,
-            text=message_service.prepare(message),
+            text=text,
             customer_name=message.customer_name,
         )
         if outcome.cerrada:

@@ -116,6 +116,11 @@ def test_message_cases_are_consistent(case, catalog):
         assert item["sku"] in catalog
         assert item["cantidad"] > 0
 
+    previo = case.get("previo")
+    if previo is not None:  # un texto o una lista de textos, en orden (CA-112)
+        turnos = [previo] if isinstance(previo, str) else previo
+        assert turnos and all(isinstance(t, str) and t.strip() for t in turnos)
+
     if expected["resultado"] in ("borrador", "pedido"):
         assert expected["items"]
     if expected["resultado"] in ("pedido", "sin_pedido"):
@@ -124,3 +129,10 @@ def test_message_cases_are_consistent(case, catalog):
         assert len(expected["opciones"]) > 1
     if expected["resultado"] == "sin_stock":
         assert any(item["cantidad"] > catalog[item["sku"]].stock for item in expected["items"])
+
+
+def test_hay_casos_de_varios_turnos():
+    """CA-112: la evaluación tiene conversaciones, no solo mensajes sueltos."""
+    listas = [case["previo"] for case in load_cases() if isinstance(case.get("previo"), list)]
+    assert len(listas) >= 5
+    assert any(len(previo) >= 3 for previo in listas)
