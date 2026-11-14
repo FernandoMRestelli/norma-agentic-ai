@@ -10,7 +10,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.sqlite import SqliteSaver
 from sqlalchemy import delete, func, select
 
-from internal.agent import context, norma_agent
+from internal.agent import context, graph, norma_agent
 from internal.agent.graph import FAILURE_MESSAGE, MAX_ITERATIONS
 from internal.agent.norma_agent import NormaAgent
 from internal.database.connection import SessionLocal, init_db
@@ -45,8 +45,9 @@ class ModeloGuionado:
         self.recibidos: list[list] = []
         self._tools: list[str] = []
 
-    def bind_tools(self, tools):
+    def bind_tools(self, tools, **kwargs):
         self._tools = [tool["function"]["name"] for tool in tools]
+        self.tool_choice = kwargs.get("tool_choice")
         return self
 
     def invoke(self, messages):
@@ -121,7 +122,7 @@ def test_conversacion_completa(catalogo):
     assert primero.draft.items[0].quantity == 3
     assert _ordenes() == 0
 
-    segundo = agent.handle("1", text="dale", **CLIENTE)
+    segundo = agent.handle("1", text="sí, dale", **CLIENTE)
     assert segundo.kind == "pedido"
     assert segundo.cerrada
     assert segundo.order_id
@@ -146,7 +147,7 @@ def test_rechazo_no_crea_orden_y_descarta_la_propuesta(catalogo):
     assert rechazo.draft is None
     assert _ordenes() == 0
 
-    agent.handle("1", text="dale", **CLIENTE)
+    agent.handle("1", text="sí, dale", **CLIENTE)
     assert _resultados(agent, "armar_pedido")[-1]["error"]["code"] == "sin_propuesta"
     assert _ordenes() == 0
 
@@ -178,7 +179,7 @@ def test_pregunta_sobre_la_propuesta_la_mantiene_vigente(catalogo):
     assert pregunta.draft.version == 2
     assert _ordenes() == 0
 
-    final = agent.handle("1", text="dale", **CLIENTE)
+    final = agent.handle("1", text="sí, dale", **CLIENTE)
     assert final.kind == "pedido"
     assert _ordenes() == 1
     assert order_service.get_order(final.order_id).items[0].quantity == 3
@@ -190,7 +191,7 @@ def test_cada_skill_habilita_una_respuesta(catalogo, skill):
         _ai(_call("leer_skill", nombre=skill)),
         _ai(_call("respond_to_customer", kind="informacion", message="Hola, ¿qué querés pedir?")),
     )
-    resultado = agent.handle("1", text="hola", **CLIENTE)
+    resultado = agent.handle("1", text="necesito hacer una consulta", **CLIENTE)  # ninguna skill es obvia
     assert "respond_to_customer" not in modelo.ofrecidas[0]
     assert "respond_to_customer" in modelo.ofrecidas[1]
     assert "armar_pedido" not in modelo.ofrecidas[1]
@@ -204,9 +205,9 @@ def test_estado_muestra_la_presentacion_de_la_propuesta(catalogo):
     assert f"3 x Crema Nivea 100 ml ({SKU})" in modelo.recibidos[-1][0].content
 
 
-@pytest.mark.parametrize("texto", ["ok", "OK", "  Confirmar\n"])
+@pytest.mark.parametrize("texto", ["ok", "OK", "  Confirmar\n", "dale", "Sí", "¡Listo!", "de una", "mandale."])
 def test_ok_exacto_registra_la_propuesta_sin_llamar_al_llm(catalogo, texto):
-    """CA-18: la propuesta se registra y el modelo no vuelve a recibir nada."""
+    """CA-18 y CA-120: la propuesta se registra y el modelo no vuelve a recibir nada."""
     agent, modelo = _agente(*GUION_OFERTA)
     agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
     llamadas = len(modelo.recibidos)
@@ -336,7 +337,7 @@ def test_propuesta_con_sku_inventado_vuelve_al_llm(catalogo):
 def test_armar_pedido_sin_leer_la_skill_no_se_ejecuta(catalogo):
     """CA-37."""
     agent, _ = _agente(_ai(_call("armar_pedido")), AIMessage(content="¿Qué necesitás?"))
-    agent.handle("1", text="dale", **CLIENTE)
+    agent.handle("1", text="sí, dale", **CLIENTE)
     assert _resultados(agent, "armar_pedido")[0]["error"]["code"] == "tool_no_permitida"
     assert _ordenes() == 0
 
@@ -344,7 +345,7 @@ def test_armar_pedido_sin_leer_la_skill_no_se_ejecuta(catalogo):
 def test_armar_pedido_sin_propuesta(catalogo):
     """CA-42."""
     agent, _ = _agente(*GUION_ACEPTA, AIMessage(content="¿Qué necesitás?"))
-    agent.handle("1", text="dale", **CLIENTE)
+    agent.handle("1", text="sí, dale", **CLIENTE)
     assert _resultados(agent, "armar_pedido")[0]["error"]["code"] == "sin_propuesta"
     assert _ordenes() == 0
 
@@ -357,7 +358,7 @@ def test_armar_pedido_ignora_productos_que_mande_el_llm(catalogo):
         _ai(_call("armar_pedido", items=[{"sku": SKU, "quantity": 999}])),
     )
     agent.handle("1", text="5 cremas", **CLIENTE)
-    resultado = agent.handle("1", text="dale", **CLIENTE)
+    resultado = agent.handle("1", text="sí, dale", **CLIENTE)
     assert [item.quantity for item in order_service.get_order(resultado.order_id).items] == [3]
 
 
@@ -367,7 +368,7 @@ def test_stock_que_baja_antes_de_aceptar_no_crea_orden(catalogo, monkeypatch):
     agent.handle("1", text="5 cremas", **CLIENTE)
     sin_stock = [catalogo[0].model_copy(update={"stock": 1})]
     monkeypatch.setattr(sheets_service, "get_catalog", lambda: sin_stock)
-    resultado = agent.handle("1", text="dale", **CLIENTE)
+    resultado = agent.handle("1", text="sí, dale", **CLIENTE)
     assert _resultados(agent, "armar_pedido")[0]["error"]["code"] == "stock_insuficiente"
     assert resultado.order_id is None
     assert _ordenes() == 0
@@ -377,7 +378,7 @@ def test_reintento_no_duplica_la_orden(catalogo):
     """CA-15 / RF-15."""
     agent, _ = _agente(*GUION_OFERTA, *GUION_ACEPTA)
     primero = agent.handle("1", text="5 cremas", **CLIENTE)
-    resultado = agent.handle("1", text="dale", **CLIENTE)
+    resultado = agent.handle("1", text="sí, dale", **CLIENTE)
     repetida = order_service.confirm_draft(primero.draft)
     assert repetida.order_id == resultado.order_id
     assert _ordenes() == 1
@@ -387,7 +388,7 @@ def test_indice_muestra_confirmar_pedido_solo_con_propuesta(catalogo):
     """CA-54: sin propuesta vigente no hay nada que confirmar."""
     agent, modelo = _agente(*GUION_OFERTA, *GUION_ACEPTA)
     agent.handle("1", text="5 cremas", **CLIENTE)
-    agent.handle("1", text="dale", **CLIENTE)
+    agent.handle("1", text="sí, dale", **CLIENTE)
     indice_sin_propuesta = modelo.recibidos[0][0].content
     indice_con_propuesta = modelo.recibidos[4][0].content
     assert "- `tomar_pedido`:" in indice_sin_propuesta
@@ -412,12 +413,12 @@ def test_indice_muestra_que_hace_cada_skill_y_cuando_usarla(catalogo):
 def test_tools_ofrecidas_dependen_de_la_skill_y_se_reinician(catalogo):
     """CA-38 y CA-39."""
     agent, modelo = _agente(*GUION_OFERTA, *GUION_ACEPTA)
-    agent.handle("1", text="5 cremas", **CLIENTE)
+    agent.handle("1", text="te encargo cremas", **CLIENTE)  # sin cantidad ni lista: elige el modelo
     assert "respond_to_customer" not in modelo.ofrecidas[0]
     assert "armar_pedido" not in modelo.ofrecidas[0]
     assert "respond_to_customer" in modelo.ofrecidas[2]
 
-    agent.handle("1", text="dale", **CLIENTE)
+    agent.handle("1", text="sí dale, mandalo nomás", **CLIENTE)  # más de tres palabras: tampoco se preactiva
     assert "respond_to_customer" not in modelo.ofrecidas[4]  # primera llamada del turno nuevo
     assert "armar_pedido" in modelo.ofrecidas[5]
 
@@ -426,11 +427,11 @@ def test_lecturas_de_turnos_anteriores_no_se_reenvian(catalogo):
     """Spec del agente §8: la charla sigue, las tools de otro turno no."""
     agent, modelo = _agente(*GUION_OFERTA, *GUION_ACEPTA)
     agent.handle("1", text="5 cremas", **CLIENTE)
-    agent.handle("1", text="dale", **CLIENTE)
+    agent.handle("1", text="sí, dale", **CLIENTE)
     primer_llamado_turno_2 = modelo.recibidos[4]
     assert not any(isinstance(m, ToolMessage) for m in primer_llamado_turno_2)
     textos = [m.text for m in primer_llamado_turno_2[1:]]
-    assert textos == ["5 cremas", OFERTA_CON_DETALLE, "dale"]
+    assert textos == ["5 cremas", OFERTA_CON_DETALLE, "sí, dale"]
     assert "Propuesta vigente: 3 x Crema Nivea" in primer_llamado_turno_2[0].text
 
 
@@ -465,6 +466,109 @@ def test_tope_de_iteraciones(catalogo):
     assert len(modelo.ofrecidas) == MAX_ITERATIONS
 
 
+def test_plazo_del_turno(catalogo, monkeypatch):
+    """RNF-16: pasado el plazo total, el turno corta con el mensaje fijo aunque le queden iteraciones."""
+    reloj = iter([0.0, 0.0, 61.0, 61.0])
+    monkeypatch.setattr(graph, "_reloj", lambda: next(reloj, 61.0))
+    agent, modelo = _agente(*[_ai(_call("get_product", sku=SKU)) for _ in range(3)])
+
+    resultado = agent.handle("1", text="tenés cremas", **CLIENTE)
+
+    assert resultado.message == FAILURE_MESSAGE
+    assert resultado.kind == "error"
+    assert len(modelo.ofrecidas) == 1
+
+
+def test_tool_obligatoria(catalogo):
+    """CA-116: cada llamada al modelo lo obliga a elegir una tool."""
+    agent, modelo = _agente(*GUION_OFERTA)
+    agent.handle("1", text="te encargo cremas", **CLIENTE)
+    assert modelo.tool_choice == "any"
+
+
+@pytest.mark.parametrize(
+    ("texto", "hay_propuesta", "skill"),
+    [
+        ("Pantene\n2 sh 400\n1 acond", False, "tomar_pedido"),  # una lista
+        ("5 cremas nivea", False, "tomar_pedido"),  # una cantidad
+        ("hola, buen día", False, "informar"),
+        ("muchas gracias!", False, "informar"),
+        ("tenés crema nivea?", False, None),  # consulta sin cantidad: elige el modelo
+        ("hola, tenés shampoo?", False, None),
+        ("sí, dale", True, "confirmar_pedido"),
+        ("no, gracias", True, "confirmar_pedido"),
+        ("mmm dejame pensarlo", True, "confirmar_pedido"),
+        ("dale, pero 2", True, None),  # cambia la propuesta
+        ("sumale también un shampoo pantene", True, None),
+        ("Pantene\n2 sh 400", True, None),
+    ],
+)
+def test_skill_clara(texto, hay_propuesta, skill):
+    """RF-62: el backend preactiva una skill solo cuando el mensaje no admite dudas."""
+    assert graph.skill_clara(texto, hay_propuesta) == skill
+
+
+def test_preactiva_tomar_pedido(catalogo):
+    """CA-117: con una lista, la primera llamada ya tiene las tools de `tomar_pedido` y el turno cierra en una."""
+    agent, modelo = _agente(_ai(_propuesta("Listo, te armé las cremas. ¿Lo confirmo?", SKU, 2)))
+
+    resultado = agent.handle("1", text="Nivea\n2 cremas\n1 jabón", **CLIENTE)
+
+    assert resultado.kind == "propuesta"
+    assert resultado.iterations == 1
+    assert "respond_to_customer" in modelo.ofrecidas[0]
+    assert "armar_pedido" not in modelo.ofrecidas[0]
+    sistema = modelo.recibidos[0][0].text
+    assert "## Skill activa: `tomar_pedido`" in sistema
+    assert skill_service.get_skills()["tomar_pedido"].instrucciones in sistema
+    estado = agent.graph.get_state({"configurable": {"thread_id": "1"}}).values
+    assert estado["skills_activas"] == ["tomar_pedido"]
+
+
+def test_saludo_cierra_en_una_llamada(catalogo):
+    """RF-62: un saludo preactiva `informar`, con sus datos del negocio a la vista."""
+    saludar = _call("respond_to_customer", kind="informacion", message="¡Buen día! ¿Qué te preparo?")
+    agent, modelo = _agente(_ai(saludar))
+
+    resultado = agent.handle("1", text="hola, buenas tardes", **CLIENTE)
+
+    assert (resultado.kind, resultado.iterations) == ("informacion", 1)
+    assert "## Skill activa: `informar`" in modelo.recibidos[0][0].text
+    assert "`datos_negocio`:" in modelo.recibidos[0][0].text
+
+
+def test_la_skill_preactivada_no_sigue_en_el_turno_siguiente(catalogo):
+    """RF-62: cada turno se encamina de nuevo; si el mensaje no es claro, vuelve a elegir el modelo."""
+    agent, modelo = _agente(
+        _ai(_propuesta("Listo, te armé las cremas. ¿Lo confirmo?", SKU, 2)),
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _ai(_propuesta("Ahora son 3. ¿Lo dejamos así?", SKU, 3)),
+    )
+    agent.handle("1", text="2 cremas nivea", **CLIENTE)
+    agent.handle("1", text="mejor que sean tres, no dos", **CLIENTE)
+
+    assert "## Skill activa" not in modelo.recibidos[1][0].text
+    assert "respond_to_customer" not in modelo.ofrecidas[1]
+
+
+def test_cambia_la_skill_preactivada(catalogo):
+    """CA-118: si la skill preactivada no corresponde, el modelo lee otra y usa sus BR."""
+    agent, modelo = _agente(
+        _ai(_call("leer_br", id="BR-03")),
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _ai(_call("leer_br", id="BR-03")),
+        _ai(_call("respond_to_customer", kind="informacion", message="¡Hola! ¿Qué te preparo?")),
+    )
+
+    agent.handle("1", text="hola", **CLIENTE)  # preactiva `informar`, que no tiene BR
+
+    lecturas = _resultados(agent, "leer_br")
+    assert lecturas[0]["error"]["code"] == "br_no_permitida"
+    assert lecturas[1]["data"]["id"] == "BR-03"
+    estado = agent.graph.get_state({"configurable": {"thread_id": "1"}}).values
+    assert estado["skills_activas"] == ["informar", "tomar_pedido"]
+
+
 def test_segunda_falla_termina_la_conversacion(catalogo):
     agent, _ = _agente(RuntimeError("uno"), RuntimeError("dos"))
     primera = agent.handle("1", text="hola", **CLIENTE)
@@ -483,7 +587,7 @@ def test_la_conversacion_sigue_tras_reiniciar(catalogo, tmp_path):
     conexion.close()
 
     conexion = sqlite3.connect(path, check_same_thread=False)
-    resultado = NormaAgent(ModeloGuionado(*GUION_ACEPTA), SqliteSaver(conexion)).handle("1", text="dale", **CLIENTE)
+    resultado = NormaAgent(ModeloGuionado(*GUION_ACEPTA), SqliteSaver(conexion)).handle("1", text="sí, dale", **CLIENTE)
     conexion.close()
     assert resultado.kind == "pedido"
     assert _ordenes() == 1

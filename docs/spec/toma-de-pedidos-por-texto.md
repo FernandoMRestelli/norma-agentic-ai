@@ -222,33 +222,39 @@ directo al cliente. Los guardrails atajan ese texto, pero cada rechazo es otra l
 1. **Tool obligatoria (RF-61).** Cada llamada al LLM se hace con `tool_choice="any"`: el modelo tiene que elegir
    una tool. El camino de texto suelto queda como red de seguridad para un proveedor que no lo respete.
 2. **Skill preactivada por el backend (RF-62).** Un nodo nuevo, `encaminar`, corre antes de la primera llamada al
-   LLM del turno. Cuando la ruta no admite dudas, el backend ejecuta `leer_skill` y deja el resultado en el
-   historial del turno, igual que si lo hubiera pedido el modelo:
+   LLM del turno. Cuando la ruta no admite dudas, el backend lee la skill y habilita sus tools:
 
    | Situación | Skill que preactiva |
    |---|---|
+   | Sin propuesta vigente y el mensaje es solo un saludo o un agradecimiento | `informar` |
    | Sin propuesta vigente y el mensaje tiene dos renglones o más, o una cantidad | `tomar_pedido` |
    | Con propuesta vigente y un mensaje de hasta 3 palabras sin números | `confirmar_pedido` |
    | Cualquier otro caso | Ninguna: elige el modelo, como hoy |
 
-   El modelo puede leer otra skill si la preactivada no corresponde. Las skills siguen en el repo y se siguen
-   leyendo con `leer_skill`: lo que cambia es quién dispara la lectura (D-22).
+   El modelo puede leer otra skill si la preactivada no corresponde. Las skills siguen en el repo y el modelo
+   conserva `leer_skill`: lo que cambia es quién dispara la lectura (D-22).
+
+   El texto de la skill llega en un bloque «Skill activa» del contexto, con lo mismo que devuelve `leer_skill`,
+   y no como una tool call puesta por el backend en el historial. Gemini guarda una firma en cada llamada a una
+   tool y rechaza las que no la traen (CA-35), así que una llamada inventada rompería el turno con ese proveedor.
 3. **La BR llega con el resultado que la dispara (RF-63).** Cuando el resultado de una tool tiene una señal que
-   lleva a una sola BR, el backend agrega el texto de esa BR en el mismo resultado, una vez por turno:
+   lleva a una sola BR, el backend agrega el texto de esa BR en el mismo resultado, en el campo `regla`, una vez
+   por turno y solo si una skill leída en el turno la permite:
 
    | Señal en el resultado | BR que acompaña |
    |---|---|
    | `sugerencias`, o un producto con `aproximado: true` | BR-09 |
-   | `stock_insuficiente`, o `hay_stock: false` en el único candidato | BR-01 |
+   | `stock_insuficiente`, `check_stock` que no alcanza, o `hay_stock: false` en el único candidato | BR-01 |
    | `matches` y `sugerencias` vacías | BR-04 |
    | Varios candidatos para un renglón | BR-03 |
 
-   `leer_br` sigue disponible para las demás (D-22).
+   `leer_br` sigue disponible para las demás (D-22). Una BR que el modelo ya leyó no se vuelve a adjuntar.
 4. **Más aceptaciones sin LLM (RF-64, D-23).** Hoy solo `OK` y `CONFIRMAR` exactos evitan al LLM. La BR-06 ya
    lista otras que son aceptación pura: «dale», «sí», «listo», «de una», «mandale». Si el mensaje completo,
    normalizado, es una de esas, el backend registra la propuesta. La lista vive en un solo lugar,
-   `palabras_clave.py`, y la BR-06 la cita.
+   `palabras_clave.py`, y la BR-06 la cita. «¡Dale!» y «listo.» cuentan; «ok?» y «sí...» no, porque dudan.
 5. **Presupuesto del turno (RNF-16).** Tope de 8 iteraciones en lugar de 15 y un plazo total de 60 s por turno.
+   El plazo se controla entre una iteración y la siguiente: no corta una llamada al LLM que ya empezó.
 
 ```mermaid
 flowchart TD
@@ -561,8 +567,8 @@ Todos nacen en estado `Propuesto`.
 | CA-116 | Cualquier turno | El grafo llama al modelo | La llamada lleva `tool_choice` obligatorio | `tests/test_agent_graph.py::test_tool_obligatoria` |
 | CA-117 | Sin propuesta vigente | Llega un mensaje de tres renglones con cantidades | La primera llamada al LLM ya tiene las tools de `tomar_pedido` | `tests/test_agent_graph.py::test_preactiva_tomar_pedido` |
 | CA-118 | Una skill preactivada que no corresponde | El modelo lee otra con `leer_skill` | Se habilitan las tools de la otra y el turno sigue | `tests/test_agent_graph.py::test_cambia_la_skill_preactivada` |
-| CA-119 | Una búsqueda que devuelve `sugerencias` | El resultado vuelve al LLM | Trae el texto de la BR-09, y una segunda búsqueda del turno no lo repite | `tests/test_tools.py::test_br_junto_al_resultado` |
-| CA-120 | Una propuesta vigente | El cliente escribe «dale» | Se registra sin llamar al LLM | `tests/test_palabras_clave.py::test_aceptaciones_exactas` |
+| CA-119 | Una búsqueda con una coincidencia aproximada | El resultado vuelve al LLM | Trae el texto de la BR-09, y una segunda búsqueda del turno no lo repite | `tests/test_tools.py::test_br_junto_al_resultado` |
+| CA-120 | Una propuesta vigente | El cliente escribe «dale» | Se registra sin llamar al LLM | `tests/test_palabras_clave.py::test_aceptaciones_exactas`, `tests/test_agent_graph.py::test_ok_exacto_registra_la_propuesta_sin_llamar_al_llm` |
 | CA-121 | Una propuesta vigente | El cliente escribe «dale, pero 2» | El mensaje va al agente y no se registra nada | `tests/test_palabras_clave.py::test_aceptacion_con_cambio_va_al_agente` |
 | CA-122 | Una lista con dos encabezados de marca y diez renglones | Se numera | Cada renglón de producto tiene su número y la marca de su encabezado | `tests/test_interpretation.py::test_numera_renglones_por_marca` |
 | CA-123 | 30 renglones | Se llama a `buscar_renglones` | Devuelve 30 resultados con estado y, como mucho, 3 candidatos de 4 campos | `tests/test_busqueda.py::test_busqueda_por_lote` |
@@ -602,7 +608,7 @@ Todos nacen en estado `Propuesto`.
 |---|---|---|
 | D-21 | Qué modelo se usa en producción y en la evaluación. El modelo gratuito por defecto no usa las tools de forma confiable; hace falta al menos uno que sí, con cuota para correr el set completo | Abierta |
 | D-22 | La skill preactivada y la BR junto al resultado tocan la decisión del 2026-11-04: skills y BR en el repo, leídas con tools. La propuesta las mantiene en el repo y las entrega por las mismas tools; cambia que a veces la lectura la dispara el backend y no el modelo. Si no se acepta, M2 se queda con los puntos 1, 4 y 5 | Tomada el 2026-11-12: se aplican las dos, la skill preactivada y la BR junto al resultado |
-| D-23 | Qué palabras registran sin LLM. Propuesta: `ok`, `confirmar`, `dale`, `si`, `listo`, `de una`, `mandale`, solo si son el mensaje completo | Abierta |
+| D-23 | Qué palabras registran sin LLM. Propuesta: `ok`, `confirmar`, `dale`, `si`, `listo`, `de una`, `mandale`, solo si son el mensaje completo | Implementada con esa lista; a revisar con uso real |
 | D-24 | Guardar el renglón como lo escribió el cliente (`pedido_como`) sirve para auditar la interpretación, pero la spec de guardado dejó afuera el texto de los mensajes por RNF-03. Propuesta: guardarlo solo en las líneas de órdenes registradas y aplicarle la misma retención que a la orden | Tomada el 2026-11-12: se guarda, con esa condición |
 | D-25 | Si el precio cambió, ¿se vuelve a proponer siempre o hay una tolerancia? Propuesta: siempre, sin tolerancia | Abierta |
 | D-26 | Ventana para agrupar mensajes. Propuesta: 6 s desde el último mensaje, con un máximo de 20 s. Suma esa espera a la latencia de cada respuesta (RNF-06) | Abierta |
@@ -643,7 +649,7 @@ Cada rama sale de la anterior, en el orden en que se implementó. Esta tabla se 
 | Mejora | Rama | Estado | Falta |
 |---|---|---|---|
 | M1 · Evaluación | `feature/evaluacion-pedidos-reales` | Implementado: RF-59, RF-60, RNF-15, CA-113 a CA-115 | La primera corrida completa con un LLM real, para fijar la línea de base y los umbrales (D-21, D-28) |
-| M2 · Grafo | `feature/grafo-menos-iteraciones` | Propuesto | |
+| M2 · Grafo | `feature/grafo-menos-iteraciones` | Implementado: RF-61 a RF-64, RNF-16, CA-116 a CA-121 | Medir con M1 que bajan las llamadas por turno sin bajar el recall |
 | M3 · Renglones | `feature/pedidos-por-renglon` | Propuesto | |
 | M5 · CSV | `feature/csv-pedidos-por-linea` | Propuesto | |
 | M4 · Memoria | `feature/memoria-entre-turnos` | Propuesto | |
