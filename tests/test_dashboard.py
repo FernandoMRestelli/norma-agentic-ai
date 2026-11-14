@@ -368,18 +368,18 @@ def test_si_falla_la_planilla_el_estado_se_reintenta(tmp_path, monkeypatch):
     """CA-138: la API responde 200, la orden queda pendiente y el reintento escribe el estado en la planilla."""
     _catalogo_temporal(tmp_path, monkeypatch)
     order = _create_sample_order(sku="SH-PAN-400", quantity=2)
-    escribir_estado = sheets_service.update_order_status_in_sheets
+    escribir_orden = sheets_service.append_order
 
-    def planilla_caida(order_id, new_status):
+    def planilla_caida(ord, reintento=False):
         raise ConnectionError("Google no responde")
 
-    monkeypatch.setattr(sheets_service, "update_order_status_in_sheets", planilla_caida)
+    monkeypatch.setattr(sheets_service, "append_order", planilla_caida)
     resp = client.post(f"/orders/{order.order_id}/status", headers=AUTH_HEADERS, json={"status": "Preparado"})
     assert resp.status_code == 200
     assert resp.json()["status"] == "Preparado"
     assert resp.json()["sheets_synced"] is False
 
-    monkeypatch.setattr(sheets_service, "update_order_status_in_sheets", escribir_estado)
+    monkeypatch.setattr(sheets_service, "append_order", escribir_orden)
     assert order_service.sync_pending_orders() == 1
     with open(tmp_path / "pedidos_test.csv", encoding="utf-8") as f:
         fila = next(row for row in csv.DictReader(f) if row["id_orden"] == order.order_id)
@@ -475,8 +475,8 @@ def test_la_ui_pide_solo_conversaciones_derivadas():
     assert "apiFetch('/dashboard/conversations')" not in html
 
 
-def test_migracion_3_agrega_stock_applied(tmp_path):
-    """Una base en la versión 2 gana `orders.stock_applied` sin perder órdenes."""
+def test_migracion_2_agrega_stock_applied(tmp_path):
+    """Una base en la versión 1 (develop antes de M5/dashboard) gana `orders.stock_applied` sin perder órdenes."""
     path = tmp_path / "norma.db"
     engine = make_engine(f"sqlite:///{path}")
     init_db(engine)
@@ -486,9 +486,9 @@ def test_migracion_3_agrega_stock_applied(tmp_path):
             "INSERT INTO orders (order_id, draft_id, customer_id, channel, status, sheets_synced, created_at) "
             "VALUES ('ORD-0001', 'd-1', 'cust', 'web', 'Preparado', 0, '2026-01-01 00:00:00')"
         )
-        conn.exec_driver_sql("UPDATE schema_version SET version = 2")
+        conn.exec_driver_sql("UPDATE schema_version SET version = 1")
 
-    assert init_db(make_engine(f"sqlite:///{path}")) == LATEST == 3
+    assert init_db(make_engine(f"sqlite:///{path}")) == LATEST == 2
     with engine.connect() as conn:
         assert conn.exec_driver_sql("SELECT order_id, stock_applied FROM orders").all() == [("ORD-0001", 0)]
 
