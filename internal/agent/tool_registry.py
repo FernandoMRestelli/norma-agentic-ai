@@ -12,11 +12,13 @@ from internal.agent import guardrails
 from internal.agent.state import Resultado
 from internal.schemas.agent_schema import (
     ArmarPedidoInput,
+    BuscarRenglonesInput,
     CheckStockInput,
     ExplorarCatalogoInput,
     GetProductInput,
     LeerBrInput,
     LeerSkillInput,
+    PedidosAnterioresInput,
     RespondToCustomerInput,
     SearchProductsInput,
     ToolFailure,
@@ -41,6 +43,10 @@ class TurnContext:
     conversation_id: int | None = None
     skills_activas: list[str] = field(default_factory=list)
     br_entregadas: list[str] = field(default_factory=list)  # BR que ya vio el LLM en este turno (RF-63)
+    renglones: list[dict[str, Any]] = field(default_factory=list)  # renglones numerados del pedido (RF-67)
+    origen: str = "texto"  # texto, audio o imagen: queda en la orden (RF-79)
+    comprados: frozenset[str] | None = None  # SKU que el cliente ya pidió; se lee de la base la primera vez (RF-73)
+    coberturas_fallidas: int = 0  # respuestas del turno rechazadas por dejar renglones sin cuenta (RF-68)
     propuesta: OrderDraft | None = None
     resultado: Resultado = "continuar"
     respuesta: str | None = None
@@ -59,7 +65,7 @@ class ToolSpec:
 
 
 # Ni el número exacto de stock ni el stock mínimo son para el cliente: el LLM solo ve si hay o no stock
-_SOLO_INTERNOS = {"stock", "min_stock", "is_low_stock"}
+_SOLO_INTERNOS = {"stock", "min_stock", "is_low_stock", "comprado_antes"}
 
 
 def _explorar_catalogo(data: ExplorarCatalogoInput, _: TurnContext) -> dict[str, Any]:
@@ -67,16 +73,50 @@ def _explorar_catalogo(data: ExplorarCatalogoInput, _: TurnContext) -> dict[str,
 
 
 def _al_llm(product: Product) -> dict[str, Any]:
-    return {**product.model_dump(mode="json", exclude=_SOLO_INTERNOS), "hay_stock": product.stock > 0}
+    datos = {**product.model_dump(mode="json", exclude=_SOLO_INTERNOS), "hay_stock": product.stock > 0}
+    # Solo cuando es cierto: es una pista para preguntar («¿el de 900, como la otra vez?»), no un dato de cada producto
+    return {**datos, "comprado_antes": True} if getattr(product, "comprado_antes", False) else datos
 
 
-def _search_products(data: SearchProductsInput, _: TurnContext) -> dict[str, Any]:
-    resultado = catalog_tools.buscar_productos(data.query, data.limit)
+def _comprados(ctx: TurnContext) -> frozenset[str]:
+    """Lo que el cliente ya compró desempata sus búsquedas. Si la base falla, se busca sin esa ayuda."""
+    if ctx.comprados is None:
+        try:
+            ctx.comprados = order_service.skus_comprados(ctx.customer_id)
+        except Exception:
+            logger.warning("No se pudo leer el historial del cliente para ordenar la búsqueda", exc_info=True)
+            ctx.comprados = frozenset()
+    return ctx.comprados
+
+
+def _pedidos_anteriores(data: PedidosAnterioresInput, ctx: TurnContext) -> dict[str, Any]:
+    return {"pedidos": order_tools.pedidos_anteriores(ctx.customer_id, data.limite)}
+
+
+def _search_products(data: SearchProductsInput, ctx: TurnContext) -> dict[str, Any]:
+    resultado = catalog_tools.buscar_productos(data.query, data.limit, _comprados(ctx))
     return {
         "matches": [_al_llm(match) for match in resultado.matches],
         "sugerencias": [_al_llm(sugerencia) for sugerencia in resultado.sugerencias],
         "corregido": resultado.corregido,
+        "total": resultado.total,
+        "difieren_en": resultado.difieren_en,
     }
+
+
+def _buscar_renglones(data: BuscarRenglonesInput, ctx: TurnContext) -> dict[str, Any]:
+    resultados = catalog_tools.buscar_renglones(
+        [renglon.model_dump() for renglon in data.renglones], _comprados(ctx)
+    )
+    # Lo que la búsqueda dice de cada renglón queda en el estado: el tono va a la nota de la línea (RF-69) y la
+    # coincidencia aproximada se guarda con el pedido
+    numerados = {renglon["n"]: renglon for renglon in ctx.renglones}
+    for buscado, resultado in zip(data.renglones, resultados, strict=True):
+        if (renglon := numerados.get(buscado.n)) is not None:
+            renglon["coincidencia"] = "aproximada" if resultado["estado"] == "aproximado" else "exacta"
+            if buscado.tono:
+                renglon["tono"] = buscado.tono
+    return {"renglones": resultados}
 
 
 def _get_product(data: GetProductInput, _: TurnContext) -> dict[str, Any]:
@@ -106,13 +146,27 @@ def _leer_br(data: LeerBrInput, ctx: TurnContext) -> dict[str, Any]:
     return regla
 
 
+# Después de esta cantidad de respuestas con renglones sin cuenta, la siguiente se acepta y lo que falta queda pendiente
+MAX_COBERTURAS_FALLIDAS = 2
+
+
 def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict[str, Any]:
+    data = reply_tools.con_tonos(data, ctx.renglones)
     propuesta = reply_tools.respond_to_customer(
-        data, ctx.customer_id, ctx.channel, ctx.propuesta, ctx.customer_name, ctx.conversation_id
+        data, ctx.customer_id, ctx.channel, ctx.propuesta, ctx.customer_name, ctx.conversation_id, ctx.renglones,
+        ctx.origen,
     )
+    # Con un pedido numerado, `options` sale de los renglones que se preguntan
+    options = data.options or list(dict.fromkeys(sku for p in data.pendientes for sku in p.opciones))
+    renglones = reply_tools.cubrir_renglones(
+        data, ctx.renglones, tolerar=ctx.coberturas_fallidas >= MAX_COBERTURAS_FALLIDAS
+    )
+    if propuesta:
+        # Lo que quedó afuera viaja con la propuesta: si el cliente la acepta, la orden lo guarda (RF-76)
+        propuesta = propuesta.model_copy(update={"leftovers": reply_tools.fuera_del_pedido(renglones)})
     message = data.message
     # Lo que escribió el LLM pasa por los guardrails antes de llegar al cliente; la vigente no cambia si falla
-    rechazos = guardrails.validar_salida(message, data.kind.value, propuesta, data.options, ctx.turno, ctx.propuesta)
+    rechazos = guardrails.validar_salida(message, data.kind.value, propuesta, options, ctx.turno, ctx.propuesta)
     if rechazos:
         ctx.turno.rechazos += 1
         if ctx.turno.rechazos <= guardrails.MAX_RECHAZOS:
@@ -127,7 +181,8 @@ def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict
         respuesta = f"{message}\n\n{validation_service.build_proposal_detail(propuesta)}"
     ctx.respuesta = respuesta
     ctx.kind = data.kind.value
-    ctx.options = data.options
+    ctx.options = options
+    ctx.renglones = renglones
     ctx.resultado = "pausar"
     # Recién acá la respuesta quedó aceptada: si algo antes la rechaza, `drafts` y la vigente no cambian (RF-46).
     # Todo control de la salida tiene que ir antes de este punto.
@@ -139,8 +194,25 @@ def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict
     return {"enviado": True}
 
 
+PRECIO_CAMBIADO = (
+    "Desde que te armé el pedido cambió el precio de algún producto. Te lo paso con los precios de hoy. "
+    "¿Lo confirmo así?"
+)
+
+
 def _armar_pedido(_: ArmarPedidoInput, ctx: TurnContext) -> dict[str, Any]:
-    order = order_tools.armar_pedido(ctx.propuesta)
+    try:
+        order = order_tools.armar_pedido(ctx.propuesta)
+    except order_service.PriceChangedError as exc:
+        # No se registra con un total que el cliente no vio: la misma propuesta sale de nuevo con los precios de
+        # hoy, armada por el sistema, y el cliente la confirma otra vez (RF-72)
+        nueva = order_service.actualizar_precios(ctx.propuesta)
+        order_service.record_draft(nueva)
+        ctx.propuesta = nueva
+        ctx.respuesta = f"{PRECIO_CAMBIADO}\n\n{validation_service.build_proposal_detail(nueva)}"
+        ctx.kind = "propuesta"
+        ctx.resultado = "pausar"
+        return {"precio_cambiado": True, "lineas": exc.lines}
     ctx.propuesta = None
     ctx.order_id = order.order_id
     ctx.respuesta = validation_service.build_order_message(order)
@@ -167,9 +239,27 @@ TOOLS: dict[str, ToolSpec] = {
             "(de 0 a 1); `aproximado: true` quiere decir que algo no coincidió exacto y conviene confirmarlo. "
             "Si no hay matches, `sugerencias` trae los productos más parecidos, todos aproximados. `corregido` dice "
             "qué palabras se interpretaron como otra. Los números tienen que coincidir: 400 no trae 340. "
-            "Si `matches` y `sugerencias` están vacías, no hay nada parecido.",
+            "Si `matches` y `sugerencias` están vacías, no hay nada parecido. `total` dice cuántos productos "
+            "coinciden igual de bien aunque veas menos, y `difieren_en` (marca, medida o variante) qué preguntar.",
             SearchProductsInput,
             _search_products,
+        ),
+        ToolSpec(
+            "buscar_renglones",
+            "Busca todos los renglones de un pedido en una sola llamada: usala cuando el pedido viene como lista. "
+            "Por cada renglón devuelve `estado`, el `total` de coincidencias y hasta 3 `candidatos`. "
+            "`unico`: es ese producto y alcanza el stock, va a la propuesta. `varias`: hay más de uno y `difieren_en` "
+            "dice en qué (marca, medida o variante), preguntale. `aproximado`: se parece pero no es seguro, "
+            "confirmalo. `sin_stock`: `falta` dice cuánto queda. `no_encontrado`: no hay nada parecido.",
+            BuscarRenglonesInput,
+            _buscar_renglones,
+        ),
+        ToolSpec(
+            "pedidos_anteriores",
+            "Devuelve los últimos pedidos de este cliente, con sus líneas, sin precios. Usala cuando pide «lo de "
+            "siempre» o «lo mismo que la otra vez», o para saber qué medida o variante suele llevar.",
+            PedidosAnterioresInput,
+            _pedidos_anteriores,
         ),
         ToolSpec(
             "get_product",
@@ -208,7 +298,10 @@ TOOLS: dict[str, ToolSpec] = {
 }
 
 # Disponibles desde el inicio del turno: sin consultar el catálogo no se puede elegir una skill
-BASE_TOOLS = ("leer_skill", "leer_br", "search_products", "get_product", "check_stock", "explorar_catalogo")
+BASE_TOOLS = (
+    "leer_skill", "leer_br", "search_products", "buscar_renglones", "get_product", "check_stock", "explorar_catalogo",
+    "pedidos_anteriores",
+)
 
 
 def available(skills_activas: list[str]) -> list[str]:
@@ -251,39 +344,46 @@ def _failure(code: str, message: str, **details: Any) -> dict[str, Any]:
     return {"ok": False, "error": {"code": code, "message": message, "details": details}}
 
 
-def _br_que_dispara(name: str, result: dict[str, Any]) -> str | None:
-    """La BR que corresponde al resultado de una tool, cuando la señal lleva a una sola (RF-63)."""
+_BR_POR_ESTADO = {"varias": "BR-03", "aproximado": "BR-09", "sin_stock": "BR-01", "no_encontrado": "BR-04"}
+
+
+def _brs_que_dispara(name: str, result: dict[str, Any]) -> list[str]:
+    """Las BR que corresponden al resultado de una tool: cada señal lleva a una sola (RF-63)."""
     if not result["ok"]:
-        return "BR-01" if result["error"]["code"] == "stock_insuficiente" else None
+        return ["BR-01"] if result["error"]["code"] == "stock_insuficiente" else []
     data = result["data"]
     if name == "check_stock":
-        return None if data["is_enough"] else "BR-01"
+        return [] if data["is_enough"] else ["BR-01"]
+    if name == "buscar_renglones":
+        estados = {renglon["estado"] for renglon in data["renglones"]}
+        return [br for estado, br in _BR_POR_ESTADO.items() if estado in estados]
     if name != "search_products":
-        return None
+        return []
     matches, sugerencias = data["matches"], data["sugerencias"]
     if sugerencias or any(match.get("aproximado") for match in matches):
-        return "BR-09"
+        return ["BR-09"]
     if not matches:
-        return "BR-04"
+        return ["BR-04"]
     if len(matches) > 1:
-        return "BR-03"
-    return None if matches[0]["hay_stock"] else "BR-01"
+        return ["BR-03"]
+    return [] if matches[0]["hay_stock"] else ["BR-01"]
 
 
 def _adjuntar_br(name: str, result: dict[str, Any], ctx: TurnContext) -> dict[str, Any]:
-    """Suma al resultado el texto de la BR que dispara, una vez por turno y solo si una skill activa la permite.
+    """Suma al resultado el texto de las BR que dispara, una vez por turno y solo si una skill activa las permite.
 
-    Sin una skill leída no se adjunta nada: el agente la lee con `leer_br`, como siempre.
+    Sin una skill leída no se adjunta nada: el agente las lee con `leer_br`, como siempre.
     """
-    br = _br_que_dispara(name, result)
-    if br is None or br in ctx.br_entregadas:
-        return result
-    try:
-        regla = skill_tools.leer_br(br, ctx.skills_activas)
-    except ToolFailure:
-        return result
-    ctx.br_entregadas.append(br)
-    return {**result, "regla": regla}
+    reglas = []
+    for br in _brs_que_dispara(name, result):
+        if br in ctx.br_entregadas:
+            continue
+        try:
+            reglas.append(skill_tools.leer_br(br, ctx.skills_activas))
+        except ToolFailure:
+            continue
+        ctx.br_entregadas.append(br)
+    return {**result, "reglas": reglas} if reglas else result
 
 
 def execute(name: str, arguments: dict[str, Any], ctx: TurnContext) -> dict[str, Any]:

@@ -11,9 +11,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from internal.database.connection import SessionLocal
-from internal.database.models import DraftRecord, OrderEventRecord, OrderItemRecord, OrderRecord
+from internal.database.models import (
+    DraftRecord,
+    OrderEventRecord,
+    OrderItemRecord,
+    OrderLeftoverRecord,
+    OrderRecord,
+)
 from internal.schemas.order_schema import (
     DraftStatus,
+    Leftover,
     Order,
     OrderDraft,
     OrderEvent,
@@ -115,6 +122,14 @@ class InsufficientStockError(Exception):
         self.lines = lines
 
 
+class PriceChangedError(Exception):
+    """El precio de alguna línea cambió desde que se armó la propuesta: no se registra (RF-72). `lines` dice cuáles."""
+
+    def __init__(self, lines: list[dict]):
+        super().__init__("Cambió el precio")
+        self.lines = lines
+
+
 class EventSource:
     """Quién hizo un cambio de estado (`order_events.source`)."""
 
@@ -146,9 +161,15 @@ def _to_order(record: OrderRecord) -> Order:
                 quantity=line.quantity,
                 unit_price=line.unit_price,
                 note=line.note,
+                brand=line.brand,
+                category=line.category,
+                match=line.match,
+                source_text=line.source_text,
             )
             for line in record.lines
         ],
+        leftovers=[Leftover(source_text=left.source_text, reason=left.reason) for left in record.leftovers],
+        source=record.source,
         notes=record.notes,
         total=record.total,
         status=record.status,
@@ -203,6 +224,7 @@ def _upsert_draft(session: Session, draft: OrderDraft, status: DraftStatus, orde
         return  # ya tuvo desenlace
     if record.status in (None, DraftStatus.PENDING_CONFIRMATION.value):  # nueva, o pendiente que se repite
         record.items = _draft_items(draft)
+        record.leftovers = [left.model_dump() for left in draft.leftovers]
         record.notes = draft.notes
         record.total = draft.total
     record.status = status.value
@@ -262,7 +284,8 @@ def confirm_draft(draft: OrderDraft) -> Order:
         if existing:
             return _to_order(existing)
 
-        stock = {product.sku: product.stock for product in inventory_service.get_catalog(session=session, fresh=True)}
+        catalog = inventory_service.get_catalog(session=session, fresh=True)
+        stock = {product.sku: product.stock for product in catalog}
         requested: dict[str, int] = {}
         for item in draft.items:  # un SKU puede venir en varias líneas, una por nota
             requested[item.sku] = requested.get(item.sku, 0) + item.quantity
@@ -273,6 +296,15 @@ def confirm_draft(draft: OrderDraft) -> Order:
         ]
         if short:
             raise InsufficientStockError(short)
+        # El cliente acepta un total: si un precio cambió desde la propuesta, tiene que ver el nuevo (RF-72, D-25)
+        prices = {product.sku: product.price for product in catalog}
+        changed = [
+            {"sku": item.sku, "antes": str(item.unit_price), "ahora": str(prices[item.sku])}
+            for item in draft.items
+            if item.unit_price is not None and item.sku in prices and prices[item.sku] != item.unit_price
+        ]
+        if changed:
+            raise PriceChangedError(changed)
 
         record = OrderRecord(
             draft_id=draft.draft_id,
@@ -282,7 +314,12 @@ def confirm_draft(draft: OrderDraft) -> Order:
             conversation_id=draft.conversation_id,
             notes=draft.notes,
             total=draft.total,
+            source=draft.source,
             status=OrderStatus.RECEIVED.value,
+            leftovers=[
+                OrderLeftoverRecord(position=position, source_text=left.source_text, reason=left.reason)
+                for position, left in enumerate(draft.leftovers, start=1)
+            ],
             lines=[
                 OrderItemRecord(
                     position=position,
@@ -292,6 +329,10 @@ def confirm_draft(draft: OrderDraft) -> Order:
                     quantity=item.quantity,
                     unit_price=item.unit_price,
                     note=item.note,
+                    brand=item.brand,
+                    category=item.category,
+                    match=item.match,
+                    source_text=item.source_text,
                 )
                 for position, item in enumerate(draft.items, start=1)
             ],
@@ -307,20 +348,68 @@ def confirm_draft(draft: OrderDraft) -> Order:
             session.rollback()
             return _to_order(session.scalars(select(OrderRecord).where(OrderRecord.draft_id == draft.draft_id)).one())
 
-        order = _to_order(record)
-        try:
-            sheets_service.append_order(order)
-            record.sheets_synced = True
-            session.commit()
-        except sheets_service.Sheet2EnPausaError as exc:
-            logger.info("%s", exc)
-        except Exception:
-            logger.warning(
-                "Error al volcar la orden %s en la planilla/archivo de órdenes",
-                order.order_id,
-                exc_info=True,
-            )
+        _volcar(session, record)
         return _to_order(record)
+
+
+def _volcar(session: Session, record: OrderRecord) -> None:
+    """Lleva la orden al CSV y a Sheet 2, como alta o como cambio de estado (RF-19, RF-77).
+
+    Si falla, la orden queda con `sheets_synced = False` y la toma `sync_pending_orders`: la base es la verdad.
+    """
+    order = _to_order(record)
+    try:
+        sheets_service.append_order(order)
+        record.sheets_synced = True
+    except sheets_service.Sheet2EnPausaError as exc:
+        record.sheets_synced = False
+        logger.info("%s", exc)
+    except Exception:
+        record.sheets_synced = False
+        logger.warning(
+            "Error al volcar la orden %s en la planilla/archivo de órdenes",
+            order.order_id,
+            exc_info=True,
+        )
+    session.commit()
+
+
+def actualizar_precios(draft: OrderDraft) -> OrderDraft:
+    """La misma propuesta con los precios de hoy, como una versión nueva (RF-72)."""
+    prices = {product.sku: product.price for product in inventory_service.get_catalog(fresh=True)}
+    items = [
+        item.model_copy(update={"unit_price": prices[item.sku]}) if item.sku in prices else item
+        for item in draft.items
+    ]
+    return draft.model_copy(update={"items": items, "version": draft.version + 1})
+
+
+def customer_history(customer_id: str, limit: int = 3) -> list[Order]:
+    """Las últimas órdenes de un cliente que no se cancelaron, de la más nueva a la más vieja (RF-73)."""
+    with SessionLocal() as session:
+        records = session.scalars(
+            select(OrderRecord)
+            .where(
+                OrderRecord.customer_id == customer_id,
+                OrderRecord.order_id.is_not(None),
+                OrderRecord.status != OrderStatus.CANCELLED.value,
+            )
+            .order_by(OrderRecord.id.desc())
+            .limit(limit)
+        ).all()
+        return [_to_order(record) for record in records]
+
+
+def skus_comprados(customer_id: str) -> frozenset[str]:
+    """Los SKU que el cliente pidió en órdenes que no se cancelaron: desempatan sus búsquedas (RF-73)."""
+    with SessionLocal() as session:
+        skus = session.scalars(
+            select(OrderItemRecord.sku)
+            .join(OrderRecord, OrderItemRecord.order_pk == OrderRecord.id)
+            .where(OrderRecord.customer_id == customer_id, OrderRecord.status != OrderStatus.CANCELLED.value)
+            .distinct()
+        ).all()
+        return frozenset(skus)
 
 
 def change_status(order_id: str, nuevo: OrderStatus, source: str = EventSource.OPERATOR) -> Order:
@@ -342,22 +431,14 @@ def change_status(order_id: str, nuevo: OrderStatus, source: str = EventSource.O
             raise InvalidTransitionError(f"No se puede pasar una orden de {actual.value!r} a {nuevo.value!r}")
         sale = nuevo in STOCK_OUT_STATES and not record.stock_applied
         lineas = [{"sku": line.sku, "quantity": line.quantity} for line in record.lines] if sale else []
-        # Con la base bloqueada: si el commit falla, el catálogo vuelve a como estaba (RF-59)
+        # Con la base bloqueada: si el commit falla, el catálogo vuelve a como estaba (RF-80)
         with sheets_service.deduct_catalog_stock(lineas) if sale else nullcontext(False) as descontado:
             if descontado:
                 record.stock_applied = True
             record.status = nuevo.value
             record.events.append(OrderEventRecord(from_status=actual.value, to_status=nuevo.value, source=source))
             session.commit()
-        try:
-            sheets_service.update_order_status_in_sheets(order_id, nuevo.value)
-        except Exception:
-            # El cambio ya está hecho: la planilla se pone al día en el reintento (RF-60)
-            logger.warning(
-                "No se pudo escribir el estado de %s en la planilla: queda pendiente", order_id, exc_info=True
-            )
-            record.sheets_synced = False
-            session.commit()
+        _volcar(session, record)  # el estado nuevo llega al CSV y a Sheet 2 (RF-77, RF-81)
         return _to_order(record)
 
 

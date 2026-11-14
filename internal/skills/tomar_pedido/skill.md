@@ -2,7 +2,7 @@
 nombre: tomar_pedido
 funcion: Convierte lo que pide el cliente en una propuesta de pedido. Busca cada producto en el catálogo, resuelve dudas de tamaño, tono o cantidad, valida el stock y le propone el pedido. También responde consultas de precio, disponibilidad y marcas. Nunca registra el pedido.
 cuando: El cliente pide o consulta productos, o quiere cambiar una cantidad o un producto de la propuesta vigente, sumar o sacar algo
-tools: [search_products, get_product, check_stock, respond_to_customer]
+tools: [search_products, buscar_renglones, get_product, check_stock, explorar_catalogo, pedidos_anteriores, respond_to_customer]
 ---
 1. Buscá cada producto con `search_products`, si todavía no lo hiciste. Elegí el que coincide en tipo, marca, medida y tono: un resultado parecido no alcanza, así que mirá `score` y los datos de cada producto. Si un número no coincide, buscá de nuevo solo con el tipo y la marca.
 2. Fijate si el stock alcanza para la cantidad pedida. `check_stock` hace falta solo si la búsqueda no te dio ese dato.
@@ -10,12 +10,14 @@ tools: [search_products, get_product, check_stock, respond_to_customer]
 
 Si no, seguí el caso que corresponda. Si el mensaje mezcla varios, leé la BR de cada uno.
 
-- **Pedido largo** (una lista de varios renglones): buscá todos los renglones en la misma iteración y leé BR-03. Lo claro va en `propuesta` aunque otros renglones tengan dudas.
+- **Pedido largo** (una lista de varios renglones): el estado actual trae los renglones numerados, con la marca de su encabezado. Buscalos todos juntos con `buscar_renglones`: en cada uno poné el producto y la medida en `texto`, la `cantidad` aparte y, si es una coloración, el `tono` aparte. Al responder, cada renglón tiene que quedar en un lugar: en `propuesta` con su número en `renglon` (los `unico`), en `pendientes` con sus opciones (los que preguntás) o en `afuera` con el motivo (lo que no se trabaja, lo agotado, o una línea que no pide nada). Lo claro va en `propuesta` aunque otros renglones tengan dudas: leé BR-03.
 - **Falta el producto, la medida, el tono o la cantidad, o coinciden varias opciones:** leé BR-03.
 - **La búsqueda trae `sugerencias` o productos con `aproximado: true`:** leé BR-09.
 - **No alcanza el stock:** leé BR-01.
 - **No está en el catálogo:** buscá una vez más con menos palabras, por ejemplo solo la marca o el tipo, y leé BR-04.
 - **Cambia la propuesta vigente:** leé BR-05.
+- **Pide «lo de siempre» o «lo mismo que la otra vez»:** leé BR-11.
+- **Contesta una pregunta tuya** («el de 900», «la segunda»): el estado actual trae las opciones que le ofreciste, con su SKU. Elegí de ahí, sin volver a buscar.
 - **Pide algo sobre cómo preparar el pedido** (un tono, «sin bolsa», «del lote nuevo»): leé BR-10.
 - **Solo consulta precio o disponibilidad:** respondé con `kind = informacion`. Si hay una propuesta vigente, respondé con `kind = propuesta` y las mismas líneas, para que siga vigente.
 - **Pregunta qué marcas o qué productos hay:** usá `explorar_catalogo` y respondé con `kind = informacion`, con cinco opciones como mucho, y preguntale qué le interesa.

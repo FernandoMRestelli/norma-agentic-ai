@@ -13,6 +13,7 @@ class EstadoNorma(TypedDict, total=False):
     customer_id: str
     customer_name: str | None
     channel: str
+    origen: str  # texto, audio o imagen: de dónde salió el último mensaje del cliente (RF-79)
     inicio_turno: int  # posición en `messages` del mensaje que abrió el turno
     skills_activas: list[str]  # skills leídas en este turno: dan los permisos
     skill_preactivada: str | None  # la que leyó el backend antes de la primera llamada al LLM (RF-62)
@@ -23,8 +24,13 @@ class EstadoNorma(TypedDict, total=False):
     fallas: int  # en toda la conversación
     falla_turno: bool
     propuesta: dict[str, Any] | None  # OrderDraft vigente, ya validado por el backend
+    # Renglones del pedido numerados por el backend (RF-65, RF-67). Viven mientras la conversación esté abierta.
+    # Cada uno: n, texto, marca, estado (sin_resolver, resuelto, pendiente o afuera) y, según el estado, lineas
+    # ([{sku, cantidad}]), opciones, motivo, tono y coincidencia
+    renglones: list[dict[str, Any]]
     respuesta: str | None  # lo que va a ver el cliente
     kind: str | None
     options: list[str]
+    opciones_previas: list[str]  # las `options` de tu respuesta anterior: lo que el cliente está contestando (RF-71)
     order_id: str | None
     resultado: Resultado

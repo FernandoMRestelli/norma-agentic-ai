@@ -24,7 +24,8 @@ from internal.agent import tool_registry
 from internal.config import get_settings
 from internal.database.connection import SessionLocal
 from internal.database.models import OrderRecord
-from internal.schemas.order_schema import Channel, Order, OrderDraft, OrderItem
+from internal.schemas.catalog_schema import Product
+from internal.schemas.order_schema import Channel, Order, OrderDraft, OrderItem, OrderStatus
 from internal.services import google_sheets_client, inventory_service, order_service, sheets_service
 
 try:
@@ -81,8 +82,15 @@ class FakeSheets:
         if self.falla_append == "despues":
             raise TimeoutError("La fila se escribió pero la respuesta no llegó")
 
+    def append_rows(self, spreadsheet_id, worksheet, rows):
+        hoja = self._hoja(spreadsheet_id, worksheet)
+        if self.falla_append == "antes":
+            raise ConnectionError("Falla simulada antes de escribir")
+        hoja.extend(list(row) for row in rows)
+
     def update_cell(self, spreadsheet_id, worksheet, row, col, value):
         hoja = self._hoja(spreadsheet_id, worksheet)
+        hoja[row - 1] += [""] * (col - len(hoja[row - 1]))  # como Google: una celda más a la derecha existe
         hoja[row - 1][col - 1] = value
         self.celdas.append((row, col, value))
 
@@ -158,7 +166,7 @@ def borrador(sku: str = "PL-SH-900", quantity: int = 2, **extra) -> OrderDraft:
         draft_id=f"draft-planillas-{uuid4().hex}",
         customer_id="cli-planillas",
         channel=Channel.TELEGRAM,
-        items=[OrderItem(sku=sku, product_name="Producto de prueba", quantity=quantity, unit_price=Decimal("100"))],
+        items=[OrderItem(sku=sku, product_name="Producto de prueba", quantity=quantity)],
         **extra,
     )
 
@@ -319,8 +327,10 @@ def test_pedido_en_sheet2_con_encabezado_y_sin_duplicar(google, orders_csv):
     sheets_service.append_order(order)
     sheets_service.append_order(order)
 
-    assert google.pedidos() == [sheets_service.ORDER_COLUMNS, sheets_service.format_order_row(order)]
-    assert filas_csv(orders_csv) == [sheets_service.ORDER_COLUMNS, sheets_service.format_order_row(order)]
+    fila = sheets_service.format_order_row(order)
+    assert google.pedidos() == [sheets_service.ORDER_COLUMNS, fila]  # Google escribe sin interpretar: va tal cual
+    # En el CSV, un texto que empieza como fórmula lleva un apóstrofo adelante (RF-78)
+    assert filas_csv(orders_csv) == [sheets_service.ORDER_COLUMNS, ["'" + c if c.startswith("=") else c for c in fila]]
 
     otra = orden("ORD-0902")
     sheets_service.append_order(otra)
@@ -499,7 +509,8 @@ def test_exportar_pedidos_a_excel(operador, base_limpia):
         channel=Channel.WEB,
         items=[
             OrderItem(sku="SH-PAN-400", product_name="Shampoo Pantene", presentation="400 ml", quantity=2,
-                      unit_price=Decimal("7350.00")),
+                      unit_price=Decimal("7350.00"), note="tono 7.1", match="aproximada",
+                      source_text="2 sh pantene 400"),
             OrderItem(sku="CE-SED-340", product_name="Crema Sedal", quantity=1),
         ],
         notes="=1+1",
@@ -521,10 +532,17 @@ def test_exportar_pedidos_a_excel(operador, base_limpia):
     assert notas.value == "=1+1" and notas.data_type == "s"  # texto, no fórmula
 
     lineas = [[cell.value for cell in row] for row in workbook["Líneas"].iter_rows()]
-    assert lineas[0] == ["id_orden", "sku", "producto", "presentacion", "cantidad", "precio_unitario", "subtotal"]
-    assert lineas[1] == [order.order_id, "SH-PAN-400", "Shampoo Pantene", "400 ml", 2, 7350, 14700]
-    assert lineas[2][:5] == [order.order_id, "CE-SED-340", "Crema Sedal", None, 1]
-    assert lineas[2][5:] == [None, None]
+    assert lineas[0] == sheets_service.LINE_COLUMNS
+    columna = {nombre: posicion for posicion, nombre in enumerate(sheets_service.LINE_COLUMNS)}
+    primera = {nombre: lineas[1][posicion] for nombre, posicion in columna.items()}
+    assert primera == {
+        "id_orden": order.order_id, "renglon": 1, "sku": "SH-PAN-400", "producto": "Shampoo Pantene",
+        "presentacion": "400 ml", "marca": None, "categoria": None, "cantidad": 2, "precio_unitario": 7350,
+        "subtotal": 14700, "nota": "tono 7.1", "coincidencia": "aproximada", "pedido_como": "2 sh pantene 400",
+    }  # RF-78: la hoja Líneas trae la nota de la línea
+    segunda = lineas[2]
+    assert segunda[columna["sku"]] == "CE-SED-340" and segunda[columna["renglon"]] == 2
+    assert (segunda[columna["precio_unitario"]], segunda[columna["subtotal"]]) == (None, None)
 
 
 def test_exportar_pide_credencial(operador):
@@ -590,8 +608,8 @@ def test_verificar_claves_prueba_las_planillas_sin_mostrar_datos(google, capsys)
     assert google.pedidos() == [sheets_service.ORDER_COLUMNS]
 
     sheets_service.append_order(orden())
-    assert verificar_claves.check_orders_sheet() is True  # ya tiene encabezado: reescribe A1 igual
-    assert google.celdas == [(1, 1, "id_orden")]
+    assert verificar_claves.check_orders_sheet() is True  # ya tiene encabezado: lo reescribe entero
+    assert google.celdas == [(1, n, columna) for n, columna in enumerate(sheets_service.ORDER_COLUMNS, start=1)]
     assert google.pedidos()[0] == sheets_service.ORDER_COLUMNS
 
     salida = capsys.readouterr().out
@@ -622,3 +640,154 @@ def test_verificar_claves_sin_planillas(sin_google, capsys):
     assert verificar_claves.check_orders_sheet() is True
     salida = capsys.readouterr().out
     assert "CATALOG_FILE" in salida and "ORDERS_FILE" in salida
+
+
+# --- CSV por línea, estado sincronizado y CSV seguro (M5 de docs/spec/toma-de-pedidos-por-texto.md) --------------
+
+
+def _orden_larga(lineas: int = 30) -> OrderDraft:
+    items = [
+        OrderItem(
+            sku=f"PL-{n:03d}",
+            product_name=f"Producto {n}",
+            brand="Planilla",
+            category="Shampoo",
+            quantity=n % 4 + 1,
+            unit_price=Decimal("1250.50"),
+            note="tono 7.1" if n == 3 else None,
+            match="aproximada" if n == 5 else "exacta",
+            source_text=f"{n % 4 + 1} producto {n}",
+        )
+        for n in range(1, lineas + 1)
+    ]
+    return OrderDraft(
+        draft_id=f"draft-largo-{uuid4().hex}",
+        customer_id="cli-planillas",
+        channel=Channel.TELEGRAM,
+        items=items,
+        leftovers=[
+            {"source_text": "1 planchita; la de titanio", "reason": "fuera_de_catalogo"},
+            {"source_text": "2 shampoo keratina", "reason": "duda_sin_resolver"},
+        ],
+    )
+
+
+@pytest.fixture
+def catalogo_de_prueba(monkeypatch):
+    """Un catálogo con stock para los 30 productos de `_orden_larga`."""
+    productos = [
+        Product(sku=f"PL-{n:03d}", name=f"Producto {n}", price=Decimal("1250.50"), stock=50) for n in range(1, 31)
+    ]
+    monkeypatch.setattr(sheets_service, "get_catalog", lambda: productos)
+
+
+def test_csv_por_linea(orders_csv, sin_google, base_limpia, catalogo_de_prueba):
+    """CA-131: una orden de 30 líneas deja 30 filas en `pedidos_lineas.csv`, con la nota y números sin texto."""
+    order = order_service.confirm_draft(_orden_larga())
+
+    lineas = filas_csv(sheets_service.get_order_lines_path())
+    assert sheets_service.get_order_lines_path() == orders_csv.with_name("pedidos_lineas.csv")
+    assert lineas[0] == sheets_service.LINE_COLUMNS and len(lineas) == 31
+    fila = dict(zip(sheets_service.LINE_COLUMNS, lineas[3], strict=True))
+    assert fila == {
+        "id_orden": order.order_id, "renglon": "3", "sku": "PL-003", "producto": "Producto 3", "presentacion": "",
+        "marca": "Planilla", "categoria": "Shampoo", "cantidad": "4", "precio_unitario": "1250.50",
+        "subtotal": "5002.00", "nota": "tono 7.1", "coincidencia": "exacta", "pedido_como": "4 producto 3",
+    }
+    assert lineas[5][sheets_service.LINE_COLUMNS.index("coincidencia")] == "aproximada"
+
+    orden_csv = dict(zip(sheets_service.ORDER_COLUMNS, filas_csv(orders_csv)[1], strict=True))
+    assert (orden_csv["lineas"], orden_csv["unidades"]) == ("30", str(sum(item.quantity for item in order.items)))
+    assert orden_csv["origen"] == "texto" and orden_csv["draft_id"] == order.draft_id
+
+    order_service.sync_pending_orders()  # un reintento no repite las líneas
+    assert len(filas_csv(sheets_service.get_order_lines_path())) == 31
+
+
+def test_guarda_lo_que_quedo_afuera_en_el_csv(orders_csv, sin_google, base_limpia, catalogo_de_prueba):
+    """CA-133: lo que el cliente pidió y no entró queda en la orden y en `fuera_del_pedido`, con el motivo."""
+    order = order_service.confirm_draft(_orden_larga(3))
+
+    assert [(left.source_text, left.reason) for left in order_service.get_order(order.order_id).leftovers] == [
+        ("1 planchita; la de titanio", "fuera_de_catalogo"),
+        ("2 shampoo keratina", "duda_sin_resolver"),
+    ]
+    fila = dict(zip(sheets_service.ORDER_COLUMNS, filas_csv(orders_csv)[1], strict=True))
+    assert fila["fuera_del_pedido"] == (
+        "1 planchita, la de titanio (fuera_de_catalogo); 2 shampoo keratina (duda_sin_resolver)"
+    )
+
+
+def test_estado_sincronizado(google, orders_csv, base_limpia, catalogo_de_prueba):
+    """CA-132: al cancelar una orden, su fila del CSV y la de Sheet 2 dicen `Cancelado` y `actualizado` cambia."""
+    otra = order_service.confirm_draft(_orden_larga(1))
+    order = order_service.confirm_draft(_orden_larga(2))
+    estado = sheets_service.ORDER_COLUMNS.index("estado")
+    actualizado = sheets_service.ORDER_COLUMNS.index("actualizado")
+    antes = filas_csv(orders_csv)
+
+    cancelada = order_service.cancel_order(order.order_id)
+
+    despues = filas_csv(orders_csv)
+    assert [fila[0] for fila in despues] == ["id_orden", otra.order_id, order.order_id]  # mismo orden, sin duplicar
+    assert despues[1] == antes[1]
+    assert (antes[2][estado], despues[2][estado]) == ("Recibido", "Cancelado")
+    assert despues[2][actualizado] == sheets_service.format_order_row(cancelada)[actualizado]
+    assert google.pedidos()[2][estado] == "Cancelado"
+    assert [fila[0] for fila in google.pedidos()] == ["id_orden", otra.order_id, order.order_id]
+    assert order_service.get_order(order.order_id).sheets_synced
+    assert len(filas_csv(sheets_service.get_order_lines_path())) == 4  # las líneas no cambian
+
+
+def test_estado_con_sheet2_caida_queda_para_el_reintento(google, orders_csv, base_limpia, catalogo_de_prueba):
+    """RF-77: si Sheet 2 no responde, el CSV se actualiza igual y el reintento lleva el estado a la planilla."""
+    order = order_service.confirm_draft(_orden_larga(1))
+    estado = sheets_service.ORDER_COLUMNS.index("estado")
+    google.caida = True
+
+    order_service.change_status(order.order_id, OrderStatus.PREPARED)
+
+    assert filas_csv(orders_csv)[1][estado] == "Preparado"
+    assert not order_service.get_order(order.order_id).sheets_synced
+    google.caida = False
+    sheets_service.reset_orders_pause()
+    assert order_service.sync_pending_orders() == 1
+    assert google.pedidos()[1][estado] == "Preparado"
+
+
+def test_csv_seguro_y_encabezado(orders_csv, sin_google):
+    """CA-134: un texto que empieza como fórmula lleva apóstrofo, y un encabezado viejo queda completo."""
+    viejas = ["id_orden", "fecha_hora", "cliente", "canal", "productos", "notas", "estado"]
+    anterior = ["ORD-0001", "2026-10-27T09:12:00-03:00", "cli-001", "whatsapp", "1 x Shampoo (SH-1)", "", "Retirado"]
+    with open(orders_csv, "w", encoding="utf-8", newline="") as f:
+        csv.writer(f).writerows([viejas, anterior])
+
+    sheets_service.append_order(orden(notes="=HYPERLINK(1)"))
+
+    filas = filas_csv(orders_csv)
+    assert filas[0] == sheets_service.ORDER_COLUMNS
+    assert filas[1] == anterior + [""] * (len(sheets_service.ORDER_COLUMNS) - len(anterior))
+    assert filas[2][sheets_service.ORDER_COLUMNS.index("notas")] == "'=HYPERLINK(1)"
+    assert all(len(fila) == len(sheets_service.ORDER_COLUMNS) for fila in filas)
+
+
+def test_un_csv_que_no_es_de_pedidos_no_se_reescribe(orders_csv, sin_google):
+    """RF-78: solo se actualiza un encabezado que es el comienzo del actual."""
+    with open(orders_csv, "w", encoding="utf-8", newline="") as f:
+        csv.writer(f).writerows([["otra", "cosa"], ["a", "b"]])
+    sheets_service.append_order(orden())
+    assert filas_csv(orders_csv)[:2] == [["otra", "cosa"], ["a", "b"]]
+
+
+def test_lineas_en_sheet2_si_hay_hoja_configurada(google, orders_csv, monkeypatch):
+    """RF-75: con `ORDER_LINES_WORKSHEET`, las líneas van a esa hoja de Sheet 2 en una sola escritura."""
+    monkeypatch.setenv("ORDER_LINES_WORKSHEET", "Lineas")
+    get_settings.cache_clear()
+    order = orden()
+
+    sheets_service.append_order(order)
+    sheets_service.append_order(order)
+
+    hoja = google.hojas[f"{ORDERS_ID}/Lineas"]
+    assert hoja[0] == sheets_service.LINE_COLUMNS and len(hoja) == 2
+    assert hoja[1][:3] == [order.order_id, "1", "PL-SH-900"]

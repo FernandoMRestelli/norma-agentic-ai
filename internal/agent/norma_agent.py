@@ -34,12 +34,21 @@ class NormaAgent:
         self.prompt_version = context.prompt_version()
 
     def handle(
-        self, thread_id: str, customer_id: str, channel: Channel, text: str, customer_name: str | None = None
+        self,
+        thread_id: str,
+        customer_id: str,
+        channel: Channel,
+        text: str,
+        customer_name: str | None = None,
+        origen: str = "texto",
     ) -> AgentOutcome:
-        """Procesa un mensaje ya preparado por message_service. `thread_id` identifica la conversación."""
+        """Procesa un mensaje ya preparado por message_service. `thread_id` identifica la conversación.
+
+        `origen` dice de dónde salió el texto (`texto`, `audio` o `imagen`) y queda en la orden (RF-79).
+        """
         inicio = time.perf_counter()
         with observabilidad.turno(thread_id, channel.value, text) as turno:
-            outcome, state = self._run(thread_id, customer_id, channel, text, customer_name)
+            outcome, state = self._run(thread_id, customer_id, channel, text, customer_name, origen)
             resumen = observabilidad.resumir(state)
             latencia_ms = round((time.perf_counter() - inicio) * 1000)
             turno.cerrar(outcome, resumen, latencia_ms, self.prompt_version)
@@ -65,23 +74,25 @@ class NormaAgent:
         return outcome
 
     def _run(
-        self, thread_id: str, customer_id: str, channel: Channel, text: str, customer_name: str | None
+        self, thread_id: str, customer_id: str, channel: Channel, text: str, customer_name: str | None, origen: str
     ) -> tuple[AgentOutcome, EstadoNorma]:
         config = {"configurable": {"thread_id": thread_id}, "recursion_limit": RECURSION_LIMIT}
         if self.graph.get_state(config).next == ("pausa",):
-            entry: Command | EstadoNorma = Command(resume=text)
+            entry: Command | EstadoNorma = Command(resume={"texto": text, "origen": origen})
         else:
             entry = {
                 "messages": [HumanMessage(content=text)],
                 "customer_id": customer_id,
                 "customer_name": customer_name,
                 "channel": channel.value,
+                "origen": origen,
                 "inicio_turno": 0,
                 "skills_activas": [],
                 "iteraciones": 0,
                 "fallas": 0,
                 "falla_turno": False,
                 "propuesta": None,
+                "renglones": [],
             }
         try:
             state = self.graph.invoke(entry, config)

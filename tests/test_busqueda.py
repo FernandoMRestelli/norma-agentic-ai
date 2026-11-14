@@ -318,7 +318,7 @@ def _tool(query: str) -> dict:
 def test_contrato_de_la_tool(catalogo_del_rubro):
     """CA-66: siempre `matches`, `sugerencias` y `corregido`; cada producto con score, aproximado y hay_stock."""
     con_matches = _tool("champu fidelite")
-    assert con_matches.keys() == {"matches", "sugerencias", "corregido"}
+    assert con_matches.keys() == {"matches", "sugerencias", "corregido", "total", "difieren_en"}
     assert con_matches["sugerencias"] == []
     assert con_matches["corregido"] == {"champu": "shampoo"}
 
@@ -402,3 +402,97 @@ def test_busqueda_sobre_mil_productos_es_rapida():
         inicio = time.perf_counter()
         busqueda_service.buscar(query, productos)
         assert time.perf_counter() - inicio < 0.05, query
+
+
+# --- Búsqueda por lote y total de coincidencias (RF-66, RF-69) ---------------------------------------------------
+
+
+@pytest.fixture
+def catalogo_mayorista(monkeypatch):
+    from tests import datos_sinteticos
+
+    productos = datos_sinteticos.catalogo_mayorista()
+    monkeypatch.setattr(sheets_service, "get_catalog", lambda: productos)
+    return productos
+
+
+def _lote(*renglones: dict) -> list[dict]:
+    ctx = tool_registry.TurnContext(customer_id="c", channel=Channel.WEB, disponibles=["buscar_renglones"])
+    resultado = tool_registry.execute("buscar_renglones", {"renglones": list(renglones)}, ctx)
+    assert resultado["ok"], resultado
+    return resultado["data"]["renglones"]
+
+
+def test_busqueda_por_lote(catalogo_mayorista):
+    """CA-123: 30 renglones dan 30 resultados con estado y, como mucho, 3 candidatos de 4 campos."""
+    variantes = ("keratina", "argan", "nutricion", "color", "matizador")
+    renglones = [
+        {"n": n, "texto": f"sh {variantes[n % 5]} {'x900' if n % 2 else ''}", "marca": marca, "cantidad": 2}
+        for n, marca in enumerate(["nordika", "belcor", "fiorella", "kapris", "lumine", "orkidea"] * 5, start=1)
+    ]
+
+    resultados = _lote(*renglones)
+
+    assert [r["n"] for r in resultados] == list(range(1, 31))
+    assert {r["estado"] for r in resultados} == {"unico", "varias", "sin_stock"}  # el argán de Nordika está agotado
+    for resultado in resultados:
+        assert len(resultado["candidatos"]) <= 3
+        assert all(candidato.keys() == {"sku", "name", "price", "hay_stock"} for candidato in resultado["candidatos"])
+    con_medida = next(r for r in resultados if r["n"] == 3)
+    sin_medida = next(r for r in resultados if r["n"] == 2)
+    assert (con_medida["estado"], con_medida["candidatos"][0]["sku"]) == ("unico", "FIO-SH-COL-900")
+    assert (sin_medida["estado"], sin_medida["total"], sin_medida["difieren_en"]) == ("varias", 3, "medida")
+
+
+@pytest.mark.parametrize(
+    ("renglon", "estado", "sku"),
+    [
+        ({"texto": "sh queratina x900", "marca": "nordica"}, "unico", "NOR-SH-KER-900"),  # errores de tipeo seguros
+        ({"texto": "caja de guantes", "marca": "montelo"}, "aproximado", "MON-AX-GUA-100"),
+        ({"texto": "mascara keratina 1k", "marca": "Belkor", "cantidad": 5}, "sin_stock", "BEL-MA-KER-1K"),
+        ({"texto": "sh argan 900", "marca": "Nordika"}, "sin_stock", "NOR-SH-ARG-900"),  # agotado
+        ({"texto": "planchita", "marca": "Lumine"}, "no_encontrado", None),
+        ({"texto": "shampoo", "marca": "Kerastase"}, "no_encontrado", None),  # la marca no está en el catálogo
+        ({"texto": "tintura", "marca": "Trevia"}, "no_encontrado", None),  # la marca no trabaja coloración
+        ({"texto": "nordika oxidante 20 vol x 900", "marca": "Nordika"}, "unico", "NOR-OX-20-900"),
+    ],
+)
+def test_estado_de_cada_renglon(catalogo_mayorista, renglon, estado, sku):
+    """RF-66: el estado dice qué hacer con el renglón sin que el agente compare candidatos."""
+    (resultado,) = _lote({"n": 1, "cantidad": 1, **renglon})
+    assert resultado["estado"] == estado
+    assert (resultado["candidatos"][0]["sku"] if resultado["candidatos"] else None) == sku
+    if estado == "sin_stock":
+        assert resultado["falta"]["available"] < resultado["falta"]["requested"]
+
+
+def test_tono_no_participa(catalogo_mayorista):
+    """CA-124: en una coloración el tono va aparte: encuentra la de la marca y no baja el puntaje."""
+    (con_tono,) = _lote({"n": 1, "texto": "coloracion", "marca": "Duomo", "tono": "8.21", "cantidad": 2})
+    assert (con_tono["estado"], con_tono["candidatos"][0]["sku"]) == ("unico", "DUO-CO-60")
+    # Con el tono dentro del texto, el número no coincide con nada del producto y ya no es una coincidencia segura
+    (en_el_texto,) = _lote({"n": 1, "texto": "coloracion 8.21", "marca": "Duomo", "cantidad": 2})
+    assert en_el_texto["estado"] != "unico"
+
+
+def test_informa_el_total(catalogo_mayorista):
+    """CA-125: una búsqueda genérica dice cuántos productos coinciden y en qué difieren, aunque muestre 5."""
+    resultado = tool_registry.execute(
+        "search_products",
+        {"query": "acondicionador"},
+        tool_registry.TurnContext(customer_id="c", channel=Channel.WEB, disponibles=["search_products"]),
+    )["data"]
+    acondicionadores = [p for p in catalogo_mayorista if p.category == "Acondicionador"]
+    assert len(resultado["matches"]) == 5
+    assert resultado["total"] == len(acondicionadores) > 50
+    assert resultado["difieren_en"] == "marca"
+    de_una_marca = busqueda_service.buscar("shampoo keratina silkara", catalogo_mayorista)
+    assert (de_una_marca.total, de_una_marca.difieren_en) == (3, "medida")
+    assert busqueda_service.buscar("shampoo keratina silkara 900", catalogo_mayorista).difieren_en is None
+
+
+def test_un_lote_tiene_tope(catalogo_mayorista):
+    ctx = tool_registry.TurnContext(customer_id="c", channel=Channel.WEB, disponibles=["buscar_renglones"])
+    renglones = [{"n": n, "texto": "shampoo"} for n in range(1, 62)]
+    resultado = tool_registry.execute("buscar_renglones", {"renglones": renglones}, ctx)
+    assert resultado["error"]["code"] == "argumentos_invalidos"

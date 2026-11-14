@@ -475,8 +475,8 @@ def test_la_ui_pide_solo_conversaciones_derivadas():
     assert "apiFetch('/dashboard/conversations')" not in html
 
 
-def test_migracion_2_agrega_stock_applied(tmp_path):
-    """Una base en la versión 1 (develop antes del dashboard) gana `orders.stock_applied` sin perder órdenes."""
+def test_migracion_3_agrega_stock_applied(tmp_path):
+    """Una base en la versión 2 gana `orders.stock_applied` sin perder órdenes."""
     path = tmp_path / "norma.db"
     engine = make_engine(f"sqlite:///{path}")
     init_db(engine)
@@ -486,9 +486,9 @@ def test_migracion_2_agrega_stock_applied(tmp_path):
             "INSERT INTO orders (order_id, draft_id, customer_id, channel, status, sheets_synced, created_at) "
             "VALUES ('ORD-0001', 'd-1', 'cust', 'web', 'Preparado', 0, '2026-01-01 00:00:00')"
         )
-        conn.exec_driver_sql("UPDATE schema_version SET version = 1")
+        conn.exec_driver_sql("UPDATE schema_version SET version = 2")
 
-    assert init_db(make_engine(f"sqlite:///{path}")) == LATEST == 2
+    assert init_db(make_engine(f"sqlite:///{path}")) == LATEST == 3
     with engine.connect() as conn:
         assert conn.exec_driver_sql("SELECT order_id, stock_applied FROM orders").all() == [("ORD-0001", 0)]
 
