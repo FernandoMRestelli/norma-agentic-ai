@@ -35,6 +35,8 @@ class SearchResult(BaseModel):
     matches: list[ProductMatch] = Field(default_factory=list)  # coincidencias confiables
     sugerencias: list[ProductMatch] = Field(default_factory=list)  # solo si no hay matches
     corregido: dict[str, str] = Field(default_factory=dict)  # palabra del cliente → cómo se interpretó
+    total: int = 0  # cuántos productos coinciden igual de bien, aunque `matches` muestre menos (RF-69)
+    difieren_en: str | None = None  # `marca`, `medida` o `variante`: qué preguntar cuando hay más de uno
 
 
 class StockCheck(BaseModel):

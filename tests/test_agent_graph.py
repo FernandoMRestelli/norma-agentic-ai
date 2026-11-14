@@ -510,9 +510,16 @@ def test_skill_clara(texto, hay_propuesta, skill):
 
 def test_preactiva_tomar_pedido(catalogo):
     """CA-117: con una lista, la primera llamada ya tiene las tools de `tomar_pedido` y el turno cierra en una."""
-    agent, modelo = _agente(_ai(_propuesta("Listo, te armé las cremas. ¿Lo confirmo?", SKU, 2)))
+    responder = _call(
+        "respond_to_customer",
+        kind="propuesta",
+        message="Listo, te armé las cremas. El jabón no lo trabajamos. ¿Lo confirmo?",
+        propuesta=[{"sku": SKU, "quantity": 2, "renglon": 1}],
+        afuera=[{"renglon": 2, "motivo": "fuera_de_catalogo"}],
+    )
+    agent, modelo = _agente(_ai(responder))
 
-    resultado = agent.handle("1", text="Nivea\n2 cremas\n1 jabón", **CLIENTE)
+    resultado = agent.handle("1", text="2 cremas nivea\n1 jabón", **CLIENTE)
 
     assert resultado.kind == "propuesta"
     assert resultado.iterations == 1
@@ -728,7 +735,12 @@ def test_pedido_largo_propone_lo_claro_y_junta_las_dudas(catalogo_largo):
         "1) La máscara argan de Marca Uno, ¿la querés de 250 g ($3900) o de 1 kg ($11200)? "
         "Si me confirmás así, la máscara queda afuera. ¿Te armo el pedido o me contestás la duda?"
     )
-    propuesta = [{"sku": sku, "quantity": cantidad} for sku, cantidad in LINEAS_CLARAS]
+    # El backend numeró los nueve renglones: el 3, la máscara, es la duda (RF-65, RF-68)
+    renglones = (1, 2, 4, 5, 6, 7, 8, 9)
+    propuesta = [
+        {"sku": sku, "quantity": cantidad, "renglon": n}
+        for n, (sku, cantidad) in zip(renglones, LINEAS_CLARAS, strict=True)
+    ]
     agent, modelo = _agente(
         _busquedas_en_paralelo(*BUSQUEDAS_LARGO),
         _ai(_call("leer_skill", nombre="tomar_pedido")),
@@ -738,7 +750,7 @@ def test_pedido_largo_propone_lo_claro_y_junta_las_dudas(catalogo_largo):
                 "respond_to_customer",
                 kind="propuesta",
                 message=mensaje_agente,
-                options=["MU-MAS-ARG-250", "MU-MAS-ARG-1K"],
+                pendientes=[{"renglon": 3, "opciones": ["MU-MAS-ARG-250", "MU-MAS-ARG-1K"]}],
                 propuesta=propuesta,
             )
         ),
@@ -772,3 +784,181 @@ def test_pedido_largo_propone_lo_claro_y_junta_las_dudas(catalogo_largo):
     # El detalle no cuenta para el tope de 600 caracteres del mensaje que escribe el agente
     assert len(resultado.message) > 600
     assert _ordenes() == 0
+
+
+# --- Pedido por renglones (M3 de docs/spec/toma-de-pedidos-por-texto.md) -----------------------------------------
+
+
+def _renglones(agent, thread="1"):
+    estado = agent.graph.get_state({"configurable": {"thread_id": thread}}).values
+    return {renglon["n"]: renglon for renglon in estado["renglones"]}
+
+
+def _buscar_todo():
+    renglones = [
+        {"n": 1, "texto": "sh keratina x900", "marca": "Marca Uno", "cantidad": 2},
+        {"n": 2, "texto": "caja ampollas argan", "marca": "Marca Uno", "cantidad": 1},
+        {"n": 3, "texto": "mascara argan", "marca": "Marca Uno", "cantidad": 3},
+        {"n": 4, "texto": "gel fijacion extrema x 250", "marca": "Marca Uno", "cantidad": 2},
+        {"n": 5, "texto": "alisado x 250", "marca": "Marca Dos", "cantidad": 2},
+        {"n": 6, "texto": "crema peinar rulos", "marca": "Marca Dos", "cantidad": 3},
+        {"n": 7, "texto": "oxi 20 vol x 1l", "marca": "Marca Tres", "cantidad": 2},
+        {"n": 8, "texto": "protector termico", "marca": "Marca Tres", "cantidad": 4},
+        {"n": 9, "texto": "decolorante x 700", "marca": "Marca Tres", "cantidad": 1},
+    ]
+    return _ai(_call("buscar_renglones", renglones=renglones))
+
+
+def _responder_lista(*, sin=(), pendientes=((3, ["MU-MAS-ARG-250", "MU-MAS-ARG-1K"]),), afuera=()):
+    numeros = (1, 2, 4, 5, 6, 7, 8, 9)
+    propuesta = [
+        {"sku": sku, "quantity": cantidad, "renglon": n}
+        for n, (sku, cantidad) in zip(numeros, LINEAS_CLARAS, strict=True)
+        if n not in sin
+    ]
+    return _ai(
+        _call(
+            "respond_to_customer",
+            kind="propuesta",
+            message="Te armé lo claro. La máscara argan, ¿de 250 o de 1 kilo? Si lo confirmás así, queda afuera.",
+            propuesta=propuesta,
+            pendientes=[{"renglon": n, "opciones": opciones} for n, opciones in pendientes],
+            afuera=[{"renglon": n, "motivo": motivo} for n, motivo in afuera],
+        )
+    )
+
+
+def test_pedido_por_renglones_en_dos_llamadas(catalogo_largo):
+    """RF-65 a RF-68: la lista llega numerada, se busca en una llamada y cada renglón queda con su cuenta."""
+    agent, modelo = _agente(_buscar_todo(), _responder_lista())
+
+    resultado = agent.handle("1", text=PEDIDO_LARGO, **CLIENTE)
+
+    assert (resultado.kind, resultado.iterations) == ("propuesta", 2)
+    assert "buscar_renglones" in modelo.ofrecidas[0] and "respond_to_customer" in modelo.ofrecidas[0]
+    sistema = modelo.recibidos[0][0].text
+    assert "1. [Marca Uno] 2 sh keratina x900" in sistema and "9. [Marca Tres] 1 decolorante x 700" in sistema
+    assert "te paso el pedido" not in sistema.split("## Estado actual")[1]  # el saludo no es un renglón
+    (busqueda,) = _resultados(agent, "buscar_renglones")
+    estados = {r["n"]: r["estado"] for r in busqueda["data"]["renglones"]}
+    assert estados == {**dict.fromkeys(range(1, 10), "unico"), 3: "varias"}
+    assert [regla["id"] for regla in busqueda["reglas"]] == ["BR-03"]  # la skill estaba preactivada (RF-63)
+    assert [(item.sku, item.quantity) for item in resultado.draft.items] == LINEAS_CLARAS
+    assert resultado.options == ["MU-MAS-ARG-250", "MU-MAS-ARG-1K"]
+    renglones = _renglones(agent)
+    assert renglones[1]["estado"] == "resuelto" and renglones[1]["lineas"] == [{"sku": "MU-SH-KER-900", "cantidad": 2}]
+    assert (renglones[3]["estado"], renglones[3]["opciones"]) == ("pendiente", ["MU-MAS-ARG-250", "MU-MAS-ARG-1K"])
+
+
+def test_control_de_cobertura_en_el_turno(catalogo_largo):
+    """CA-126: una respuesta que deja un renglón sin cuenta vuelve al modelo con el número que falta."""
+    agent, _ = _agente(_buscar_todo(), _responder_lista(sin=(9,)), _responder_lista())
+
+    resultado = agent.handle("1", text=PEDIDO_LARGO, **CLIENTE)
+
+    rechazo, aceptada = _resultados(agent, "respond_to_customer")
+    assert rechazo["error"]["code"] == "renglones_sin_cuenta"
+    assert rechazo["error"]["details"]["renglones"] == [9]
+    assert aceptada["ok"] and resultado.iterations == 3
+    assert len(resultado.draft.items) == len(LINEAS_CLARAS)
+
+
+def test_cobertura_se_tolera_tras_dos_intentos(catalogo_largo):
+    """RF-68: al tercer intento la respuesta sale igual y lo que falta queda pendiente, para el turno siguiente."""
+    incompleta = [_responder_lista(sin=(9,)) for _ in range(3)]
+    agent, _ = _agente(_buscar_todo(), *incompleta)
+
+    resultado = agent.handle("1", text=PEDIDO_LARGO, **CLIENTE)
+
+    assert resultado.kind == "propuesta"
+    assert (_renglones(agent)[9]["estado"], _renglones(agent)[9]["opciones"]) == ("pendiente", [])
+
+
+def test_la_respuesta_a_una_duda_completa_el_pedido_sin_volver_a_buscar(catalogo_largo):
+    """RF-67: los renglones resueltos y el pendiente siguen en el estado actual del turno siguiente."""
+    completar = _ai(
+        _call(
+            "respond_to_customer",
+            kind="propuesta",
+            message="Listo, sumé las 3 máscaras de 1 kilo. ¿Lo cerramos?",
+            propuesta=[
+                *({"sku": sku, "quantity": cantidad} for sku, cantidad in LINEAS_CLARAS),
+                {"sku": "MU-MAS-ARG-1K", "quantity": 3, "renglon": 3},
+            ],
+        )
+    )
+    leer = _ai(_call("leer_skill", nombre="tomar_pedido"))
+    agent, modelo = _agente(_buscar_todo(), _responder_lista(), leer, completar)
+    agent.handle("1", text=PEDIDO_LARGO, **CLIENTE)
+
+    resultado = agent.handle("1", text="la de 1 kilo", **CLIENTE)
+
+    estado_actual = modelo.recibidos[2][0].text
+    pendiente = "3. [Marca Uno] 3 mascara argan → pendiente, le preguntaste por: MU-MAS-ARG-250, MU-MAS-ARG-1K"
+    assert pendiente in estado_actual
+    assert "1. [Marca Uno] 2 sh keratina x900 → resuelto: 2 x MU-SH-KER-900" in estado_actual
+    assert len(_resultados(agent, "buscar_renglones")) == 1  # no volvió a buscar
+    assert len(resultado.draft.items) == len(LINEAS_CLARAS) + 1
+    renglones = _renglones(agent)
+    assert all(renglon["estado"] == "resuelto" for renglon in renglones.values())
+
+
+def test_un_renglon_que_el_cliente_saca_queda_afuera(catalogo_largo):
+    """RF-67: si la propuesta nueva ya no trae el producto de un renglón resuelto, ese renglón pasa a `afuera`."""
+    sin_decolorante = _ai(
+        _call(
+            "respond_to_customer",
+            kind="propuesta",
+            message="Hecho, saqué el decolorante. ¿Lo dejamos así?",
+            propuesta=[{"sku": sku, "quantity": c} for sku, c in LINEAS_CLARAS if sku != "MT-DECO-700"],
+            pendientes=[{"renglon": 3, "opciones": ["MU-MAS-ARG-250", "MU-MAS-ARG-1K"]}],
+        )
+    )
+    leer = _ai(_call("leer_skill", nombre="tomar_pedido"))
+    agent, _ = _agente(_buscar_todo(), _responder_lista(), leer, sin_decolorante)
+    agent.handle("1", text=PEDIDO_LARGO, **CLIENTE)
+    agent.handle("1", text="sacame el decolorante", **CLIENTE)
+
+    assert (_renglones(agent)[9]["estado"], _renglones(agent)[9]["motivo"]) == ("afuera", "lo_saco_el_cliente")
+    assert _renglones(agent)[8]["estado"] == "resuelto"
+
+
+def test_renglon_que_no_existe_vuelve_al_modelo(catalogo_largo):
+    agent, _ = _agente(_buscar_todo(), _responder_lista(afuera=((15, "fuera_de_catalogo"),)), _responder_lista())
+    agent.handle("1", text=PEDIDO_LARGO, **CLIENTE)
+    assert _resultados(agent, "respond_to_customer")[0]["error"]["code"] == "renglon_inexistente"
+
+
+def test_el_tono_de_la_coloracion_va_a_la_nota(monkeypatch):
+    """RF-69: el tono viaja aparte de la búsqueda y termina en la nota de la línea, aunque el modelo no la escriba."""
+    from tests import datos_sinteticos
+
+    productos = datos_sinteticos.catalogo_mayorista()
+    monkeypatch.setattr(sheets_service, "get_catalog", lambda: productos)
+    buscar = _ai(
+        _call(
+            "buscar_renglones",
+            renglones=[
+                {"n": 2, "texto": "coloracion", "marca": "Duomo", "tono": "7", "cantidad": 3},
+                {"n": 3, "texto": "coloracion", "marca": "Duomo", "tono": "8.21", "cantidad": 2},
+            ],
+        )
+    )
+    responder = _ai(
+        _call(
+            "respond_to_customer",
+            kind="propuesta",
+            message="Van las coloraciones Duomo, 3 del tono 7 y 2 del 8.21. ¿Lo confirmo?",
+            propuesta=[
+                {"sku": "DUO-CO-60", "quantity": 3, "renglon": 2},
+                {"sku": "DUO-CO-60", "quantity": 2, "renglon": 3},
+            ],
+            afuera=[{"renglon": 1, "motivo": "no_es_producto"}],
+        )
+    )
+    agent, _ = _agente(buscar, responder)
+
+    resultado = agent.handle("1", text="Duomo\ncoloracion\n7/3\n821/2", **CLIENTE)
+
+    assert [(item.quantity, item.note) for item in resultado.draft.items] == [(3, "tono 7"), (2, "tono 8.21")]
+    assert _renglones(agent)[1]["motivo"] == "no_es_producto"
