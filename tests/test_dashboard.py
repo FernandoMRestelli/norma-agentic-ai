@@ -337,7 +337,7 @@ def _stock_en(path: Path, sku: str) -> int:
 
 
 def test_si_falla_la_base_el_catalogo_no_queda_descontado(tmp_path, monkeypatch):
-    """CA-115: el descuento y el cambio de estado se guardan juntos; el reintento descuenta una sola vez."""
+    """CA-137: el descuento y el cambio de estado se guardan juntos; el reintento descuenta una sola vez."""
     catalogo = _catalogo_temporal(tmp_path, monkeypatch)
     order = _create_sample_order(sku="SH-PAN-400", quantity=5)
     order_service.change_status(order.order_id, OrderStatus.PREPARED)
@@ -365,7 +365,7 @@ def test_si_falla_la_base_el_catalogo_no_queda_descontado(tmp_path, monkeypatch)
 
 
 def test_si_falla_la_planilla_el_estado_se_reintenta(tmp_path, monkeypatch):
-    """CA-116: la API responde 200, la orden queda pendiente y el reintento escribe el estado en la planilla."""
+    """CA-138: la API responde 200, la orden queda pendiente y el reintento escribe el estado en la planilla."""
     _catalogo_temporal(tmp_path, monkeypatch)
     order = _create_sample_order(sku="SH-PAN-400", quantity=2)
     escribir_estado = sheets_service.update_order_status_in_sheets
@@ -388,7 +388,7 @@ def test_si_falla_la_planilla_el_estado_se_reintenta(tmp_path, monkeypatch):
 
 
 def test_el_estado_tambien_se_escribe_en_sheet_2(tmp_path, monkeypatch):
-    """RF-60: con Sheet 2 configurada, el cambio de estado actualiza la celda `estado` de la fila de la orden."""
+    """RF-81: con Sheet 2 configurada, el cambio de estado actualiza la celda `estado` de la fila de la orden."""
     _catalogo_temporal(tmp_path, monkeypatch)
     fake = FakeSheets()
     monkeypatch.setenv("GOOGLE_CREDENTIALS_FILE", "credentials/no-se-lee-en-los-tests.json")
@@ -405,7 +405,7 @@ def test_el_estado_tambien_se_escribe_en_sheet_2(tmp_path, monkeypatch):
 
 
 def test_pedidos_del_csv_que_no_estan_en_la_base_son_de_solo_lectura(tmp_path, monkeypatch):
-    """CA-117: la base es la fuente; lo que solo está en el CSV de pedidos se ve, sin acciones, y no se duplica."""
+    """CA-139: la base es la fuente; lo que solo está en el CSV de pedidos se ve, sin acciones, y no se duplica."""
     _catalogo_temporal(tmp_path, monkeypatch)
     order = _create_sample_order(sku="SH-PAN-400", quantity=2)  # queda en la base y en el CSV
     with open(tmp_path / "pedidos_test.csv", "a", encoding="utf-8", newline="") as f:
@@ -435,7 +435,7 @@ def test_pedidos_del_csv_que_no_estan_en_la_base_son_de_solo_lectura(tmp_path, m
 
 
 def test_fila_con_fecha_ilegible_se_saltea(tmp_path, monkeypatch, caplog):
-    """CA-117: una fecha ilegible en el CSV no cuenta como de hoy: la fila no se muestra y queda una advertencia."""
+    """CA-139: una fecha ilegible en el CSV no cuenta como de hoy: la fila no se muestra y queda una advertencia."""
     pedidos = tmp_path / "pedidos.csv"
     pedidos.write_text(
         "id_orden,fecha_hora,cliente,canal,productos,notas,estado,nombre_cliente,total\n"
@@ -452,7 +452,7 @@ def test_fila_con_fecha_ilegible_se_saltea(tmp_path, monkeypatch, caplog):
 
 
 def test_linea_sin_precio_usa_el_del_catalogo_en_todas_las_vistas(tmp_path, monkeypatch):
-    """CA-118: Pedidos y Ventas & KPIs calculan el total con el mismo criterio."""
+    """CA-140: Pedidos y Ventas & KPIs calculan el total con el mismo criterio."""
     pedidos = tmp_path / "pedidos.csv"
     pedidos.write_text(
         "id_orden,fecha_hora,cliente,canal,productos,notas,estado,nombre_cliente,total\n"
@@ -469,7 +469,7 @@ def test_linea_sin_precio_usa_el_del_catalogo_en_todas_las_vistas(tmp_path, monk
 
 
 def test_la_ui_pide_solo_conversaciones_derivadas():
-    """CA-120: la pestaña Conversaciones lista las derivadas que esperan a alguien (RF-24), no todas."""
+    """CA-142: la pestaña Conversaciones lista las derivadas que esperan a alguien (RF-24), no todas."""
     html = client.get("/dashboard/ui").text
     assert "apiFetch('/dashboard/conversations?state=derivada')" in html
     assert "apiFetch('/dashboard/conversations')" not in html
