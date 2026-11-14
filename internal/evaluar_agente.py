@@ -138,11 +138,15 @@ def lineas_esperadas(esperado: dict) -> dict[str, int] | None:
     return None
 
 
-def medir_lineas(esperado: dict, obtenidos: dict[str, int], preguntados: Iterable[str] = ()) -> dict[str, int]:
+def medir_lineas(
+    esperado: dict, obtenidos: dict[str, int], preguntados: Iterable[str] = (), avisados: Iterable[str] | None = None
+) -> dict[str, int]:
     """Compara línea por línea lo esperado con lo que quedó propuesto o registrado (RF-60).
 
     Una línea es correcta si coinciden el SKU y la cantidad. Una línea esperada está perdida si no quedó en el
     pedido y el agente tampoco preguntó por ella; lo mismo una duda (`dudas`) de la que no ofreció ninguna opción.
+    Con `avisados` (los renglones que el agente dejó afuera o pendientes, RF-68), también se pierde un renglón de
+    `afuera` que no está entre ellos.
     """
     esperados = lineas_esperadas(esperado)
     if esperados is None:
@@ -150,6 +154,8 @@ def medir_lineas(esperado: dict, obtenidos: dict[str, int], preguntados: Iterabl
     a_la_vista = set(obtenidos) | set(preguntados)
     perdidas = sum(1 for sku in esperados if sku not in a_la_vista)
     perdidas += sum(1 for duda in esperado.get("dudas", []) if not a_la_vista & set(duda["opciones"]))
+    if avisados is not None:
+        perdidas += len(set(esperado.get("afuera", [])) - set(avisados))
     return {
         "lineas_esperadas": len(esperados),
         "lineas_propuestas": len(obtenidos),
@@ -401,7 +407,10 @@ def _evaluar(agent, case: dict, skus: Iterable[str] = (), repeticion: int = 1) -
         return fila, conversacion
     esperado = case["esperado"]
     obtenidos = order_items if order_items is not None else _items(outcome.draft.items if outcome.draft else [])
-    fila.update(medir_lineas(esperado, obtenidos, outcome.options))
+    # Los renglones que el agente declaró afuera o dejó pendientes, si el pedido vino numerado (RF-68)
+    renglones = state.get("renglones") or []
+    avisados = [r["texto"] for r in renglones if r["estado"] in ("afuera", "pendiente")] if renglones else None
+    fila.update(medir_lineas(esperado, obtenidos, outcome.options, avisados))
     fila["registro_indebido"] = int(esperado["resultado"] == "sin_pedido" and order_items is not None)
     fila["aclaracion_de_mas"] = int(
         esperado["resultado"] in ("borrador", "pedido") and outcome.kind == "aclaracion" and not esperado.get("dudas")

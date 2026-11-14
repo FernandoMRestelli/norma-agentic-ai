@@ -9,6 +9,7 @@ from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemM
 from internal.agent import guardrails
 from internal.agent.state import EstadoNorma
 from internal.schemas.order_schema import OrderDraft
+from internal.services import inventory_service
 from internal.services.skill_service import SKILLS_DIR, get_skills
 
 SYSTEM_PROMPT_PATH = Path(__file__).with_name("system_prompt.md")
@@ -59,6 +60,60 @@ def _skill_activa(state: EstadoNorma) -> str | None:
     return "\n".join(lines)
 
 
+def _opciones_previas(skus: list[str]) -> str:
+    """Las opciones de la pregunta anterior con su nombre: el cliente contesta «el de 900» y el SKU ya está (RF-71).
+
+    Son para el modelo: los guardrails impiden que un SKU llegue al cliente.
+    """
+    if not skus:
+        return ""
+    try:
+        productos = {product.sku: product for product in inventory_service.get_catalog()}
+    except OSError:  # sin catálogo quedan los SKU solos
+        productos = {}
+    nombres = []
+    for sku in skus:
+        product = productos.get(sku)
+        nombre = " ".join(filter(None, (product.name, product.presentation))) if product else ""
+        nombres.append(f"{sku} ({nombre})" if nombre else sku)
+    return "; ".join(nombres)
+
+
+def _renglon(renglon: dict) -> str:
+    marca = f"[{renglon['marca']}] " if renglon.get("marca") else ""
+    linea = f"{renglon['n']}. {marca}{renglon['texto']}"
+    match renglon["estado"]:
+        case "resuelto":
+            lineas = ", ".join(f"{linea['cantidad']} x {linea['sku']}" for linea in renglon["lineas"])
+            return f"{linea} → resuelto: {lineas}"
+        case "pendiente":
+            opciones = ", ".join(renglon.get("opciones") or []) or "sin opciones todavía"
+            return f"{linea} → pendiente, le preguntaste por: {opciones}"
+        case "afuera":
+            return f"{linea} → afuera ({renglon.get('motivo')})"
+    return linea
+
+
+def _renglones(renglones: list[dict]) -> list[str]:
+    """Los renglones que numeró el backend y cómo quedó cada uno (RF-65, RF-67, RF-71)."""
+    if not renglones:
+        return []
+    nuevos = [renglon for renglon in renglones if renglon["estado"] == "sin_resolver"]
+    resto = [renglon for renglon in renglones if renglon["estado"] != "sin_resolver"]
+    lines = [""]
+    if nuevos:
+        lines.append(
+            "Renglones del pedido sin resolver, numerados por el sistema, con la marca de su encabezado entre "
+            "corchetes. Buscalos juntos con `buscar_renglones`. Al responder, cada uno va en `propuesta` (con su "
+            "número en `renglon`), en `pendientes` o en `afuera`:"
+        )
+        lines += [_renglon(renglon) for renglon in nuevos]
+    if resto:
+        lines.append("Renglones ya tratados en esta conversación:")
+        lines += [_renglon(renglon) for renglon in resto]
+    return lines
+
+
 def _current_state(state: EstadoNorma) -> str:
     # El nombre del perfil lo elige el cliente: entra limpio y corto, como dato (spec de guardrails §3.3)
     name = guardrails.limpiar_nombre(state.get("customer_name")) or "desconocido"
@@ -69,9 +124,13 @@ def _current_state(state: EstadoNorma) -> str:
             f"{item.quantity} x {' '.join(filter(None, (item.product_name, item.presentation)))} ({item.sku})"
             for item in draft.items
         )
-        lines.append(f"Propuesta vigente: {items}")
+        version = f" (versión {draft.version})" if draft.version > 1 else ""
+        lines.append(f"Propuesta vigente: {items}{version}")
     else:
         lines.append("Propuesta vigente: ninguna")
+    if opciones := _opciones_previas(state.get("opciones_previas") or []):
+        lines.append(f"Opciones que le ofreciste en tu mensaje anterior: {opciones}")
+    lines += _renglones(state.get("renglones") or [])
     messages = state.get("messages", [])
     start = state.get("inicio_turno", 0)
     if start < len(messages) and guardrails.detectar_intento(messages[start].text):

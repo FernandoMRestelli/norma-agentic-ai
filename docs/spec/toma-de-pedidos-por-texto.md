@@ -6,7 +6,7 @@
 | | |
 |---|---|
 | Etapa del roadmap | 03 · Pedidos multimodales (solo texto), 04 · Confirmación, 05 · Registro y seguimiento |
-| Estado | Propuesto |
+| Estado | Implementado en cinco ramas, una por mejora ([§10.1](#101-estado-de-implementación)). Falta medirlo con un LLM real |
 | Responsable | Federico Picado |
 | Requisitos de la spec del MVP | RF-07, RF-11, RF-13, RF-19, RF-21, RF-28, RF-36 a RF-39, RNF-03, RNF-06, RNF-07 |
 | IDs que reserva | RF-59 a RF-79, RNF-15 y RNF-16, CA-113 a CA-134, D-21 a D-29, BR-11 |
@@ -307,23 +307,33 @@ Además:
 **Qué se propone.**
 
 1. **Renglones numerados (RF-65).** Una función pura, `interpretation_service.numerar_renglones`, parte el mensaje
-   en renglones, les pone número y marca cuáles son un encabezado de marca: una línea sin cantidad que coincide con
-   una marca del catálogo. El LLM recibe la lista numerada en el estado actual. No interpreta productos: eso sigue
-   siendo del LLM.
-2. **Búsqueda por lote (RF-66).** Una tool nueva, `buscar_renglones`, de la skill `tomar_pedido`. Recibe todos los
-   renglones juntos y devuelve un resultado compacto por renglón ([§5.1](#51-contratos-de-m3)).
+   en renglones y les pone número. Un encabezado de marca, que es una línea sin cantidad que coincide con una marca
+   del catálogo aunque venga mal escrita, no se numera: le pone su marca a los renglones de abajo. Tampoco se
+   numeran los saludos ni las líneas que no nombran nada del catálogo y no traen un número; una línea así puede ser
+   una marca que el catálogo no tiene, así que corta la marca anterior. El LLM recibe la lista numerada en el
+   estado actual. No interpreta productos: eso sigue siendo del LLM.
+
+   Para que esto funcione, `message_service.normalize_text` dejó de juntar los renglones: antes reemplazaba cada
+   salto de línea por un espacio, y una lista de Telegram le llegaba al agente como una sola línea.
+2. **Búsqueda por lote (RF-66).** Una tool de base nueva, `buscar_renglones`. Recibe todos los renglones juntos y
+   devuelve un resultado compacto por renglón ([§5.1](#51-contratos-de-m3)). Medido con el caso de 23 renglones
+   del conjunto `pedidos`: 3.856 caracteres de resultado, contra unos 23.000 con una búsqueda por renglón.
 3. **Estado por renglón (RF-67).** El estado del grafo guarda `renglones`: cada uno `resuelto`, `pendiente` o
    `afuera`. Sobrevive entre turnos mientras la conversación siga abierta, así la respuesta a una pregunta
    completa el renglón sin rehacer el pedido.
-4. **Control de cobertura (RF-68).** `respond_to_customer` falla con `renglones_sin_cuenta` si algún renglón del
-   turno no está en `propuesta`, en `pendientes` o en `afuera`. El error le dice al modelo cuáles faltan, como
-   hacen hoy los guardrails.
+4. **Control de cobertura (RF-68).** `respond_to_customer` falla con `renglones_sin_cuenta` si algún renglón sin
+   resolver no está en `propuesta`, en `pendientes` o en `afuera`. El error le dice al modelo cuáles faltan, como
+   hacen hoy los guardrails. Después de dos rechazos en el mismo turno, la tercera respuesta se acepta y los
+   renglones que faltan quedan pendientes, a la vista en el turno siguiente.
 5. **La búsqueda dice cuánto no mostró (RF-69).** `search_products` y `buscar_renglones` devuelven `total` y, si
    cortaron, `difieren_en`: `marca`, `medida` o `variante`. Con eso el modelo sabe qué preguntar (BR-03).
 6. **El tono va aparte (RF-69, D-27).** En una coloración, el tono no participa de la búsqueda: se busca por marca
-   y tipo, y el tono se anota en la `note` de la línea. Depende de confirmar V-01 y V-02 con el negocio.
+   y tipo. El agente lo manda en el campo `tono` de `buscar_renglones`, y el backend lo anota como `tono 8.21` en la
+   `note` de la línea que resuelve ese renglón, si el modelo no escribió otra nota. Depende de confirmar V-01 y V-02
+   con el negocio.
 7. **Mensajes largos partidos (RF-70).** El canal parte por renglón los mensajes que pasan su límite, sin cortar
-   una línea de pedido por la mitad. El tope de `message` sube a 1.200 caracteres cuando hay `pendientes`.
+   una línea de pedido por la mitad (`message_service.partir`; en Telegram, 4.096 caracteres). El tope de `message`
+   sube de 600 a 1.200 caracteres cuando hay `pendientes`.
 
 #### 5.1 Contratos de M3
 
@@ -349,12 +359,13 @@ Además:
 ```json
 {
   "renglones": [
-    {"n": 2, "estado": "unico", "total": 1, "alcanza": true,
-     "candidatos": [{"sku": "…", "nombre": "…", "precio": "8200.00", "hay_stock": true}]},
-    {"n": 3, "estado": "varias", "total": 4, "difieren_en": "medida",
-     "candidatos": [{"sku": "…", "nombre": "…", "precio": "…", "hay_stock": true}]},
-    {"n": 5, "estado": "sin_stock", "total": 1, "alcanza": false, "disponible": 1,
-     "candidatos": [{"sku": "…", "nombre": "…", "precio": "…", "hay_stock": true}]}
+    {"n": 2, "estado": "unico", "total": 1,
+     "candidatos": [{"sku": "…", "name": "…", "price": "8200.00", "hay_stock": true}]},
+    {"n": 3, "estado": "varias", "total": 3, "difieren_en": "medida",
+     "candidatos": [{"sku": "…", "name": "…", "price": "…", "hay_stock": true}]},
+    {"n": 5, "estado": "sin_stock", "total": 1,
+     "falta": {"sku": "…", "requested": 5, "available": 1},
+     "candidatos": [{"sku": "…", "name": "…", "price": "…", "hay_stock": true}]}
   ]
 }
 ```
@@ -362,13 +373,18 @@ Además:
 | `estado` | Significado | Qué hace el agente |
 |---|---|---|
 | `unico` | Un solo producto confiable, y el stock alcanza | Va a `propuesta` |
-| `varias` | Más de un producto confiable | Pregunta (BR-03), con hasta 3 candidatos |
+| `varias` | Más de un producto confiable | Pregunta (BR-03), con hasta 3 candidatos; `difieren_en` dice qué preguntar |
 | `aproximado` | Solo hay coincidencias aproximadas | Pregunta «¿es este?» (BR-09) |
-| `sin_stock` | Un solo producto, pero no alcanza | Ofrece `disponible` (BR-01) |
+| `sin_stock` | Un solo producto, pero no alcanza | Ofrece lo que dice `falta.available` (BR-01) |
 | `no_encontrado` | Nada parecido | Va a `afuera` (BR-04) |
 
-Cada candidato lleva 4 campos en lugar de 9. `disponible` aparece solo en `sin_stock`, que es el único caso en que
-el cliente necesita el número.
+Cada candidato lleva 4 campos en lugar de 9, con los mismos nombres que en `search_products` para que los
+guardrails los reconozcan. `falta` aparece solo en `sin_stock`, que es el único caso en que el cliente necesita el
+número, y tiene la forma de las líneas de `stock_insuficiente`.
+
+Un solo producto con puntaje de 0,9 o más se toma como `unico` aunque una palabra venga mal escrita («queratina»,
+«nordica»): en una lista de 30 renglones no se pregunta «¿es este?» por cada error de tipeo. Por debajo de ese
+puntaje el renglón queda `aproximado`. El resultado trae las BR de los estados que aparecen (RF-63).
 
 **Cambios en `respond_to_customer`:**
 
@@ -376,11 +392,23 @@ el cliente necesita el número.
 |---|---|
 | `propuesta[].renglon` | Nuevo, opcional: el número del renglón del cliente que resuelve esa línea |
 | `pendientes` | Nuevo: `[{"renglon": 3, "opciones": ["SKU-A", "SKU-B"]}]`, los renglones que se preguntan |
-| `afuera` | Nuevo: `[{"renglon": 7, "motivo": "fuera_de_catalogo"}]`. Motivos: `fuera_de_catalogo`, `sin_stock`, `lo_saco_el_cliente` |
+| `afuera` | Nuevo: `[{"renglon": 7, "motivo": "fuera_de_catalogo"}]`. Motivos: `fuera_de_catalogo`, `sin_stock`, `lo_saco_el_cliente`, `no_es_producto` (un título o un comentario que quedó numerado) |
 | `options` | Se mantiene para un mensaje de un solo renglón. Con `pendientes`, se calcula a partir de ellos |
 
 Lo que ya usa `respond_to_customer` sin estos campos sigue funcionando: el control de cobertura solo corre cuando
-el turno tiene renglones numerados.
+la conversación tiene renglones numerados sin resolver.
+
+**Estado de un renglón** (`EstadoNorma.renglones`, vive mientras la conversación está abierta):
+
+| Estado | Cuándo | Qué guarda |
+|---|---|---|
+| `sin_resolver` | Recién numerado | `n`, `texto`, `marca` |
+| `resuelto` | Una línea de `propuesta` lo nombra en `renglon` | `lineas`: `[{sku, cantidad}]` |
+| `pendiente` | Está en `pendientes`, o quedó sin cuenta al tolerar la respuesta | `opciones` |
+| `afuera` | Está en `afuera`, o era `resuelto` y la propuesta nueva ya no trae su producto | `motivo` |
+
+`buscar_renglones` suma `coincidencia` (`exacta` o `aproximada`) y `tono`. Un mensaje nuevo con forma de lista
+agrega renglones con la numeración a continuación.
 
 **Archivos:** `internal/services/interpretation_service.py`, `internal/services/busqueda_service.py`,
 `internal/tools/catalog_tools.py`, `internal/agent/tool_registry.py`, `internal/agent/state.py`,
@@ -412,19 +440,25 @@ registra, la conversación se cierra y el agente no sabe nada del cliente la pr�
 
 **Qué se propone.**
 
-1. **Estado actual completo (RF-71).** El bloque que arma `context.py` suma la pregunta pendiente con sus opciones
-   (nombre, medida y SKU), los renglones pendientes y los que quedaron afuera, y la versión de la propuesta. El
-   SKU es para el modelo: los guardrails ya impiden que llegue al cliente.
+1. **Estado actual completo (RF-71).** El bloque que arma `context.py` suma las opciones que el agente ofreció en
+   su respuesta anterior (SKU, nombre y medida), los renglones pendientes y los que quedaron afuera, y la versión
+   de la propuesta cuando no es la primera. Las opciones valen para el turno siguiente: después de contestadas, ya
+   no aparecen. El SKU es para el modelo: los guardrails ya impiden que llegue al cliente.
 2. **Precio revalidado al confirmar (RF-72, D-25).** `confirm_draft` compara el precio de cada línea con el del
-   catálogo leído fresco. Si alguno cambió, no registra: devuelve `precio_cambiado` con las líneas, y el agente
-   muestra la propuesta con los precios nuevos. Vale también para el camino sin LLM.
+   catálogo leído fresco. Si alguno cambió, no registra. La misma propuesta sale de nuevo con los precios de hoy,
+   como una versión nueva y con un mensaje fijo armado por el sistema, y el cliente la confirma otra vez. Vale
+   igual para el camino sin LLM y para `armar_pedido`: en ninguno de los dos el modelo escribe el aviso. El
+   reintento de una orden que ya existe la devuelve como quedó, sin revalidar.
 3. **Pedidos anteriores (RF-73).** Una tool de base nueva, `pedidos_anteriores`, devuelve las últimas órdenes del
    cliente del turno, con sus líneas. El `customer_id` lo inyecta el backend: el modelo no puede pedir las de otro.
    Una BR nueva, la BR-11, dice cómo usarla: «lo de siempre» se resuelve proponiendo el último pedido, nunca
    registrándolo directo. La búsqueda usa lo que el cliente compró antes como desempate entre productos con el
-   mismo `score`.
+   mismo `score`, y los marca con `comprado_antes: true`. Sigue habiendo varias opciones: sirve para preguntar
+   mejor, no para elegir por el cliente. Las órdenes canceladas no cuentan.
 4. **Mensajes seguidos agrupados (RF-74, D-26).** El canal espera unos segundos antes de abrir el turno. Si en esa
-   ventana llegan más mensajes del mismo cliente, se procesan juntos como un solo texto.
+   ventana llegan más mensajes del mismo cliente, se procesan juntos como un solo texto, un renglón debajo del
+   otro. Cada mensaje reinicia la espera, con un máximo de 20 s desde el primero. Está apagado por defecto: se
+   prende con `MESSAGE_GROUP_SECONDS` en `.env`, porque suma esa espera a cada respuesta y D-26 sigue abierta.
 
 **Contrato de `pedidos_anteriores`:**
 
@@ -435,17 +469,18 @@ registra, la conversación se cierra y el agente no sabe nada del cliente la pr�
 ```json
 {
   "pedidos": [
-    {"fecha": "2026-11-03", "lineas": [{"sku": "…", "nombre": "…", "cantidad": 6}]}
+    {"fecha": "2026-11-03", "lineas": [{"sku": "…", "name": "…", "cantidad": 6, "nota": "tono 7.1"}]}
   ]
 }
 ```
 
 No devuelve precios viejos, número de orden ni estado: el estado de un pedido no se consulta por este chat.
 
-**Archivos:** `internal/agent/context.py`, `internal/agent/state.py`, `internal/services/order_service.py`,
-`internal/tools/order_tools.py`, `internal/agent/tool_registry.py`, `internal/services/busqueda_service.py`,
-`internal/services/conversation_service.py`, `internal/services/telegram_service.py`,
-`internal/skills/tomar_pedido/BR/BR-11.md` (nueva), `docs/spec/agente.md` §8.
+**Archivos:** `internal/agent/context.py`, `internal/agent/state.py`, `internal/agent/graph.py`,
+`internal/services/order_service.py`, `internal/tools/order_tools.py`, `internal/agent/tool_registry.py`,
+`internal/services/busqueda_service.py`, `internal/services/agrupador.py` (nuevo),
+`internal/services/telegram_service.py`, `internal/config.py` (`MESSAGE_GROUP_SECONDS`),
+`internal/skills/tomar_pedido/BR/BR-11.md` (nueva).
 
 **Hecho cuando:** con el modelo falso, la respuesta a una aclaración cierra en una llamada sin volver a buscar,
 una propuesta con un precio que cambió no se registra, y «lo mismo que la otra vez» termina en una propuesta con
@@ -476,15 +511,21 @@ varios miles de caracteres.
 **Qué se propone.**
 
 1. **Un CSV por línea (RF-75).** Archivo nuevo junto al de órdenes, `pedidos_lineas.csv`, con una fila por línea
-   de cada orden. Con Sheet 2 configurada, va a una segunda hoja de la misma planilla.
+   de cada orden. Va en la misma carpeta que `ORDERS_FILE`, salvo que se configure `ORDER_LINES_FILE`. Con
+   `ORDER_LINES_WORKSHEET`, las líneas van además a esa hoja de Sheet 2, en una sola escritura por orden; la hoja
+   tiene que existir.
 2. **Más columnas en `pedidos.csv` (RF-76)**, al final para no desalinear lo que ya existe.
 3. **Lo que quedó afuera se guarda (RF-76).** Tabla nueva `order_leftovers` con los renglones `afuera` de la
    propuesta aceptada. Van resumidos en la columna `fuera_del_pedido`.
-4. **Estado sincronizado (RF-77).** Un cambio de estado reescribe la fila en el CSV y actualiza la celda en
-   Sheet 2. Si Sheet 2 falla, la orden queda con `sheets_synced = False` y la toma el reintento que ya existe.
+4. **Estado sincronizado (RF-77).** Un cambio de estado reescribe la fila en el CSV y actualiza las celdas
+   `estado` y `actualizado` en Sheet 2. Si Sheet 2 falla, la orden queda con `sheets_synced = False` y la toma el
+   reintento que ya existe. El CSV se reescribe con un reemplazo atómico, bajo el mismo bloqueo de siempre.
 5. **CSV seguro y con el encabezado al día (RF-78).** Un texto que empieza con `=`, `+`, `-` o `@` se escribe con
-   un apóstrofo adelante. Si el encabezado del archivo es más corto que `ORDER_COLUMNS`, se reescribe.
-6. **Origen del mensaje (RF-79).** La orden guarda si el pedido llegó por `texto`, `audio` o `imagen`.
+   un apóstrofo adelante. Si el encabezado del archivo es el comienzo de `ORDER_COLUMNS`, se completa y las filas
+   viejas se rellenan con celdas vacías; un archivo con otro encabezado no se toca. En Sheet 2, el encabezado lo
+   completa `python -m internal.verificar_claves`. La hoja Líneas del Excel usa las columnas del CSV por línea.
+6. **Origen del mensaje (RF-79).** La orden guarda si el pedido llegó por `texto`, `audio` o `imagen`. Si la
+   conversación mezcló orígenes, quedan todos en orden (`audio+texto`). Hoy siempre es `texto`.
 
 **Columnas nuevas de `pedidos.csv`:**
 
@@ -492,7 +533,7 @@ varios miles de caracteres.
 |---|---|
 | `lineas` | Cantidad de líneas de la orden |
 | `unidades` | Suma de cantidades |
-| `fuera_del_pedido` | Lo que el cliente pidió y no entró, con su motivo: `shampoo skala (fuera_de_catalogo); …` |
+| `fuera_del_pedido` | Lo que el cliente pidió y no entró, con su motivo: `shampoo skala (fuera_de_catalogo); …`. Motivos: `fuera_de_catalogo`, `sin_stock`, `lo_saco_el_cliente` y `duda_sin_resolver` (un renglón que se preguntó y el cliente confirmó sin contestar) |
 | `origen` | `texto`, `audio` o `imagen` |
 | `draft_id` | Borrador del que salió la orden |
 | `actualizado` | Fecha y hora del último cambio de estado |
@@ -503,11 +544,11 @@ varios miles de caracteres.
 |---|---|
 | `id_orden` | `ORD-0001` |
 | `renglon` | Posición de la línea en la orden |
-| `sku`, `producto`, `marca`, `categoria` | Del catálogo, al momento de registrar |
+| `sku`, `producto`, `presentacion`, `marca`, `categoria` | Del catálogo, al momento de registrar |
 | `cantidad`, `precio_unitario`, `subtotal` | Números, sin texto |
 | `nota` | Tono, variante u observación de la línea |
 | `coincidencia` | `exacta`, o `aproximada` si el cliente tuvo que confirmar «¿es este?» |
-| `pedido_como` | El renglón como lo escribió el cliente (D-24) |
+| `pedido_como` | El renglón como lo escribió el cliente (D-24). Vacío si el pedido no llegó como lista |
 
 **Cambios en la base** (una migración numerada, como las de la spec de guardado):
 
@@ -516,12 +557,14 @@ varios miles de caracteres.
 | `order_items` | Columnas `brand`, `category`, `match` y `source_text` |
 | `orders` | Columna `source` |
 | `order_leftovers` | Nueva: `order_pk`, `position`, `source_text`, `reason` |
-| `drafts` | El JSON de `items` suma `renglon` y `match`; columna nueva `leftovers` |
+| `drafts` | El JSON de `items` suma `brand`, `category`, `match` y `source_text`; columna nueva `leftovers` |
 
 **Archivos:** `internal/services/sheets_service.py`, `internal/services/excel_service.py`,
-`internal/services/order_service.py`, `internal/database/models.py`, `internal/database/migrations.py`,
-`internal/schemas/order_schema.py`, `internal/config.py` (`ORDER_LINES_FILE`), `.env.example`,
-`data_example/pedidos_lineas.csv` (nuevo), `docs/spec/planillas.md`, `docs/spec/guardado-de-pedidos.md`.
+`internal/services/google_sheets_client.py` (`append_rows`), `internal/services/order_service.py`,
+`internal/services/interpretation_service.py`, `internal/tools/reply_tools.py`, `internal/database/models.py`,
+`internal/database/migrations.py` (paso 2), `internal/schemas/order_schema.py`, `internal/config.py`
+(`ORDER_LINES_FILE`, `ORDER_LINES_WORKSHEET`), `.env.example`, `data_example/pedidos.csv` y
+`data_example/pedidos_lineas.csv` (nuevo).
 
 **Hecho cuando:** una orden de 30 líneas deja 30 filas en `pedidos_lineas.csv`, cancelarla cambia el estado en el
 CSV, un renglón fuera de catálogo aparece en `fuera_del_pedido`, y una base de la versión anterior arranca sin
@@ -529,7 +572,8 @@ perder órdenes.
 
 ## 6. Requisitos
 
-Todos nacen en estado `Propuesto`.
+Todos están implementados en las ramas de [§10.1](#101-estado-de-implementación), con sus tests. Pasan a
+`Implementado` en la spec maestra cuando se mergea la PR de cada mejora.
 
 | ID | Mejora | Requisito |
 |---|---|---|
@@ -574,14 +618,14 @@ Todos nacen en estado `Propuesto`.
 | CA-123 | 30 renglones | Se llama a `buscar_renglones` | Devuelve 30 resultados con estado y, como mucho, 3 candidatos de 4 campos | `tests/test_busqueda.py::test_busqueda_por_lote` |
 | CA-124 | Un renglón de coloración con `tono` | Se busca | Encuentra la coloración de la marca y el tono no baja el puntaje | `tests/test_busqueda.py::test_tono_no_participa` |
 | CA-125 | «acondicionador» sobre un catálogo con 90 | Se busca | El resultado dice `total: 90` y `difieren_en` | `tests/test_busqueda.py::test_informa_el_total` |
-| CA-126 | Un turno con 10 renglones | La respuesta deja uno sin cuenta | Falla con `renglones_sin_cuenta` y nombra el renglón | `tests/test_tools.py::test_control_de_cobertura` |
-| CA-127 | Una pregunta pendiente con dos opciones | El cliente contesta «el de 900» | El LLM ve las opciones en el estado actual y el renglón pasa a `resuelto` sin `buscar_renglones` | `tests/test_agent_graph.py::test_aclaracion_sin_volver_a_buscar` |
-| CA-128 | Una propuesta cuyo producto cambió de precio | El cliente escribe `OK` | No se crea la orden y la respuesta muestra el precio nuevo | `tests/test_ordenes.py::test_precio_cambiado_no_registra` |
-| CA-129 | Un cliente con dos órdenes | El agente llama a `pedidos_anteriores` | Recibe solo las de ese cliente, sin precios ni número de orden | `tests/test_tools.py::test_pedidos_anteriores_del_cliente` |
+| CA-126 | Un turno con 10 renglones | La respuesta deja uno sin cuenta | Falla con `renglones_sin_cuenta` y nombra el renglón | `tests/test_tools.py::test_control_de_cobertura`, `tests/test_agent_graph.py::test_control_de_cobertura_en_el_turno` |
+| CA-127 | Una pregunta pendiente con dos opciones | El cliente contesta «el de 400» | El LLM ve las opciones en el estado actual y propone sin volver a buscar; en un pedido numerado, el renglón pasa a `resuelto` | `tests/test_agent_graph.py::test_aclaracion_sin_volver_a_buscar`, `::test_la_respuesta_a_una_duda_completa_el_pedido_sin_volver_a_buscar` |
+| CA-128 | Una propuesta cuyo producto cambió de precio | El cliente escribe `OK`, o acepta conversando | No se crea la orden y la respuesta muestra el precio nuevo | `tests/test_agent_graph.py::test_precio_cambiado_no_registra` |
+| CA-129 | Un cliente con dos órdenes, una cancelada, y otro cliente con una | El agente llama a `pedidos_anteriores` | Recibe solo la orden vigente de ese cliente, sin precios ni número de orden | `tests/test_agent_graph.py::test_pedidos_anteriores_del_cliente` |
 | CA-130 | Tres mensajes del mismo cliente en 3 s | Pasa la ventana | El agente corre un solo turno con los tres textos | `tests/test_conversation.py::test_agrupa_mensajes_seguidos` |
 | CA-131 | Una orden de 30 líneas con notas | Se registra | `pedidos_lineas.csv` tiene 30 filas, con la nota y números sin texto | `tests/test_planillas.py::test_csv_por_linea` |
 | CA-132 | Una orden recibida | El operador la cancela | La fila del CSV dice `Cancelado` y `actualizado` cambia | `tests/test_planillas.py::test_estado_sincronizado` |
-| CA-133 | Una propuesta aceptada con un renglón fuera de catálogo | Se registra | El renglón está en `order_leftovers` y en `fuera_del_pedido` | `tests/test_guardado_pedidos.py::test_guarda_lo_que_quedo_afuera` |
+| CA-133 | Una propuesta aceptada con un renglón fuera de catálogo | Se registra | El renglón está en `order_leftovers` y en `fuera_del_pedido` | `tests/test_guardado_pedidos.py::test_guarda_lo_que_quedo_afuera`, `tests/test_planillas.py::test_guarda_lo_que_quedo_afuera_en_el_csv` |
 | CA-134 | Una nota que empieza con `=` y un `pedidos.csv` con encabezado viejo | Se registra una orden | La celda empieza con apóstrofo y el encabezado queda completo | `tests/test_planillas.py::test_csv_seguro_y_encabezado` |
 
 ## 8. Errores y casos borde
@@ -591,11 +635,13 @@ Todos nacen en estado `Propuesto`.
 | El proveedor no respeta `tool_choice` y devuelve texto | Sigue el camino de hoy: el texto pasa por el validador de salida |
 | La skill preactivada no era la correcta | El modelo lee otra; cuesta la misma llamada que hoy |
 | Un mensaje de un solo renglón | No se numera y no corre el control de cobertura: todo funciona como hoy |
-| Un renglón que es un comentario («gracias», «pasa a buscar el viernes») | Se numera igual. El agente lo pone en `afuera` con motivo `lo_saco_el_cliente` o lo anota en `notes` |
-| Un encabezado que no coincide con ninguna marca | Se trata como un renglón de producto: lo resuelve el LLM |
+| Un renglón que es un comentario con un número («pasa a buscar el viernes 14») | Se numera igual. El agente lo pone en `afuera` con motivo `no_es_producto` y, si corresponde, lo anota en `notes` |
+| Un encabezado que no coincide con ninguna marca («Kerastase») | No se numera y corta la marca anterior: los renglones de abajo quedan sin marca, y el agente manda en `marca` la que leyó |
 | Más de 60 renglones | `buscar_renglones` devuelve `argumentos_invalidos`; el agente busca en dos llamadas |
-| El control de cobertura falla más de 2 veces | Sale el mensaje fijo seguro de los guardrails y los renglones sin cuenta quedan `pendientes` |
-| El precio cambió entre la propuesta y la confirmación | `precio_cambiado`: no se registra, el agente muestra la propuesta nueva |
+| El control de cobertura falla 2 veces en el turno | La tercera respuesta se acepta y los renglones sin cuenta quedan `pendientes`, sin opciones |
+| `renglon` con un número que no existe | `renglon_inexistente`: el agente corrige y vuelve a responder |
+| No se puede leer el catálogo al abrir el turno | El mensaje no se numera y sigue el camino de siempre |
+| El precio cambió entre la propuesta y la confirmación | No se registra: el sistema manda la misma propuesta con los precios de hoy y espera otra confirmación |
 | El cliente no tiene pedidos anteriores | `pedidos_anteriores` devuelve una lista vacía; el agente pregunta qué necesita |
 | Llega un mensaje mientras corre el turno agrupado | Espera el lock, como hoy, y abre el turno siguiente |
 | Falla la escritura de `pedidos_lineas.csv` | La orden ya está en la base; queda con `sheets_synced = False` y la toma el reintento |
@@ -610,8 +656,8 @@ Todos nacen en estado `Propuesto`.
 | D-22 | La skill preactivada y la BR junto al resultado tocan la decisión del 2026-11-04: skills y BR en el repo, leídas con tools. La propuesta las mantiene en el repo y las entrega por las mismas tools; cambia que a veces la lectura la dispara el backend y no el modelo. Si no se acepta, M2 se queda con los puntos 1, 4 y 5 | Tomada el 2026-11-12: se aplican las dos, la skill preactivada y la BR junto al resultado |
 | D-23 | Qué palabras registran sin LLM. Propuesta: `ok`, `confirmar`, `dale`, `si`, `listo`, `de una`, `mandale`, solo si son el mensaje completo | Implementada con esa lista; a revisar con uso real |
 | D-24 | Guardar el renglón como lo escribió el cliente (`pedido_como`) sirve para auditar la interpretación, pero la spec de guardado dejó afuera el texto de los mensajes por RNF-03. Propuesta: guardarlo solo en las líneas de órdenes registradas y aplicarle la misma retención que a la orden | Tomada el 2026-11-12: se guarda, con esa condición |
-| D-25 | Si el precio cambió, ¿se vuelve a proponer siempre o hay una tolerancia? Propuesta: siempre, sin tolerancia | Abierta |
-| D-26 | Ventana para agrupar mensajes. Propuesta: 6 s desde el último mensaje, con un máximo de 20 s. Suma esa espera a la latencia de cada respuesta (RNF-06) | Abierta |
+| D-25 | Si el precio cambió, ¿se vuelve a proponer siempre o hay una tolerancia? Propuesta: siempre, sin tolerancia | Implementada así; a revisar con uso real |
+| D-26 | Ventana para agrupar mensajes. Propuesta: 6 s desde el último mensaje, con un máximo de 20 s. Suma esa espera a la latencia de cada respuesta (RNF-06) | Abierta: el agrupador está implementado y apagado (`MESSAGE_GROUP_SECONDS=0`) hasta que se decida |
 | D-27 | El tono de coloración: depende de V-01 y V-02. Hasta confirmarlo, el tono va en la nota de la línea y no cambia el SKU | Abierta, depende del negocio |
 | D-28 | Los números de RNF-15 son un punto de partida. Se fijan con la primera corrida completa de M1 | Abierta |
 | D-29 | Búsqueda semántica con embeddings como complemento de la búsqueda por palabras, para pedidos descriptivos («algo para rulos»). No se decide hasta medir con M1 cuántos renglones falla la búsqueda actual | Abierta |
@@ -650,9 +696,9 @@ Cada rama sale de la anterior, en el orden en que se implementó. Esta tabla se 
 |---|---|---|---|
 | M1 · Evaluación | `feature/evaluacion-pedidos-reales` | Implementado: RF-59, RF-60, RNF-15, CA-113 a CA-115 | La primera corrida completa con un LLM real, para fijar la línea de base y los umbrales (D-21, D-28) |
 | M2 · Grafo | `feature/grafo-menos-iteraciones` | Implementado: RF-61 a RF-64, RNF-16, CA-116 a CA-121 | Medir con M1 que bajan las llamadas por turno sin bajar el recall |
-| M3 · Renglones | `feature/pedidos-por-renglon` | Propuesto | |
-| M5 · CSV | `feature/csv-pedidos-por-linea` | Propuesto | |
-| M4 · Memoria | `feature/memoria-entre-turnos` | Propuesto | |
+| M3 · Renglones | `feature/pedidos-por-renglon` | Implementado: RF-65 a RF-70, CA-122 a CA-126. La evaluación de M1 ya cuenta como perdidos los renglones `afuera` que el agente no avisó | Medir `lineas_perdidas` con un LLM real |
+| M5 · CSV | `feature/csv-pedidos-por-linea` | Implementado: RF-75 a RF-79, CA-131 a CA-134 | La prueba contra las planillas reales, que hace una persona del equipo con sus credenciales. Sumar las columnas nuevas a `planillas.md` y `guardado-de-pedidos.md` |
+| M4 · Memoria | `feature/memoria-entre-turnos` | Implementado: RF-71 a RF-74, BR-11, CA-127 a CA-130 | Decidir la ventana de D-26 y prenderla. El agrupador solo está conectado a Telegram |
 
 La PR de «funciones y guidelines para tomar y guardar el pedido» corresponde a M3 y M5. Conviene que M1 entre
 antes, aunque sea con pocos casos: sin línea de base no se puede saber si M3 mejoró algo.

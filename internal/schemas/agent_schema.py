@@ -1,7 +1,7 @@
 """Contratos del agente: entradas de las tools, errores estructurados y resultado de un turno."""
 
 from enum import StrEnum
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -26,9 +26,21 @@ class ReplyKind(StrEnum):
     INFORMACION = "informacion"
 
 
+MAX_RENGLONES_POR_BUSQUEDA = 60
+MAX_LARGO_MENSAJE = 600  # un mensaje normal
+MAX_LARGO_MENSAJE_CON_DUDAS = 1200  # una lista larga puede traer varias dudas juntas (RF-70)
+
+MotivoAfuera = Literal["fuera_de_catalogo", "sin_stock", "lo_saco_el_cliente", "no_es_producto"]
+
+
 class ProposedItem(BaseModel):
     sku: str = Field(min_length=1, description="SKU exacto del catálogo")
     quantity: int = Field(gt=0, le=MAX_QUANTITY, description="Cantidad de unidades")
+    renglon: int | None = Field(
+        default=None,
+        ge=1,
+        description="Número del renglón del cliente que resuelve esta línea, si el pedido vino numerado",
+    )
     note: str | None = Field(
         default=None,
         max_length=MAX_LINE_NOTE_LENGTH,
@@ -45,6 +57,49 @@ class SearchProductsInput(BaseModel):
         ),
     )
     limit: int = Field(default=5, ge=1, le=10, description="Cantidad máxima de resultados")
+
+
+class RenglonBuscado(BaseModel):
+    n: int = Field(ge=1, description="Número del renglón, tal como figura en el estado actual")
+    texto: str = Field(
+        min_length=1,
+        description=(
+            "Producto, medida y variante como los escribió el cliente, sin la cantidad ni el tono. "
+            "Por ejemplo: sh keratina x900, mascara argan 1k, coloracion"
+        ),
+    )
+    marca: str | None = Field(default=None, description="Marca del encabezado bajo el que está el renglón, si hay")
+    cantidad: int = Field(default=1, gt=0, le=MAX_QUANTITY, description="Unidades que pide el renglón")
+    tono: str | None = Field(
+        default=None,
+        max_length=20,
+        description="Solo en coloración: el tono con punto. «821/2» es tono 8.21 y cantidad 2. No se usa para buscar",
+    )
+
+
+class BuscarRenglonesInput(BaseModel):
+    renglones: list[RenglonBuscado] = Field(
+        min_length=1, max_length=MAX_RENGLONES_POR_BUSQUEDA, description="Todos los renglones a buscar, juntos"
+    )
+
+
+class RenglonPendiente(BaseModel):
+    renglon: int = Field(ge=1, description="Número del renglón que le preguntás al cliente")
+    opciones: list[str] = Field(default_factory=list, description="SKU de las opciones que le ofrecés para ese renglón")
+
+
+class RenglonAfuera(BaseModel):
+    renglon: int = Field(ge=1, description="Número del renglón que no entra al pedido")
+    motivo: MotivoAfuera = Field(
+        description=(
+            "fuera_de_catalogo: no lo trabajan. sin_stock: está agotado. lo_saco_el_cliente: pidió sacarlo. "
+            "no_es_producto: la línea no pide nada, por ejemplo un título o un comentario."
+        )
+    )
+
+
+class PedidosAnterioresInput(BaseModel):
+    limite: int = Field(default=3, ge=1, le=5, description="Cuántos pedidos anteriores del cliente traer")
 
 
 class GetProductInput(BaseModel):
@@ -89,7 +144,11 @@ class RespondToCustomerInput(BaseModel):
             "informacion: saludo, consulta o cualquier otra respuesta."
         )
     )
-    message: str = Field(min_length=1, max_length=600, description="Texto para el cliente, sin SKU")
+    message: str = Field(
+        min_length=1,
+        max_length=MAX_LARGO_MENSAJE_CON_DUDAS,
+        description=f"Texto para el cliente, sin SKU. Hasta {MAX_LARGO_MENSAJE} caracteres; el doble con `pendientes`",
+    )
     options: list[str] = Field(
         default_factory=list, description="SKU de las opciones o alternativas que le ofrecés en el mensaje"
     )
@@ -107,6 +166,20 @@ class RespondToCustomerInput(BaseModel):
             "Observación general del pedido que dio el cliente, solo con `propuesta`. Por ejemplo: retira el sábado"
         ),
     )
+
+    pendientes: list[RenglonPendiente] = Field(
+        default_factory=list,
+        description="Con un pedido numerado: los renglones que le preguntás al cliente en este mensaje",
+    )
+    afuera: list[RenglonAfuera] = Field(
+        default_factory=list, description="Con un pedido numerado: los renglones que no entran al pedido, con el motivo"
+    )
+
+    @model_validator(mode="after")
+    def check_largo(self) -> Self:
+        if len(self.message) > MAX_LARGO_MENSAJE and not self.pendientes:
+            raise ValueError(f"El mensaje tiene que entrar en {MAX_LARGO_MENSAJE} caracteres: acortalo")
+        return self
 
     @model_validator(mode="after")
     def check_propuesta(self) -> Self:

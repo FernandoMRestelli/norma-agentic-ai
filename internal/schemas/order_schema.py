@@ -10,7 +10,7 @@ import socket
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Self
+from typing import Literal, Self
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
@@ -20,6 +20,11 @@ MAX_MEDIA_URL_LENGTH: int = 2048
 MAX_LINE_NOTE_LENGTH: int = 120  # nota de una línea: tono, variante o aclaración (RF-48)
 MAX_ORDER_NOTES_LENGTH: int = 300  # observación general del pedido (RF-48)
 MAX_CUSTOMER_NAME_LENGTH: int = 64
+MAX_SOURCE_TEXT_LENGTH: int = 300  # el renglón como lo escribió el cliente (D-24)
+
+# De dónde salió el pedido (RF-79). Hoy siempre `texto`: audio e imagen todavía no llegan al agente
+ORIGEN_POR_TIPO = {"text": "texto", "audio": "audio", "image": "imagen"}
+Coincidencia = Literal["exacta", "aproximada"]
 _NUMERIC_OR_HEX_HOST = re.compile(
     r"^(0x[0-9a-f]+|[0-9]+)(\.(0x[0-9a-f]+|[0-9]+))*$", re.IGNORECASE
 )
@@ -159,11 +164,28 @@ class OrderItem(BaseModel):
     quantity: int = Field(gt=0, le=MAX_QUANTITY)
     unit_price: Decimal | None = Field(default=None, ge=0)
     note: str | None = Field(default=None, max_length=MAX_LINE_NOTE_LENGTH)  # el tono mientras siga abierta V-01
+    # Para quien prepara el pedido (RF-75). Los cuatro son opcionales: una orden anterior a la migración 2 no los trae
+    brand: str | None = None
+    category: str | None = None
+    match: Coincidencia | None = None  # `aproximada`: el cliente tuvo que confirmar «¿es este?»
+    source_text: str | None = None  # el renglón como lo escribió el cliente; solo en pedidos numerados (D-24)
 
     @field_validator("note")
     @classmethod
     def clean_line_note(cls, v: str | None) -> str | None:
         return clean_note(v)
+
+    @field_validator("source_text")
+    @classmethod
+    def clean_source_text(cls, v: str | None) -> str | None:
+        return (clean_note(v) or "")[:MAX_SOURCE_TEXT_LENGTH] or None
+
+
+class Leftover(BaseModel):
+    """Un renglón que el cliente pidió y no entró al pedido (RF-76): es una venta que el equipo puede recuperar."""
+
+    source_text: str = Field(min_length=1, max_length=MAX_SOURCE_TEXT_LENGTH)
+    reason: str  # fuera_de_catalogo, sin_stock, lo_saco_el_cliente o duda_sin_resolver
 
 
 class DraftStatus(StrEnum):
@@ -187,6 +209,8 @@ class OrderDraft(BaseModel):
     notes: str | None = Field(default=None, max_length=MAX_ORDER_NOTES_LENGTH)
     status: DraftStatus = DraftStatus.PENDING_CONFIRMATION
     version: int = Field(default=1, ge=1)
+    leftovers: list[Leftover] = Field(default_factory=list)  # lo que quedó afuera al proponer (RF-76)
+    source: str = "texto"  # texto, audio o imagen (RF-79)
 
     @field_validator("notes")
     @classmethod
@@ -242,6 +266,13 @@ class Order(BaseModel):
     status: OrderStatus = OrderStatus.RECEIVED
     sheets_synced: bool = False
     history: list[OrderEvent] = Field(default_factory=list)
+    leftovers: list[Leftover] = Field(default_factory=list)
+    source: str | None = None  # None en una orden anterior a la migración 2
+
+    @property
+    def updated_at(self) -> datetime:
+        """Cuándo cambió de estado por última vez; sin historial, cuándo se creó."""
+        return self.history[-1].created_at if self.history else self.created_at
 
     @model_validator(mode="after")
     def fill_total(self) -> Self:

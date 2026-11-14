@@ -22,6 +22,25 @@ def armar_pedido(vigente: OrderDraft | None) -> Order:
         ) from exc
 
 
+def pedidos_anteriores(customer_id: str, limite: int = 3) -> list[dict]:
+    """Los últimos pedidos del cliente, con sus líneas (RF-73).
+
+    Sin precios, número de orden ni estado: los precios pueden haber cambiado y el estado de un pedido no se
+    consulta por el chat. El `customer_id` lo pone el backend, nunca el LLM.
+    """
+    return [
+        {
+            "fecha": order.created_at.date().isoformat(),
+            "lineas": [
+                {"sku": item.sku, "name": item.product_name, "cantidad": item.quantity}
+                | ({"nota": item.note} if item.note else {})
+                for item in order.items
+            ],
+        }
+        for order in order_service.customer_history(customer_id, limite)
+    ]
+
+
 def cancelar_pedido(order_id: str) -> Order:
     """Cancela una orden existente liberando su stock comprometido (RF-20)."""
     try:

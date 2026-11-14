@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     orders_worksheet: str | None = None  # hoja dentro de Sheet 2; vacío: la primera
     catalog_file: str = "data_example/catalogo.csv"
     orders_file: str = "data/pedidos.csv"
+    # Una fila por línea de cada orden (RF-75). Vacío: junto a ORDERS_FILE, con `_lineas` en el nombre
+    order_lines_file: str | None = None
+    order_lines_worksheet: str | None = None  # hoja de Sheet 2 para las líneas; vacío: no se escriben en Google
 
     # WhatsApp Cloud API
     whatsapp_verify_token: str | None = None
@@ -41,6 +44,9 @@ class Settings(BaseSettings):
     telegram_bot_token: str | None = None
     telegram_webhook_secret: str | None = None  # header X-Telegram-Bot-Api-Secret-Token
     telegram_allowed_user_ids: str = ""  # ids numéricos separados por coma
+
+    # Segundos que el canal espera más mensajes del mismo cliente antes de abrir el turno (RF-74, D-26). 0: no espera
+    message_group_seconds: float = 0.0
 
     # Operador / Dashboard (autenticación de endpoints de gestión de órdenes)
     operator_token: str | None = None

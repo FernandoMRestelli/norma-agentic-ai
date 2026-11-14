@@ -7,6 +7,7 @@ El repositorio es público: acá nunca van clientes, teléfonos, precios ni stoc
 |---|---|---|
 | `catalogo.csv` | Google Sheet 1: catálogo, precios y stock | Las columnas son el formato que debe tener la planilla real |
 | `pedidos.csv` | Google Sheet 2: seguimiento de pedidos (una fila por pedido) | Las columnas son el formato que debe tener la planilla real |
+| `pedidos_lineas.csv` | Las líneas de esos pedidos (una fila por producto de cada pedido) | Lo que usa quien prepara el pedido |
 | `mensajes.json` | Mensajes de clientes con el resultado esperado del agente | Casos de prueba para la interpretación |
 | `catalogo_evaluacion.csv` | Un catálogo mayorista de unos 400 productos, con el formato del real | Catálogo de los casos de `pedidos_evaluacion.json` |
 | `pedidos_evaluacion.json` | Pedidos largos con el formato de los reales y su resultado esperado | Evaluación por línea del agente (RF-59, RF-60) |
@@ -41,7 +42,31 @@ otros con stock bajo (`CE-SED-340`, `ALG-EST-140`).
 | `nombre_cliente` | `customer_name` | Nombre del perfil del cliente, si el canal lo da |
 | `total` | `total` | Suma de cantidad por precio, con punto y dos decimales |
 
-Las dos últimas columnas se sumaron después de la 0.1.1 y van al final, para que un archivo viejo siga alineado.
+| `lineas` | | Cantidad de líneas del pedido |
+| `unidades` | | Suma de las cantidades |
+| `fuera_del_pedido` | `leftovers` | Lo que el cliente pidió y no entró, con el motivo entre paréntesis; separados por `;` |
+| `origen` | `source` | `texto`, `audio` o `imagen` |
+| `draft_id` | `draft_id` | Propuesta de la que salió el pedido |
+| `actualizado` | | Fecha y hora del último cambio de estado; sin cambios, la del alta |
+
+Las columnas desde `nombre_cliente` se sumaron después de la 0.1.1 y van al final, para que un archivo viejo siga
+alineado: al escribir el primer pedido nuevo, el sistema completa el encabezado. Un texto que empieza con `=`, `+`,
+`-` o `@` se guarda con un apóstrofo adelante, para que la planilla no lo tome como una fórmula.
+
+## `pedidos_lineas.csv`
+
+Una fila por línea de cada pedido de `pedidos.csv`. Se escribe al registrar el pedido y no cambia después.
+
+| Columna | Campo de `OrderItem` | Notas |
+|---|---|---|
+| `id_orden` | | El pedido al que pertenece |
+| `renglon` | | Posición de la línea en el pedido, desde 1 |
+| `sku`, `producto`, `presentacion`, `marca`, `categoria` | `sku`, `product_name`, `presentation`, `brand`, `category` | Del catálogo, al momento de registrar |
+| `cantidad` | `quantity` | |
+| `precio_unitario`, `subtotal` | `unit_price` | Con punto y dos decimales, sin signo |
+| `nota` | `note` | Tono, variante u observación de la línea |
+| `coincidencia` | `match` | `exacta`, o `aproximada` si el cliente tuvo que confirmar el producto |
+| `pedido_como` | `source_text` | El renglón como lo escribió el cliente, cuando el pedido llegó como lista |
 
 ## `mensajes.json`
 

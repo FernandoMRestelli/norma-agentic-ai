@@ -36,6 +36,10 @@ class SheetsClient(Protocol):
         """Agrega una fila debajo de la tabla, sin interpretar los valores (un `=` no es una fórmula)."""
         ...
 
+    def append_rows(self, spreadsheet_id: str, worksheet: str | None, rows: list[list[str]]) -> None:
+        """Agrega varias filas debajo de la tabla en una sola llamada, sin interpretar los valores."""
+        ...
+
     def update_cell(self, spreadsheet_id: str, worksheet: str | None, row: int, col: int, value: str) -> None:
         """Escribe una celda, sin interpretar el valor."""
         ...
@@ -70,6 +74,10 @@ class GspreadClient:
         ws = self._worksheet(spreadsheet_id, worksheet)
         # table_range="A1": la fila va debajo de la tabla que empieza en A1, aunque haya celdas sueltas más a la derecha
         ws.append_row(values, value_input_option=self._gspread.utils.ValueInputOption.raw, table_range="A1")
+
+    def append_rows(self, spreadsheet_id: str, worksheet: str | None, rows: list[list[str]]) -> None:
+        ws = self._worksheet(spreadsheet_id, worksheet)
+        ws.append_rows(rows, value_input_option=self._gspread.utils.ValueInputOption.raw, table_range="A1")
 
     def update_cell(self, spreadsheet_id: str, worksheet: str | None, row: int, col: int, value: str) -> None:
         ws = self._worksheet(spreadsheet_id, worksheet)

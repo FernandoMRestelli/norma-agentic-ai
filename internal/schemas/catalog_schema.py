@@ -27,6 +27,7 @@ class ProductMatch(Product):
     score: float = Field(ge=0, le=1)
     # Algún término no coincidió exacto (tipeo, sonido, otra medida): es un candidato a confirmar con el cliente
     aproximado: bool = False
+    comprado_antes: bool = False  # el cliente del turno ya lo pidió en una orden anterior (RF-73)
 
 
 class SearchResult(BaseModel):
@@ -35,6 +36,8 @@ class SearchResult(BaseModel):
     matches: list[ProductMatch] = Field(default_factory=list)  # coincidencias confiables
     sugerencias: list[ProductMatch] = Field(default_factory=list)  # solo si no hay matches
     corregido: dict[str, str] = Field(default_factory=dict)  # palabra del cliente → cómo se interpretó
+    total: int = 0  # cuántos productos coinciden igual de bien, aunque `matches` muestre menos (RF-69)
+    difieren_en: str | None = None  # `marca`, `medida` o `variante`: qué preguntar cuando hay más de uno
 
 
 class StockCheck(BaseModel):

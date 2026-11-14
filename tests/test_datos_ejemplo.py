@@ -25,7 +25,12 @@ CATALOG_COLUMNS = {
     "stock_minimo": "min_stock",
 }
 ORDER_COLUMNS = [
-    "id_orden", "fecha_hora", "cliente", "canal", "productos", "notas", "estado", "nombre_cliente", "total"
+    "id_orden", "fecha_hora", "cliente", "canal", "productos", "notas", "estado", "nombre_cliente", "total",
+    "lineas", "unidades", "fuera_del_pedido", "origen", "draft_id", "actualizado",
+]
+LINE_COLUMNS = [
+    "id_orden", "renglon", "sku", "producto", "presentacion", "marca", "categoria", "cantidad", "precio_unitario",
+    "subtotal", "nota", "coincidencia", "pedido_como",
 ]
 ORDER_LINE = re.compile(r"^(?P<quantity>\d+) x (?P<label>.+) \((?P<sku>[A-Z0-9-]+)\)( \[(?P<note>[^\]]+)\])?$")
 EXPECTED_RESULTS = {"borrador", "aclaracion", "sin_stock", "fuera_de_catalogo", "informacion", "pedido", "sin_pedido"}
@@ -98,6 +103,35 @@ def test_orders_match_schema_and_catalog(catalog):
     assert all(order.created_at.tzinfo is not None for order in orders)
     # El total de la planilla es el de las líneas con los precios del catálogo
     assert [row["total"] for row in rows] == [f"{order.total:.2f}" for order in orders]
+    assert [int(row["lineas"]) for row in rows] == [len(order.items) for order in orders]
+    assert [int(row["unidades"]) for row in rows] == [sum(i.quantity for i in order.items) for order in orders]
+    assert all(row["origen"] in ("texto", "audio", "imagen") for row in rows)
+    actualizados = [datetime.fromisoformat(row["actualizado"]) for row in rows]
+    assert all(momento >= order.created_at for momento, order in zip(actualizados, orders, strict=True))
+
+
+def test_order_lines_match_orders_and_catalog(catalog):
+    """`pedidos_lineas.csv` tiene una fila por línea de cada orden de `pedidos.csv`, con los datos del catálogo."""
+    from decimal import Decimal
+
+    with open(DATA_DIR / "pedidos_lineas.csv", encoding="utf-8", newline="") as file:
+        assert next(csv.reader(file)) == LINE_COLUMNS
+    lineas = read_csv("pedidos_lineas.csv")
+    orders = {row["id_orden"]: parse_order(row, catalog) for row in read_csv("pedidos.csv")}
+
+    assert {linea["id_orden"] for linea in lineas} == set(orders)
+    for order_id, order in orders.items():
+        propias = [linea for linea in lineas if linea["id_orden"] == order_id]
+        assert [int(linea["renglon"]) for linea in propias] == list(range(1, len(order.items) + 1))
+        for linea, item in zip(propias, order.items, strict=True):
+            product = catalog[linea["sku"]]
+            assert (linea["sku"], int(linea["cantidad"]), linea["nota"] or None) == (item.sku, item.quantity, item.note)
+            assert (linea["producto"], linea["marca"], linea["categoria"]) == (
+                product.name, product.brand or "", product.category or ""
+            )
+            assert Decimal(linea["subtotal"]) == item.quantity * product.price
+            assert linea["coincidencia"] in ("exacta", "aproximada")
+        assert sum(Decimal(linea["subtotal"]) for linea in propias) == order.total
 
 
 def load_cases() -> list[dict]:
