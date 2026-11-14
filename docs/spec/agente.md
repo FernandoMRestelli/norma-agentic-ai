@@ -231,6 +231,8 @@ Las tools reciben dos tipos de parámetros:
 | Tool | Tipo | Archivo | Para qué |
 |---|---|---|---|
 | `search_products` | Lectura | `tools/catalog_tools.py` | Buscar candidatos por nombre, marca o presentación |
+| `buscar_renglones` | Lectura | `tools/catalog_tools.py` | Buscar todos los renglones de una lista en una llamada: por cada uno, un estado y hasta 3 candidatos (RF-66) |
+| `pedidos_anteriores` | Lectura | `tools/order_tools.py` | Los últimos pedidos del cliente del turno, sin precios, para «lo de siempre» (RF-73) |
 | `get_product` | Lectura | `tools/catalog_tools.py` | Ver un producto por SKU |
 | `explorar_catalogo` | Lectura | `tools/catalog_tools.py` | Explorar marcas o categorías del catálogo de forma agregada sin recorrer todo el catálogo |
 | `check_stock` | Lectura | `tools/inventory_tools.py` | Saber si alcanza el stock para una cantidad |

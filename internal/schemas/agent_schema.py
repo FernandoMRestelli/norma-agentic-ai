@@ -98,6 +98,10 @@ class RenglonAfuera(BaseModel):
     )
 
 
+class PedidosAnterioresInput(BaseModel):
+    limite: int = Field(default=3, ge=1, le=5, description="Cuántos pedidos anteriores del cliente traer")
+
+
 class GetProductInput(BaseModel):
     sku: str = Field(min_length=1, description="SKU exacto, tal como lo devolvió una tool")
 

@@ -128,6 +128,49 @@ def test_mensaje_de_integrante_llega_al_orquestador(orquestador):
     assert bot.calls == [("send_message", USUARIO, "respuesta")]
 
 
+def test_mensajes_seguidos_llegan_juntos_al_orquestador(monkeypatch, orquestador):
+    """RF-74: con `MESSAGE_GROUP_SECONDS`, dos mensajes seguidos son un solo turno y una sola respuesta."""
+    from internal.services.agrupador import Agrupador
+
+    temporizadores = []
+
+    class Temporizador:
+        def __init__(self, espera, funcion, args=()):
+            self.funcion, self.args, self.cancelado = funcion, args, False
+            temporizadores.append(self)
+
+        def start(self):
+            pass
+
+        def cancel(self):
+            self.cancelado = True
+
+    monkeypatch.setenv("MESSAGE_GROUP_SECONDS", "6")
+    get_settings.cache_clear()
+    monkeypatch.setattr(telegram_service, "_agrupador", Agrupador(6, temporizador=Temporizador))
+    bot = FakeTelegram()
+
+    telegram_service.handle_update(mensaje(update_id=1, text="Pantene"), bot)
+    telegram_service.handle_update(mensaje(update_id=2, text="2 sh 400"), bot)
+    assert orquestador == [] and bot.sent == []  # todavía espera
+
+    for temporizador in temporizadores:
+        if not temporizador.cancelado:
+            temporizador.funcion(*temporizador.args)
+
+    assert [m.text for m in orquestador] == ["Pantene\n2 sh 400"]
+    assert bot.sent == [("send_message", USUARIO, "respuesta")]
+
+
+def test_sin_ventana_cada_mensaje_se_contesta_al_llegar(orquestador):
+    """RF-74: por defecto no se agrupa, como hasta ahora."""
+    bot = FakeTelegram()
+    telegram_service.handle_update(mensaje(update_id=1, text="Pantene"), bot)
+    telegram_service.handle_update(mensaje(update_id=2, text="2 sh 400"), bot)
+    assert [m.text for m in orquestador] == ["Pantene", "2 sh 400"]
+    assert len(bot.sent) == 2
+
+
 def test_usuario_fuera_de_la_lista_blanca(orquestador):
     """CA-31: responde un texto fijo con su id y no llega al orquestador."""
     bot = FakeTelegram()

@@ -17,9 +17,9 @@ from sqlalchemy.exc import IntegrityError
 from internal.config import get_settings
 from internal.database.connection import SessionLocal
 from internal.database.models import ProcessedMessageRecord
-from internal.schemas.conversation_schema import ChannelReply
 from internal.schemas.order_schema import Channel, IncomingMessage, MessageType
 from internal.services import conversation_service, message_service
+from internal.services.agrupador import Agrupador
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +160,32 @@ class _ProcessedUpdates:
 
 processed_updates = _ProcessedUpdates()
 
+_agrupador: Agrupador | None = None
+
+
+def get_agrupador() -> Agrupador | None:
+    """El agrupador de mensajes seguidos, si `MESSAGE_GROUP_SECONDS` es mayor que 0 (RF-74)."""
+    global _agrupador
+    ventana = get_settings().message_group_seconds
+    if ventana <= 0:
+        return None
+    if _agrupador is None or _agrupador.ventana != ventana:
+        _agrupador = Agrupador(ventana)
+    return _agrupador
+
+
+def _responder(message: IncomingMessage, chat_id: int, client: TelegramClient, referencia: Any) -> None:
+    """Le pasa el mensaje al orquestador y manda la respuesta; si algo falla, avisa con un mensaje fijo."""
+    try:
+        reply = conversation_service.handle_message(message)
+        client.send_message(chat_id, reply.text)
+    except Exception:
+        logger.exception("Telegram: error procesando el update %s", referencia)
+        try:
+            client.send_message(chat_id, SOMETHING_FAILED)
+        except TelegramError:
+            logger.warning("Telegram: tampoco se pudo avisar el error del update %s", referencia)
+
 
 def handle_update(update: dict, client: TelegramClient) -> None:
     """Procesa un update completo: deduplica, aplica la lista blanca, llama al orquestador y responde.
@@ -186,13 +212,21 @@ def handle_update(update: dict, client: TelegramClient) -> None:
             return
 
         if event.message is None:
-            reply = ChannelReply(text=UNSUPPORTED)
-        else:
-            reply = conversation_service.handle_message(event.message)
-        client.send_message(event.chat_id, reply.text)
+            client.send_message(event.chat_id, UNSUPPORTED)
+            return
     except Exception:
         logger.exception("Telegram: error procesando el update %s", update_id)
         try:
             client.send_message(event.chat_id, SOMETHING_FAILED)
         except TelegramError:
             logger.warning("Telegram: tampoco se pudo avisar el error del update %s", update_id)
+        return
+
+    agrupador = get_agrupador()
+    if agrupador is not None and event.message.type == MessageType.TEXT:
+        # Un pedido en varios mensajes seguidos se procesa como un solo turno (RF-74): responde el temporizador
+        chat_id = event.chat_id
+        clave = (event.message.customer_id, event.message.channel)
+        agrupador.recibir(clave, event.message, lambda junto: _responder(junto, chat_id, client, update_id))
+        return
+    _responder(event.message, event.chat_id, client, update_id)

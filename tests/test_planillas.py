@@ -166,7 +166,7 @@ def borrador(sku: str = "PL-SH-900", quantity: int = 2, **extra) -> OrderDraft:
         draft_id=f"draft-planillas-{uuid4().hex}",
         customer_id="cli-planillas",
         channel=Channel.TELEGRAM,
-        items=[OrderItem(sku=sku, product_name="Producto de prueba", quantity=quantity, unit_price=Decimal("100"))],
+        items=[OrderItem(sku=sku, product_name="Producto de prueba", quantity=quantity)],
         **extra,
     )
 

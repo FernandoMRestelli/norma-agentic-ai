@@ -10,7 +10,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.sqlite import SqliteSaver
 from sqlalchemy import delete, func, select
 
-from internal.agent import context, graph, norma_agent
+from internal.agent import context, graph, norma_agent, tool_registry
 from internal.agent.graph import FAILURE_MESSAGE, MAX_ITERATIONS
 from internal.agent.norma_agent import NormaAgent
 from internal.database.connection import SessionLocal, init_db
@@ -962,3 +962,147 @@ def test_el_tono_de_la_coloracion_va_a_la_nota(monkeypatch):
 
     assert [(item.quantity, item.note) for item in resultado.draft.items] == [(3, "tono 7"), (2, "tono 8.21")]
     assert _renglones(agent)[1]["motivo"] == "no_es_producto"
+
+
+# --- Memoria entre turnos y entre pedidos (M4 de docs/spec/toma-de-pedidos-por-texto.md) -------------------------
+
+
+@pytest.fixture
+def catalogo_pantene(monkeypatch):
+    """El shampoo en dos medidas: alcanza para una pregunta con opciones."""
+    productos = [
+        Product(sku="SH-200", name="Shampoo Pantene", brand="Pantene", presentation="200 ml", price=Decimal("4200"),
+                stock=20),
+        Product(sku="SH-400", name="Shampoo Pantene", brand="Pantene", presentation="400 ml", price=Decimal("7350"),
+                stock=20),
+    ]
+    monkeypatch.setattr(sheets_service, "get_catalog", lambda: productos)
+    return productos
+
+
+def test_aclaracion_sin_volver_a_buscar(catalogo_pantene):
+    """CA-127: el turno siguiente a una pregunta ve las opciones ofrecidas, con su SKU, y cierra en una llamada."""
+    preguntar = _call(
+        "respond_to_customer",
+        kind="aclaracion",
+        message="El shampoo Pantene lo tengo en 200 y en 400. ¿Cuál te mando?",
+        options=["SH-200", "SH-400"],
+    )
+    agent, modelo = _agente(_ai(preguntar), _ai(_propuesta("Listo, van los 2 de 400. ¿Lo confirmo?", "SH-400", 2)))
+    agent.handle("1", text="2 shampoo pantene", **CLIENTE)  # una cantidad: preactiva `tomar_pedido`
+
+    resultado = agent.handle("1", text="el de 400", **CLIENTE)
+
+    estado_actual = modelo.recibidos[1][0].text
+    assert (
+        "Opciones que le ofreciste en tu mensaje anterior: SH-200 (Shampoo Pantene 200 ml); "
+        "SH-400 (Shampoo Pantene 400 ml)"
+    ) in estado_actual
+    assert resultado.kind == "propuesta" and resultado.draft.items[0].sku == "SH-400"
+    assert resultado.iterations == 1
+    assert _resultados(agent, "search_products") == []  # no hizo falta buscar
+
+
+def test_las_opciones_son_las_de_la_ultima_respuesta(catalogo_pantene):
+    """RF-71: las opciones de una pregunta ya contestada no quedan colgadas en los turnos siguientes."""
+    opciones = ["SH-200", "SH-400"]
+    preguntar = _call("respond_to_customer", kind="aclaracion", message="¿De 200 o de 400?", options=opciones)
+    proponer = _ai(_propuesta("Van los 2 de 400. ¿Lo confirmo?", "SH-400", 2))
+    otra = _ai(_propuesta("Ahora son 3 de 400. ¿Lo dejamos así?", "SH-400", 3))
+    agent, modelo = _agente(_ai(preguntar), proponer, otra)
+    agent.handle("1", text="2 shampoo pantene", **CLIENTE)
+    agent.handle("1", text="2 del de 400", **CLIENTE)
+    agent.handle("1", text="mejor 3 de esos", **CLIENTE)
+
+    assert "Opciones que le ofreciste" in modelo.recibidos[1][0].text
+    assert "Opciones que le ofreciste" not in modelo.recibidos[2][0].text
+    assert "(versión 2)" not in modelo.recibidos[1][0].text and "Propuesta vigente: 2 x" in modelo.recibidos[2][0].text
+
+
+@pytest.mark.parametrize("texto", ["ok", "sí, dale"])
+def test_precio_cambiado_no_registra(catalogo, texto):
+    """CA-128: si un precio cambió desde la propuesta, no se crea la orden y sale la propuesta con el precio nuevo."""
+    agent, modelo = _agente(*GUION_OFERTA, *GUION_ACEPTA)
+    agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+    catalogo[0].price = Decimal("1200")
+
+    respuesta = agent.handle("1", text=texto, **CLIENTE)
+
+    assert respuesta.kind == "propuesta" and not respuesta.cerrada
+    assert _ordenes() == 0
+    assert respuesta.message.startswith("Desde que te armé el pedido cambió el precio")
+    assert "• 3 x Crema Nivea 100 ml ($1200.00 c/u = $3600.00)" in respuesta.message
+    assert respuesta.draft.version == 2 and respuesta.draft.items[0].unit_price == Decimal("1200")
+
+    final = agent.handle("1", text="ok", **CLIENTE)  # ahora sí: confirma el total que vio
+    assert final.kind == "pedido"
+    assert order_service.get_order(final.order_id).total == Decimal("3600")
+
+
+def test_un_pedido_ya_registrado_no_se_reprecia(catalogo):
+    """RF-72: el reintento de una orden que ya existe la devuelve como quedó, aunque el precio haya cambiado."""
+    agent, _ = _agente(*GUION_OFERTA)
+    primero = agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+    orden = agent.handle("1", text="ok", **CLIENTE)
+    catalogo[0].price = Decimal("1200")
+
+    repetida = order_service.confirm_draft(primero.draft)
+
+    assert repetida.order_id == orden.order_id and repetida.total == Decimal("3000")
+
+
+def _registrar(customer_id: str, sku: str, cantidad: int, draft_id: str, precio: str = "1000"):
+    from internal.schemas.order_schema import OrderDraft, OrderItem
+
+    draft = OrderDraft(
+        draft_id=draft_id,
+        customer_id=customer_id,
+        channel=Channel.TELEGRAM,
+        items=[OrderItem(sku=sku, product_name="Producto", quantity=cantidad, unit_price=Decimal(precio))],
+    )
+    return order_service.confirm_draft(draft)
+
+
+def test_pedidos_anteriores_del_cliente(catalogo):
+    """CA-129: la tool trae solo las órdenes del cliente del turno, sin precios, número de orden ni estado."""
+    _registrar(CLIENTE["customer_id"], SKU, 1, "previa-1")
+    cancelada = _registrar(CLIENTE["customer_id"], SKU, 1, "previa-2")
+    order_service.cancel_order(cancelada.order_id)
+    _registrar("telegram:999", SKU, 1, "de-otro")
+    responder = _call("respond_to_customer", kind="informacion", message="La otra vez llevaste 1 crema. ¿Te la armo?")
+    agent, modelo = _agente(_ai(_call("pedidos_anteriores", limite=5, customer_id="telegram:999")), _ai(responder))
+
+    agent.handle("1", text="mandame lo de siempre", **CLIENTE)
+
+    assert "pedidos_anteriores" in modelo.ofrecidas[0]  # es una tool de base
+    (resultado,) = _resultados(agent, "pedidos_anteriores")
+    assert resultado["ok"]
+    assert [pedido["lineas"] for pedido in resultado["data"]["pedidos"]] == [
+        [{"sku": SKU, "name": "Producto", "cantidad": 1}]
+    ]
+    texto = json.dumps(resultado)
+    assert "ORD-" not in texto and "price" not in texto and "Recibido" not in texto and "1000" not in texto
+
+
+def test_lo_que_el_cliente_compro_desempata_la_busqueda(catalogo_pantene):
+    """RF-73: entre dos productos que coinciden igual, va primero el que ese cliente ya pidió."""
+    ctx = tool_registry_ctx("telegram:1")
+    sin_historial = tool_registry.execute("search_products", {"query": "shampoo pantene"}, ctx)["data"]["matches"]
+    assert [match["sku"] for match in sin_historial] == ["SH-200", "SH-400"]
+    assert "comprado_antes" not in sin_historial[0]
+
+    _registrar("telegram:1", "SH-400", 2, "compra-400", precio="7350")
+    ctx = tool_registry_ctx("telegram:1")
+    con_historial = tool_registry.execute("search_products", {"query": "shampoo pantene"}, ctx)
+    matches = con_historial["data"]["matches"]
+    assert [match["sku"] for match in matches] == ["SH-400", "SH-200"]
+    assert matches[0]["comprado_antes"] is True and "comprado_antes" not in matches[1]
+    assert con_historial["data"]["total"] == 2  # sigue habiendo dos: se pregunta, no se elige por él
+    otro = tool_registry.execute("search_products", {"query": "shampoo pantene"}, tool_registry_ctx("telegram:2"))
+    assert [match["sku"] for match in otro["data"]["matches"]] == ["SH-200", "SH-400"]
+
+
+def tool_registry_ctx(customer_id: str):
+    return tool_registry.TurnContext(
+        customer_id=customer_id, channel=Channel.TELEGRAM, disponibles=list(tool_registry.BASE_TOOLS)
+    )

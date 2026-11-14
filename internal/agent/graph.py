@@ -253,6 +253,7 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
         return {
             "messages": [HumanMessage(content=text)],
             "origen": _sumar_origen(state.get("origen"), origen),
+            "opciones_previas": list(state.get("options") or []),
             "inicio_turno": len(state["messages"]),
             "skills_activas": [],
             "iteraciones": 0,
@@ -278,7 +279,8 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             return {"resultado": "continuar"}
         return {
             "messages": [AIMessage(content=ctx.respuesta)],
-            "propuesta": None,
+            # Queda una propuesta solo si cambió un precio: sale de nuevo con los de hoy y espera otra confirmación
+            "propuesta": ctx.propuesta.model_dump(mode="json") if ctx.propuesta else None,
             "respuesta": ctx.respuesta,
             "kind": ctx.kind,
             "order_id": ctx.order_id,
@@ -328,5 +330,7 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
         "tools", decidir_resultado, {"continuar": "descubrir_tools", "pausar": "pausa", "final": END}
     )
     graph.add_conditional_edges("pausa", decidir_tras_pausa, {"confirmar": "confirmar", "agente": "encaminar"})
-    graph.add_conditional_edges("confirmar", decidir_resultado, {"continuar": "encaminar", "final": END})
+    graph.add_conditional_edges(
+        "confirmar", decidir_resultado, {"continuar": "encaminar", "pausar": "pausa", "final": END}
+    )
     return graph.compile(checkpointer=checkpointer)
