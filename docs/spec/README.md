@@ -525,7 +525,7 @@ Detalle en la [spec del canal](canal-telegram.md).
 | RNF-09 | Portabilidad | Cambiar de proveedor de LLM es sumar su modelo de LangChain en `agent/llm.py`; cambiar Google Sheets por el sistema real es reemplazar `sheets_service` |
 | RNF-10 | Despliegue | Producción corre la imagen de una release; el código y los valores por defecto van en la imagen, y cambiarlos es una release. Fuera de la imagen quedan solo el `.env` (secretos y variables de entorno, como el modelo de LLM o la ruta del catálogo) y los datos ([CONTRIBUTING](../../CONTRIBUTING.md#producción)) |
 | RNF-11 | Experiencia | Español rioplatense, breve y amable; una pregunta por vez; mensajes de WhatsApp dentro de los límites del canal |
-| RNF-12 | Costo | Máximo 15 iteraciones por turno, historial acotado a 20 mensajes y catálogo fuera del contexto (D-07) |
+| RNF-12 | Costo | Máximo 8 iteraciones y 60 s por turno (RNF-16), historial acotado a 20 mensajes y catálogo fuera del contexto (D-07) |
 | RNF-13 | Caché | El catálogo se cachea 5 min para buscar (hasta 1 h si Google no responde); la confirmación siempre lee fresco |
 | RNF-14 | Seguridad | El token del bot de Telegram y las API keys no aparecen en logs, URLs guardadas ni datos persistidos |
 
@@ -580,7 +580,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-10 | El catálogo de ejemplo | Llega un caso con `resultado: sin_stock` | El turno termina en `sin_stock` y no se crea borrador con cantidades sin stock | RF-10 | pendiente |
 | CA-11 | El catálogo de ejemplo | Llega `fuera-de-catalogo` | El turno termina en `fuera_de_catalogo` y no aparece ningún SKU inventado | RF-08, RF-10 | pendiente |
 | CA-12 | Una tool de borrador | El LLM pide un SKU que no existe o una cantidad sin stock | La tool devuelve `sku_inexistente` / `stock_insuficiente` y no se guarda nada | RF-08, RF-10 | `test_agent_graph.py::test_propuesta_*` |
-| CA-20 | Un modelo falso que nunca llama a una tool terminal | Corre un turno | Se corta a las 15 iteraciones con mensaje fijo y la conversación suma una falla | RNF-12 | `test_agent_graph.py::test_tope_de_iteraciones` |
+| CA-20 | Un modelo falso que nunca llama a una tool terminal | Corre un turno | Se corta al tope de iteraciones (8, RNF-16) con mensaje fijo y la conversación suma una falla | RNF-12 | `test_agent_graph.py::test_tope_de_iteraciones` |
 | CA-37 | Un turno sin skills activas | El LLM pide `armar_pedido` | Recibe `tool_no_permitida` y no se guarda nada | RF-34 | `test_agent_graph.py::test_armar_pedido_sin_leer_la_skill_no_se_ejecuta`, `test_tools.py` |
 | CA-38 | Un turno en el que se leyó `confirmar_pedido` y después `tomar_pedido` | Se calculan las tools de la iteración siguiente | Se ofrecen las tools de base y las de las dos skills | RF-33, RF-34 | `test_agent_graph.py::test_tools_ofrecidas_dependen_de_la_skill_y_se_reinician` |
 | CA-39 | Un turno anterior leyó una skill | Empieza un turno nuevo | Solo se ofrecen las tools de base; `leer_br` con una BR de esa skill devuelve `br_no_permitida` | RF-34 | `test_agent_graph.py::test_tools_ofrecidas_dependen_de_la_skill_y_se_reinician`, `test_tools.py::test_leer_br_solo_de_skills_leidas` |
@@ -607,7 +607,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-15 | Un borrador pendiente | La aceptación llega dos veces (reintento) | Se crea una sola orden, las dos respuestas tienen el mismo `order_id` y hay una sola fila en Sheet 2 | RF-15 | `test_agent_graph.py::test_reintento_no_duplica_la_orden` |
 | CA-16 | Un borrador cuyo stock se agotó después de armarlo por órdenes concurrentes | El cliente confirma | No se crea orden, se informa qué línea no alcanza, la conversación sigue en `borrador_pendiente` y se rechaza la sobreventa | RF-14 | `test_inventory.py` |
 | CA-17 | Una propuesta vigente | El cliente escribe «dale» | Se crea una sola orden con lo propuesto. Si escribe «dale, pero 2» o «no, gracias», no se crea orden | RF-13 | `test_agent_graph.py`; interpretación real: casos de `mensajes.json` |
-| CA-18 | Una propuesta vigente | El cliente responde exactamente `OK` o `CONFIRMAR` | Se registra sin llamar al LLM. Si el stock ya no alcanza, responde el agente. Sin propuesta vigente, el mensaje va al agente | RF-13 | `test_agent_graph.py` |
+| CA-18 | Una propuesta vigente | El cliente responde con una aceptación exacta (`OK`, `CONFIRMAR`, «dale», «sí», «listo», «de una» o «mandale») | Se registra sin llamar al LLM. Si el stock ya no alcanza, responde el agente. Sin propuesta vigente, el mensaje va al agente | RF-13 | `test_agent_graph.py` |
 | CA-19 | Una orden confirmada | Sheet 2 falla al escribir y después vuelve | La orden existe en la base con `sheets_synced = false` y el reintento agrega una sola fila con las columnas de `pedidos.csv` | RF-19, RNF-04 | `test_orders.py::test_confirm_draft_falla_sheets_resiliente_y_reintento` (I) |
 | CA-21 | Una conversación con una falla previa | Ocurre una segunda falla | La conversación pasa a `derivada` y el bot no responde a ese cliente por 24 h | RF-27 | pendiente |
 | CA-22 | Cualquier conversación abierta | El cliente pide hablar con una persona | El turno termina en `derivado` | RF-27 | pendiente |

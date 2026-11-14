@@ -156,7 +156,7 @@ class ModeloGuionado:
     def __init__(self, *guion):
         self.guion = list(guion)
 
-    def bind_tools(self, tools):
+    def bind_tools(self, tools, **kwargs):
         return self
 
     def invoke(self, messages):

@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -15,15 +16,20 @@ from langgraph.types import interrupt
 from internal.agent import context, guardrails, observabilidad, tool_registry
 from internal.agent.state import EstadoNorma
 from internal.schemas.order_schema import Channel, ConfirmationAction, OrderDraft
-from internal.services.palabras_clave import interpretar_palabra_clave
+from internal.services.palabras_clave import es_saludo, interpretar_palabra_clave
+from internal.services.skill_service import get_skills
 
 logger = logging.getLogger(__name__)
 
-MAX_ITERATIONS = 15  # D-07
+MAX_ITERATIONS = 8  # RNF-16 (antes 15, D-07)
+MAX_SEGUNDOS_TURNO = 60.0  # RNF-16: plazo total de un turno, se controla entre una iteración y la siguiente
 MAX_FAILURES = 2  # D-07
+# Con una propuesta vigente, un mensaje así de corto y sin números casi siempre la acepta, la rechaza o duda
+MAX_PALABRAS_RESPUESTA_A_PROPUESTA = 3
+_reloj = time.time  # los tests lo reemplazan para no esperar
 FAILURE_MESSAGE = "Tuve un problema, probá de nuevo en unos minutos."
 # Cada iteración pasa por tres nodos. Es una red de seguridad: el tope real es MAX_ITERATIONS
-RECURSION_LIMIT = MAX_ITERATIONS * 3 + 10
+RECURSION_LIMIT = MAX_ITERATIONS * 3 + 12
 
 
 def _failure(state: EstadoNorma) -> dict[str, Any]:
@@ -56,11 +62,46 @@ def _registrar_intento(state: EstadoNorma, config: RunnableConfig) -> None:
         pass
 
 
+def skill_clara(texto: str, hay_propuesta: bool) -> str | None:
+    """La skill del turno cuando el mensaje no admite dudas; None si tiene que elegir el modelo (RF-62)."""
+    tiene_numero = any(caracter.isdigit() for caracter in texto)
+    if hay_propuesta:
+        corto = len(texto.split()) <= MAX_PALABRAS_RESPUESTA_A_PROPUESTA
+        return "confirmar_pedido" if corto and not tiene_numero else None
+    if es_saludo(texto):
+        return "informar"
+    renglones = sum(bool(linea.strip()) for linea in texto.splitlines())
+    return "tomar_pedido" if renglones >= 2 or tiene_numero else None
+
+
+def encaminar(state: EstadoNorma) -> dict[str, Any]:
+    """Abre el turno: si la ruta es clara, lee la skill antes de la primera llamada al LLM (RF-62).
+
+    El texto de la skill va en el contexto (`context._skill_activa`), no como una tool call inventada: Gemini
+    rechaza una llamada que no trae su firma (CA-35). El modelo puede leer otra skill con `leer_skill`.
+    """
+    entrada = state["messages"][state.get("inicio_turno", 0)]
+    skill = skill_clara(entrada.text, bool(state.get("propuesta"))) if isinstance(entrada, HumanMessage) else None
+    if skill not in get_skills():
+        skill = None
+    with observabilidad.paso("encaminar", "CHAIN", skill_preactivada=skill or "-"):
+        pass
+    return {
+        "skills_activas": [skill] if skill else [],
+        "skill_preactivada": skill,
+        "br_entregadas": [],
+        "turno_desde": _reloj(),
+    }
+
+
 def descubrir_tools(state: EstadoNorma, config: RunnableConfig) -> dict[str, Any]:
     if not state.get("iteraciones"):
         _registrar_intento(state, config)
     if state.get("iteraciones", 0) >= MAX_ITERATIONS:
         logger.warning("Agente: se alcanzó el tope de %d iteraciones", MAX_ITERATIONS)
+        return _failure(state)
+    if _reloj() - state.get("turno_desde", _reloj()) > MAX_SEGUNDOS_TURNO:
+        logger.warning("Agente: el turno pasó el plazo de %d s", MAX_SEGUNDOS_TURNO)
         return _failure(state)
     return {"tools_disponibles": tool_registry.available(state.get("skills_activas", []))}
 
@@ -87,6 +128,7 @@ def _turn_context(state: EstadoNorma, config: RunnableConfig, disponibles: list[
         customer_name=customer_name,
         conversation_id=conversation_id,
         skills_activas=list(state.get("skills_activas", [])),
+        br_entregadas=list(state.get("br_entregadas", [])),
         propuesta=propuesta,
     )
 
@@ -96,9 +138,10 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
         iterations = state.get("iteraciones", 0) + 1
         with observabilidad.paso("llm", "CHAT_MODEL", iteracion=iterations) as paso:
             try:
-                message = model.bind_tools(tool_registry.schemas(state["tools_disponibles"])).invoke(
-                    context.build_messages(state)
-                )
+                # El modelo tiene que elegir una tool (RF-61): el texto suelto queda como red de seguridad
+                message = model.bind_tools(
+                    tool_registry.schemas(state["tools_disponibles"]), tool_choice="any"
+                ).invoke(context.build_messages(state))
             # Cada proveedor lanza sus propios errores; el mensaje puede traer texto del cliente
             except Exception as exc:
                 logger.warning("Agente: falló el LLM (%s)", type(exc).__name__)
@@ -164,6 +207,7 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
         return {
             "messages": messages,
             "skills_activas": ctx.skills_activas,
+            "br_entregadas": ctx.br_entregadas,
             "propuesta": ctx.propuesta.model_dump(mode="json") if ctx.propuesta else None,
             "respuesta": ctx.respuesta,
             "kind": ctx.kind,
@@ -188,7 +232,10 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
         }
 
     def confirmar(state: EstadoNorma, config: RunnableConfig) -> dict[str, Any]:
-        """`OK` o `CONFIRMAR` exactos: registra la propuesta vigente sin llamar al LLM (RF-13, CA-18)."""
+        """Una aceptación exacta («ok», «dale», «listo»…): registra la propuesta vigente sin llamar al LLM.
+
+        Las palabras están en `palabras_clave.ACEPTACIONES` (RF-13, RF-64, CA-18, CA-120).
+        """
         ctx = _turn_context({**state, "skills_activas": []}, config, ["armar_pedido"])
         with observabilidad.paso("armar_pedido", "TOOL", via="confirmar_directo") as paso:
             result = tool_registry.execute("armar_pedido", {}, ctx)
@@ -228,13 +275,15 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
         return state["resultado"]
 
     graph = StateGraph(EstadoNorma)
+    graph.add_node("encaminar", encaminar)
     graph.add_node("descubrir_tools", descubrir_tools)
     graph.add_node("llm", llamar_modelo)
     graph.add_node("tools", ejecutar_tools)
     graph.add_node("pausa", pausa)
     graph.add_node("confirmar", confirmar)
 
-    graph.add_edge(START, "descubrir_tools")
+    graph.add_edge(START, "encaminar")
+    graph.add_edge("encaminar", "descubrir_tools")
     graph.add_conditional_edges(
         "descubrir_tools", decidir_iteracion, {"llm": "llm", "error": "pausa", "handoff": END}
     )
@@ -246,6 +295,6 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
     graph.add_conditional_edges(
         "tools", decidir_resultado, {"continuar": "descubrir_tools", "pausar": "pausa", "final": END}
     )
-    graph.add_conditional_edges("pausa", decidir_tras_pausa, {"confirmar": "confirmar", "agente": "descubrir_tools"})
-    graph.add_conditional_edges("confirmar", decidir_resultado, {"continuar": "descubrir_tools", "final": END})
+    graph.add_conditional_edges("pausa", decidir_tras_pausa, {"confirmar": "confirmar", "agente": "encaminar"})
+    graph.add_conditional_edges("confirmar", decidir_resultado, {"continuar": "encaminar", "final": END})
     return graph.compile(checkpointer=checkpointer)

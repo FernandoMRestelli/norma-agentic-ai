@@ -40,6 +40,7 @@ class TurnContext:
     customer_name: str | None = None  # van al borrador y a la orden (RF-45, RF-46)
     conversation_id: int | None = None
     skills_activas: list[str] = field(default_factory=list)
+    br_entregadas: list[str] = field(default_factory=list)  # BR que ya vio el LLM en este turno (RF-63)
     propuesta: OrderDraft | None = None
     resultado: Resultado = "continuar"
     respuesta: str | None = None
@@ -99,7 +100,10 @@ def _leer_skill(data: LeerSkillInput, ctx: TurnContext) -> dict[str, Any]:
 
 
 def _leer_br(data: LeerBrInput, ctx: TurnContext) -> dict[str, Any]:
-    return skill_tools.leer_br(data.id, ctx.skills_activas)
+    regla = skill_tools.leer_br(data.id, ctx.skills_activas)
+    if data.id not in ctx.br_entregadas:
+        ctx.br_entregadas.append(data.id)
+    return regla
 
 
 def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict[str, Any]:
@@ -247,7 +251,47 @@ def _failure(code: str, message: str, **details: Any) -> dict[str, Any]:
     return {"ok": False, "error": {"code": code, "message": message, "details": details}}
 
 
+def _br_que_dispara(name: str, result: dict[str, Any]) -> str | None:
+    """La BR que corresponde al resultado de una tool, cuando la señal lleva a una sola (RF-63)."""
+    if not result["ok"]:
+        return "BR-01" if result["error"]["code"] == "stock_insuficiente" else None
+    data = result["data"]
+    if name == "check_stock":
+        return None if data["is_enough"] else "BR-01"
+    if name != "search_products":
+        return None
+    matches, sugerencias = data["matches"], data["sugerencias"]
+    if sugerencias or any(match.get("aproximado") for match in matches):
+        return "BR-09"
+    if not matches:
+        return "BR-04"
+    if len(matches) > 1:
+        return "BR-03"
+    return None if matches[0]["hay_stock"] else "BR-01"
+
+
+def _adjuntar_br(name: str, result: dict[str, Any], ctx: TurnContext) -> dict[str, Any]:
+    """Suma al resultado el texto de la BR que dispara, una vez por turno y solo si una skill activa la permite.
+
+    Sin una skill leída no se adjunta nada: el agente la lee con `leer_br`, como siempre.
+    """
+    br = _br_que_dispara(name, result)
+    if br is None or br in ctx.br_entregadas:
+        return result
+    try:
+        regla = skill_tools.leer_br(br, ctx.skills_activas)
+    except ToolFailure:
+        return result
+    ctx.br_entregadas.append(br)
+    return {**result, "regla": regla}
+
+
 def execute(name: str, arguments: dict[str, Any], ctx: TurnContext) -> dict[str, Any]:
+    """Ejecuta una tool y devuelve el sobre común, con la BR que dispara el resultado si corresponde (RF-63)."""
+    return _adjuntar_br(name, _run(name, arguments, ctx), ctx)
+
+
+def _run(name: str, arguments: dict[str, Any], ctx: TurnContext) -> dict[str, Any]:
     """Ejecuta una tool y devuelve el sobre común. Un error vuelve al LLM para que lo corrija."""
     if name not in ctx.disponibles or name not in TOOLS:
         return _failure(

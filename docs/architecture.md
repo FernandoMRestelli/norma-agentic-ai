@@ -71,7 +71,7 @@ flowchart TD
 5. Si el cliente cambia algo, propone de nuevo.
 6. Si el cliente acepta («dale»), el backend **vuelve a consultar el stock**, registra una única orden con ID y la sincroniza con Google Sheets. Solo puede registrar lo propuesto.
 
-**Confirmación:** en todos los canales el cliente responde escribiendo, sin botones. Si responde exactamente `OK` o `CONFIRMAR` y hay una propuesta vigente, el backend la registra sin llamar al LLM. Cualquier otra respuesta la interpreta el agente.
+**Confirmación:** en todos los canales el cliente responde escribiendo, sin botones. Si responde con una aceptación exacta (`OK`, `CONFIRMAR`, «dale», «sí», «listo», «de una» o «mandale») y hay una propuesta vigente, el backend la registra sin llamar al LLM. Cualquier otra respuesta la interpreta el agente.
 
 ## 📊 De dónde se alimenta el dashboard
 

@@ -16,7 +16,7 @@ El agente **no maneja la conversación solo**. La conversación la conduce el ba
 | En qué estado está la conversación y qué eventos acepta | Qué quiso decir el cliente |
 | Crear la orden exactamente con lo propuesto | Qué productos buscar y cuáles coinciden |
 | Revalidar el stock al crear la orden | Si hace falta preguntar algo y qué |
-| Qué se le puede registrar al cliente: solo la propuesta vigente | Si el cliente aceptó la propuesta, salvo `OK` o `CONFIRMAR` exactos |
+| Qué se le puede registrar al cliente: solo la propuesta vigente | Si el cliente aceptó la propuesta, salvo una aceptación exacta (§2.1) |
 | Completar nombre, presentación y precio desde el catálogo | Las cantidades y el SKU de cada línea |
 | El mensaje final con el pedido registrado | Si el cliente quiere cancelar o hablar con una persona |
 | Límites, reintentos, vencimientos y derivación por fallas | El texto de las preguntas y avisos al cliente |
@@ -76,7 +76,7 @@ stateDiagram-v2
 | Evento | Origen | ¿Pasa por el LLM? |
 |---|---|---|
 | Mensaje de texto, audio o imagen | Cualquier canal | Sí, después del preprocesamiento |
-| `OK` o `CONFIRMAR` exactos, con una propuesta vigente | Texto del cliente | **No**: el backend registra la propuesta |
+| Una aceptación exacta (`OK`, `CONFIRMAR`, «dale», «sí», «listo», «de una» o «mandale»), con una propuesta vigente | Texto del cliente | **No**: el backend registra la propuesta (RF-64) |
 | Vencimiento | Tarea del backend | No |
 
 Ningún canal usa botones: el cliente confirma escribiendo. Cualquier otra respuesta («dale», «sí») va al agente, que
@@ -88,7 +88,7 @@ decide si acepta la propuesta vigente (RF-13, §5). Sin propuesta vigente, `OK` 
 |---|---|
 | `esperando_pedido` | Turno del agente |
 | `aclarando` | Turno del agente (con la pregunta pendiente en contexto) |
-| `borrador_pendiente` | `OK` o `CONFIRMAR` exactos: se registra la propuesta (§5). Otro mensaje: turno del agente, con la propuesta en contexto |
+| `borrador_pendiente` | Una aceptación exacta (§2.1): se registra la propuesta (§5). Otro mensaje: turno del agente, con la propuesta en contexto |
 | Cerrada | Abre una conversación nueva (salvo `derivada`, ver §7) |
 
 ## 3. El loop de un turno
@@ -110,7 +110,7 @@ sequenceDiagram
     O->>M: prepare(mensaje)
     M-->>O: texto (+ origen: texto / audio / imagen)
     O->>A: handle(contexto del turno)
-    loop hasta una tool terminal (máx. 15 iteraciones)
+    loop hasta una tool terminal (máx. 8 iteraciones)
         A->>L: instrucciones + contexto + historial + tools permitidas
         L-->>A: tool calls
         A->>T: ejecutar con contexto inyectado
@@ -125,7 +125,7 @@ sequenceDiagram
 Reglas del loop:
 
 1. **Cada turno termina con exactamente una tool terminal** (§4.2). Ese resultado decide la transición de estado.
-2. **Máximo 15 iteraciones** LLM ↔ tools por turno (D-07). Si se alcanza sin tool terminal, el turno termina con
+2. **Máximo 8 iteraciones y 60 s** LLM ↔ tools por turno (RNF-16). Si se alcanza sin tool terminal, el turno termina con
    un mensaje fijo de disculpa y suma una falla a la conversación (§6).
 3. Si el LLM responde **solo texto** sin llamar a una tool terminal, se trata como
    `respond_to_customer(kind="informacion")`, descarta la propuesta y queda registrado como advertencia.
@@ -163,7 +163,8 @@ con esas 3 unidades (§5).
 
 > **Riesgo:** cada lectura suma una llamada al LLM, con todo el contexto. Hay que medir que el camino normal cumpla
 > el p95 de 10 s (RNF-06). Un turno que agota el tope puede tardar varios minutos con la conversación bloqueada
-> (15 llamadas de hasta 30 s), y en el free tier de Gemini consume 15 requests (D-07).
+> (el plazo de 60 s se controla entre una llamada y la siguiente, y cada llamada puede tardar hasta 30 s más un
+> reintento), y en el free tier de Gemini consume hasta 8 requests (RNF-16).
 
 ### 3.2 El grafo
 
@@ -171,7 +172,8 @@ El loop se implementa con LangGraph en `agent/graph.py`, y el modelo se llama co
 
 ```mermaid
 flowchart TD
-    S([START]) --> D[descubrir_tools]
+    S([START]) --> R[encaminar]
+    R --> D[descubrir_tools]
     D -->|hay iteraciones| L[llm]
     D -->|tope, primera falla| P[pausa]
     D -->|tope, segunda falla| E([END])
@@ -181,19 +183,20 @@ flowchart TD
     T -->|continuar| D
     T -->|pausar| P
     T -->|final| E
-    P -->|otro mensaje| D
-    P -->|OK o CONFIRMAR, con propuesta| C[confirmar]
+    P -->|otro mensaje| R
+    P -->|aceptación exacta, con propuesta| C[confirmar]
     C -->|orden creada| E
-    C -->|no se pudo| D
+    C -->|no se pudo| R
 ```
 
 | Nodo | Qué hace |
 |---|---|
-| `descubrir_tools` | Calcula las tools permitidas: las de base más las de las skills leídas en el turno. Corta al llegar a 15 iteraciones |
+| `encaminar` | Abre el turno. Si el mensaje no admite dudas, lee la skill antes de la primera llamada al LLM: su texto va en el contexto y sus tools quedan habilitadas (RF-62) |
+| `descubrir_tools` | Calcula las tools permitidas: las de base más las de las skills leídas en el turno. Corta al llegar a 8 iteraciones o a los 60 s (RNF-16) |
 | `llm` | Arma el contexto (§8) y llama al modelo solo con esas tools. Guarda el `AIMessage` completo para conservar las firmas de Gemini |
 | `tools` | Rechaza lo no permitido, inyecta los datos del backend, ejecuta y guarda los resultados en el sobre común |
 | `pausa` | Devuelve el mensaje con `interrupt()` y espera. Al retomar, agrega el mensaje del cliente y reinicia iteraciones y skills |
-| `confirmar` | Registra la propuesta sin llamar al LLM, si el cliente respondió exactamente `OK` o `CONFIRMAR`. Si no se puede, por ejemplo porque ya no alcanza el stock, sigue el agente |
+| `confirmar` | Registra la propuesta sin llamar al LLM, si el cliente respondió con una aceptación exacta (§2.1). Si no se puede, por ejemplo porque ya no alcanza el stock, sigue el agente |
 
 - **Persistencia:** el estado del grafo se guarda con `SqliteSaver` en `CHECKPOINT_DB`, un archivo propio dentro de
   `data/`, con `LANGGRAPH_STRICT_MSGPACK=true`. El `thread_id` es el ID de la conversación, y una conversación
@@ -202,7 +205,12 @@ flowchart TD
   los checkpoints estén en SQLite. La conexión espera hasta 15 s si otro proceso, como el bot, está escribiendo.
 - **Salidas por `END`:** un pedido registrado cierra la conversación. Una segunda falla la marca `fallida`, y el
   mensaje siguiente abre otra.
-- **`recursion_limit`:** es solo una red de seguridad. El tope real es el contador de 15 iteraciones.
+- **`recursion_limit`:** es solo una red de seguridad. El tope real es el contador de 8 iteraciones.
+- **Tool obligatoria:** cada llamada al modelo lleva `tool_choice="any"` (RF-61). El camino de texto suelto queda
+  para un proveedor que no lo respete.
+- **BR junto al resultado:** cuando el resultado de una tool lleva a una sola BR (`sugerencias` o `aproximado` →
+  BR-09, varias coincidencias → BR-03, nada parecido → BR-04, stock que no alcanza → BR-01), el sobre trae su
+  texto en `regla`, una vez por turno y solo si una skill leída la permite (RF-63).
 
 ## 4. Tools
 
@@ -461,9 +469,9 @@ El cliente confirma conversando (RF-13). El LLM interpreta si aceptó, pero **no
 
 1. El bot propone un pedido con `respond_to_customer(propuesta=...)`. El backend valida SKU y stock, y guarda la
    propuesta como `OrderDraft`.
-2. El cliente responde. Si escribe exactamente `OK` o `CONFIRMAR`, el backend sigue en el paso 3 sin llamar al LLM.
-   Con otra respuesta decide el agente: si acepta sin cambios («dale», «sí»), lee la skill `confirmar_pedido` y llama a
-   la tool. Si cambia algo, pone una condición o duda, propone de nuevo o pregunta (BR-06).
+2. El cliente responde. Si el mensaje completo es una aceptación exacta (§2.1), el backend sigue en el paso 3 sin
+   llamar al LLM. Con otra respuesta decide el agente: si acepta sin cambios («sí, dale», «perfecto»), usa la skill
+   `confirmar_pedido` y llama a la tool. Si cambia algo, pone una condición o duda, propone de nuevo o pregunta (BR-06).
 3. `armar_pedido` solo puede crear lo que está en la propuesta vigente.
 4. Si ya hay una orden con ese `draft_id`, devuelve la existente (idempotencia, CA-15).
 5. **Revalida el stock disponible** de cada línea con una lectura fresca descontando las órdenes activas previas
@@ -486,7 +494,7 @@ El cliente confirma conversando (RF-13). El LLM interpreta si aceptó, pero **no
 | Una tool devuelve `ok: false` | El error vuelve al LLM en la misma iteración para que corrija. Cada `error.message` dice qué hacer (p. ej. buscar de nuevo), así el system prompt no repite la lista de errores | Sin cambio |
 | Argumentos que no cumplen el esquema | Error `argumentos_invalidos` al LLM, con el detalle de pydantic | Sin cambio |
 | El LLM falla o tarda más de 30 s | 1 reintento. Si vuelve a fallar: mensaje fijo «Tuve un problema, probá de nuevo en unos minutos» y +1 falla | Sin cambio |
-| Se alcanzan 15 iteraciones sin tool terminal | Mensaje fijo de disculpa y +1 falla | Sin cambio |
+| Se alcanzan 8 iteraciones o 60 s sin tool terminal | Mensaje fijo de disculpa y +1 falla | Sin cambio |
 | El LLM pide una tool que su skill no permite | Error `tool_no_permitida` al LLM, sin ejecutarla | Sin cambio |
 | Audio o imagen sin texto útil (transcripción u OCR vacíos o fallidos) | Sin llamar al LLM: «No pude entender el audio / la imagen, ¿me lo escribís?» | Sin cambio |
 | Catálogo no disponible al buscar | Se usa la última copia en caché si tiene menos de 1 h; si no, `catalogo_no_disponible` | Sin cambio |
@@ -519,7 +527,8 @@ mensajes del cliente (ya preprocesados), respuestas, tool calls con sus resultad
 
 1. El system prompt de [`agent/system_prompt.md`](../../internal/agent/system_prompt.md), más un **índice de
    skills** con el `nombre`, la `funcion` y el `cuando` de cada una, generado desde los archivos. Sin propuesta vigente, no incluye
-   las skills con `requiere_propuesta: true` (§4.5).
+   las skills con `requiere_propuesta: true` (§4.5). Si el backend preactivó una skill en este turno (RF-62), sigue
+   un bloque «Skill activa» con lo mismo que devuelve `leer_skill`.
 2. Un bloque de **estado actual**, generado por el backend: estado de la conversación, borrador pendiente
    (líneas y versión), última pregunta hecha y opciones ofrecidas.
 3. Los **últimos 20 mensajes** de la conversación abierta (D-07), con el origen de cada uno
