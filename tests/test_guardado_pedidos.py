@@ -456,7 +456,7 @@ def test_fila_de_pedido_con_columnas_nuevas():
         ],
         notes="Retira el sábado",
     )
-    assert sheets_service.ORDER_COLUMNS[-2:] == ["nombre_cliente", "total"]
+    assert sheets_service.ORDER_COLUMNS[7:9] == ["nombre_cliente", "total"]
     assert sheets_service.format_order_row(order) == [
         "ORD-0001",
         "2026-11-10T12:00:00-03:00",
@@ -467,4 +467,90 @@ def test_fila_de_pedido_con_columnas_nuevas():
         "Recibido",
         NOMBRE,
         "2250.50",
+        "2",  # líneas
+        "3",  # unidades
+        "",  # nada quedó afuera
+        "",  # origen: una orden armada a mano no lo trae
+        "d-1",
+        "2026-11-10T12:00:00-03:00",  # sin cambios de estado, es la fecha de alta
     ]
+
+
+# --- Líneas para preparar el pedido (M5 de docs/spec/toma-de-pedidos-por-texto.md) -------------------------------
+
+
+def test_migra_una_base_de_la_version_1(tmp_path):
+    """RF-75: una base anterior suma las columnas y la tabla nuevas sin tocar las órdenes que ya tenía."""
+    path = tmp_path / "norma.db"
+    engine = make_engine(f"sqlite:///{path}")
+    init_db(engine)
+    engine.dispose()
+    with sqlite3.connect(path) as conn:  # vuelve la base a como la dejaba la migración 1
+        for tabla, columna in (("order_items", "brand"), ("order_items", "category"), ("order_items", "match"),
+                               ("order_items", "source_text"), ("orders", "source"), ("drafts", "leftovers")):
+            conn.execute(f"ALTER TABLE {tabla} DROP COLUMN {columna}")
+        conn.execute("DROP TABLE order_leftovers")
+        conn.execute("UPDATE schema_version SET version = 1")
+        conn.execute(
+            "INSERT INTO orders (id, order_id, draft_id, customer_id, channel, status, sheets_synced, created_at,"
+            " total) VALUES (1, 'ORD-0001', 'd-1', 'telegram:1', 'telegram', 'Preparado', 1,"
+            " '2026-11-01 10:00:00.000000', '200')"
+        )
+        conn.execute(
+            "INSERT INTO order_items (order_pk, position, sku, product_name, quantity, unit_price, note)"
+            " VALUES (1, 1, 'SH-1', 'Shampoo', 2, '100', 'tono 7')"
+        )
+
+    engine = make_engine(f"sqlite:///{path}")
+    assert init_db(engine) == LATEST == 2
+
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT version FROM schema_version").fetchall() == [(2,)]
+        linea = conn.execute("SELECT sku, quantity, note, brand, match, source_text FROM order_items").fetchall()
+        assert linea == [("SH-1", 2, "tono 7", None, None, None)]
+        orden = conn.execute("SELECT order_id, status, source FROM orders").fetchall()
+        assert orden == [("ORD-0001", "Preparado", None)]
+        assert conn.execute("SELECT COUNT(*) FROM order_leftovers").fetchone() == (0,)
+    nueva = make_engine(f"sqlite:///{tmp_path / 'nueva.db'}")
+    init_db(nueva)
+    assert _esquema(engine) == _esquema(nueva)
+
+
+def test_guarda_lo_que_quedo_afuera(catalogo):
+    """CA-133: de un pedido numerado, la orden guarda cada línea con su renglón y lo que quedó afuera con su motivo."""
+    buscar = _call(
+        "buscar_renglones",
+        renglones=[
+            {"n": 1, "texto": "shampo sintetico", "cantidad": 2},
+            {"n": 2, "texto": "planchita", "cantidad": 1},
+            {"n": 3, "texto": "tintura sintetica", "tono": "7.1", "cantidad": 3},
+        ],
+    )
+    proponer = _call(
+        "respond_to_customer",
+        kind="propuesta",
+        message="Te armé los shampoos y las tinturas. La planchita no la trabajamos. ¿Lo confirmo?",
+        propuesta=[
+            {"sku": SKU_SHAMPOO, "quantity": 2, "renglon": 1},
+            {"sku": SKU_TINTURA, "quantity": 3, "renglon": 3},
+        ],
+        afuera=[{"renglon": 2, "motivo": "fuera_de_catalogo"}],
+    )
+    agent = NormaAgent(ModeloGuionado(_ai(buscar), _ai(proponer)), InMemorySaver())
+    cliente = {"customer_id": "telegram:9", "channel": Channel.TELEGRAM}
+
+    propuesta = agent.handle("7", text="2 shampo sintetico\n1 planchita\n3 tintura sintetica 7.1", **cliente)
+    final = agent.handle("7", text="dale", **cliente)
+
+    assert propuesta.kind == "propuesta" and final.kind == "pedido"
+    order = order_service.get_order(final.order_id)
+    assert [(i.sku, i.quantity, i.note, i.source_text) for i in order.items] == [
+        (SKU_SHAMPOO, 2, None, "2 shampo sintetico"),
+        (SKU_TINTURA, 3, "tono 7.1", "3 tintura sintetica 7.1"),
+    ]
+    assert all(item.match in ("exacta", "aproximada") for item in order.items)
+    assert [(left.source_text, left.reason) for left in order.leftovers] == [("1 planchita", "fuera_de_catalogo")]
+    assert order.source == "texto"
+    fila = dict(zip(sheets_service.ORDER_COLUMNS, sheets_service.format_order_row(order), strict=True))
+    assert fila["fuera_del_pedido"] == "1 planchita (fuera_de_catalogo)"
+    assert (fila["lineas"], fila["unidades"], fila["origen"]) == ("2", "5", "texto")

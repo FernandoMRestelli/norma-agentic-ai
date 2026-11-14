@@ -94,8 +94,21 @@ def _step_1_detalle_de_ordenes(conn: Connection) -> None:
     conn.exec_driver_sql("ALTER TABLE orders DROP COLUMN items")
 
 
+def _step_2_lineas_para_preparar(conn: Connection) -> None:
+    """1 → 2: marca, categoría, coincidencia y renglón original en cada línea; origen y lo que quedó afuera.
+
+    Solo agrega columnas que aceptan nulos: las órdenes que ya estaban no cambian. `order_leftovers` es una tabla
+    nueva y la crea `create_all`.
+    """
+    for name, ddl in (("brand", "VARCHAR"), ("category", "VARCHAR"), ("match", "VARCHAR"), ("source_text", "TEXT")):
+        _add_column(conn, "order_items", name, ddl)
+    _add_column(conn, "orders", "source", "VARCHAR")
+    _add_column(conn, "drafts", "leftovers", "JSON")
+
+
 STEPS: list[tuple[int, Callable[[Connection], None]]] = [
     (1, _step_1_detalle_de_ordenes),
+    (2, _step_2_lineas_para_preparar),
 ]
 LATEST = STEPS[-1][0]
 

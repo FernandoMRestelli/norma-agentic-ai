@@ -59,6 +59,41 @@ def _skill_activa(state: EstadoNorma) -> str | None:
     return "\n".join(lines)
 
 
+def _renglon(renglon: dict) -> str:
+    marca = f"[{renglon['marca']}] " if renglon.get("marca") else ""
+    linea = f"{renglon['n']}. {marca}{renglon['texto']}"
+    match renglon["estado"]:
+        case "resuelto":
+            lineas = ", ".join(f"{linea['cantidad']} x {linea['sku']}" for linea in renglon["lineas"])
+            return f"{linea} → resuelto: {lineas}"
+        case "pendiente":
+            opciones = ", ".join(renglon.get("opciones") or []) or "sin opciones todavía"
+            return f"{linea} → pendiente, le preguntaste por: {opciones}"
+        case "afuera":
+            return f"{linea} → afuera ({renglon.get('motivo')})"
+    return linea
+
+
+def _renglones(renglones: list[dict]) -> list[str]:
+    """Los renglones que numeró el backend y cómo quedó cada uno (RF-65, RF-67, RF-71)."""
+    if not renglones:
+        return []
+    nuevos = [renglon for renglon in renglones if renglon["estado"] == "sin_resolver"]
+    resto = [renglon for renglon in renglones if renglon["estado"] != "sin_resolver"]
+    lines = [""]
+    if nuevos:
+        lines.append(
+            "Renglones del pedido sin resolver, numerados por el sistema, con la marca de su encabezado entre "
+            "corchetes. Buscalos juntos con `buscar_renglones`. Al responder, cada uno va en `propuesta` (con su "
+            "número en `renglon`), en `pendientes` o en `afuera`:"
+        )
+        lines += [_renglon(renglon) for renglon in nuevos]
+    if resto:
+        lines.append("Renglones ya tratados en esta conversación:")
+        lines += [_renglon(renglon) for renglon in resto]
+    return lines
+
+
 def _current_state(state: EstadoNorma) -> str:
     # El nombre del perfil lo elige el cliente: entra limpio y corto, como dato (spec de guardrails §3.3)
     name = guardrails.limpiar_nombre(state.get("customer_name")) or "desconocido"
@@ -72,6 +107,7 @@ def _current_state(state: EstadoNorma) -> str:
         lines.append(f"Propuesta vigente: {items}")
     else:
         lines.append("Propuesta vigente: ninguna")
+    lines += _renglones(state.get("renglones") or [])
     messages = state.get("messages", [])
     start = state.get("inicio_turno", 0)
     if start < len(messages) and guardrails.detectar_intento(messages[start].text):

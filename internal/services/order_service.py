@@ -10,9 +10,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from internal.database.connection import SessionLocal
-from internal.database.models import DraftRecord, OrderEventRecord, OrderItemRecord, OrderRecord
+from internal.database.models import (
+    DraftRecord,
+    OrderEventRecord,
+    OrderItemRecord,
+    OrderLeftoverRecord,
+    OrderRecord,
+)
 from internal.schemas.order_schema import (
     DraftStatus,
+    Leftover,
     Order,
     OrderDraft,
     OrderEvent,
@@ -140,9 +147,15 @@ def _to_order(record: OrderRecord) -> Order:
                 quantity=line.quantity,
                 unit_price=line.unit_price,
                 note=line.note,
+                brand=line.brand,
+                category=line.category,
+                match=line.match,
+                source_text=line.source_text,
             )
             for line in record.lines
         ],
+        leftovers=[Leftover(source_text=left.source_text, reason=left.reason) for left in record.leftovers],
+        source=record.source,
         notes=record.notes,
         total=record.total,
         status=record.status,
@@ -196,6 +209,7 @@ def _upsert_draft(session: Session, draft: OrderDraft, status: DraftStatus, orde
         return  # ya tuvo desenlace
     if record.status in (None, DraftStatus.PENDING_CONFIRMATION.value):  # nueva, o pendiente que se repite
         record.items = _draft_items(draft)
+        record.leftovers = [left.model_dump() for left in draft.leftovers]
         record.notes = draft.notes
         record.total = draft.total
     record.status = status.value
@@ -275,7 +289,12 @@ def confirm_draft(draft: OrderDraft) -> Order:
             conversation_id=draft.conversation_id,
             notes=draft.notes,
             total=draft.total,
+            source=draft.source,
             status=OrderStatus.RECEIVED.value,
+            leftovers=[
+                OrderLeftoverRecord(position=position, source_text=left.source_text, reason=left.reason)
+                for position, left in enumerate(draft.leftovers, start=1)
+            ],
             lines=[
                 OrderItemRecord(
                     position=position,
@@ -285,6 +304,10 @@ def confirm_draft(draft: OrderDraft) -> Order:
                     quantity=item.quantity,
                     unit_price=item.unit_price,
                     note=item.note,
+                    brand=item.brand,
+                    category=item.category,
+                    match=item.match,
+                    source_text=item.source_text,
                 )
                 for position, item in enumerate(draft.items, start=1)
             ],
@@ -300,20 +323,30 @@ def confirm_draft(draft: OrderDraft) -> Order:
             session.rollback()
             return _to_order(session.scalars(select(OrderRecord).where(OrderRecord.draft_id == draft.draft_id)).one())
 
-        order = _to_order(record)
-        try:
-            sheets_service.append_order(order)
-            record.sheets_synced = True
-            session.commit()
-        except sheets_service.Sheet2EnPausaError as exc:
-            logger.info("%s", exc)
-        except Exception:
-            logger.warning(
-                "Error al volcar la orden %s en la planilla/archivo de órdenes",
-                order.order_id,
-                exc_info=True,
-            )
+        _volcar(session, record)
         return _to_order(record)
+
+
+def _volcar(session: Session, record: OrderRecord) -> None:
+    """Lleva la orden al CSV y a Sheet 2, como alta o como cambio de estado (RF-19, RF-77).
+
+    Si falla, la orden queda con `sheets_synced = False` y la toma `sync_pending_orders`: la base es la verdad.
+    """
+    order = _to_order(record)
+    try:
+        sheets_service.append_order(order)
+        record.sheets_synced = True
+    except sheets_service.Sheet2EnPausaError as exc:
+        record.sheets_synced = False
+        logger.info("%s", exc)
+    except Exception:
+        record.sheets_synced = False
+        logger.warning(
+            "Error al volcar la orden %s en la planilla/archivo de órdenes",
+            order.order_id,
+            exc_info=True,
+        )
+    session.commit()
 
 
 def change_status(order_id: str, nuevo: OrderStatus, source: str = EventSource.OPERATOR) -> Order:
@@ -331,6 +364,7 @@ def change_status(order_id: str, nuevo: OrderStatus, source: str = EventSource.O
         record.status = nuevo.value
         record.events.append(OrderEventRecord(from_status=actual.value, to_status=nuevo.value, source=source))
         session.commit()
+        _volcar(session, record)  # el estado nuevo llega al CSV y a Sheet 2 (RF-77)
         return _to_order(record)
 
 

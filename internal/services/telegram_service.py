@@ -19,12 +19,13 @@ from internal.database.connection import SessionLocal
 from internal.database.models import ProcessedMessageRecord
 from internal.schemas.conversation_schema import ChannelReply
 from internal.schemas.order_schema import Channel, IncomingMessage, MessageType
-from internal.services import conversation_service
+from internal.services import conversation_service, message_service
 
 logger = logging.getLogger(__name__)
 
 API_URL = "https://api.telegram.org/bot{token}/{method}"
 TIMEOUT_SECONDS = 10
+MAX_LARGO_MENSAJE = 4096  # límite de `sendMessage`: un mensaje más largo se manda en partes (RF-70)
 
 NOT_ALLOWED = (
     "Hola 👋 Este bot es de prueba y solo atiende a integrantes del equipo de Norma.\n"
@@ -69,11 +70,13 @@ class TelegramClient:
         return self.call("getUpdates", http_timeout=poll_seconds + 10, **params)
 
     def send_message(self, chat_id: int, text: str) -> None:
-        md_text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text)
-        try:
-            self.call("sendMessage", chat_id=chat_id, text=md_text, parse_mode="Markdown")
-        except TelegramError:
-            self.call("sendMessage", chat_id=chat_id, text=text)
+        """Manda el texto en un mensaje, o en varios si pasa el límite de Telegram, partido por renglón (RF-70)."""
+        for parte in message_service.partir(text, MAX_LARGO_MENSAJE):
+            md_text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", parte)
+            try:
+                self.call("sendMessage", chat_id=chat_id, text=md_text, parse_mode="Markdown")
+            except TelegramError:
+                self.call("sendMessage", chat_id=chat_id, text=parte)
 
 
 def get_client() -> TelegramClient:
