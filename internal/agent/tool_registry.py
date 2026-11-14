@@ -43,6 +43,7 @@ class TurnContext:
     skills_activas: list[str] = field(default_factory=list)
     br_entregadas: list[str] = field(default_factory=list)  # BR que ya vio el LLM en este turno (RF-63)
     renglones: list[dict[str, Any]] = field(default_factory=list)  # renglones numerados del pedido (RF-67)
+    origen: str = "texto"  # texto, audio o imagen: queda en la orden (RF-79)
     coberturas_fallidas: int = 0  # respuestas del turno rechazadas por dejar renglones sin cuenta (RF-68)
     propuesta: OrderDraft | None = None
     resultado: Resultado = "continuar"
@@ -131,13 +132,17 @@ MAX_COBERTURAS_FALLIDAS = 2
 def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict[str, Any]:
     data = reply_tools.con_tonos(data, ctx.renglones)
     propuesta = reply_tools.respond_to_customer(
-        data, ctx.customer_id, ctx.channel, ctx.propuesta, ctx.customer_name, ctx.conversation_id
+        data, ctx.customer_id, ctx.channel, ctx.propuesta, ctx.customer_name, ctx.conversation_id, ctx.renglones,
+        ctx.origen,
     )
     # Con un pedido numerado, `options` sale de los renglones que se preguntan
     options = data.options or list(dict.fromkeys(sku for p in data.pendientes for sku in p.opciones))
     renglones = reply_tools.cubrir_renglones(
         data, ctx.renglones, tolerar=ctx.coberturas_fallidas >= MAX_COBERTURAS_FALLIDAS
     )
+    if propuesta:
+        # Lo que quedó afuera viaja con la propuesta: si el cliente la acepta, la orden lo guarda (RF-76)
+        propuesta = propuesta.model_copy(update={"leftovers": reply_tools.fuera_del_pedido(renglones)})
     message = data.message
     # Lo que escribió el LLM pasa por los guardrails antes de llegar al cliente; la vigente no cambia si falla
     rechazos = guardrails.validar_salida(message, data.kind.value, propuesta, options, ctx.turno, ctx.propuesta)

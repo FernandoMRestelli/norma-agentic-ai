@@ -4,7 +4,7 @@ from typing import Any
 from uuid import uuid4
 
 from internal.schemas.agent_schema import RespondToCustomerInput, ToolFailure
-from internal.schemas.order_schema import Channel, OrderDraft
+from internal.schemas.order_schema import Channel, Leftover, OrderDraft
 from internal.services.interpretation_service import normalize_items
 from internal.tools.catalog_tools import get_product
 
@@ -16,6 +16,8 @@ def respond_to_customer(
     vigente: OrderDraft | None,
     customer_name: str | None = None,
     conversation_id: int | None = None,
+    renglones: list[dict[str, Any]] | None = None,
+    origen: str = "texto",
 ) -> OrderDraft | None:
     """Valida la respuesta y devuelve la propuesta vigente después de ella.
 
@@ -39,10 +41,25 @@ def respond_to_customer(
         customer_name=customer_name,
         channel=channel,
         conversation_id=conversation_id,
-        items=normalize_items(data.propuesta),
+        items=normalize_items(data.propuesta, renglones),
         notes=data.notes,
         version=vigente.version + 1 if vigente else 1,
+        source=origen,
     )
+
+
+def fuera_del_pedido(renglones: list[dict[str, Any]]) -> list[Leftover]:
+    """Lo que el cliente pidió y no entra a esta propuesta: afuera con su motivo, o una duda sin resolver (RF-76).
+
+    Una línea que no pedía nada (`no_es_producto`) no es una venta perdida y no se guarda.
+    """
+    afuera = []
+    for renglon in renglones:
+        if renglon["estado"] == "afuera" and renglon.get("motivo") != "no_es_producto":
+            afuera.append(Leftover(source_text=renglon["texto"], reason=renglon.get("motivo") or "afuera"))
+        elif renglon["estado"] == "pendiente":
+            afuera.append(Leftover(source_text=renglon["texto"], reason="duda_sin_resolver"))
+    return afuera
 
 
 def con_tonos(data: RespondToCustomerInput, renglones: list[dict[str, Any]]) -> RespondToCustomerInput:

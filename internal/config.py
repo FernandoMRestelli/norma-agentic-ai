@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     orders_worksheet: str | None = None  # hoja dentro de Sheet 2; vacío: la primera
     catalog_file: str = "data_example/catalogo.csv"
     orders_file: str = "data/pedidos.csv"
+    # Una fila por línea de cada orden (RF-75). Vacío: junto a ORDERS_FILE, con `_lineas` en el nombre
+    order_lines_file: str | None = None
+    order_lines_worksheet: str | None = None  # hoja de Sheet 2 para las líneas; vacío: no se escriben en Google
 
     # WhatsApp Cloud API
     whatsapp_verify_token: str | None = None

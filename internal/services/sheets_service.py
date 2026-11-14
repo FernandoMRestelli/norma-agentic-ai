@@ -7,20 +7,23 @@ al migrar a la API del sistema de gestión real se reemplaza este servicio sin t
   Sin ellos, del archivo de `Settings.catalog_file` (por defecto `data_example/catalogo.csv`), con fallback a
   este último si el archivo configurado no existe (CA-53).
 - Órdenes: se vuelcan en `Settings.orders_file` (por defecto `data/pedidos.csv`) y, con `ORDERS_SHEET_ID`,
-  también en Sheet 2, bajo un bloqueo de archivo que comparten la API y el bot (RF-19, RF-52).
+  también en Sheet 2, bajo un bloqueo de archivo que comparten la API y el bot (RF-19, RF-52). Cada orden deja
+  además una fila por línea en `Settings.order_lines_file` (RF-75), y un cambio de estado actualiza su fila (RF-77).
 
 Detalle en docs/spec/planillas.md.
 """
 
 import csv
 import logging
+import os
 import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import UTC
+from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -42,9 +45,15 @@ logger = logging.getLogger(__name__)
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 FALLBACK_CATALOG_CSV = ROOT_DIR / "data_example" / "catalogo.csv"
 
-# Las columnas nuevas van al final: un pedidos.csv de la 0.1.1 sigue alineado con su encabezado
+# Las columnas nuevas van al final: las filas de un pedidos.csv anterior siguen alineadas con el encabezado
 ORDER_COLUMNS = [
-    "id_orden", "fecha_hora", "cliente", "canal", "productos", "notas", "estado", "nombre_cliente", "total"
+    "id_orden", "fecha_hora", "cliente", "canal", "productos", "notas", "estado", "nombre_cliente", "total",
+    "lineas", "unidades", "fuera_del_pedido", "origen", "draft_id", "actualizado",
+]
+# Una fila por línea de cada orden (RF-75): lo que usa quien prepara el pedido. La comparte la hoja Líneas del Excel
+LINE_COLUMNS = [
+    "id_orden", "renglon", "sku", "producto", "presentacion", "marca", "categoria", "cantidad", "precio_unitario",
+    "subtotal", "nota", "coincidencia", "pedido_como",
 ]
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
@@ -227,12 +236,15 @@ def _product_line(item: OrderItem) -> str:
     return f"{item.quantity} x {label} ({item.sku}){note}"
 
 
+def _fecha_hora(momento: datetime) -> str:
+    if momento.tzinfo is None:
+        momento = momento.replace(tzinfo=UTC)
+    return momento.astimezone(AR_TZ).isoformat()
+
+
 def format_order_row(order: Order) -> list[str]:
     """Formatea una orden según las columnas del Sheet 2 (`ORDER_COLUMNS`, docs/spec/guardado-de-pedidos.md §4.5)."""
-    created_at = order.created_at
-    if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=UTC)
-    fecha_hora = created_at.astimezone(AR_TZ).isoformat()
+    fecha_hora = _fecha_hora(order.created_at)
 
     canal = order.channel.value if hasattr(order.channel, "value") else str(order.channel)
     estado = order.status.value if hasattr(order.status, "value") else str(order.status)
@@ -247,7 +259,55 @@ def format_order_row(order: Order) -> list[str]:
         estado,
         order.customer_name or "",
         f"{order.total:.2f}",
+        str(len(order.items)),
+        str(sum(item.quantity for item in order.items)),
+        # Lo que el cliente pidió y no entró, con el motivo (RF-76)
+        "; ".join(f"{left.source_text.replace(';', ',')} ({left.reason})" for left in order.leftovers),
+        order.source or "",
+        order.draft_id,
+        _fecha_hora(order.updated_at),
     ]
+
+
+def format_line_rows(order: Order) -> list[list[Any]]:
+    """Una fila por línea de la orden, según `LINE_COLUMNS`. Cantidad e importes van como números (RF-75)."""
+    return [
+        [
+            order.order_id,
+            position,
+            item.sku,
+            item.product_name,
+            item.presentation or "",
+            item.brand or "",
+            item.category or "",
+            item.quantity,
+            item.unit_price,
+            item.unit_price * item.quantity if item.unit_price is not None else None,
+            item.note or "",
+            item.match or "",
+            item.source_text or "",
+        ]
+        for position, item in enumerate(order.items, start=1)
+    ]
+
+
+def _celda(value: Any) -> str:
+    """El texto de una celda del CSV o de Google: un importe con dos decimales, None vacío."""
+    if value is None:
+        return ""
+    if isinstance(value, Decimal):
+        return f"{value:.2f}"
+    return str(value)
+
+
+def get_order_lines_path() -> Path:
+    """La ruta al archivo de líneas: `ORDER_LINES_FILE`, o `pedidos_lineas.csv` junto al archivo de órdenes."""
+    configured = get_settings().order_lines_file
+    if not configured:
+        orders = get_orders_path()
+        return orders.with_name(f"{orders.stem}_lineas{orders.suffix}")
+    path = Path(configured)
+    return path if path.is_absolute() else ROOT_DIR / path
 
 
 _orders_thread_lock = threading.Lock()
@@ -264,22 +324,62 @@ def _orders_lock() -> Iterator[None]:
         yield
 
 
-def _append_order_csv(order: Order) -> None:
-    path = get_orders_path()
-    file_exists = path.is_file() and path.stat().st_size > 0
-    if file_exists:
-        with open(path, mode="r", encoding="utf-8", newline="") as f:
-            reader = csv.reader(f)
-            _header = next(reader, None)
-            for row in reader:
-                if row and row[0] == order.order_id:
-                    return
+# Excel y LibreOffice toman como fórmula una celda de un CSV que empieza con uno de estos (RF-78)
+_EMPIEZA_FORMULA = ("=", "+", "-", "@", "\t", "\r")
 
-    with open(path, mode="a", encoding="utf-8", newline="") as f:
-        writer = csv.writer(f)
-        if not file_exists:
-            writer.writerow(ORDER_COLUMNS)
-        writer.writerow(format_order_row(order))
+
+def _csv_seguro(value: str) -> str:
+    """Un texto del cliente que empieza como una fórmula se escribe con un apóstrofo adelante: queda como texto."""
+    return f"'{value}" if value.startswith(_EMPIEZA_FORMULA) else value
+
+
+def _guardar_en_csv(path: Path, columnas: list[str], filas: list[list[str]], *, reemplazar: bool) -> None:
+    """Agrega al CSV las filas de una orden, todas con su `id_orden` en la primera columna.
+
+    Si la orden ya estaba, con `reemplazar` cambia sus filas por las nuevas (un cambio de estado, RF-77); sin él,
+    las deja como están (RNF-04: un reintento no duplica). Si el encabezado es el de una versión anterior, lo
+    actualiza y completa las filas viejas con celdas vacías (RF-78). El archivo se reescribe con un reemplazo
+    atómico: una lectura a mitad de camino nunca ve un archivo cortado.
+    """
+    filas = [[_csv_seguro(celda) for celda in fila] for fila in filas]
+    existentes: list[list[str]] = []
+    if path.is_file() and path.stat().st_size > 0:
+        with open(path, encoding="utf-8", newline="") as archivo:
+            existentes = list(csv.reader(archivo))
+    encabezado, cuerpo = (existentes[0], existentes[1:]) if existentes else (columnas, [])
+    order_id = filas[0][0]
+    ya_esta = any(fila and fila[0] == order_id for fila in cuerpo)
+    # Solo se actualiza un encabezado que es el comienzo del actual: otro archivo no se toca
+    encabezado_viejo = encabezado != columnas and encabezado == columnas[: len(encabezado)]
+    if ya_esta and reemplazar:
+        anteriores = [fila for fila in cuerpo if fila and fila[0] == order_id]
+        if anteriores == filas and not encabezado_viejo:
+            return
+        posicion = next(i for i, fila in enumerate(cuerpo) if fila and fila[0] == order_id)
+        cuerpo = [fila for fila in cuerpo if not (fila and fila[0] == order_id)]
+        cuerpo[posicion:posicion] = filas
+    elif not ya_esta:
+        if existentes and not encabezado_viejo:
+            with open(path, mode="a", encoding="utf-8", newline="") as archivo:
+                csv.writer(archivo).writerows(filas)
+            return
+        cuerpo += filas
+    elif not encabezado_viejo:
+        return
+    if encabezado_viejo:
+        encabezado = columnas
+        cuerpo = [fila + [""] * (len(columnas) - len(fila)) for fila in cuerpo]
+    temporal = path.with_name(path.name + ".tmp")
+    with open(temporal, mode="w", encoding="utf-8", newline="") as archivo:
+        csv.writer(archivo).writerows([encabezado, *cuerpo])
+    os.replace(temporal, path)
+
+
+def _append_order_csv(order: Order) -> None:
+    """La fila de la orden en `pedidos.csv` (alta o estado nuevo) y sus líneas en `pedidos_lineas.csv`."""
+    _guardar_en_csv(get_orders_path(), list(ORDER_COLUMNS), [format_order_row(order)], reemplazar=True)
+    lineas = [[_celda(valor) for valor in fila] for fila in format_line_rows(order)]
+    _guardar_en_csv(get_order_lines_path(), list(LINE_COLUMNS), lineas, reemplazar=False)
 
 
 def _append_order_sheet(order: Order) -> None:
@@ -287,11 +387,29 @@ def _append_order_sheet(order: Order) -> None:
     client = google_sheets_client.get_client()
     sheet_id, worksheet = settings.orders_sheet_id, settings.orders_worksheet
     ids = [_cell_text(value) for value in client.get_column(sheet_id, worksheet, 1)]
-    if order.order_id in ids:  # RNF-04: un reintento después de una escritura que sí llegó no la repite
+    fila = format_order_row(order)
+    if order.order_id in ids:
+        # RNF-04: un reintento después de una escritura que sí llegó no la repite. Lo único que cambia en una orden
+        # ya escrita es el estado (RF-77)
+        numero = ids.index(order.order_id) + 1
+        for columna in ("estado", "actualizado"):
+            posicion = ORDER_COLUMNS.index(columna)
+            client.update_cell(sheet_id, worksheet, numero, posicion + 1, fila[posicion])
+    else:
+        if not any(ids):
+            client.append_row(sheet_id, worksheet, list(ORDER_COLUMNS))
+        client.append_row(sheet_id, worksheet, fila)
+    if settings.order_lines_worksheet:
+        _append_lines_sheet(order, client, sheet_id, settings.order_lines_worksheet)
+
+
+def _append_lines_sheet(order: Order, client: Any, sheet_id: str, worksheet: str) -> None:
+    """Las líneas de la orden en su hoja de Sheet 2, en una sola escritura. Las líneas de una orden no cambian."""
+    ids = [_cell_text(value) for value in client.get_column(sheet_id, worksheet, 1)]
+    if order.order_id in ids:
         return
-    if not any(ids):
-        client.append_row(sheet_id, worksheet, list(ORDER_COLUMNS))
-    client.append_row(sheet_id, worksheet, format_order_row(order))
+    filas = [[_celda(valor) for valor in fila] for fila in format_line_rows(order)]
+    client.append_rows(sheet_id, worksheet, filas if any(ids) else [list(LINE_COLUMNS), *filas])
 
 
 _orders_failure_at: float | None = None  # se lee y escribe con el bloqueo de pedidos tomado
@@ -311,7 +429,8 @@ def reset_orders_pause() -> None:
 def append_order(order: Order, *, reintento: bool = False) -> None:
     """Agrega una fila por pedido en el archivo local y, si está configurada, en Sheet 2 (RF-19, RF-52, RNF-04).
 
-    Es idempotente: si la orden ya está, no la duplica. Si Sheet 2 falla, lanza la excepción y la orden queda
+    Es idempotente: si la orden ya está, no la duplica; solo actualiza su estado si cambió (RF-77). Además deja
+    una fila por línea en el archivo de líneas (RF-75). Si Sheet 2 falla, lanza la excepción y la orden queda
     pendiente para `order_service.sync_pending_orders()`; la fila del CSV ya escrita no se repite al reintentar.
 
     Tras una falla de Sheet 2, durante `ORDERS_PAUSE_AFTER_FAILURE_SECONDS` la confirmación no llama a Google:
@@ -354,5 +473,7 @@ def check_orders_sheet() -> int:
         raise ValueError(
             f"La celda A1 de Sheet 2 no es {ORDER_COLUMNS[0]!r}: ¿ORDERS_SHEET_ID es la planilla de pedidos?"
         )
-    client.update_cell(sheet_id, worksheet, 1, 1, ORDER_COLUMNS[0])
+    # Reescribe el encabezado completo: así una planilla de una versión anterior suma las columnas nuevas (RF-78)
+    for posicion, columna in enumerate(ORDER_COLUMNS, start=1):
+        client.update_cell(sheet_id, worksheet, 1, posicion, columna)
     return len([value for value in ids[1:] if value])

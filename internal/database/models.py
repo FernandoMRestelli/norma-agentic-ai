@@ -66,7 +66,15 @@ class OrderRecord(Base):
     # Sin clave foránea: la conversación puede borrarse por retención (D-08) y la orden tiene que quedar
     conversation_id: Mapped[int | None] = mapped_column(Integer, index=True)
     total: Mapped[Decimal | None] = mapped_column(DecimalText)
+    source: Mapped[str | None] = mapped_column(String)  # texto, audio o imagen (migración 2, RF-79)
 
+    leftovers: Mapped[list["OrderLeftoverRecord"]] = relationship(
+        back_populates="order",
+        order_by="OrderLeftoverRecord.position",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="selectin",
+    )
     lines: Mapped[list["OrderItemRecord"]] = relationship(
         back_populates="order",
         order_by="OrderItemRecord.position",
@@ -97,8 +105,27 @@ class OrderItemRecord(Base):
     quantity: Mapped[int] = mapped_column(Integer)
     unit_price: Mapped[Decimal | None] = mapped_column(DecimalText)
     note: Mapped[str | None] = mapped_column(Text)
+    # Agregadas en la migración 2 (RF-75): nulas en las líneas de órdenes anteriores
+    brand: Mapped[str | None] = mapped_column(String)
+    category: Mapped[str | None] = mapped_column(String)
+    match: Mapped[str | None] = mapped_column(String)  # exacta o aproximada
+    source_text: Mapped[str | None] = mapped_column(Text)  # el renglón del cliente: texto suyo (RNF-03, D-24)
 
     order: Mapped[OrderRecord] = relationship(back_populates="lines")
+
+
+class OrderLeftoverRecord(Base):
+    """Un renglón que el cliente pidió y no entró a la orden, con el motivo (RF-76)."""
+
+    __tablename__ = "order_leftovers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_pk: Mapped[int] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"), index=True)
+    position: Mapped[int] = mapped_column(Integer)
+    source_text: Mapped[str] = mapped_column(Text)
+    reason: Mapped[str] = mapped_column(String)
+
+    order: Mapped[OrderRecord] = relationship(back_populates="leftovers")
 
 
 class OrderEventRecord(Base):
@@ -131,6 +158,7 @@ class DraftRecord(Base):
     items: Mapped[list[dict]] = mapped_column(JSON)  # las líneas propuestas, con sus notas
     notes: Mapped[str | None] = mapped_column(Text)
     total: Mapped[Decimal | None] = mapped_column(DecimalText)
+    leftovers: Mapped[list[dict] | None] = mapped_column(JSON)  # lo que quedó afuera al proponer (migración 2)
     status: Mapped[str] = mapped_column(String)  # pendiente_confirmacion, reemplazado, descartado o confirmado
     order_id: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

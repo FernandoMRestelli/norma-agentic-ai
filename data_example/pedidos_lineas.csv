@@ -1,0 +1,12 @@
+id_orden,renglon,sku,producto,presentacion,marca,categoria,cantidad,precio_unitario,subtotal,nota,coincidencia,pedido_como
+ORD-0001,1,SH-PAN-400,Shampoo Pantene Restauración,400 ml,Pantene,Shampoo,5,7350.00,36750.00,,exacta,
+ORD-0001,2,TIN-KOL-61,Tintura Koleston 6.1 Rubio oscuro ceniza,kit,Koleston,Coloración,3,5200.00,15600.00,,exacta,
+ORD-0002,1,JAB-DOV-90,Jabón de tocador Dove Original,90 g,Dove,Cuidado personal,6,1650.00,9900.00,,exacta,
+ORD-0003,1,AC-PAN-400,Acondicionador Pantene Restauración,400 ml,Pantene,Acondicionador,2,7600.00,15200.00,,exacta,
+ORD-0003,2,SH-PAN-400,Shampoo Pantene Restauración,400 ml,Pantene,Shampoo,2,7350.00,14700.00,,exacta,
+ORD-0004,1,OX-KOL-20,Oxidante Koleston 20 vol,90 ml,Koleston,Oxidante,4,2100.00,8400.00,,exacta,
+ORD-0004,2,TIN-KOL-60,Tintura Koleston 6.0 Rubio oscuro,kit,Koleston,Coloración,4,5200.00,20800.00,2 en caja aparte,exacta,
+ORD-0005,1,PAS-COL-90,Pasta dental Colgate Triple Acción,90 g,Colgate,Higiene oral,1,2300.00,2300.00,,exacta,
+ORD-0005,2,CEP-COL-MED,Cepillo dental Colgate Extra Clean,medio,Colgate,Higiene oral,1,1900.00,1900.00,,exacta,
+ORD-0006,1,SH-SED-340,Shampoo Sedal Ceramidas,340 ml,Sedal,Shampoo,10,3900.00,39000.00,,exacta,
+ORD-0007,1,DES-REX-150,Desodorante Rexona Men V8 aerosol,150 ml,Rexona,Cuidado personal,2,3800.00,7600.00,,exacta,

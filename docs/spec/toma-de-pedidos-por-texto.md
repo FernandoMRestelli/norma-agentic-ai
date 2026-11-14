@@ -504,15 +504,21 @@ varios miles de caracteres.
 **Qué se propone.**
 
 1. **Un CSV por línea (RF-75).** Archivo nuevo junto al de órdenes, `pedidos_lineas.csv`, con una fila por línea
-   de cada orden. Con Sheet 2 configurada, va a una segunda hoja de la misma planilla.
+   de cada orden. Va en la misma carpeta que `ORDERS_FILE`, salvo que se configure `ORDER_LINES_FILE`. Con
+   `ORDER_LINES_WORKSHEET`, las líneas van además a esa hoja de Sheet 2, en una sola escritura por orden; la hoja
+   tiene que existir.
 2. **Más columnas en `pedidos.csv` (RF-76)**, al final para no desalinear lo que ya existe.
 3. **Lo que quedó afuera se guarda (RF-76).** Tabla nueva `order_leftovers` con los renglones `afuera` de la
    propuesta aceptada. Van resumidos en la columna `fuera_del_pedido`.
-4. **Estado sincronizado (RF-77).** Un cambio de estado reescribe la fila en el CSV y actualiza la celda en
-   Sheet 2. Si Sheet 2 falla, la orden queda con `sheets_synced = False` y la toma el reintento que ya existe.
+4. **Estado sincronizado (RF-77).** Un cambio de estado reescribe la fila en el CSV y actualiza las celdas
+   `estado` y `actualizado` en Sheet 2. Si Sheet 2 falla, la orden queda con `sheets_synced = False` y la toma el
+   reintento que ya existe. El CSV se reescribe con un reemplazo atómico, bajo el mismo bloqueo de siempre.
 5. **CSV seguro y con el encabezado al día (RF-78).** Un texto que empieza con `=`, `+`, `-` o `@` se escribe con
-   un apóstrofo adelante. Si el encabezado del archivo es más corto que `ORDER_COLUMNS`, se reescribe.
-6. **Origen del mensaje (RF-79).** La orden guarda si el pedido llegó por `texto`, `audio` o `imagen`.
+   un apóstrofo adelante. Si el encabezado del archivo es el comienzo de `ORDER_COLUMNS`, se completa y las filas
+   viejas se rellenan con celdas vacías; un archivo con otro encabezado no se toca. En Sheet 2, el encabezado lo
+   completa `python -m internal.verificar_claves`. La hoja Líneas del Excel usa las columnas del CSV por línea.
+6. **Origen del mensaje (RF-79).** La orden guarda si el pedido llegó por `texto`, `audio` o `imagen`. Si la
+   conversación mezcló orígenes, quedan todos en orden (`audio+texto`). Hoy siempre es `texto`.
 
 **Columnas nuevas de `pedidos.csv`:**
 
@@ -520,7 +526,7 @@ varios miles de caracteres.
 |---|---|
 | `lineas` | Cantidad de líneas de la orden |
 | `unidades` | Suma de cantidades |
-| `fuera_del_pedido` | Lo que el cliente pidió y no entró, con su motivo: `shampoo skala (fuera_de_catalogo); …` |
+| `fuera_del_pedido` | Lo que el cliente pidió y no entró, con su motivo: `shampoo skala (fuera_de_catalogo); …`. Motivos: `fuera_de_catalogo`, `sin_stock`, `lo_saco_el_cliente` y `duda_sin_resolver` (un renglón que se preguntó y el cliente confirmó sin contestar) |
 | `origen` | `texto`, `audio` o `imagen` |
 | `draft_id` | Borrador del que salió la orden |
 | `actualizado` | Fecha y hora del último cambio de estado |
@@ -531,11 +537,11 @@ varios miles de caracteres.
 |---|---|
 | `id_orden` | `ORD-0001` |
 | `renglon` | Posición de la línea en la orden |
-| `sku`, `producto`, `marca`, `categoria` | Del catálogo, al momento de registrar |
+| `sku`, `producto`, `presentacion`, `marca`, `categoria` | Del catálogo, al momento de registrar |
 | `cantidad`, `precio_unitario`, `subtotal` | Números, sin texto |
 | `nota` | Tono, variante u observación de la línea |
 | `coincidencia` | `exacta`, o `aproximada` si el cliente tuvo que confirmar «¿es este?» |
-| `pedido_como` | El renglón como lo escribió el cliente (D-24) |
+| `pedido_como` | El renglón como lo escribió el cliente (D-24). Vacío si el pedido no llegó como lista |
 
 **Cambios en la base** (una migración numerada, como las de la spec de guardado):
 
@@ -544,12 +550,14 @@ varios miles de caracteres.
 | `order_items` | Columnas `brand`, `category`, `match` y `source_text` |
 | `orders` | Columna `source` |
 | `order_leftovers` | Nueva: `order_pk`, `position`, `source_text`, `reason` |
-| `drafts` | El JSON de `items` suma `renglon` y `match`; columna nueva `leftovers` |
+| `drafts` | El JSON de `items` suma `brand`, `category`, `match` y `source_text`; columna nueva `leftovers` |
 
 **Archivos:** `internal/services/sheets_service.py`, `internal/services/excel_service.py`,
-`internal/services/order_service.py`, `internal/database/models.py`, `internal/database/migrations.py`,
-`internal/schemas/order_schema.py`, `internal/config.py` (`ORDER_LINES_FILE`), `.env.example`,
-`data_example/pedidos_lineas.csv` (nuevo), `docs/spec/planillas.md`, `docs/spec/guardado-de-pedidos.md`.
+`internal/services/google_sheets_client.py` (`append_rows`), `internal/services/order_service.py`,
+`internal/services/interpretation_service.py`, `internal/tools/reply_tools.py`, `internal/database/models.py`,
+`internal/database/migrations.py` (paso 2), `internal/schemas/order_schema.py`, `internal/config.py`
+(`ORDER_LINES_FILE`, `ORDER_LINES_WORKSHEET`), `.env.example`, `data_example/pedidos.csv` y
+`data_example/pedidos_lineas.csv` (nuevo).
 
 **Hecho cuando:** una orden de 30 líneas deja 30 filas en `pedidos_lineas.csv`, cancelarla cambia el estado en el
 CSV, un renglón fuera de catálogo aparece en `fuera_del_pedido`, y una base de la versión anterior arranca sin
@@ -609,7 +617,7 @@ Todos nacen en estado `Propuesto`.
 | CA-130 | Tres mensajes del mismo cliente en 3 s | Pasa la ventana | El agente corre un solo turno con los tres textos | `tests/test_conversation.py::test_agrupa_mensajes_seguidos` |
 | CA-131 | Una orden de 30 líneas con notas | Se registra | `pedidos_lineas.csv` tiene 30 filas, con la nota y números sin texto | `tests/test_planillas.py::test_csv_por_linea` |
 | CA-132 | Una orden recibida | El operador la cancela | La fila del CSV dice `Cancelado` y `actualizado` cambia | `tests/test_planillas.py::test_estado_sincronizado` |
-| CA-133 | Una propuesta aceptada con un renglón fuera de catálogo | Se registra | El renglón está en `order_leftovers` y en `fuera_del_pedido` | `tests/test_guardado_pedidos.py::test_guarda_lo_que_quedo_afuera` |
+| CA-133 | Una propuesta aceptada con un renglón fuera de catálogo | Se registra | El renglón está en `order_leftovers` y en `fuera_del_pedido` | `tests/test_guardado_pedidos.py::test_guarda_lo_que_quedo_afuera`, `tests/test_planillas.py::test_guarda_lo_que_quedo_afuera_en_el_csv` |
 | CA-134 | Una nota que empieza con `=` y un `pedidos.csv` con encabezado viejo | Se registra una orden | La celda empieza con apóstrofo y el encabezado queda completo | `tests/test_planillas.py::test_csv_seguro_y_encabezado` |
 
 ## 8. Errores y casos borde
@@ -681,7 +689,7 @@ Cada rama sale de la anterior, en el orden en que se implementó. Esta tabla se 
 | M1 · Evaluación | `feature/evaluacion-pedidos-reales` | Implementado: RF-59, RF-60, RNF-15, CA-113 a CA-115 | La primera corrida completa con un LLM real, para fijar la línea de base y los umbrales (D-21, D-28) |
 | M2 · Grafo | `feature/grafo-menos-iteraciones` | Implementado: RF-61 a RF-64, RNF-16, CA-116 a CA-121 | Medir con M1 que bajan las llamadas por turno sin bajar el recall |
 | M3 · Renglones | `feature/pedidos-por-renglon` | Implementado: RF-65 a RF-70, CA-122 a CA-126. La evaluación de M1 ya cuenta como perdidos los renglones `afuera` que el agente no avisó | Medir `lineas_perdidas` con un LLM real |
-| M5 · CSV | `feature/csv-pedidos-por-linea` | Propuesto | |
+| M5 · CSV | `feature/csv-pedidos-por-linea` | Implementado: RF-75 a RF-79, CA-131 a CA-134 | La prueba contra las planillas reales, que hace una persona del equipo con sus credenciales. Sumar las columnas nuevas a `planillas.md` y `guardado-de-pedidos.md` |
 | M4 · Memoria | `feature/memoria-entre-turnos` | Propuesto | |
 
 La PR de «funciones y guidelines para tomar y guardar el pedido» corresponde a M3 y M5. Conviene que M1 entre

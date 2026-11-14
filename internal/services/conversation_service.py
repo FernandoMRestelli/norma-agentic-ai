@@ -16,7 +16,7 @@ from internal.agent.tool_registry import validate_skills
 from internal.database.connection import SessionLocal, init_db
 from internal.database.models import ConversationRecord
 from internal.schemas.conversation_schema import ChannelReply
-from internal.schemas.order_schema import Channel, IncomingMessage, MessageType
+from internal.schemas.order_schema import ORIGEN_POR_TIPO, Channel, IncomingMessage, MessageType
 from internal.services import message_service
 
 logger = logging.getLogger(__name__)
@@ -80,6 +80,7 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
             channel=message.channel,
             text=text,
             customer_name=message.customer_name,
+            origen=ORIGEN_POR_TIPO[message.type.value],
         )
         if outcome.cerrada:
             _close_conversation(conversation_id, "cerrada" if outcome.kind == "pedido" else "fallida")
