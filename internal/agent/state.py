@@ -23,6 +23,10 @@ class EstadoNorma(TypedDict, total=False):
     fallas: int  # en toda la conversación
     falla_turno: bool
     propuesta: dict[str, Any] | None  # OrderDraft vigente, ya validado por el backend
+    # Renglones del pedido numerados por el backend (RF-65, RF-67). Viven mientras la conversación esté abierta.
+    # Cada uno: n, texto, marca, estado (sin_resolver, resuelto, pendiente o afuera) y, según el estado, lineas
+    # ([{sku, cantidad}]), opciones, motivo, tono y coincidencia
+    renglones: list[dict[str, Any]]
     respuesta: str | None  # lo que va a ver el cliente
     kind: str | None
     options: list[str]

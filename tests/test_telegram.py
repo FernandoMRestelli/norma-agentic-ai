@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -195,6 +197,23 @@ def test_cliente_de_telegram_arma_el_pedido():
     (request,) = requests
     assert request.url.path == "/bot123:token-de-prueba/sendMessage"
     assert b'"inline_keyboard"' not in request.content
+
+
+def test_cliente_de_telegram_parte_un_mensaje_largo():
+    """RF-70: una propuesta de muchas líneas pasa el límite de Telegram y sale en varios mensajes, por renglón."""
+    enviados = []
+
+    def handler(request):
+        enviados.append(json.loads(request.content)["text"])
+        return httpx.Response(200, json={"ok": True, "result": True})
+
+    client = TelegramClient("123:token-de-prueba", http=httpx.Client(transport=httpx.MockTransport(handler)))
+    lineas = [f"• 2 x Producto de prueba con un nombre bastante largo número {n} ($12500.00 c/u)" for n in range(80)]
+    client.send_message(USUARIO, "\n".join(lineas))
+
+    assert len(enviados) == 2
+    assert all(len(texto) <= telegram_service.MAX_LARGO_MENSAJE for texto in enviados)
+    assert "\n".join(enviados).splitlines() == lineas
 
 
 def test_cliente_de_telegram_respuesta_con_error():

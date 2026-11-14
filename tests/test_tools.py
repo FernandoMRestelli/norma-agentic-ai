@@ -266,8 +266,8 @@ def test_br_junto_al_resultado():
     segunda = tool_registry.execute("search_products", {"query": "acondicionador pantne"}, ctx)
 
     assert primera["data"]["matches"][0]["aproximado"]
-    assert primera["regla"] == {"id": "BR-09", "texto": skill_service.get_skills()["tomar_pedido"].br["BR-09"]}
-    assert "regla" not in segunda
+    assert primera["reglas"] == [{"id": "BR-09", "texto": skill_service.get_skills()["tomar_pedido"].br["BR-09"]}]
+    assert "reglas" not in segunda
     assert ctx.br_entregadas == ["BR-09"]
 
 
@@ -288,18 +288,57 @@ def test_br_junto_al_resultado():
 def test_cada_senal_lleva_a_su_br(tool, argumentos, br):
     """RF-63: stock corto, varias opciones, nada parecido o una coincidencia aproximada."""
     resultado = tool_registry.execute(tool, argumentos, _contexto("tomar_pedido"))
-    assert resultado.get("regla", {}).get("id") == br
+    assert [regla["id"] for regla in resultado.get("reglas", [])] == ([br] if br else [])
 
 
 def test_sin_skill_activa_no_se_adjunta_la_br():
     """RF-63: una BR solo llega si una skill leída en el turno la permite; si no, el agente la lee con `leer_br`."""
     for skills in ((), ("informar",)):
         ctx = _contexto(*skills)
-        assert "regla" not in tool_registry.execute("search_products", {"query": "shampo pantne 400"}, ctx)
+        assert "reglas" not in tool_registry.execute("search_products", {"query": "shampo pantne 400"}, ctx)
         assert ctx.br_entregadas == []
 
 
 def test_br_leida_por_el_agente_no_se_vuelve_a_adjuntar():
     ctx = _contexto("tomar_pedido")
     assert tool_registry.execute("leer_br", {"id": "BR-09"}, ctx)["ok"]
-    assert "regla" not in tool_registry.execute("search_products", {"query": "shampo pantne 400"}, ctx)
+    assert "reglas" not in tool_registry.execute("search_products", {"query": "shampo pantne 400"}, ctx)
+
+
+def test_control_de_cobertura():
+    """CA-126: cada renglón numerado termina en `propuesta`, en `pendientes` o en `afuera`; si no, falla."""
+    from internal.schemas.agent_schema import RespondToCustomerInput
+    from internal.tools import reply_tools
+
+    renglones = [{"n": n, "texto": f"renglón {n}", "marca": None, "estado": "sin_resolver"} for n in range(1, 11)]
+    respuesta = {
+        "kind": "propuesta",
+        "message": "Te armé el pedido.",
+        "propuesta": [{"sku": "SH-PAN-400", "quantity": 1, "renglon": n} for n in range(1, 8)],
+        "pendientes": [{"renglon": 8, "opciones": ["SH-PAN-200", "SH-PAN-400"]}],
+        "afuera": [{"renglon": 9, "motivo": "fuera_de_catalogo"}],
+    }
+
+    with pytest.raises(ToolFailure) as error:
+        reply_tools.cubrir_renglones(RespondToCustomerInput(**respuesta), renglones)
+    assert error.value.code == "renglones_sin_cuenta"
+    assert error.value.details == {"renglones": [10]}
+
+    respuesta["afuera"].append({"renglon": 10, "motivo": "no_es_producto"})
+    cubiertos = reply_tools.cubrir_renglones(RespondToCustomerInput(**respuesta), renglones)
+    assert [r["estado"] for r in cubiertos] == ["resuelto"] * 7 + ["pendiente", "afuera", "afuera"]
+    assert all(renglon["estado"] == "sin_resolver" for renglon in renglones)  # no toca la lista que recibe
+
+
+def test_mensaje_largo_solo_con_dudas():
+    """RF-70: el mensaje puede pasar los 600 caracteres solo cuando junta las dudas de una lista."""
+    from pydantic import ValidationError
+
+    from internal.schemas.agent_schema import RespondToCustomerInput
+
+    largo = "¿Cuál de las dos medidas te mando? " * 25
+    with pytest.raises(ValidationError):
+        RespondToCustomerInput(kind="aclaracion", message=largo)
+    assert RespondToCustomerInput(kind="aclaracion", message=largo, pendientes=[{"renglon": 1, "opciones": []}])
+    with pytest.raises(ValidationError):
+        RespondToCustomerInput(kind="aclaracion", message=largo * 2, pendientes=[{"renglon": 1, "opciones": []}])

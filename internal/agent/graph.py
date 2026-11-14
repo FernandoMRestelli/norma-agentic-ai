@@ -16,6 +16,7 @@ from langgraph.types import interrupt
 from internal.agent import context, guardrails, observabilidad, tool_registry
 from internal.agent.state import EstadoNorma
 from internal.schemas.order_schema import Channel, ConfirmationAction, OrderDraft
+from internal.services import interpretation_service, inventory_service
 from internal.services.palabras_clave import es_saludo, interpretar_palabra_clave
 from internal.services.skill_service import get_skills
 
@@ -84,14 +85,29 @@ def encaminar(state: EstadoNorma) -> dict[str, Any]:
     skill = skill_clara(entrada.text, bool(state.get("propuesta"))) if isinstance(entrada, HumanMessage) else None
     if skill not in get_skills():
         skill = None
-    with observabilidad.paso("encaminar", "CHAIN", skill_preactivada=skill or "-"):
+    renglones = list(state.get("renglones") or [])
+    nuevos = _numerar(entrada.text, renglones) if isinstance(entrada, HumanMessage) else []
+    with observabilidad.paso("encaminar", "CHAIN", skill_preactivada=skill or "-", renglones=len(nuevos)):
         pass
     return {
         "skills_activas": [skill] if skill else [],
         "skill_preactivada": skill,
         "br_entregadas": [],
         "turno_desde": _reloj(),
+        "renglones": renglones + nuevos,
     }
+
+
+def _numerar(texto: str, renglones: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Los renglones nuevos de un mensaje con forma de lista, numerados a continuación de los que ya había (RF-65)."""
+    if len(texto.splitlines()) < interpretation_service.MIN_RENGLONES:
+        return []
+    desde = max((renglon["n"] for renglon in renglones), default=0) + 1
+    try:
+        return interpretation_service.numerar_renglones(texto, inventory_service.get_catalog(), desde)
+    except OSError:  # sin catálogo no se numera: las tools le avisan al agente que no está disponible
+        logger.warning("Agente: no se pudo leer el catálogo para numerar los renglones")
+        return []
 
 
 def descubrir_tools(state: EstadoNorma, config: RunnableConfig) -> dict[str, Any]:
@@ -129,6 +145,7 @@ def _turn_context(state: EstadoNorma, config: RunnableConfig, disponibles: list[
         conversation_id=conversation_id,
         skills_activas=list(state.get("skills_activas", [])),
         br_entregadas=list(state.get("br_entregadas", [])),
+        renglones=[dict(renglon) for renglon in state.get("renglones") or []],
         propuesta=propuesta,
     )
 
@@ -188,7 +205,11 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
 
     def ejecutar_tools(state: EstadoNorma, config: RunnableConfig) -> dict[str, Any]:
         ctx = _turn_context(state, config, state["tools_disponibles"])
-        ctx.turno = guardrails.contexto_turno(state["messages"][state.get("inicio_turno", 0) :])
+        del_turno = state["messages"][state.get("inicio_turno", 0) :]
+        ctx.turno = guardrails.contexto_turno(del_turno)
+        ctx.coberturas_fallidas = sum(
+            isinstance(m, ToolMessage) and '"code": "renglones_sin_cuenta"' in m.content for m in del_turno
+        )
         messages: list[Any] = []
         for call in state["messages"][-1].tool_calls:
             if ctx.resultado == "continuar":
@@ -208,6 +229,7 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             "messages": messages,
             "skills_activas": ctx.skills_activas,
             "br_entregadas": ctx.br_entregadas,
+            "renglones": ctx.renglones,
             "propuesta": ctx.propuesta.model_dump(mode="json") if ctx.propuesta else None,
             "respuesta": ctx.respuesta,
             "kind": ctx.kind,

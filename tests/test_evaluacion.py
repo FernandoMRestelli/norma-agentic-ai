@@ -234,3 +234,14 @@ def test_las_ordenes_de_un_caso_no_le_quitan_stock_al_siguiente():
     assert fila["resultado"] == "correcto"
     assert (fila["lineas_correctas"], fila["lineas_esperadas"]) == (1, 1)
     assert inventory_service.get_available_stock("SH-PAN-400") == antes
+
+
+def test_un_renglon_afuera_sin_avisar_esta_perdido():
+    """RF-68: lo que no se puede armar tiene que quedar avisado; si el agente lo saltea, es una línea perdida."""
+    esperado = _esperado(2, afuera=["1 planchita", "2 shampoo"])
+    obtenidos = {"SKU-0": 2, "SKU-1": 2}
+
+    assert evaluar_agente.medir_lineas(esperado, obtenidos)["lineas_perdidas"] == 0  # sin renglones no se mide
+    assert evaluar_agente.medir_lineas(esperado, obtenidos, avisados=["1 planchita"])["lineas_perdidas"] == 1
+    todos = ["1 planchita", "2 shampoo"]
+    assert evaluar_agente.medir_lineas(esperado, obtenidos, avisados=todos)["lineas_perdidas"] == 0
