@@ -8,6 +8,8 @@ El repositorio es público: acá nunca van clientes, teléfonos, precios ni stoc
 | `catalogo.csv` | Google Sheet 1: catálogo, precios y stock | Las columnas son el formato que debe tener la planilla real |
 | `pedidos.csv` | Google Sheet 2: seguimiento de pedidos (una fila por pedido) | Las columnas son el formato que debe tener la planilla real |
 | `mensajes.json` | Mensajes de clientes con el resultado esperado del agente | Casos de prueba para la interpretación |
+| `catalogo_evaluacion.csv` | Un catálogo mayorista de unos 400 productos, con el formato del real | Catálogo de los casos de `pedidos_evaluacion.json` |
+| `pedidos_evaluacion.json` | Pedidos largos con el formato de los reales y su resultado esperado | Evaluación por línea del agente (RF-59, RF-60) |
 
 ## `catalogo.csv`
 
@@ -58,6 +60,31 @@ Los casos con `previo` tienen dos turnos: primero ese mensaje, que recibe una pr
 Se corren con el LLM real con `python -m internal.evaluar_agente`.
 
 Por ahora solo hay mensajes de texto; faltan ejemplos de audio e imagen.
+
+## `catalogo_evaluacion.csv` y `pedidos_evaluacion.json`
+
+El catálogo de 15 productos alcanza para probar un mensaje, no un pedido real. Estos dos archivos son el conjunto
+`pedidos` de la evaluación ([spec](../docs/spec/toma-de-pedidos-por-texto.md), M1):
+
+- **`catalogo_evaluacion.csv`** tiene 12 marcas inventadas y copia las trampas del catálogo real: la medida va
+  dentro del nombre (`X 900 ML`, `X 1 KG`), la columna `presentacion` está vacía, un mismo producto viene en dos o
+  tres medidas, la coloración no trae el tono y no todas las marcas trabajan todas las categorías. El SKU se arma
+  con marca, línea, variante y medida (`NOR-SH-KER-900`). Lo genera `catalogo_mayorista()` de
+  `tests/datos_sinteticos.py`; para regenerarlo: `python -m tests.datos_sinteticos > data_example/catalogo_evaluacion.csv`.
+- **`pedidos_evaluacion.json`** tiene listas agrupadas por marca de hasta 30 renglones, con abreviaturas, errores
+  de tipeo, coloración en `tono/cantidad`, productos que no están, dudas de medida, stock corto y pedidos en varios
+  mensajes. Usa el formato de `mensajes.json` y suma en `esperado`:
+
+  | Campo | Qué dice |
+  |---|---|
+  | `items` | Las líneas que tiene que tener la propuesta o el pedido. Un SKU puede repetirse, con una `nota` por línea (los tonos de una coloración): se compara la suma |
+  | `propuesta` | Solo con `sin_stock`: lo que hay que proponer. Ahí `items` es lo que pidió el cliente, que no alcanza |
+  | `dudas` | Renglones que el agente tiene que preguntar, con las `opciones` posibles |
+  | `afuera` | Renglones que no se pueden armar: fuera de catálogo o agotados |
+
+Se corre con `python -m internal.evaluar_agente --set pedidos`. La corrida reporta recall y precisión por línea,
+líneas perdidas, registros indebidos y aclaraciones de más, y la compara con el umbral de release (RNF-15). Con
+`--repeticiones 3` corre cada caso tres veces y muestra cuántas acertó.
 
 Los tests de `tests/test_datos_ejemplo.py` verifican que estos archivos respeten
 los esquemas y sean coherentes entre sí (por ejemplo, que todo SKU exista en el catálogo).

@@ -1,0 +1,660 @@
+[
+  {
+    "id": "lista-por-marca-clara",
+    "descripcion": "Lista agrupada por dos marcas, doce renglones, todo con medida: una propuesta con las doce líneas",
+    "mensaje": {
+      "customer_id": "cli-101",
+      "channel": "telegram",
+      "type": "text",
+      "text": "Nordika\n2 sh keratina x900\n2 acond keratina x900\n1 mascara argan x 1k\n3 oxidante 20 vol x900\n1 crema de peinar rulos\n2 serum puntas\nLumine\n4 shampoo nutricion 300\n4 acondicionador nutricion 300\n1 baño de crema coco\n2 ampolla reparadora\n1 protector termico\n1 gel fijador"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "NOR-SH-KER-900",
+          "cantidad": 2
+        },
+        {
+          "sku": "NOR-AC-KER-900",
+          "cantidad": 2
+        },
+        {
+          "sku": "NOR-MA-ARG-1K",
+          "cantidad": 1
+        },
+        {
+          "sku": "NOR-OX-20-900",
+          "cantidad": 3
+        },
+        {
+          "sku": "NOR-FI-CPR-300",
+          "cantidad": 1
+        },
+        {
+          "sku": "NOR-FI-SER-60",
+          "cantidad": 2
+        },
+        {
+          "sku": "LUM-SH-NUT-300",
+          "cantidad": 4
+        },
+        {
+          "sku": "LUM-AC-NUT-300",
+          "cantidad": 4
+        },
+        {
+          "sku": "LUM-BA-COC-1K",
+          "cantidad": 1
+        },
+        {
+          "sku": "LUM-CU-AMP-15",
+          "cantidad": 2
+        },
+        {
+          "sku": "LUM-CU-PRO-250",
+          "cantidad": 1
+        },
+        {
+          "sku": "LUM-FI-GEL-500",
+          "cantidad": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "lista-con-abreviaturas-y-errores",
+    "descripcion": "Marcas y productos mal escritos, abreviaturas y sinónimos del rubro: se resuelven sin preguntar",
+    "mensaje": {
+      "customer_id": "cli-102",
+      "channel": "telegram",
+      "type": "text",
+      "text": "belcor\n3 sh queratina 900\n3 acond queratina 900\n2 masc nutricion 250\n2 oxi 30 vol x900\n1 deco 700\nfiorella\n2 champu argan x300\n1 enjuague argan x300\n2 mascarilla keratina 1 kilo\n1 oleo de argan\n1 spray de brillo"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "BEL-SH-KER-900",
+          "cantidad": 3
+        },
+        {
+          "sku": "BEL-AC-KER-900",
+          "cantidad": 3
+        },
+        {
+          "sku": "BEL-MA-NUT-250",
+          "cantidad": 2
+        },
+        {
+          "sku": "BEL-OX-30-900",
+          "cantidad": 2
+        },
+        {
+          "sku": "BEL-DE-700",
+          "cantidad": 1
+        },
+        {
+          "sku": "FIO-SH-ARG-300",
+          "cantidad": 2
+        },
+        {
+          "sku": "FIO-AC-ARG-300",
+          "cantidad": 1
+        },
+        {
+          "sku": "FIO-MA-KER-1K",
+          "cantidad": 2
+        },
+        {
+          "sku": "FIO-FI-OLE-60",
+          "cantidad": 1
+        },
+        {
+          "sku": "FIO-FI-SPR-250",
+          "cantidad": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "coloracion-tono-cantidad",
+    "descripcion": "Coloración en notación tono/cantidad debajo de la marca (V-01): una línea por tono, con el tono en la nota",
+    "mensaje": {
+      "customer_id": "cli-103",
+      "channel": "telegram",
+      "type": "text",
+      "text": "Duomo\ncoloracion\n7/3\n81/2\n6/4\n66/1\n2 oxidante 20 vol x900\n1 polvo decolorante x 700"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "DUO-CO-60",
+          "cantidad": 3,
+          "nota": "tono 7"
+        },
+        {
+          "sku": "DUO-CO-60",
+          "cantidad": 2,
+          "nota": "tono 8.1"
+        },
+        {
+          "sku": "DUO-CO-60",
+          "cantidad": 4,
+          "nota": "tono 6"
+        },
+        {
+          "sku": "DUO-CO-60",
+          "cantidad": 1,
+          "nota": "tono 6.6"
+        },
+        {
+          "sku": "DUO-OX-20-900",
+          "cantidad": 2
+        },
+        {
+          "sku": "DUO-DE-700",
+          "cantidad": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "lista-con-fuera-de-catalogo",
+    "descripcion": "Tres renglones no se pueden armar: una marca que no existe y dos marcas que no trabajan esa categoría. Propone el resto y avisa cuáles quedaron afuera",
+    "mensaje": {
+      "customer_id": "cli-104",
+      "channel": "telegram",
+      "type": "text",
+      "text": "Trevia\n2 sh color 900\n2 acond color 900\n1 tintura\n3 mascara keratina 250\nKerastase\n2 shampoo\nOrkidea\n1 serum puntas\n5 oxidante 20 vol"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "TRE-SH-COL-900",
+          "cantidad": 2
+        },
+        {
+          "sku": "TRE-AC-COL-900",
+          "cantidad": 2
+        },
+        {
+          "sku": "TRE-MA-KER-250",
+          "cantidad": 3
+        },
+        {
+          "sku": "ORK-FI-SER-60",
+          "cantidad": 1
+        }
+      ],
+      "afuera": [
+        "1 tintura",
+        "2 shampoo",
+        "5 oxidante 20 vol"
+      ]
+    }
+  },
+  {
+    "id": "lista-con-dudas-de-medida",
+    "descripcion": "Tres renglones no dicen la medida y el catálogo tiene varias: propone lo claro y pregunta las tres dudas juntas",
+    "mensaje": {
+      "customer_id": "cli-105",
+      "channel": "telegram",
+      "type": "text",
+      "text": "Silkara\n2 shampoo keratina\n3 acond keratina 900\n1 mascara argan\n2 crema de peinar\nKapris\n4 oxidante 20 vol\n1 polvo decolorante 50"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "SIL-AC-KER-900",
+          "cantidad": 3
+        },
+        {
+          "sku": "SIL-FI-CPR-300",
+          "cantidad": 2
+        },
+        {
+          "sku": "KAP-DE-50",
+          "cantidad": 1
+        }
+      ],
+      "dudas": [
+        {
+          "renglon": "2 shampoo keratina",
+          "opciones": [
+            "SIL-SH-KER-300",
+            "SIL-SH-KER-900",
+            "SIL-SH-KER-5L"
+          ]
+        },
+        {
+          "renglon": "1 mascara argan",
+          "opciones": [
+            "SIL-MA-ARG-250",
+            "SIL-MA-ARG-1K"
+          ]
+        },
+        {
+          "renglon": "4 oxidante 20 vol",
+          "opciones": [
+            "KAP-OX-20-90",
+            "KAP-OX-20-900"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "lista-larga-30-renglones",
+    "descripcion": "Treinta renglones de cinco marcas, todos claros: ninguno se pierde",
+    "mensaje": {
+      "customer_id": "cli-106",
+      "channel": "telegram",
+      "type": "text",
+      "text": "Kapris\n3 sh keratina 900\n3 acond keratina 900\n2 sh argan 900\n2 acond argan 900\n1 sh matizador 300\n2 mascara keratina 1k\n1 mascara nutricion 250\n2 oxidante 10 vol 900\n4 oxidante 20 vol 900\n2 oxidante 30 vol 900\n1 polvo decolorante 50\nOrkidea\n2 shampoo nutricion 5 litros\n1 shampoo color 900\n1 acondicionador color 900\n2 baño de crema karite\n1 baño de crema coco\n3 crema de peinar rulos\n2 serum puntas\n2 oleo argan\nBrisa\n4 shampoo keratina 5l\n2 shampoo argan 900\n2 acondicionador argan 900\nMontello\n1 guantes de nitrilo\n3 pincel para tintura\n2 bowl\n1 capa de corte\n2 peine de corte\n1 papel aluminio\nFiorela\n2 ampolla reparadora\n1 protector termico"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "KAP-SH-KER-900",
+          "cantidad": 3
+        },
+        {
+          "sku": "KAP-AC-KER-900",
+          "cantidad": 3
+        },
+        {
+          "sku": "KAP-SH-ARG-900",
+          "cantidad": 2
+        },
+        {
+          "sku": "KAP-AC-ARG-900",
+          "cantidad": 2
+        },
+        {
+          "sku": "KAP-SH-MAT-300",
+          "cantidad": 1
+        },
+        {
+          "sku": "KAP-MA-KER-1K",
+          "cantidad": 2
+        },
+        {
+          "sku": "KAP-MA-NUT-250",
+          "cantidad": 1
+        },
+        {
+          "sku": "KAP-OX-10-900",
+          "cantidad": 2
+        },
+        {
+          "sku": "KAP-OX-20-900",
+          "cantidad": 4
+        },
+        {
+          "sku": "KAP-OX-30-900",
+          "cantidad": 2
+        },
+        {
+          "sku": "KAP-DE-50",
+          "cantidad": 1
+        },
+        {
+          "sku": "ORK-SH-NUT-5L",
+          "cantidad": 2
+        },
+        {
+          "sku": "ORK-SH-COL-900",
+          "cantidad": 1
+        },
+        {
+          "sku": "ORK-AC-COL-900",
+          "cantidad": 1
+        },
+        {
+          "sku": "ORK-BA-KAR-1K",
+          "cantidad": 2
+        },
+        {
+          "sku": "ORK-BA-COC-1K",
+          "cantidad": 1
+        },
+        {
+          "sku": "ORK-FI-CPR-300",
+          "cantidad": 3
+        },
+        {
+          "sku": "ORK-FI-SER-60",
+          "cantidad": 2
+        },
+        {
+          "sku": "ORK-FI-OLE-60",
+          "cantidad": 2
+        },
+        {
+          "sku": "BRI-SH-KER-5L",
+          "cantidad": 4
+        },
+        {
+          "sku": "BRI-SH-ARG-900",
+          "cantidad": 2
+        },
+        {
+          "sku": "BRI-AC-ARG-900",
+          "cantidad": 2
+        },
+        {
+          "sku": "MON-AX-GUA-100",
+          "cantidad": 1
+        },
+        {
+          "sku": "MON-AX-PIN",
+          "cantidad": 3
+        },
+        {
+          "sku": "MON-AX-BOW",
+          "cantidad": 2
+        },
+        {
+          "sku": "MON-AX-CAP",
+          "cantidad": 1
+        },
+        {
+          "sku": "MON-AX-PEI",
+          "cantidad": 2
+        },
+        {
+          "sku": "MON-AX-ALU-5K",
+          "cantidad": 1
+        },
+        {
+          "sku": "FIO-CU-AMP-15",
+          "cantidad": 2
+        },
+        {
+          "sku": "FIO-CU-PRO-250",
+          "cantidad": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "pedido-en-dos-mensajes",
+    "descripcion": "El pedido llega en dos mensajes: el segundo suma renglones a la propuesta del primero",
+    "previo": [
+      "Silkara\n2 sh nutricion 900\n2 acond nutricion 900\n1 mascara nutricion 1k"
+    ],
+    "mensaje": {
+      "customer_id": "cli-107",
+      "channel": "telegram",
+      "type": "text",
+      "text": "sumale\nKapris\n2 oxidante 20 vol x 90\n1 polvo decolorante 50\nSilkara\n1 gel fijador"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "SIL-SH-NUT-900",
+          "cantidad": 2
+        },
+        {
+          "sku": "SIL-AC-NUT-900",
+          "cantidad": 2
+        },
+        {
+          "sku": "SIL-MA-NUT-1K",
+          "cantidad": 1
+        },
+        {
+          "sku": "KAP-OX-20-90",
+          "cantidad": 2
+        },
+        {
+          "sku": "KAP-DE-50",
+          "cantidad": 1
+        },
+        {
+          "sku": "SIL-FI-GEL-500",
+          "cantidad": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "lista-y-acepta",
+    "descripcion": "Lista de ocho renglones y después «dale»: registra las ocho líneas",
+    "previo": [
+      "Belkor\n2 sh color 900\n2 acond color 900\n1 mascara argan 250\n3 oxidante 40 vol 900\nTrevia\n2 crema de peinar\n1 spray brillo\n1 serum puntas\n2 ampolla"
+    ],
+    "mensaje": {
+      "customer_id": "cli-108",
+      "channel": "telegram",
+      "type": "text",
+      "text": "dale"
+    },
+    "esperado": {
+      "resultado": "pedido",
+      "items": [
+        {
+          "sku": "BEL-SH-COL-900",
+          "cantidad": 2
+        },
+        {
+          "sku": "BEL-AC-COL-900",
+          "cantidad": 2
+        },
+        {
+          "sku": "BEL-MA-ARG-250",
+          "cantidad": 1
+        },
+        {
+          "sku": "BEL-OX-40-900",
+          "cantidad": 3
+        },
+        {
+          "sku": "TRE-FI-CPR-300",
+          "cantidad": 2
+        },
+        {
+          "sku": "TRE-FI-SPR-250",
+          "cantidad": 1
+        },
+        {
+          "sku": "TRE-FI-SER-60",
+          "cantidad": 1
+        },
+        {
+          "sku": "TRE-CU-AMP-15",
+          "cantidad": 2
+        }
+      ]
+    }
+  },
+  {
+    "id": "lista-con-stock-corto",
+    "descripcion": "De un renglón quedan 3 y pide 5, y otro está agotado: ofrece las 3, deja afuera el agotado y propone el resto",
+    "mensaje": {
+      "customer_id": "cli-109",
+      "channel": "telegram",
+      "type": "text",
+      "text": "Belkor\n5 mascara keratina 1k\n2 mascara keratina 250\nNordika\n3 sh argan 900\n2 acond argan 900\nKapris\n1 polvo decolorante 700"
+    },
+    "esperado": {
+      "resultado": "sin_stock",
+      "items": [
+        {
+          "sku": "BEL-MA-KER-1K",
+          "cantidad": 5
+        },
+        {
+          "sku": "BEL-MA-KER-250",
+          "cantidad": 2
+        },
+        {
+          "sku": "NOR-SH-ARG-900",
+          "cantidad": 3
+        },
+        {
+          "sku": "NOR-AC-ARG-900",
+          "cantidad": 2
+        },
+        {
+          "sku": "KAP-DE-700",
+          "cantidad": 1
+        }
+      ],
+      "afuera": [
+        "3 sh argan 900"
+      ],
+      "propuesta": [
+        {
+          "sku": "BEL-MA-KER-1K",
+          "cantidad": 3
+        },
+        {
+          "sku": "BEL-MA-KER-250",
+          "cantidad": 2
+        },
+        {
+          "sku": "NOR-AC-ARG-900",
+          "cantidad": 2
+        },
+        {
+          "sku": "KAP-DE-700",
+          "cantidad": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "lista-y-rechaza",
+    "descripcion": "Recibe la propuesta y la rechaza: no se registra nada",
+    "previo": [
+      "Lumine\n2 sh keratina 300\n2 acond keratina 300\n1 serum puntas"
+    ],
+    "mensaje": {
+      "customer_id": "cli-110",
+      "channel": "telegram",
+      "type": "text",
+      "text": "no, dejalo, despues te escribo"
+    },
+    "esperado": {
+      "resultado": "sin_pedido"
+    }
+  },
+  {
+    "id": "lista-larga-con-todo",
+    "descripcion": "Veintitrés renglones con errores de tipeo, una duda de medida y un producto que no existe: propone los veintiuno claros, pregunta la duda y avisa lo que quedó afuera",
+    "mensaje": {
+      "customer_id": "cli-111",
+      "channel": "telegram",
+      "type": "text",
+      "text": "nordica\n4 sh queratina x900\n4 acond queratina x900\n2 sh matizador 300\n1 masc argan 1 kilo\n2 baño de crema karite\n3 oxi 20 vol 900\n3 oxi 30 vol 900\n1 oxi 40 vol\n2 deco 50\n1 serum\n2 crema para peinar rulos\nfiorella\n3 champu nutricion 900\n3 enjuague nutricion 900\n1 mascarilla nutricion 250\n2 oxidante 10 vol x 900\n1 protector termico\nlumine\n2 shampoo color 5 litros\n1 acond color 900\n1 gel\n2 spray brillo\n1 planchita\nmontelo\n2 pinceles para tintura\n1 caja de guantes"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "NOR-SH-KER-900",
+          "cantidad": 4
+        },
+        {
+          "sku": "NOR-AC-KER-900",
+          "cantidad": 4
+        },
+        {
+          "sku": "NOR-SH-MAT-300",
+          "cantidad": 2
+        },
+        {
+          "sku": "NOR-MA-ARG-1K",
+          "cantidad": 1
+        },
+        {
+          "sku": "NOR-BA-KAR-1K",
+          "cantidad": 2
+        },
+        {
+          "sku": "NOR-OX-20-900",
+          "cantidad": 3
+        },
+        {
+          "sku": "NOR-OX-30-900",
+          "cantidad": 3
+        },
+        {
+          "sku": "NOR-DE-50",
+          "cantidad": 2
+        },
+        {
+          "sku": "NOR-FI-SER-60",
+          "cantidad": 1
+        },
+        {
+          "sku": "NOR-FI-CPR-300",
+          "cantidad": 2
+        },
+        {
+          "sku": "FIO-SH-NUT-900",
+          "cantidad": 3
+        },
+        {
+          "sku": "FIO-AC-NUT-900",
+          "cantidad": 3
+        },
+        {
+          "sku": "FIO-MA-NUT-250",
+          "cantidad": 1
+        },
+        {
+          "sku": "FIO-OX-10-900",
+          "cantidad": 2
+        },
+        {
+          "sku": "FIO-CU-PRO-250",
+          "cantidad": 1
+        },
+        {
+          "sku": "LUM-SH-COL-5L",
+          "cantidad": 2
+        },
+        {
+          "sku": "LUM-AC-COL-900",
+          "cantidad": 1
+        },
+        {
+          "sku": "LUM-FI-GEL-500",
+          "cantidad": 1
+        },
+        {
+          "sku": "LUM-FI-SPR-250",
+          "cantidad": 2
+        },
+        {
+          "sku": "MON-AX-PIN",
+          "cantidad": 2
+        },
+        {
+          "sku": "MON-AX-GUA-100",
+          "cantidad": 1
+        }
+      ],
+      "dudas": [
+        {
+          "renglon": "1 oxi 40 vol",
+          "opciones": [
+            "NOR-OX-40-90",
+            "NOR-OX-40-900"
+          ]
+        }
+      ],
+      "afuera": [
+        "1 planchita"
+      ]
+    }
+  }
+]

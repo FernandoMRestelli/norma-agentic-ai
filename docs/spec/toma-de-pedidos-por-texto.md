@@ -188,8 +188,9 @@ midió nada.
 6. **Elegir el modelo con datos (D-21).** La misma corrida contra dos o tres modelos, comparada en MLflow. El
    requisito mínimo es que use tools de forma confiable; hoy el modelo por defecto no lo cumple.
 
-**Archivos:** `internal/evaluar_agente.py`, `data_example/pedidos_evaluacion.json` (nuevo),
-`tests/datos_sinteticos.py`, `tests/test_evaluacion.py` (nuevo, prueba las métricas con resultados armados a mano).
+**Archivos:** `internal/evaluar_agente.py`, `data_example/pedidos_evaluacion.json` y
+`data_example/catalogo_evaluacion.csv` (nuevos), `tests/datos_sinteticos.py`, `tests/test_evaluacion.py` (nuevo,
+prueba los datos y las métricas con resultados armados a mano y con el modelo falso).
 
 **Hecho cuando:** hay una corrida completa documentada en `MEJORAS.md` con las métricas por línea, y cada mejora de
 M2 a M5 se puede comparar contra esa línea de base.
@@ -600,9 +601,9 @@ Todos nacen en estado `Propuesto`.
 | ID | Decisión o pregunta | Estado |
 |---|---|---|
 | D-21 | Qué modelo se usa en producción y en la evaluación. El modelo gratuito por defecto no usa las tools de forma confiable; hace falta al menos uno que sí, con cuota para correr el set completo | Abierta |
-| D-22 | La skill preactivada y la BR junto al resultado tocan la decisión del 2026-11-04: skills y BR en el repo, leídas con tools. La propuesta las mantiene en el repo y las entrega por las mismas tools; cambia que a veces la lectura la dispara el backend y no el modelo. Si no se acepta, M2 se queda con los puntos 1, 4 y 5 | Abierta, la define Federico |
+| D-22 | La skill preactivada y la BR junto al resultado tocan la decisión del 2026-11-04: skills y BR en el repo, leídas con tools. La propuesta las mantiene en el repo y las entrega por las mismas tools; cambia que a veces la lectura la dispara el backend y no el modelo. Si no se acepta, M2 se queda con los puntos 1, 4 y 5 | Tomada el 2026-11-12: se aplican las dos, la skill preactivada y la BR junto al resultado |
 | D-23 | Qué palabras registran sin LLM. Propuesta: `ok`, `confirmar`, `dale`, `si`, `listo`, `de una`, `mandale`, solo si son el mensaje completo | Abierta |
-| D-24 | Guardar el renglón como lo escribió el cliente (`pedido_como`) sirve para auditar la interpretación, pero la spec de guardado dejó afuera el texto de los mensajes por RNF-03. Propuesta: guardarlo solo en las líneas de órdenes registradas y aplicarle la misma retención que a la orden | Abierta |
+| D-24 | Guardar el renglón como lo escribió el cliente (`pedido_como`) sirve para auditar la interpretación, pero la spec de guardado dejó afuera el texto de los mensajes por RNF-03. Propuesta: guardarlo solo en las líneas de órdenes registradas y aplicarle la misma retención que a la orden | Tomada el 2026-11-12: se guarda, con esa condición |
 | D-25 | Si el precio cambió, ¿se vuelve a proponer siempre o hay una tolerancia? Propuesta: siempre, sin tolerancia | Abierta |
 | D-26 | Ventana para agrupar mensajes. Propuesta: 6 s desde el último mensaje, con un máximo de 20 s. Suma esa espera a la latencia de cada respuesta (RNF-06) | Abierta |
 | D-27 | El tono de coloración: depende de V-01 y V-02. Hasta confirmarlo, el tono va en la nota de la línea y no cambia el SKU | Abierta, depende del negocio |
@@ -634,6 +635,18 @@ flowchart LR
 5. `feature/csv-pedidos-por-linea` (M5): usa `renglon`, `match` y `afuera` de M3. Los puntos 4 y 5 (estado
    sincronizado y CSV seguro) no dependen de nada y pueden ir en una PR propia antes.
 6. `feature/memoria-entre-turnos` (M4): usa el estado por renglón de M3.
+
+### 10.1 Estado de implementación
+
+Cada rama sale de la anterior, en el orden en que se implementó. Esta tabla se actualiza en la PR de cada mejora.
+
+| Mejora | Rama | Estado | Falta |
+|---|---|---|---|
+| M1 · Evaluación | `feature/evaluacion-pedidos-reales` | Implementado: RF-59, RF-60, RNF-15, CA-113 a CA-115 | La primera corrida completa con un LLM real, para fijar la línea de base y los umbrales (D-21, D-28) |
+| M2 · Grafo | `feature/grafo-menos-iteraciones` | Propuesto | |
+| M3 · Renglones | `feature/pedidos-por-renglon` | Propuesto | |
+| M5 · CSV | `feature/csv-pedidos-por-linea` | Propuesto | |
+| M4 · Memoria | `feature/memoria-entre-turnos` | Propuesto | |
 
 La PR de «funciones y guidelines para tomar y guardar el pedido» corresponde a M3 y M5. Conviene que M1 entre
 antes, aunque sea con pocos casos: sin línea de base no se puede saber si M3 mejoró algo.
