@@ -42,7 +42,7 @@ def respond_to_customer(
         channel=channel,
         conversation_id=conversation_id,
         items=normalize_items(data.propuesta, renglones),
-        notes=data.notes,
+        notes=data.notes if "notes" in data.model_fields_set else (vigente.notes if vigente else None),
         version=vigente.version + 1 if vigente else 1,
         source=origen,
     )

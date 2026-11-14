@@ -460,7 +460,7 @@ hace cumplir el backend, aunque el agente no la haya leído.
 | BR-07 | Revalidar el stock al crear la orden | Backend. No la permite ninguna skill | RF-14 |
 | BR-08 | Derivar si el cliente lo pide, tras 2 fallas o tras 3 aclaraciones seguidas | LLM y backend | RF-27 |
 | BR-09 | Ante una coincidencia aproximada (`sugerencias` o `aproximado`), preguntar si se refería a ese producto antes de proponerlo; decir que no está en el catálogo solo sin `matches` ni `sugerencias` | LLM | RF-56 |
-| BR-10 | Anotar como observación lo que el cliente pide sobre cómo preparar el pedido (`notes`, `note` por línea); envío, plazo, pago o descuento no son observaciones | LLM | RF-56 |
+| BR-10 | Anotar preparación, retiro, fecha, envío, pago o descuento solicitados por el cliente (`notes`, `note` por línea), como dichos sujetos a validación del negocio; no implican condiciones aceptadas | LLM | RF-56 |
 
 Las reglas que dependen solo del LLM, como BR-03, se controlan con la evaluación de `mensajes.json`, que registra
 qué BR leyó el agente en cada caso (§10).

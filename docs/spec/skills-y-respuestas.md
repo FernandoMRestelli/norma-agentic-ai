@@ -141,7 +141,7 @@ Hoy los cuatro están en `null`: el negocio no confirmó ninguno ([V-06](../vali
 | ID | Requisito |
 |---|---|
 | RF-55 | El system prompt, las skills y sus BR dicen cada regla una sola vez, en positivo y sin mayúsculas enfáticas; describen la voz del mostrador y cada skill trae ejemplos por situación con cierres distintos |
-| RF-56 | Ante una coincidencia aproximada, el agente pregunta si el cliente se refería a ese producto antes de proponerlo (BR-09), y anota como observación lo que el cliente pide sobre cómo preparar el pedido, sin aceptar condiciones de envío, plazo ni pago (BR-10) |
+| RF-56 | Ante una coincidencia aproximada, el agente pregunta si el cliente se refería a ese producto antes de proponerlo (BR-09), y anota como observación lo que el cliente pide sobre preparación, retiro, fecha, envío o pago, como solicitud sujeta a validación del negocio y sin aceptar condiciones (BR-10) |
 | RF-57 | `informar` responde horarios, zona de entrega, medios de pago y mínimo de compra con los datos del negocio guardados en el repositorio; lo que el negocio no confirmó queda pendiente y el agente dice que no tiene ese dato |
 | RF-58 | La evaluación del agente corre conversaciones de varios turnos, aplica chequeos automáticos de estilo a cada respuesta y deja las conversaciones completas para revisarlas a mano |
 

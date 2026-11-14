@@ -234,3 +234,22 @@ RF-31 no cambia de texto: ahora vale también después de un reinicio.
 1. `feature/guardado-de-pedidos`: esta spec, los tests de CA-81 a CA-92 y el código, en una PR a `develop` que
    depende de la PR de documentación (#68). Al integrar se suman RF-45 a RF-49 y CA-81 a CA-92 a la spec maestra
    y se actualizan §5.3 y §5.4 de la spec del MVP.
+
+## Observaciones de retiro, fecha y pago del cliente
+
+Las observaciones generales incluyen solicitudes como «lo necesito mañana a la mañana» o
+«pago como siempre». El agente las guarda en `notes` como dichos del cliente sujetos a validación
+del negocio: no promete entrega, no acuerda pagos ni interpreta «como siempre» como un medio específico.
+BR-10 y BR-06 definen el comportamiento. Si agrega notas al aceptar, se muestra de nuevo la propuesta
+con sus observaciones antes del registro. Una aceptación condicionada no autoriza registrar la orden.
+
+El modelo envía las notas completas actualizadas; omitir `notes` conserva las vigentes de la misma
+propuesta, mientras `null` o texto vacío permiten borrarlas explícitamente. Una propuesta nueva sin
+vigente no hereda notas de una orden anterior. El resumen ya muestra las notas; la confirmación las
+guarda en SQLite, CSV y en la columna `notas` de Sheet 2 mediante el formato existente, sin migraciones.
+
+Criterios locales: conservar notas al omitir el campo, actualizar/borrar explícitamente, no heredarlas
+a un pedido nuevo, y recorrer propuesta → observaciones → confirmación → orden → fila de Sheet 2.
+Pruebas en `tests/test_guardado_pedidos.py` y `tests/test_planillas.py`. La interpretación del lenguaje
+natural depende del LLM y requiere evaluación manual; las pruebas con modelo guionado validan el
+flujo y la persistencia, no garantizan la extracción por cualquier modelo.
