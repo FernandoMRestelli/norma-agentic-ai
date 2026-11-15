@@ -95,13 +95,16 @@ def _pedidos_anteriores(data: PedidosAnterioresInput, ctx: TurnContext) -> dict[
 
 def _search_products(data: SearchProductsInput, ctx: TurnContext) -> dict[str, Any]:
     resultado = catalog_tools.buscar_productos(data.query, data.limit, _comprados(ctx))
-    return {
+    salida = {
         "matches": [_al_llm(match) for match in resultado.matches],
         "sugerencias": [_al_llm(sugerencia) for sugerencia in resultado.sugerencias],
         "corregido": resultado.corregido,
         "total": resultado.total,
         "difieren_en": resultado.difieren_en,
     }
+    if hint := catalog_tools.hint_busqueda(resultado):
+        salida["_hint"] = hint  # por qué no hubo una coincidencia segura, para no volver a buscar a ciegas
+    return salida
 
 
 def _buscar_renglones(data: BuscarRenglonesInput, ctx: TurnContext) -> dict[str, Any]:
@@ -121,11 +124,13 @@ def _buscar_renglones(data: BuscarRenglonesInput, ctx: TurnContext) -> dict[str,
 
 def _get_product(data: GetProductInput, _: TurnContext) -> dict[str, Any]:
     product = catalog_tools.get_product(data.sku)
-    return {
-        "product": (
-_al_llm(product) if product else None
-        )
-    }
+    if product is None:
+        return {
+            "product": None,
+            "_hint": f"No existe un producto con el SKU {data.sku}. Los SKU salen de una búsqueda: buscalo con "
+            "search_products por tipo, marca y medida; no pruebes SKU de memoria.",
+        }
+    return {"product": _al_llm(product)}
 
 
 def _check_stock(data: CheckStockInput, _: TurnContext) -> dict[str, Any]:
@@ -228,7 +233,8 @@ TOOLS: dict[str, ToolSpec] = {
             "explorar_catalogo",
             "Explora el catálogo por marcas o categorías cuando el cliente hace preguntas abiertas "
             "(por ejemplo: qué marcas de shampoo hay, qué productos tiene una marca, o qué líneas se trabajan). "
-            "Devuelve resúmenes compactos agrupados por rubro o listas de marcas.",
+            "Devuelve resúmenes compactos agrupados por rubro o listas de marcas. Si la marca o la categoría no "
+            "existe, `_hint` trae las más parecidas del catálogo.",
             ExplorarCatalogoInput,
             _explorar_catalogo,
         ),
@@ -240,7 +246,9 @@ TOOLS: dict[str, ToolSpec] = {
             "Si no hay matches, `sugerencias` trae los productos más parecidos, todos aproximados. `corregido` dice "
             "qué palabras se interpretaron como otra. Los números tienen que coincidir: 400 no trae 340. "
             "Si `matches` y `sugerencias` están vacías, no hay nada parecido. `total` dice cuántos productos "
-            "coinciden igual de bien aunque veas menos, y `difieren_en` (marca, medida o variante) qué preguntar.",
+            "coinciden igual de bien aunque veas menos, y `difieren_en` (marca, medida o variante) qué preguntar. "
+            "Cuando no hay una coincidencia segura, `_hint` explica por qué (una palabra que no existe en el "
+            "catálogo, una medida que no hay y cuáles sí) y qué hacer: seguilo antes de volver a buscar.",
             SearchProductsInput,
             _search_products,
         ),
@@ -250,7 +258,8 @@ TOOLS: dict[str, ToolSpec] = {
             "Por cada renglón devuelve `estado`, el `total` de coincidencias y hasta 3 `candidatos`. "
             "`unico`: es ese producto y alcanza el stock, va a la propuesta. `varias`: hay más de uno y `difieren_en` "
             "dice en qué (marca, medida o variante), preguntale. `aproximado`: se parece pero no es seguro, "
-            "confirmalo. `sin_stock`: `falta` dice cuánto queda. `no_encontrado`: no hay nada parecido.",
+            "confirmalo. `sin_stock`: `falta` dice cuánto queda. `no_encontrado`: no hay nada parecido. Un renglón "
+            "sin coincidencia segura trae `_hint` con el motivo y qué hacer: no lo vuelvas a buscar igual.",
             BuscarRenglonesInput,
             _buscar_renglones,
         ),
@@ -263,7 +272,7 @@ TOOLS: dict[str, ToolSpec] = {
         ),
         ToolSpec(
             "get_product",
-            "Devuelve un producto por su SKU exacto, o null si no existe.",
+            "Devuelve un producto por su SKU exacto, o null y un `_hint` si no existe.",
             GetProductInput,
             _get_product,
         ),

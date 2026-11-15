@@ -496,3 +496,70 @@ def test_un_lote_tiene_tope(catalogo_mayorista):
     renglones = [{"n": n, "texto": "shampoo"} for n in range(1, 62)]
     resultado = tool_registry.execute("buscar_renglones", {"renglones": renglones}, ctx)
     assert resultado["error"]["code"] == "argumentos_invalidos"
+
+
+# --- Pistas y `_hint`: por qué una búsqueda no encontró una coincidencia segura ------------------------------------
+
+
+def test_pistas_palabra_que_no_existe_en_el_catalogo():
+    """Una marca que no se trabaja: la pista la nombra y el hint pide avisar sin ofrecer otro producto."""
+    resultado = _buscar("kerastase shampoo")
+    assert "kerastase" in resultado.pistas.no_estan
+    hint = catalog_tools.hint_busqueda(resultado)
+    assert "«kerastase»: no aparece en ningún producto" in hint
+    assert "no ofrezcas otro en su lugar" in hint
+
+
+def test_pistas_medida_que_no_existe_lista_las_que_hay():
+    """Lo buscado existe con todas sus palabras pero no en esa medida: el hint dice cuáles hay para preguntar."""
+    resultado = _buscar("pantene shampoo 300")
+    assert resultado.pistas.medidas == ["200 ml", "400 ml"]
+    hint = catalog_tools.hint_busqueda(resultado)
+    assert "No hay ninguno en «300»" in hint
+    assert "200 ml, 400 ml" in hint
+    assert "Preguntale al cliente cuál quiere" in hint
+
+
+def test_pistas_misma_medida_escrita_de_dos_formas_aparece_una_vez():
+    """«X 900» y «X 900 ML» son la misma medida: queda la que dice la unidad."""
+    resultado = _buscar("fidelite shampoo 500")
+    assert resultado.pistas.medidas.count("900 ml") == 1
+    assert "900" not in resultado.pistas.medidas
+
+
+def test_sin_hint_cuando_solo_se_corrigio_un_error_de_tipeo():
+    """«shampo» es «shampoo»: `corregido` ya lo explica, el hint sobraría."""
+    resultado = _buscar("pantene shampo 400")
+    assert _skus(resultado.matches) == ["PS400"]
+    assert catalog_tools.hint_busqueda(resultado) is None
+
+
+def test_sin_pistas_con_una_coincidencia_exacta():
+    assert _buscar("pantene shampoo 400").pistas is None
+
+
+def test_hint_sin_nada_parecido():
+    resultado = _buscar("xqzw")
+    assert not resultado.matches and not resultado.sugerencias
+    assert "no aparece en ningún producto" in catalog_tools.hint_busqueda(resultado)
+
+
+def test_hint_nunca_lleva_el_numero_de_stock():
+    """El hint es para el modelo, pero el stock sigue siendo interno."""
+    for query in ("kerastase shampoo", "pantene shampoo 300", "fidelite shampoo 500", "xqzw"):
+        hint = catalog_tools.hint_busqueda(_buscar(query)) or ""
+        assert "stock" not in hint.lower()
+
+
+def test_buscar_renglones_explica_cada_renglon_sin_coincidencia(monkeypatch):
+    monkeypatch.setattr(sheets_service, "get_catalog", lambda: PRODUCTOS)
+    renglones = catalog_tools.buscar_renglones(
+        [
+            {"n": 1, "texto": "kerastase shampoo", "cantidad": 2},
+            {"n": 2, "texto": "pantene shampoo 300", "cantidad": 1},
+            {"n": 3, "texto": "pantene shampoo 400", "cantidad": 1},
+        ]
+    )
+    assert "«kerastase»" in renglones[0]["_hint"]
+    assert "200 ml, 400 ml" in renglones[1]["_hint"]
+    assert "_hint" not in renglones[2]
