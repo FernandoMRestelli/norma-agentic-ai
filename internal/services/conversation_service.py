@@ -1,38 +1,110 @@
 """Orquestador de la conversación: recibe los eventos de los canales y decide la respuesta.
 
-Primer corte: la conversación solo está abierta, cerrada o fallida. La máquina de estados completa de la
-spec del agente (§2) se suma con el vencimiento y la derivación.
+Maneja el ciclo de vida de cada conversación: apertura, vencimiento por inactividad a las 24 h (RF-28, CA-28),
+cierre y despacho al agente.
 """
 
 import logging
 import threading
 from collections import defaultdict
+from collections.abc import Callable
+from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
+from sqlalchemy.orm import Session
 
 from internal.agent import guardrails
 from internal.agent.norma_agent import get_agent
 from internal.agent.tool_registry import validate_skills
+from internal.config import get_settings
 from internal.database.connection import SessionLocal, init_db
-from internal.database.models import ConversationRecord
+from internal.database.models import ConversationRecord, DraftRecord
 from internal.schemas.conversation_schema import ChannelReply
-from internal.schemas.order_schema import ORIGEN_POR_TIPO, Channel, IncomingMessage, MessageType
+from internal.schemas.order_schema import (
+    ORIGEN_POR_TIPO,
+    Channel,
+    ConfirmationAction,
+    DraftStatus,
+    IncomingMessage,
+    MessageType,
+)
 from internal.services import message_service
+from internal.services.palabras_clave import interpretar_palabra_clave
 
 logger = logging.getLogger(__name__)
 
 WRITE_IT_PLEASE = "Por ahora solo puedo leer pedidos escritos. ¿Me lo mandás por texto?"
+PROPOSAL_EXPIRED_MESSAGE = (
+    "Esa propuesta ya venció (tienen validez de 24 hs). "
+    "Para asegurarte stock y precios actualizados, pasame de nuevo lo que necesitás y te armo el pedido en el momento."
+)
 
 _locks: defaultdict[tuple[str, Channel], threading.Lock] = defaultdict(threading.Lock)
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
+_clock: Callable[[], datetime] = _now  # los tests lo reemplazan para simular el paso del tiempo
+
+
+def _con_zona(dt: datetime) -> datetime:
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+
+
+def _is_expired(conversation: ConversationRecord, now: datetime) -> bool:
+    """Una conversación abierta sin actividad durante conversation_timeout_hours vence (RF-28, CA-28)."""
+    max_seconds = get_settings().conversation_timeout_hours * 3600
+    updated_at = _con_zona(conversation.updated_at)
+    return (now - updated_at).total_seconds() > max_seconds
+
+
+def _expire_conversation(session: Session, conversation: ConversationRecord) -> None:
+    """Marca la conversación como vencida y descarta cualquier borrador pendiente (RF-28)."""
+    conversation.status = "vencida"
+    session.execute(
+        update(DraftRecord)
+        .where(
+            or_(
+                DraftRecord.conversation_id == conversation.id,
+                (DraftRecord.customer_id == conversation.customer_id) & (DraftRecord.channel == conversation.channel),
+            ),
+            DraftRecord.status == DraftStatus.PENDING_CONFIRMATION.value,
+        )
+        .values(status=DraftStatus.DISCARDED.value)
+    )
+
+
+def expire_open_conversations(now: datetime | None = None) -> int:
+    """Vence todas las conversaciones abiertas sin actividad tras conversation_timeout_hours (RF-28, CA-28)."""
+    momento = now or _clock()
+    vencidas = 0
+    with SessionLocal() as session:
+        abiertas = session.scalars(select(ConversationRecord).where(ConversationRecord.status == "abierta")).all()
+        for conv in abiertas:
+            if _is_expired(conv, momento):
+                _expire_conversation(session, conv)
+                vencidas += 1
+        if vencidas:
+            session.commit()
+    return vencidas
 
 
 def startup() -> None:
     """Se llama al arrancar la API y el bot: sin skills válidas o sin tablas, mejor no arrancar."""
     validate_skills()
     init_db()
+    expire_open_conversations()
 
 
-def _open_conversation_id(customer_id: str, channel: Channel) -> int:
+def _open_conversation_id(customer_id: str, channel: Channel, now: datetime | None = None) -> tuple[int, bool]:
+    """Devuelve (conversation_id, vencio_previa).
+
+    Si había una conversación abierta pero pasaron más de 24 h sin actividad, la marca como vencida
+    y descarta sus borradores pendientes (RF-28, CA-28), abriendo una conversación nueva.
+    """
+    momento = now or _clock()
     with SessionLocal() as session:
         conversation = session.scalar(
             select(ConversationRecord).where(
@@ -41,11 +113,38 @@ def _open_conversation_id(customer_id: str, channel: Channel) -> int:
                 ConversationRecord.status == "abierta",
             )
         )
-        if conversation is None:
-            conversation = ConversationRecord(customer_id=customer_id, channel=channel.value)
-            session.add(conversation)
+        vencio_previa = False
+        if conversation is not None:
+            if _is_expired(conversation, momento):
+                _expire_conversation(session, conversation)
+                session.commit()
+                conversation = None
+                vencio_previa = True
+            else:
+                conversation.updated_at = momento
+                session.commit()
+                return conversation.id, False
+
+        nueva = ConversationRecord(
+            customer_id=customer_id,
+            channel=channel.value,
+            status="abierta",
+            created_at=momento,
+            updated_at=momento,
+        )
+        session.add(nueva)
+        session.commit()
+        return nueva.id, vencio_previa
+
+
+def _touch_conversation(conversation_id: int, now: datetime | None = None) -> None:
+    """Actualiza la fecha de última actividad de una conversación que sigue abierta (RF-28)."""
+    momento = now or _clock()
+    with SessionLocal() as session:
+        conv = session.get(ConversationRecord, conversation_id)
+        if conv and conv.status == "abierta":
+            conv.updated_at = momento
             session.commit()
-        return conversation.id
 
 
 def _close_conversation(conversation_id: int, status: str) -> None:
@@ -73,7 +172,9 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
 
     # Los turnos de una conversación se procesan de a uno (RNF-05)
     with _locks[(message.customer_id, message.channel)]:
-        conversation_id = _open_conversation_id(message.customer_id, message.channel)
+        conversation_id, vencio_previa = _open_conversation_id(message.customer_id, message.channel)
+        if vencio_previa and interpretar_palabra_clave(text) == ConfirmationAction.CONFIRM:
+            return ChannelReply(text=PROPOSAL_EXPIRED_MESSAGE)
         outcome = get_agent().handle(
             thread_id=str(conversation_id),
             customer_id=message.customer_id,
@@ -84,4 +185,6 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
         )
         if outcome.cerrada:
             _close_conversation(conversation_id, "cerrada" if outcome.kind == "pedido" else "fallida")
+        else:
+            _touch_conversation(conversation_id)
     return ChannelReply(text=outcome.message)
