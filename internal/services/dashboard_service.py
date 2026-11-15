@@ -1,4 +1,4 @@
-"""Servicio del dashboard operativo: métricas, pedidos, stock y derivaciones (RF-22 a RF-25)."""
+"""Servicio del dashboard operativo: métricas, pedidos, stock y derivaciones (RF-22 a RF-25, RF-80 a RF-83)."""
 
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
@@ -155,7 +155,7 @@ def _catalog_prices() -> dict[str, Decimal]:
 
 
 def _line_price(item: dict[str, Any], catalog_prices: dict[str, Decimal]) -> Decimal:
-    """Precio unitario de una línea: el que quedó en el pedido o, si no tiene, el del catálogo (RF-61, CA-118).
+    """Precio unitario de una línea: el que quedó en el pedido o, si no tiene, el del catálogo (RF-82, RF-83, CA-140).
 
     Es el único criterio: Pedidos y Ventas & KPIs muestran el mismo total para el mismo pedido.
     """
@@ -451,7 +451,7 @@ def _con_zona(dt: datetime) -> datetime:
 
 
 def _get_all_orders() -> list[dict[str, Any]]:
-    """Las órdenes de la base y, de la copia de Sheet 2, las que no están en ella, marcadas de solo lectura (RF-61).
+    """Órdenes de la base y las del CSV marcadas de solo lectura (RF-82, CA-139).
 
     La base es la fuente: solo sus órdenes se pueden cambiar de estado. Las del CSV (por ejemplo, de antes de usar
     la base, o `data_example/pedidos.csv` para CA-25) se siguen viendo, sin acciones.

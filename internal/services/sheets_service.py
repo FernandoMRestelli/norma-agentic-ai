@@ -571,7 +571,7 @@ def _write_atomic(path: Path, text: str) -> None:
 
 
 def update_order_status_in_sheets(order_id: str, new_status: str) -> None:
-    """Escribe el estado de una orden en el CSV de pedidos y, si está configurada, en Sheet 2 (RF-60).
+    """Escribe el estado de una orden en el CSV de pedidos y, si está configurada, en Sheet 2 (RF-81).
 
     Corre bajo el mismo bloqueo que `append_order` (RF-52). Si una de las dos falla, lanza la excepción: la orden queda
     pendiente y `order_service.sync_pending_orders()` lo vuelve a intentar.
@@ -636,7 +636,7 @@ def _deduct_rows(path: Path, to_deduct: dict[str, int]) -> str:
 
 @contextmanager
 def deduct_catalog_stock(items: list[dict[str, Any]] | list[OrderItem]) -> Iterator[bool]:
-    """Resta del catálogo local las unidades de una orden que sale (Issue #61, RF-59). Da si se descontó.
+    """Resta del catálogo local las unidades de una orden que sale (Issue #61, RF-80). Da si se descontó.
 
     No descuenta con el catálogo en Sheet 1, que es de solo lectura (RF-50), ni del catálogo de ejemplo versionado:
     en esos casos la orden sigue reservando su stock. Si el bloque falla (por ejemplo, el commit de la base), el

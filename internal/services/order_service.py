@@ -448,7 +448,7 @@ def cancel_order(order_id: str, source: str = EventSource.OPERATOR) -> Order:
 
 
 def sync_pending_orders() -> int:
-    """Reintenta sincronizar órdenes con sheets_synced=False: la fila y su estado (CA-19, RNF-04, RF-60).
+    """Reintenta sincronizar órdenes con sheets_synced=False: la fila y su estado (CA-19, RNF-04, RF-81).
 
     Devuelve la cantidad de órdenes sincronizadas exitosamente en esta pasada.
     """
@@ -459,7 +459,7 @@ def sync_pending_orders() -> int:
             order = _to_order(record)
             try:
                 sheets_service.append_order(order, reintento=True)
-                # Si la fila ya estaba, puede tener un estado viejo: un cambio que no llegó a la planilla (RF-60)
+                # Si la fila ya estaba, puede tener un estado viejo: un cambio que no llegó a la planilla (RF-81)
                 sheets_service.update_order_status_in_sheets(order.order_id, order.status.value)
                 record.sheets_synced = True
                 synced_count += 1

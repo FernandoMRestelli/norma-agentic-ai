@@ -1,4 +1,4 @@
-"""Tests del dashboard operativo y endpoints de gestión de órdenes (RF-22 a RF-25, CA-24, CA-25, Issue #61)."""
+"""Tests del dashboard operativo y gestión de órdenes (RF-22..25, RF-80..83, CA-24..25, CA-135..142, Issue #61)."""
 
 import csv
 from datetime import datetime, timedelta, timezone
@@ -475,8 +475,8 @@ def test_la_ui_pide_solo_conversaciones_derivadas():
     assert "apiFetch('/dashboard/conversations')" not in html
 
 
-def test_migracion_2_agrega_stock_applied(tmp_path):
-    """Una base en la versión 1 (develop antes de M5/dashboard) gana `orders.stock_applied` sin perder órdenes."""
+def test_migracion_3_agrega_stock_applied(tmp_path):
+    """Una base en la versión 2 (develop con M5) gana `orders.stock_applied` sin perder órdenes (RF-80, CA-135)."""
     path = tmp_path / "norma.db"
     engine = make_engine(f"sqlite:///{path}")
     init_db(engine)
@@ -486,10 +486,16 @@ def test_migracion_2_agrega_stock_applied(tmp_path):
             "INSERT INTO orders (order_id, draft_id, customer_id, channel, status, sheets_synced, created_at) "
             "VALUES ('ORD-0001', 'd-1', 'cust', 'web', 'Preparado', 0, '2026-01-01 00:00:00')"
         )
-        conn.exec_driver_sql("UPDATE schema_version SET version = 1")
+        conn.exec_driver_sql("UPDATE schema_version SET version = 2")
 
-    assert init_db(make_engine(f"sqlite:///{path}")) == LATEST == 2
-    with engine.connect() as conn:
+    db_engine = make_engine(f"sqlite:///{path}")
+    assert init_db(db_engine) == LATEST == 3
+    with Session(db_engine) as session:
+        record = session.scalar(select(OrderRecord).where(OrderRecord.order_id == "ORD-0001"))
+        assert record is not None
+        assert record.stock_applied is False
+    with db_engine.connect() as conn:
+        assert conn.exec_driver_sql("SELECT version FROM schema_version").scalar() == 3
         assert conn.exec_driver_sql("SELECT order_id, stock_applied FROM orders").all() == [("ORD-0001", 0)]
 
 

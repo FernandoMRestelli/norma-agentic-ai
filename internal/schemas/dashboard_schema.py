@@ -1,4 +1,4 @@
-"""Esquemas para el dashboard operativo (RF-22 a RF-25)."""
+"""Esquemas para el dashboard operativo (RF-22 a RF-25, RF-80 a RF-83)."""
 
 from datetime import datetime
 from decimal import Decimal
@@ -38,7 +38,7 @@ class DashboardOrderItem(BaseModel):
     items: list[DashboardOrderLineItem] = Field(default_factory=list)
     total: Decimal
     stock_applied: bool = False
-    read_only: bool = False  # solo está en la copia de Sheet 2: no se puede cambiar de estado (RF-61)
+    read_only: bool = False  # solo está en la copia de Sheet 2: no se puede cambiar de estado (RF-82)
 
 
 class DashboardStockItem(BaseModel):
