@@ -17,6 +17,47 @@ def buscar_productos(query: str, limit: int = 5, preferidos: frozenset[str] = fr
     return busqueda_service.buscar(query, inventory_service.get_catalog(), limit, preferidos)
 
 
+def _citar(textos: list[str]) -> str:
+    return ", ".join(f"«{texto}»" for texto in textos)
+
+
+def hint_busqueda(resultado: SearchResult) -> str | None:
+    """Explica al agente por qué una búsqueda no encontró una coincidencia segura y qué hacer con eso.
+
+    Es para el modelo, no para el cliente: puede nombrar productos, pero nunca el número de stock.
+    None cuando no hay nada que explicar (por ejemplo, el único cambio fue corregir un error de tipeo).
+    """
+    pistas = resultado.pistas
+    if pistas is None:
+        return None
+    partes = []
+    if pistas.no_estan:
+        partes.append(
+            f"{_citar(pistas.no_estan)}: no {'aparecen' if len(pistas.no_estan) > 1 else 'aparece'} en ningún "
+            "producto del catálogo. Si es la marca o el producto, "
+            "no se trabaja: avisale al cliente y no ofrezcas otro en su lugar como si fuera lo pedido."
+        )
+    primero = pistas.cercanos[0] if pistas.cercanos else None
+    faltan = [f for f in (primero.falta if primero else []) if f not in pistas.no_estan]
+    medidas_que_faltan = [f for f in faltan if any(c.isdigit() for c in f)]
+    if medidas_que_faltan and pistas.medidas:
+        partes.append(
+            f"No hay ninguno en {_citar(medidas_que_faltan)}. De lo buscado hay: {', '.join(pistas.medidas)}. "
+            "Preguntale al cliente cuál quiere; no elijas por él."
+        )
+    elif faltan and primero:
+        hay = "El resultado más parecido" if (resultado.matches or resultado.sugerencias) else "Lo más cercano"
+        partes.append(
+            f"{hay} ({primero.name}) no tiene {_citar(faltan)}: confirmalo con el cliente antes de proponerlo, "
+            "o buscá de nuevo cambiando o sacando esa parte."
+        )
+    if not partes and not resultado.matches and not resultado.sugerencias:
+        partes.append(
+            "No hay nada parecido en el catálogo. Avisale al cliente que no lo trabajás; no inventes un producto."
+        )
+    return " ".join(partes) or None
+
+
 def search_products(query: str, limit: int = 5) -> list[ProductMatch]:
     """Solo las coincidencias confiables de `buscar_productos`."""
     return buscar_productos(query, limit).matches
@@ -49,6 +90,8 @@ def _renglon(
     resultado = busqueda_service.buscar(consulta, productos, MAX_CANDIDATOS, preferidos)
     encontrados = resultado.matches or resultado.sugerencias
     salida: dict[str, Any] = {"n": n, "total": resultado.total, "candidatos": [_candidato(m) for m in encontrados]}
+    if hint := hint_busqueda(resultado):
+        salida["_hint"] = hint
     if not encontrados:
         return {**salida, "estado": "no_encontrado"}
     primero = resultado.matches[0] if resultado.matches else None
@@ -84,6 +127,31 @@ def _normalizar(texto: str | None) -> str:
     return "".join(c for c in unicodedata.normalize("NFD", texto.lower().strip()) if unicodedata.category(c) != "Mn")
 
 
+def _parecidas(buscado: str, opciones: set[str], tope: int = 3) -> list[str]:
+    """Las opciones del catálogo que más se parecen a lo que escribió el cliente («fidelit» → FIDELITE)."""
+    clave = _normalizar(buscado)
+    puntuadas = []
+    for opcion in opciones:
+        normal = _normalizar(opcion)
+        if clave in normal:
+            valor = 1.0
+        else:
+            valor = max((busqueda_service.parecido(clave, palabra) for palabra in normal.split()), default=0.0)
+        if valor >= busqueda_service.MIN_PALABRA_SUGERENCIA:
+            puntuadas.append((-valor, opcion))
+    return [opcion for _, opcion in sorted(puntuadas)[:tope]]
+
+
+def _hint_sin_resultados(que: str, buscado: str, opciones: set[str]) -> str:
+    parecidas = _parecidas(buscado, opciones)
+    if parecidas:
+        return (
+            f"No hay {que} «{buscado}». Las más parecidas del catálogo: {', '.join(parecidas)}. Si es una de esas, "
+            "volvé a llamar con ese nombre; si no, avisale al cliente que no la trabajás."
+        )
+    return f"No hay {que} «{buscado}» ni otra parecida en el catálogo: avisale al cliente que no la trabajás."
+
+
 def explorar_catalogo(
     brand: str | None = None,
     category: str | None = None,
@@ -99,13 +167,16 @@ def explorar_catalogo(
         matched = [p for p in products if c_norm in _normalizar(p.category or "")]
         marcas = sorted({p.brand for p in matched if p.brand})
         cat_nombre = matched[0].category if matched else category
-        return {
+        salida = {
             "tipo_consulta": "marcas_por_categoria",
             "categoria": cat_nombre,
             "total_marcas": len(marcas),
             "marcas": marcas,
             "total_productos": len(matched),
         }
+        if not matched:
+            salida["_hint"] = _hint_sin_resultados("categoría", category, {p.category for p in products if p.category})
+        return salida
 
     # Caso 2: Solo marca (ej. ¿qué tenés de Fidelité?)
     if b_norm and not c_norm:
@@ -116,6 +187,7 @@ def explorar_catalogo(
                 "marca": brand,
                 "total_productos": 0,
                 "mensaje": f"No se encontraron productos de la marca '{brand}'.",
+                "_hint": _hint_sin_resultados("marca", brand, {p.brand for p in products if p.brand}),
             }
         cats = Counter(p.category or "Otros" for p in matched)
         marca_real = matched[0].brand or brand
@@ -132,7 +204,7 @@ def explorar_catalogo(
             p for p in products
             if b_norm in _normalizar(p.brand or "") and c_norm in _normalizar(p.category or "")
         ]
-        return {
+        salida = {
             "tipo_consulta": "productos_por_marca_y_categoria",
             "marca": brand,
             "categoria": category,
@@ -148,6 +220,15 @@ def explorar_catalogo(
                 for p in matched[:limit]
             ],
         }
+        if not matched:
+            de_la_marca = {p.category for p in products if p.category and b_norm in _normalizar(p.brand or "")}
+            de_esa_marca = (
+                f"De esa marca hay: {', '.join(sorted(de_la_marca))}."
+                if de_la_marca
+                else _hint_sin_resultados("marca", brand, {p.brand for p in products if p.brand})
+            )
+            salida["_hint"] = f"No hay productos de «{brand}» en «{category}». {de_esa_marca}"
+        return salida
 
     # Caso 4: General (sin filtros)
     cats = Counter(p.category or "Otros" for p in products)

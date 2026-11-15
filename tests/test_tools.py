@@ -342,3 +342,31 @@ def test_mensaje_largo_solo_con_dudas():
     assert RespondToCustomerInput(kind="aclaracion", message=largo, pendientes=[{"renglon": 1, "opciones": []}])
     with pytest.raises(ValidationError):
         RespondToCustomerInput(kind="aclaracion", message=largo * 2, pendientes=[{"renglon": 1, "opciones": []}])
+
+
+def test_explorar_catalogo_marca_no_encontrada_sugiere_la_parecida():
+    res = catalog_tools.explorar_catalogo(brand="pantenne")
+    assert res["tipo_consulta"] == "marca_no_encontrada"
+    assert "Pantene" in res["_hint"]
+    res = catalog_tools.explorar_catalogo(brand="marca_inexistente_xyz")
+    assert "ni otra parecida" in res["_hint"]
+
+
+def test_explorar_catalogo_categoria_inexistente_sugiere_la_parecida():
+    res = catalog_tools.explorar_catalogo(category="champu")
+    assert res["total_productos"] == 0
+    assert "Shampoo" in res["_hint"]
+
+
+def test_get_product_inexistente_explica_como_seguir():
+    ctx = tool_registry.TurnContext(customer_id="c", channel=Channel.WEB, disponibles=["get_product"])
+    result = tool_registry.execute("get_product", {"sku": "NO-EXISTE"}, ctx)
+    assert result["data"]["product"] is None
+    assert "search_products" in result["data"]["_hint"]
+
+
+def test_search_products_sin_coincidencias_trae_hint():
+    ctx = tool_registry.TurnContext(customer_id="c", channel=Channel.WEB, disponibles=["search_products"])
+    result = tool_registry.execute("search_products", {"query": "kerastase elixir"}, ctx)
+    assert result["data"]["matches"] == []
+    assert "«kerastase»" in result["data"]["_hint"]

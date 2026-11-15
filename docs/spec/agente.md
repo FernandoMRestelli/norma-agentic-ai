@@ -110,7 +110,7 @@ sequenceDiagram
     O->>M: prepare(mensaje)
     M-->>O: texto (+ origen: texto / audio / imagen)
     O->>A: handle(contexto del turno)
-    loop hasta una tool terminal (máx. 8 iteraciones)
+    loop hasta una tool terminal (máx. 50 iteraciones)
         A->>L: instrucciones + contexto + historial + tools permitidas
         L-->>A: tool calls
         A->>T: ejecutar con contexto inyectado
@@ -125,8 +125,12 @@ sequenceDiagram
 Reglas del loop:
 
 1. **Cada turno termina con exactamente una tool terminal** (§4.2). Ese resultado decide la transición de estado.
-2. **Máximo 8 iteraciones y 60 s** LLM ↔ tools por turno (RNF-16). Si se alcanza sin tool terminal, el turno termina con
-   un mensaje fijo de disculpa y suma una falla a la conversación (§6).
+2. **Máximo 50 iteraciones y 300 s** LLM ↔ tools por turno (RNF-16), configurables con `AGENT_MAX_ITERATIONS` y
+   `AGENT_MAX_SECONDS_PER_TURN`. Un turno es la respuesta a un mensaje del cliente: la conversación no tiene tope. Si se
+   alcanza sin tool terminal, el turno **cierra con lo encontrado**: el modelo recibe solo `respond_to_customer` y un
+   aviso en el estado actual, y tiene 2 iteraciones más para responder con lo que ya buscó (lo resuelto en
+   `propuesta`, lo que falta en `pendientes`, lo que no se trabaja en `afuera`). Solo si tampoco responde, el turno
+   termina con un mensaje fijo de disculpa y suma una falla a la conversación (§6).
 3. Si el LLM responde **solo texto** sin llamar a una tool terminal, se trata como
    `respond_to_customer(kind="informacion")`, descarta la propuesta y queda registrado como advertencia.
 4. Las tools de lectura se pueden llamar varias veces en un turno. Las terminales, una sola vez: la primera
@@ -163,8 +167,9 @@ con esas 3 unidades (§5).
 
 > **Riesgo:** cada lectura suma una llamada al LLM, con todo el contexto. Hay que medir que el camino normal cumpla
 > el p95 de 10 s (RNF-06). Un turno que agota el tope puede tardar varios minutos con la conversación bloqueada
-> (el plazo de 60 s se controla entre una llamada y la siguiente, y cada llamada puede tardar hasta 30 s más un
-> reintento), y en el free tier de Gemini consume hasta 8 requests (RNF-16).
+> (el plazo de 300 s se controla entre una llamada y la siguiente, y cada llamada puede tardar hasta 30 s más un
+> reintento), y en el free tier consume hasta 52 requests con el cierre (RNF-16); con modelos de unos 5 s por llamada, 50 iteraciones son unos 250 s, así que los dos topes quedan parejos. Si el proveedor limita los requests
+> por minuto, bajar `AGENT_MAX_ITERATIONS`.
 
 ### 3.2 El grafo
 
@@ -192,7 +197,7 @@ flowchart TD
 | Nodo | Qué hace |
 |---|---|
 | `encaminar` | Abre el turno. Si el mensaje no admite dudas, lee la skill antes de la primera llamada al LLM: su texto va en el contexto y sus tools quedan habilitadas (RF-62) |
-| `descubrir_tools` | Calcula las tools permitidas: las de base más las de las skills leídas en el turno. Corta al llegar a 8 iteraciones o a los 60 s (RNF-16) |
+| `descubrir_tools` | Calcula las tools permitidas: las de base más las de las skills leídas en el turno. Al llegar al tope de iteraciones o al plazo (RNF-16) deja solo `respond_to_customer` para cerrar con lo encontrado; si el cierre tampoco responde, corta |
 | `llm` | Arma el contexto (§8) y llama al modelo solo con esas tools. Guarda el `AIMessage` completo para conservar las firmas de Gemini |
 | `tools` | Rechaza lo no permitido, inyecta los datos del backend, ejecuta y guarda los resultados en el sobre común |
 | `pausa` | Devuelve el mensaje con `interrupt()` y espera. Al retomar, agrega el mensaje del cliente y reinicia iteraciones y skills |
@@ -205,7 +210,7 @@ flowchart TD
   los checkpoints estén en SQLite. La conexión espera hasta 15 s si otro proceso, como el bot, está escribiendo.
 - **Salidas por `END`:** un pedido registrado cierra la conversación. Una segunda falla la marca `fallida`, y el
   mensaje siguiente abre otra.
-- **`recursion_limit`:** es solo una red de seguridad. El tope real es el contador de 8 iteraciones.
+- **`recursion_limit`:** es solo una red de seguridad. El tope real es el contador de iteraciones (`AGENT_MAX_ITERATIONS`, 50 por defecto, más 2 para el cierre).
 - **Tool obligatoria:** cada llamada al modelo lleva `tool_choice="any"` (RF-61). El camino de texto suelto queda
   para un proveedor que no lo respete.
 - **BR junto al resultado:** cuando el resultado de una tool lleva a una sola BR (`sugerencias` o `aproximado` →
@@ -496,7 +501,8 @@ El cliente confirma conversando (RF-13). El LLM interpreta si aceptó, pero **no
 | Una tool devuelve `ok: false` | El error vuelve al LLM en la misma iteración para que corrija. Cada `error.message` dice qué hacer (p. ej. buscar de nuevo), así el system prompt no repite la lista de errores | Sin cambio |
 | Argumentos que no cumplen el esquema | Error `argumentos_invalidos` al LLM, con el detalle de pydantic | Sin cambio |
 | El LLM falla o tarda más de 30 s | 1 reintento. Si vuelve a fallar: mensaje fijo «Tuve un problema, probá de nuevo en unos minutos» y +1 falla | Sin cambio |
-| Se alcanzan 8 iteraciones o 60 s sin tool terminal | Mensaje fijo de disculpa y +1 falla | Sin cambio |
+| Se alcanzan 50 iteraciones o 300 s sin tool terminal | El modelo cierra con lo encontrado usando solo `respond_to_customer` | Según la respuesta |
+| Tampoco responde en las 2 iteraciones del cierre | Mensaje fijo de disculpa y +1 falla | Sin cambio |
 | El LLM pide una tool que su skill no permite | Error `tool_no_permitida` al LLM, sin ejecutarla | Sin cambio |
 | Audio o imagen sin texto útil (transcripción u OCR vacíos o fallidos) | Sin llamar al LLM: «No pude entender el audio / la imagen, ¿me lo escribís?» | Sin cambio |
 | Catálogo no disponible al buscar | Se usa la última copia en caché si tiene menos de 1 h; si no, `catalogo_no_disponible` | Sin cambio |

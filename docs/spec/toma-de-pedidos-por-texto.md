@@ -229,6 +229,7 @@ directo al cliente. Los guardrails atajan ese texto, pero cada rechazo es otra l
    | Sin propuesta vigente y el mensaje es solo un saludo o un agradecimiento | `informar` |
    | Sin propuesta vigente y el mensaje tiene dos renglones o más, o una cantidad | `tomar_pedido` |
    | Con propuesta vigente y un mensaje de hasta 3 palabras sin números | `confirmar_pedido` |
+   | Con propuesta vigente y un mensaje de dos renglones o más (un pedido nuevo o cambios sobre la propuesta) | `tomar_pedido` |
    | Cualquier otro caso | Ninguna: elige el modelo, como hoy |
 
    El modelo puede leer otra skill si la preactivada no corresponde. Las skills siguen en el repo y el modelo
@@ -253,8 +254,11 @@ directo al cliente. Los guardrails atajan ese texto, pero cada rechazo es otra l
    lista otras que son aceptación pura: «dale», «sí», «listo», «de una», «mandale». Si el mensaje completo,
    normalizado, es una de esas, el backend registra la propuesta. La lista vive en un solo lugar,
    `palabras_clave.py`, y la BR-06 la cita. «¡Dale!» y «listo.» cuentan; «ok?» y «sí...» no, porque dudan.
-5. **Presupuesto del turno (RNF-16).** Tope de 8 iteraciones en lugar de 15 y un plazo total de 60 s por turno.
-   El plazo se controla entre una iteración y la siguiente: no corta una llamada al LLM que ya empezó.
+5. **Presupuesto del turno (RNF-16).** Tope de 50 iteraciones y un plazo total de 300 s por turno, configurables
+   (`AGENT_MAX_ITERATIONS`, `AGENT_MAX_SECONDS_PER_TURN`). El plazo se controla entre una iteración y la siguiente: no
+   corta una llamada al LLM que ya empezó. Al agotarse, el turno cierra respondiendo con lo encontrado en vez de
+   mandar el mensaje de falla. El primer corte era de 8 iteraciones y 60 s: con un modelo free tier, un pedido de 7
+   renglones sin skill activa llegaba al tope buscando y el cliente recibía solo «Tuve un problema».
 
 ```mermaid
 flowchart TD
@@ -599,7 +603,7 @@ Todos están implementados en las ramas de [§10.1](#101-estado-de-implementaci�
 | RF-78 | M5 | El CSV neutraliza los textos que empiezan como fórmula y actualiza un encabezado viejo; la hoja Líneas del Excel trae la nota |
 | RF-79 | M5 | El origen del mensaje (`texto`, `audio`, `imagen`) viaja del canal a la orden |
 | RNF-15 | M1 | Umbral de release sobre el set de RF-59: recall por línea ≥ 95 %, precisión ≥ 98 %, 0 registros indebidos y 0 líneas perdidas. Los números se ajustan con la primera corrida (D-28) |
-| RNF-16 | M2 | Presupuesto del turno: hasta 2 llamadas al LLM en el camino normal, tope de 8 iteraciones y 60 s en total |
+| RNF-16 | M2 | Presupuesto del turno: hasta 2 llamadas al LLM en el camino normal, tope de 50 iteraciones y 300 s en total (configurables); al agotarse, el turno cierra respondiendo con lo encontrado |
 
 ## 7. Criterios de aceptación
 

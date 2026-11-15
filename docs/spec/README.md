@@ -525,7 +525,7 @@ Detalle en la [spec del canal](canal-telegram.md).
 | RNF-09 | Portabilidad | Cambiar de proveedor de LLM es sumar su modelo de LangChain en `agent/llm.py`; cambiar Google Sheets por el sistema real es reemplazar `sheets_service` |
 | RNF-10 | Despliegue | Producción corre la imagen de una release; el código y los valores por defecto van en la imagen, y cambiarlos es una release. Fuera de la imagen quedan solo el `.env` (secretos y variables de entorno, como el modelo de LLM o la ruta del catálogo) y los datos ([CONTRIBUTING](../../CONTRIBUTING.md#producción)) |
 | RNF-11 | Experiencia | Español rioplatense, breve y amable; una pregunta por vez; mensajes de WhatsApp dentro de los límites del canal |
-| RNF-12 | Costo | Máximo 8 iteraciones y 60 s por turno (RNF-16), historial acotado a 20 mensajes y catálogo fuera del contexto (D-07) |
+| RNF-12 | Costo | Máximo 50 iteraciones y 300 s por turno (RNF-16), historial acotado a 20 mensajes y catálogo fuera del contexto (D-07) |
 | RNF-13 | Caché | El catálogo se cachea 5 min para buscar (hasta 1 h si Google no responde); la confirmación siempre lee fresco |
 | RNF-14 | Seguridad | El token del bot de Telegram y las API keys no aparecen en logs, URLs guardadas ni datos persistidos |
 
@@ -668,7 +668,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | D-04 | ¿El resumen muestra precios y total? | **Tomada** | Sí: el resumen del borrador (`build_summary`), el detalle debajo de cada propuesta (`build_proposal_detail`) y el mensaje de la orden registrada (`build_order_message`) incluyen precio unitario, subtotal y total cuando están en el catálogo. Los arma `validation_service`, no el LLM ([§5.3](#53-borrador-orderdraft-orderitem)) |
 | D-05 | Identidad del cliente en el chat web | **Abierta** | Propuesta: un id anónimo que genera el backend y el navegador guarda; sin cuentas de usuario |
 | D-06 | Dónde se cambia el estado de una orden | **Tomada** | En el dashboard: la base es la fuente y el cambio se copia al CSV de pedidos y a Sheet 2 (RF-81). Un cambio hecho a mano en Sheet 2 no vuelve a la base |
-| D-07 | Parámetros del agente | Tomada en esta spec, a revisar | 8 iteraciones y 60 s por turno (eran 15; RNF-16), 20 mensajes de historial, 24 h de vencimiento y de silencio tras derivar, 2 fallas o 3 aclaraciones para derivar, 30 s de timeout, caché de 5 min; se ajustan con uso real |
+| D-07 | Parámetros del agente | Tomada en esta spec, a revisar | 50 iteraciones y 300 s por turno, configurables (fueron 15 y después 8; RNF-16), 20 mensajes de historial, 24 h de vencimiento y de silencio tras derivar, 2 fallas o 3 aclaraciones para derivar, 30 s de timeout, caché de 5 min; se ajustan con uso real |
 | D-08 | Retención de conversaciones | **Abierta** | Propuesta: 90 días |
 | D-09 | BR usadas por varias skills | Cerrada | No hay BR compartidas: las que se usan juntas (BR-01, BR-03, BR-04 y BR-05) quedaron en `tomar_pedido`, y BR-02 está en el system prompt. Si otra skill necesita una, lee `tomar_pedido`, como ya hace `confirmar_pedido` con BR-01 |
 | D-10 | Trazas y evaluación del agente | **Tomada en parte**: MLflow, apagado por defecto y solo en desarrollo (`docker compose --profile mlflow`), sin el texto de los mensajes | Producción sigue abierta: el servidor de MLflow no tiene login y la retención de las trazas depende de D-08 |

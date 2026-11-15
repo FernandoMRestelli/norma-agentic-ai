@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     telegram_webhook_secret: str | None = None  # header X-Telegram-Bot-Api-Secret-Token
     telegram_allowed_user_ids: str = ""  # ids numéricos separados por coma
 
+    # Presupuesto de un turno del agente (RNF-16): un turno es la respuesta a un mensaje del cliente, no la
+    # conversación. Al llegar a cualquiera de los dos topes el agente cierra con lo que ya encontró
+    agent_max_iterations: int = 50
+    agent_max_seconds_per_turn: float = 300.0
+
     # Segundos que el canal espera más mensajes del mismo cliente antes de abrir el turno (RF-74, D-26). 0: no espera
     message_group_seconds: float = 0.0
 

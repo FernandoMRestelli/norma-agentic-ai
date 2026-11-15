@@ -131,6 +131,13 @@ def _current_state(state: EstadoNorma) -> str:
     if opciones := _opciones_previas(state.get("opciones_previas") or []):
         lines.append(f"Opciones que le ofreciste en tu mensaje anterior: {opciones}")
     lines += _renglones(state.get("renglones") or [])
+    if state.get("cierre_desde") is not None:
+        lines.append(
+            "Aviso: se terminó el tiempo para buscar en este turno. Respondé ahora con `respond_to_customer` usando "
+            "solo lo que ya encontraste en las búsquedas: lo identificado y con stock va en `propuesta`, lo que te "
+            "falta averiguar va en `pendientes` como pregunta al cliente y lo que no se trabaja en `afuera`. No "
+            "propongas un producto que no apareció en una búsqueda."
+        )
     messages = state.get("messages", [])
     start = state.get("inicio_turno", 0)
     if start < len(messages) and guardrails.detectar_intento(messages[start].text):

@@ -15,6 +15,7 @@ from langgraph.types import interrupt
 
 from internal.agent import context, guardrails, observabilidad, tool_registry
 from internal.agent.state import EstadoNorma
+from internal.config import get_settings
 from internal.schemas.order_schema import Channel, ConfirmationAction, OrderDraft
 from internal.services import interpretation_service, inventory_service
 from internal.services.palabras_clave import es_saludo, interpretar_palabra_clave
@@ -22,15 +23,28 @@ from internal.services.skill_service import get_skills
 
 logger = logging.getLogger(__name__)
 
-MAX_ITERATIONS = 8  # RNF-16 (antes 15, D-07)
-MAX_SEGUNDOS_TURNO = 60.0  # RNF-16: plazo total de un turno, se controla entre una iteración y la siguiente
+# RNF-16: el presupuesto de un turno sale de AGENT_MAX_ITERATIONS y AGENT_MAX_SECONDS_PER_TURN (config.py). El plazo
+# se controla entre una iteración y la siguiente. Al agotarse, el turno no falla: cierra respondiendo
+ITERACIONES_CIERRE = 2  # para responder con lo encontrado; la segunda es por si el validador rechaza la primera
+TOOL_CIERRE = "respond_to_customer"
 MAX_FAILURES = 2  # D-07
 # Con una propuesta vigente, un mensaje así de corto y sin números casi siempre la acepta, la rechaza o duda
 MAX_PALABRAS_RESPUESTA_A_PROPUESTA = 3
 _reloj = time.time  # los tests lo reemplazan para no esperar
 FAILURE_MESSAGE = "Tuve un problema, probá de nuevo en unos minutos."
-# Cada iteración pasa por tres nodos. Es una red de seguridad: el tope real es MAX_ITERATIONS
-RECURSION_LIMIT = MAX_ITERATIONS * 3 + 12
+
+
+def max_iteraciones() -> int:
+    return get_settings().agent_max_iterations
+
+
+def max_segundos_turno() -> float:
+    return get_settings().agent_max_seconds_per_turn
+
+
+def recursion_limit() -> int:
+    """Cada iteración pasa por tres nodos. Es una red de seguridad: el tope real es `max_iteraciones()`."""
+    return (max_iteraciones() + ITERACIONES_CIERRE) * 3 + 12
 
 
 def _failure(state: EstadoNorma) -> dict[str, Any]:
@@ -66,12 +80,15 @@ def _registrar_intento(state: EstadoNorma, config: RunnableConfig) -> None:
 def skill_clara(texto: str, hay_propuesta: bool) -> str | None:
     """La skill del turno cuando el mensaje no admite dudas; None si tiene que elegir el modelo (RF-62)."""
     tiene_numero = any(caracter.isdigit() for caracter in texto)
+    renglones = sum(bool(linea.strip()) for linea in texto.splitlines())
     if hay_propuesta:
         corto = len(texto.split()) <= MAX_PALABRAS_RESPUESTA_A_PROPUESTA
-        return "confirmar_pedido" if corto and not tiene_numero else None
+        if corto and not tiene_numero:
+            return "confirmar_pedido"
+        # Una lista es un pedido nuevo o cambios sobre la propuesta: los dos los resuelve tomar_pedido
+        return "tomar_pedido" if renglones >= 2 else None
     if es_saludo(texto):
         return "informar"
-    renglones = sum(bool(linea.strip()) for linea in texto.splitlines())
     return "tomar_pedido" if renglones >= 2 or tiene_numero else None
 
 
@@ -94,6 +111,7 @@ def encaminar(state: EstadoNorma) -> dict[str, Any]:
         "skill_preactivada": skill,
         "br_entregadas": [],
         "turno_desde": _reloj(),
+        "cierre_desde": None,
         "renglones": renglones + nuevos,
     }
 
@@ -119,12 +137,24 @@ def _numerar(texto: str, renglones: list[dict[str, Any]]) -> list[dict[str, Any]
 def descubrir_tools(state: EstadoNorma, config: RunnableConfig) -> dict[str, Any]:
     if not state.get("iteraciones"):
         _registrar_intento(state, config)
-    if state.get("iteraciones", 0) >= MAX_ITERATIONS:
-        logger.warning("Agente: se alcanzó el tope de %d iteraciones", MAX_ITERATIONS)
-        return _failure(state)
-    if _reloj() - state.get("turno_desde", _reloj()) > MAX_SEGUNDOS_TURNO:
-        logger.warning("Agente: el turno pasó el plazo de %d s", MAX_SEGUNDOS_TURNO)
-        return _failure(state)
+    iteraciones = state.get("iteraciones", 0)
+    if (cierre_desde := state.get("cierre_desde")) is not None:
+        if iteraciones >= cierre_desde + ITERACIONES_CIERRE:
+            logger.warning("Agente: tampoco pudo responder después de agotar el presupuesto del turno")
+            return _failure(state)
+        return {"tools_disponibles": [TOOL_CIERRE]}
+    motivo = None
+    if iteraciones >= max_iteraciones():
+        motivo = "iteraciones"
+        logger.warning("Agente: se alcanzó el tope de %d iteraciones, cierra con lo encontrado", max_iteraciones())
+    elif _reloj() - state.get("turno_desde", _reloj()) > max_segundos_turno():
+        motivo = "plazo"
+        logger.warning("Agente: el turno pasó el plazo de %d s, cierra con lo encontrado", max_segundos_turno())
+    if motivo:
+        # En vez de cortar con el mensaje de falla, el modelo responde con lo que ya averiguó (RNF-16)
+        with observabilidad.paso("cierre", "CHAIN", motivo=motivo, iteraciones=iteraciones):
+            pass
+        return {"cierre_desde": iteraciones, "tools_disponibles": [TOOL_CIERRE]}
     return {"tools_disponibles": tool_registry.available(state.get("skills_activas", []))}
 
 
@@ -257,6 +287,7 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             "inicio_turno": len(state["messages"]),
             "skills_activas": [],
             "iteraciones": 0,
+            "cierre_desde": None,
             "falla_turno": False,
             "respuesta": None,
             "kind": None,
