@@ -14,7 +14,7 @@ from langgraph.errors import GraphRecursionError
 from langgraph.types import Command
 
 from internal.agent import context, observabilidad
-from internal.agent.graph import FAILURE_MESSAGE, RECURSION_LIMIT, build_graph
+from internal.agent.graph import FAILURE_MESSAGE, build_graph, recursion_limit
 from internal.agent.llm import get_chat_model
 from internal.agent.state import EstadoNorma
 from internal.config import get_settings
@@ -76,7 +76,7 @@ class NormaAgent:
     def _run(
         self, thread_id: str, customer_id: str, channel: Channel, text: str, customer_name: str | None, origen: str
     ) -> tuple[AgentOutcome, EstadoNorma]:
-        config = {"configurable": {"thread_id": thread_id}, "recursion_limit": RECURSION_LIMIT}
+        config = {"configurable": {"thread_id": thread_id}, "recursion_limit": recursion_limit()}
         if self.graph.get_state(config).next == ("pausa",):
             entry: Command | EstadoNorma = Command(resume={"texto": text, "origen": origen})
         else:
