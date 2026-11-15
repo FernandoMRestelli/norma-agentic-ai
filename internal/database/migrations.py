@@ -106,9 +106,15 @@ def _step_2_lineas_para_preparar(conn: Connection) -> None:
     _add_column(conn, "drafts", "leftovers", "JSON")
 
 
+def _step_3_stock_aplicado(conn: Connection) -> None:
+    """2 → 3: `orders.stock_applied`, para no reservar el stock de una orden ya descontada del catálogo (Issue #61)."""
+    _add_column(conn, "orders", "stock_applied", "BOOLEAN NOT NULL DEFAULT 0")
+
+
 STEPS: list[tuple[int, Callable[[Connection], None]]] = [
     (1, _step_1_detalle_de_ordenes),
     (2, _step_2_lineas_para_preparar),
+    (3, _step_3_stock_aplicado),
 ]
 LATEST = STEPS[-1][0]
 

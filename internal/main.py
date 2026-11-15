@@ -5,10 +5,12 @@ import contextlib
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 
-from internal.api import chat, orders, telegram_webhook, whatsapp_webhook
+from internal.api import chat, dashboard, orders, telegram_webhook, whatsapp_webhook
 from internal.config import get_settings
 from internal.services import conversation_service, order_service
 
@@ -33,6 +35,9 @@ async def reintentar_pedidos_pendientes(intervalo: float) -> None:
         if synced:
             logger.info("Reintento de pedidos: %d órdenes llegaron a la planilla", synced)
 
+ROOT_DIR = Path(__file__).resolve().parent.parent
+DASHBOARD_HTML_PATH = ROOT_DIR / "frontend" / "src" / "Dashboard" / "index.html"
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -50,6 +55,7 @@ app = FastAPI(title="Norma Agentic AI", version=get_settings().app_version, life
 
 app.include_router(chat.router)
 app.include_router(orders.router)
+app.include_router(dashboard.router)
 app.include_router(whatsapp_webhook.router)
 app.include_router(telegram_webhook.router)
 
@@ -57,3 +63,11 @@ app.include_router(telegram_webhook.router)
 @app.get("/health", tags=["health"])
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/dashboard/ui", response_class=HTMLResponse, include_in_schema=False)
+@app.get("/dashboard/app", response_class=HTMLResponse, include_in_schema=False)
+def dashboard_ui() -> HTMLResponse:
+    if DASHBOARD_HTML_PATH.is_file():
+        return HTMLResponse(content=DASHBOARD_HTML_PATH.read_text(encoding="utf-8"))
+    return HTMLResponse(content="<h1>Dashboard UI no encontrado</h1>", status_code=404)

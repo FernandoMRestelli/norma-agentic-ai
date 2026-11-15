@@ -488,7 +488,8 @@ def test_migra_una_base_de_la_version_1(tmp_path):
     engine.dispose()
     with sqlite3.connect(path) as conn:  # vuelve la base a como la dejaba la migración 1
         for tabla, columna in (("order_items", "brand"), ("order_items", "category"), ("order_items", "match"),
-                               ("order_items", "source_text"), ("orders", "source"), ("drafts", "leftovers")):
+                               ("order_items", "source_text"), ("orders", "source"), ("orders", "stock_applied"),
+                               ("drafts", "leftovers")):
             conn.execute(f"ALTER TABLE {tabla} DROP COLUMN {columna}")
         conn.execute("DROP TABLE order_leftovers")
         conn.execute("UPDATE schema_version SET version = 1")
@@ -503,10 +504,10 @@ def test_migra_una_base_de_la_version_1(tmp_path):
         )
 
     engine = make_engine(f"sqlite:///{path}")
-    assert init_db(engine) == LATEST == 2
+    assert init_db(engine) == LATEST == 3
 
     with sqlite3.connect(path) as conn:
-        assert conn.execute("SELECT version FROM schema_version").fetchall() == [(2,)]
+        assert conn.execute("SELECT version FROM schema_version").fetchall() == [(3,)]
         linea = conn.execute("SELECT sku, quantity, note, brand, match, source_text FROM order_items").fetchall()
         assert linea == [("SH-1", 2, "tono 7", None, None, None)]
         orden = conn.execute("SELECT order_id, status, source FROM orders").fetchall()

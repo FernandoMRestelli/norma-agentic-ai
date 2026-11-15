@@ -235,7 +235,9 @@ class ConfirmationAction(StrEnum):
 class OrderStatus(StrEnum):
     RECEIVED = "Recibido"
     PREPARED = "Preparado"
+    DISPATCHED = "Despachado"
     PICKED_UP = "Retirado"
+    DELIVERED = "Entregado"
     CANCELLED = "Cancelado"
 
 
@@ -265,6 +267,7 @@ class Order(BaseModel):
     total: Decimal | None = None  # siempre Decimal después de validar: si no viene, sale de las líneas
     status: OrderStatus = OrderStatus.RECEIVED
     sheets_synced: bool = False
+    stock_applied: bool = False  # el stock ya se descontó del catálogo al despachar o retirar (Issue #61)
     history: list[OrderEvent] = Field(default_factory=list)
     leftovers: list[Leftover] = Field(default_factory=list)
     source: str | None = None  # None en una orden anterior a la migración 2

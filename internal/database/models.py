@@ -67,6 +67,8 @@ class OrderRecord(Base):
     conversation_id: Mapped[int | None] = mapped_column(Integer, index=True)
     total: Mapped[Decimal | None] = mapped_column(DecimalText)
     source: Mapped[str | None] = mapped_column(String)  # texto, audio o imagen (migración 2, RF-79)
+    # Agregada en la migración 3: el stock ya se descontó del catálogo al despachar o retirar (Issue #61)
+    stock_applied: Mapped[bool] = mapped_column(default=False, server_default="0")
 
     leftovers: Mapped[list["OrderLeftoverRecord"]] = relationship(
         back_populates="order",
