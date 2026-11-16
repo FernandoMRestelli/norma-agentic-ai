@@ -58,6 +58,7 @@ class DashboardConversationItem(BaseModel):
     customer_id: str
     channel: str
     status: str
+    derivation_reason: str | None = None
     created_at: datetime
     updated_at: datetime
 

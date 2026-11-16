@@ -178,7 +178,8 @@ def _responder(message: IncomingMessage, chat_id: int, client: TelegramClient, r
     """Le pasa el mensaje al orquestador y manda la respuesta; si algo falla, avisa con un mensaje fijo."""
     try:
         reply = conversation_service.handle_message(message)
-        client.send_message(chat_id, reply.text)
+        if reply and reply.text:
+            client.send_message(chat_id, reply.text)
     except Exception:
         logger.exception("Telegram: error procesando el update %s", referencia)
         try:

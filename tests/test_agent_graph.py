@@ -11,7 +11,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from sqlalchemy import delete, func, select
 
 from internal.agent import context, graph, norma_agent, tool_registry
-from internal.agent.graph import FAILURE_MESSAGE
+from internal.agent.graph import FAILURE_MESSAGE, HANDOFF_MESSAGE
 from internal.agent.norma_agent import NormaAgent
 from internal.database.connection import SessionLocal, init_db
 from internal.database.models import ConversationRecord, OrderRecord
@@ -610,12 +610,14 @@ def test_cambia_la_skill_preactivada(catalogo):
 
 
 def test_segunda_falla_termina_la_conversacion(catalogo):
+    """CA-21 / RF-27: tras una segunda falla, deriva a una persona con HANDOFF_MESSAGE y cierra."""
     agent, _ = _agente(RuntimeError("uno"), RuntimeError("dos"))
     primera = agent.handle("1", text="hola", **CLIENTE)
     assert primera.message == FAILURE_MESSAGE
     assert not primera.cerrada
     segunda = agent.handle("1", text="hola?", **CLIENTE)
-    assert segunda.message == FAILURE_MESSAGE
+    assert segunda.message == HANDOFF_MESSAGE
+    assert segunda.kind == "derivada"
     assert segunda.cerrada
 
 
@@ -1142,3 +1144,63 @@ def tool_registry_ctx(customer_id: str):
     return tool_registry.TurnContext(
         customer_id=customer_id, channel=Channel.TELEGRAM, disponibles=list(tool_registry.BASE_TOOLS)
     )
+
+
+def test_solicitud_humano_usa_escalate_to_human(catalogo):
+    """CA-22 / RF-27: cuando el cliente pide hablar con una persona, se deriva la conversación."""
+    agent, _ = _agente(
+        _ai(
+            _call("leer_skill", nombre="derivar_o_cancelar"),
+            _call(
+                "escalate_to_human",
+                reason="solicitud_humano",
+                message="Te comunico con alguien del equipo.",
+            ),
+        )
+    )
+    resultado = agent.handle("1", text="quiero hablar con una persona", **CLIENTE)
+    assert resultado.kind == "derivada"
+    assert resultado.cerrada
+    assert resultado.derivation_reason == "solicitud_humano"
+    assert resultado.message == "Te comunico con alguien del equipo."
+
+
+def test_solicitud_comercial_especial_deriva_a_humano(catalogo):
+    """Issue #84: solicitud de descuento comercial especial se deriva al equipo humano."""
+    agent, _ = _agente(
+        _ai(
+            _call(
+                "escalate_to_human",
+                reason="descuento_por_bulto",
+                message="Los descuentos por cantidad los evalúa el equipo de ventas.",
+            ),
+        )
+    )
+    resultado = agent.handle("1", text="haceme 20% de descuento por 50 cajas", **CLIENTE)
+    assert resultado.kind == "derivada"
+    assert resultado.cerrada
+    assert resultado.derivation_reason == "descuento_por_bulto"
+
+
+def test_tres_aclaraciones_seguidas_sin_borrador_derivan_a_humano(catalogo):
+    """RF-27: tres aclaraciones consecutivas sin borrador derivan a humano automáticamente."""
+    agent, _ = _agente(
+        _ai(_call("respond_to_customer", kind="aclaracion", message="¿Qué marca buscás?")),
+        _ai(_call("respond_to_customer", kind="aclaracion", message="¿Qué medida buscás?")),
+        _ai(_call("respond_to_customer", kind="aclaracion", message="¿Qué variedad buscás?")),
+    )
+    r1 = agent.handle("1", text="1 algo para el pelo", **CLIENTE)
+    assert r1.kind == "aclaracion"
+    assert not r1.cerrada
+
+    r2 = agent.handle("1", text="1 para peinar", **CLIENTE)
+    assert r2.kind == "aclaracion"
+    assert not r2.cerrada
+
+    # 3ra aclaración seguida sin propuesta: deriva automáticamente a humano (RF-27)
+    r3 = agent.handle("1", text="1 cualquiera", **CLIENTE)
+    assert r3.kind == "derivada"
+    assert r3.cerrada
+    assert r3.message == HANDOFF_MESSAGE
+    assert r3.derivation_reason == "aclaraciones_repetidas"
+

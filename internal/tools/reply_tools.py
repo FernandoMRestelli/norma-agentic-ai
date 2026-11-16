@@ -5,8 +5,33 @@ from uuid import uuid4
 
 from internal.schemas.agent_schema import RespondToCustomerInput, ToolFailure
 from internal.schemas.order_schema import Channel, Leftover, OrderDraft
+from internal.services import order_service
 from internal.services.interpretation_service import normalize_items
 from internal.tools.catalog_tools import get_product
+
+DEFAULT_DISCARD_MESSAGE = (
+    "Listo, cancelé la propuesta. Si más adelante querés pedir algo, avisame y arrancamos de nuevo."
+)
+DEFAULT_HANDOFF_MESSAGE = "Te va a responder una persona del equipo."
+
+
+def discard_order_draft(
+    reason: str,
+    vigente: OrderDraft | None,
+    message: str | None = None,
+) -> tuple[str, OrderDraft | None]:
+    """Marca el borrador (si hay) como descartado (RF-26). Resultado del turno: descartado."""
+    if vigente is not None:
+        order_service.discard_draft(vigente)
+    return message or DEFAULT_DISCARD_MESSAGE, None
+
+
+def escalate_to_human(
+    reason: str,
+    message: str | None = None,
+) -> str:
+    """Devuelve el mensaje de derivación a una persona del equipo (RF-27, Issue #84)."""
+    return message or DEFAULT_HANDOFF_MESSAGE
 
 
 def respond_to_customer(

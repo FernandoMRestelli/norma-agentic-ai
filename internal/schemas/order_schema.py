@@ -230,6 +230,7 @@ class OrderDraft(BaseModel):
 class ConfirmationAction(StrEnum):
     CONFIRM = "confirmar"
     CORRECT = "corregir"
+    CANCEL = "cancelar"
 
 
 class OrderStatus(StrEnum):

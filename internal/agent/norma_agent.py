@@ -115,6 +115,7 @@ class NormaAgent:
             iterations=state.get("iteraciones", 0),
             llamadas_sub_loop=state.get("iteraciones_sub_loop", 0),
             cerrada="__interrupt__" not in state,
+            derivation_reason=state.get("derivation_reason"),
         )
         return outcome, state
 

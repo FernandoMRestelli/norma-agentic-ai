@@ -438,6 +438,7 @@ def get_conversations(state: str | None = None) -> list[DashboardConversationIte
                 customer_id=r.customer_id,
                 channel=r.channel,
                 status=r.status,
+                derivation_reason=r.derivation_reason,
                 created_at=r.created_at,
                 updated_at=r.updated_at,
             )
