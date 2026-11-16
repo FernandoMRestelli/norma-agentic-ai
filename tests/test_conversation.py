@@ -360,3 +360,70 @@ def test_vencimiento_no_toca_borrador_de_otra_conversacion(clean_db, monkeypatch
         assert borrador.conversation_id == id_fallida
         assert borrador.status == DraftStatus.PENDING_CONFIRMATION.value
 
+
+def test_cancelacion_deterministica_descarta_borrador_y_cierra_conversacion(clean_db):
+    """RF-26 / CA-23: 'cancelar' descarta el borrador y pasa la conversación a 'descartada' sin tokens."""
+    id1, _ = conversation_service._open_conversation_id("telegram:cancel-1", Channel.TELEGRAM)
+
+    # Creamos un borrador pendiente
+    with SessionLocal() as session:
+        draft = DraftRecord(
+            draft_id="d-cancel-1",
+            version=1,
+            conversation_id=id1,
+            customer_id="telegram:cancel-1",
+            channel=Channel.TELEGRAM.value,
+            items=[{"sku": "P-1", "quantity": 1}],
+            status=DraftStatus.PENDING_CONFIRMATION.value,
+        )
+        session.add(draft)
+        session.commit()
+
+    msg = IncomingMessage(customer_id="telegram:cancel-1", channel=Channel.TELEGRAM, text="cancelar")
+    reply = conversation_service.handle_message(msg)
+
+    assert "cancelé la propuesta" in reply.text.lower()
+
+    with SessionLocal() as session:
+        conv = session.get(ConversationRecord, id1)
+        assert conv.status == "descartada"
+        assert conv.derivation_reason == "cliente_cancelo"
+
+        draft_bd = session.scalar(select(DraftRecord).where(DraftRecord.draft_id == "d-cancel-1"))
+        assert draft_bd.status == DraftStatus.DISCARDED.value
+
+    # Siguiente mensaje abre una conversación nueva
+    id2, _ = conversation_service._open_conversation_id("telegram:cancel-1", Channel.TELEGRAM)
+    assert id2 != id1
+    with SessionLocal() as session:
+        assert session.get(ConversationRecord, id2).status == "abierta"
+
+
+def test_derivada_a_humano_silencia_al_bot_durante_24h(clean_db, monkeypatch):
+    """RF-27 / CA-21 / CA-22: tras derivación a humano, el bot no responde por 24 h y luego abre nueva conversación."""
+    t0 = datetime(2026, 11, 10, 10, 0, tzinfo=UTC)
+    reloj = [t0]
+    monkeypatch.setattr(conversation_service, "_clock", lambda: reloj[0])
+
+    id1, _ = conversation_service._open_conversation_id("telegram:deriv-1", Channel.TELEGRAM)
+    conversation_service._close_conversation(id1, "derivada", reason="solicitud_humano")
+
+    with SessionLocal() as session:
+        conv = session.get(ConversationRecord, id1)
+        assert conv.status == "derivada"
+        assert conv.derivation_reason == "solicitud_humano"
+
+    # Cliente escribe 2 horas después: el bot se mantiene en silencio (RF-27)
+    reloj[0] = t0 + timedelta(hours=2)
+    msg = IncomingMessage(customer_id="telegram:deriv-1", channel=Channel.TELEGRAM, text="hola")
+    reply = conversation_service.handle_message(msg)
+    assert reply.text == ""
+
+    # Pasan 24 horas y 1 minuto: expira el silencio y se abre una nueva conversación
+    reloj[0] = t0 + timedelta(hours=24, minutes=1)
+    id2, _ = conversation_service._open_conversation_id("telegram:deriv-1", Channel.TELEGRAM)
+    assert id2 != id1
+    with SessionLocal() as session:
+        assert session.get(ConversationRecord, id2).status == "abierta"
+
+

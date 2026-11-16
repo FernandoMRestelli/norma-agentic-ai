@@ -26,7 +26,13 @@ from internal.agent.state import EstadoNorma
 from internal.config import get_settings
 from internal.schemas.order_schema import Channel, ConfirmationAction, OrderDraft
 from internal.services import interpretation_service, inventory_service
-from internal.services.palabras_clave import es_saludo, interpretar_palabra_clave
+from internal.services.palabras_clave import (
+    es_cancelacion,
+    es_pedido_humano,
+    es_saludo,
+    es_solicitud_comercial,
+    interpretar_palabra_clave,
+)
 from internal.services.skill_service import get_skills
 
 logger = logging.getLogger(__name__)
@@ -40,6 +46,7 @@ MAX_FAILURES = 2  # D-07
 MAX_PALABRAS_RESPUESTA_A_PROPUESTA = 3
 _reloj = time.time  # los tests lo reemplazan para no esperar
 FAILURE_MESSAGE = "Tuve un problema, probá de nuevo en unos minutos."
+HANDOFF_MESSAGE = "Te va a responder una persona del equipo."
 
 
 def max_iteraciones() -> int:
@@ -56,13 +63,18 @@ def recursion_limit() -> int:
 
 
 def _failure(state: EstadoNorma) -> dict[str, Any]:
-    """Registra una falla. La propuesta sigue vigente: el cliente puede volver a responder."""
+    """Registra una falla. Con 2 o más fallas deriva a una persona (RF-27, CA-21)."""
+    fallas = state.get("fallas", 0) + 1
+    es_handoff = fallas >= MAX_FAILURES
+    msg = HANDOFF_MESSAGE if es_handoff else FAILURE_MESSAGE
     return {
-        "fallas": state.get("fallas", 0) + 1,
+        "fallas": fallas,
         "falla_turno": True,
-        "respuesta": FAILURE_MESSAGE,
-        "kind": "error",
-        "messages": [AIMessage(content=FAILURE_MESSAGE)],
+        "respuesta": msg,
+        "kind": "derivada" if es_handoff else "error",
+        "derivation_reason": "fallas_repetidas" if es_handoff else None,
+        "resultado": "final" if es_handoff else "pausar",
+        "messages": [AIMessage(content=msg)],
     }
 
 
@@ -103,6 +115,8 @@ def pregunta_abierta(state: EstadoNorma) -> bool:
 
 def skill_clara(texto: str, hay_propuesta: bool) -> str | None:
     """La skill del turno cuando el mensaje no admite dudas; None si tiene que elegir el modelo (RF-62)."""
+    if es_pedido_humano(texto) or es_solicitud_comercial(texto) or (hay_propuesta and es_cancelacion(texto)):
+        return "derivar_o_cancelar"
     tiene_numero = any(caracter.isdigit() for caracter in texto)
     renglones = sum(bool(linea.strip()) for linea in texto.splitlines())
     if hay_propuesta:
@@ -380,6 +394,20 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             )
         if ctx.respuesta:
             messages.append(AIMessage(content=ctx.respuesta))
+
+        # 3 aclaraciones seguidas sin borrador derivan a humano (RF-27)
+        aclaraciones = state.get("aclaraciones_seguidas", 0)
+        if ctx.kind == "aclaracion" and not ctx.propuesta:
+            aclaraciones += 1
+            if aclaraciones >= 3:
+                ctx.kind = "derivada"
+                ctx.respuesta = HANDOFF_MESSAGE
+                ctx.derivation_reason = "aclaraciones_repetidas"
+                ctx.resultado = "final"
+                messages[-1] = AIMessage(content=HANDOFF_MESSAGE)
+        elif ctx.propuesta or ctx.kind in ("propuesta", "pedido"):
+            aclaraciones = 0
+
         return {
             "messages": messages,
             "skills_activas": ctx.skills_activas,
@@ -390,6 +418,8 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             "kind": ctx.kind,
             "options": ctx.options,
             "order_id": ctx.order_id,
+            "derivation_reason": ctx.derivation_reason,
+            "aclaraciones_seguidas": aclaraciones,
             "resultado": ctx.resultado,
             "notas_turno": ctx.notas_turno,
             "iteraciones_sub_loop": ctx.iteraciones_sub_loop,
@@ -417,6 +447,7 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             "kind": None,
             "options": [],
             "resultado": "continuar",
+            "derivation_reason": None,
         }
 
     def confirmar(state: EstadoNorma, config: RunnableConfig) -> dict[str, Any]:

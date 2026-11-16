@@ -89,7 +89,12 @@ def test_check_stock_con_sku_inexistente():
 def test_las_skills_reales_son_validas():
     """CA-40: todas las tools que nombran las skills existen."""
     tool_registry.validate_skills()
-    assert set(skill_service.get_skills()) == {"confirmar_pedido", "informar", "tomar_pedido"}
+    assert set(skill_service.get_skills()) == {
+        "confirmar_pedido",
+        "informar",
+        "tomar_pedido",
+        "derivar_o_cancelar",
+    }
 
 
 def test_solo_confirmar_pedido_habilita_armar_pedido():
@@ -370,3 +375,39 @@ def test_search_products_sin_coincidencias_trae_hint():
     result = tool_registry.execute("search_products", {"query": "kerastase elixir"}, ctx)
     assert result["data"]["matches"] == []
     assert "«kerastase»" in result["data"]["_hint"]
+
+
+def test_tool_discard_order_draft(base_de_datos_inicializada):
+    """RF-26 / CA-23: discard_order_draft marca el borrador como descartado y cierra el turno."""
+    ctx = tool_registry.TurnContext(
+        customer_id="c1",
+        channel=Channel.WEB,
+        disponibles=["discard_order_draft"],
+    )
+    result = tool_registry.execute("discard_order_draft", {"reason": "cliente_cancelo"}, ctx)
+    assert result["ok"]
+    assert result["data"]["descartado"] is True
+    assert ctx.kind == "descartado"
+    assert ctx.resultado == "final"
+    assert "cancelé" in ctx.respuesta.lower()
+
+
+def test_tool_escalate_to_human():
+    """RF-27 / CA-22: escalate_to_human deriva la conversación y guarda el motivo."""
+    ctx = tool_registry.TurnContext(
+        customer_id="c2",
+        channel=Channel.TELEGRAM,
+        disponibles=["escalate_to_human"],
+    )
+    result = tool_registry.execute(
+        "escalate_to_human",
+        {"reason": "condicion_comercial_descuento", "message": "Te paso con ventas para coordinar."},
+        ctx,
+    )
+    assert result["ok"]
+    assert result["data"]["derivada"] is True
+    assert ctx.kind == "derivada"
+    assert ctx.resultado == "final"
+    assert ctx.derivation_reason == "condicion_comercial_descuento"
+    assert ctx.respuesta == "Te paso con ventas para coordinar."
+

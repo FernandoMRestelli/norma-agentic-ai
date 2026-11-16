@@ -111,10 +111,16 @@ def _step_3_stock_aplicado(conn: Connection) -> None:
     _add_column(conn, "orders", "stock_applied", "BOOLEAN NOT NULL DEFAULT 0")
 
 
+def _step_4_motivo_derivacion(conn: Connection) -> None:
+    """3 → 4: `conversations.derivation_reason` para registrar por qué se derivó a un humano (RF-27, Issue #84)."""
+    _add_column(conn, "conversations", "derivation_reason", "VARCHAR")
+
+
 STEPS: list[tuple[int, Callable[[Connection], None]]] = [
     (1, _step_1_detalle_de_ordenes),
     (2, _step_2_lineas_para_preparar),
     (3, _step_3_stock_aplicado),
+    (4, _step_4_motivo_derivacion),
 ]
 LATEST = STEPS[-1][0]
 

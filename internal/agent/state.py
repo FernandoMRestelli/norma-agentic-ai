@@ -36,6 +36,8 @@ class EstadoNorma(TypedDict, total=False):
     opciones_previas: list[str]  # las `options` de tu respuesta anterior: lo que el cliente está contestando (RF-71)
     kind_anterior: str | None  # `kind` de la respuesta anterior: si no cerró con la propuesta, «sí» va al LLM (RF-99)
     order_id: str | None
+    derivation_reason: str | None
+    aclaraciones_seguidas: int  # para derivar si superan 3 seguidas sin borrador (RF-27)
     resultado: Resultado
     # Lo que el backend sabe del cliente, armado sin LLM una vez por día: nombre, pedidos, comprados, desde, fecha y
     # completo (RF-84). None: todavía no se armó, o lo invalidó un pedido registrado

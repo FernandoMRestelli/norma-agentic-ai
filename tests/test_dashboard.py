@@ -160,8 +160,16 @@ def test_dashboard_conversations_listing():
     """RF-24: Listado de conversaciones que requieren atención humana."""
     with SessionLocal() as session:
         session.add(ConversationRecord(customer_id="cust-1", channel="whatsapp", status="abierta"))
-        session.add(ConversationRecord(customer_id="cust-2", channel="telegram", status="derivada"))
-        session.add(ConversationRecord(customer_id="cust-3", channel="web", status="derivada"))
+        session.add(
+            ConversationRecord(
+                customer_id="cust-2", channel="telegram", status="derivada", derivation_reason="solicitud_humano"
+            )
+        )
+        session.add(
+            ConversationRecord(
+                customer_id="cust-3", channel="web", status="derivada", derivation_reason="descuento"
+            )
+        )
         session.commit()
 
     # Todas
@@ -175,6 +183,7 @@ def test_dashboard_conversations_listing():
     derivadas = resp_deriv.json()
     assert len(derivadas) == 2
     assert all(c["status"] == "derivada" for c in derivadas)
+    assert {c["derivation_reason"] for c in derivadas} == {"solicitud_humano", "descuento"}
 
 
 # ============================================================================
@@ -489,14 +498,38 @@ def test_migracion_3_agrega_stock_applied(tmp_path):
         conn.exec_driver_sql("UPDATE schema_version SET version = 2")
 
     db_engine = make_engine(f"sqlite:///{path}")
-    assert init_db(db_engine) == LATEST == 3
+    assert init_db(db_engine) == LATEST == 4
     with Session(db_engine) as session:
         record = session.scalar(select(OrderRecord).where(OrderRecord.order_id == "ORD-0001"))
         assert record is not None
         assert record.stock_applied is False
     with db_engine.connect() as conn:
-        assert conn.exec_driver_sql("SELECT version FROM schema_version").scalar() == 3
+        assert conn.exec_driver_sql("SELECT version FROM schema_version").scalar() == 4
         assert conn.exec_driver_sql("SELECT order_id, stock_applied FROM orders").all() == [("ORD-0001", 0)]
+
+
+def test_migracion_4_agrega_derivation_reason(tmp_path):
+    """Una base en versión 3 gana `conversations.derivation_reason` sin perder datos (RF-27, Issue #84)."""
+    path = tmp_path / "norma_v3.db"
+    engine = make_engine(f"sqlite:///{path}")
+    init_db(engine)
+    with engine.begin() as conn:
+        conn.exec_driver_sql("ALTER TABLE conversations DROP COLUMN derivation_reason")
+        conn.exec_driver_sql(
+            "INSERT INTO conversations (id, customer_id, channel, status, created_at, updated_at) "
+            "VALUES (100, 'cust-v3', 'telegram', 'abierta', '2026-01-01 00:00:00', '2026-01-01 00:00:00')"
+        )
+        conn.exec_driver_sql("UPDATE schema_version SET version = 3")
+
+    db_engine = make_engine(f"sqlite:///{path}")
+    assert init_db(db_engine) == LATEST == 4
+    with Session(db_engine) as session:
+        conv = session.get(ConversationRecord, 100)
+        assert conv is not None
+        assert conv.derivation_reason is None
+    with db_engine.connect() as conn:
+        assert conn.exec_driver_sql("SELECT version FROM schema_version").scalar() == 4
+        assert conn.exec_driver_sql("SELECT id, derivation_reason FROM conversations").all() == [(100, None)]
 
 
 # ============================================================================

@@ -16,7 +16,9 @@ from internal.schemas.agent_schema import (
     BuscarRenglonesInput,
     CheckStockInput,
     DelegarSkillInput,
+    DiscardOrderDraftInput,
     EntregarNotaInput,
+    EscalateToHumanInput,
     ExplorarCatalogoInput,
     GetProductInput,
     LeerBrInput,
@@ -69,6 +71,7 @@ class TurnContext:
     kind: str | None = None
     options: list[str] = field(default_factory=list)
     order_id: str | None = None
+    derivation_reason: str | None = None
     turno: guardrails.ContextoTurno = field(default_factory=guardrails.ContextoTurno)  # para validar la salida
     orquestador: bool = False  # con el orquestador, `leer_skill` de una skill sub_loop dice cómo delegarla
     notas_turno: list[dict[str, Any]] = field(default_factory=list)  # la nota de búsqueda y las de los sub-loops
@@ -294,6 +297,24 @@ def _armar_pedido(_: ArmarPedidoInput, ctx: TurnContext) -> dict[str, Any]:
     return {"order_id": order.order_id}
 
 
+def _discard_order_draft(data: DiscardOrderDraftInput, ctx: TurnContext) -> dict[str, Any]:
+    mensaje, _ = reply_tools.discard_order_draft(data.reason, ctx.propuesta, data.message)
+    ctx.propuesta = None
+    ctx.respuesta = mensaje
+    ctx.kind = "descartado"
+    ctx.resultado = "final"
+    return {"descartado": True, "motivo": data.reason}
+
+
+def _escalate_to_human(data: EscalateToHumanInput, ctx: TurnContext) -> dict[str, Any]:
+    mensaje = reply_tools.escalate_to_human(data.reason, data.message)
+    ctx.respuesta = mensaje
+    ctx.kind = "derivada"
+    ctx.derivation_reason = data.reason
+    ctx.resultado = "final"
+    return {"derivada": True, "motivo": data.reason}
+
+
 TOOLS: dict[str, ToolSpec] = {
     spec.name: spec
     for spec in (
@@ -386,6 +407,21 @@ TOOLS: dict[str, ToolSpec] = {
             "número. Usala solo si el cliente aceptó la propuesta sin cambios.",
             ArmarPedidoInput,
             _armar_pedido,
+        ),
+        ToolSpec(
+            "discard_order_draft",
+            "Descarta el borrador de pedido pendiente y cancela la conversación cuando el cliente explícitamente "
+            "dice que ya no lo quiere o que cancela el pedido (RF-26).",
+            DiscardOrderDraftInput,
+            _discard_order_draft,
+        ),
+        ToolSpec(
+            "escalate_to_human",
+            "Deriva la conversación a una persona del equipo cuando el cliente pide hablar con alguien humano, o "
+            "cuando solicita condiciones comerciales especiales que no se pueden autorizar por chat (descuentos por "
+            "cantidad/bulto, envíos al interior/especiales, formas de pago diferidas, etc.) (RF-27, Issue #84).",
+            EscalateToHumanInput,
+            _escalate_to_human,
         ),
     )
 }
