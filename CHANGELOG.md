@@ -33,6 +33,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Corregido
 
+- Con un pedido largo, el asistente podía mandar «te paso las dudas que encontré:» sin las dudas: las dejaba en `pendientes`, que el cliente no ve. Ahora, si deja renglones pendientes y el mensaje no pregunta nada, la regla `pregunta_faltante` lo rechaza y el asistente lo reescribe con las preguntas (CA-143). No hay nada que migrar al desplegar.
 - Una lista de pedido de varios renglones le llegaba al agente como una sola línea: al preparar el mensaje, cada salto de línea se reemplazaba por un espacio. Ahora cada renglón llega en su línea.
 - `python -m internal.evaluar_agente` ya no escribe los pedidos de la evaluación en `data/pedidos.csv` ni en Sheet 2: usa un archivo temporal y el catálogo de su conjunto de casos, aunque `.env` apunte a las planillas. Antes solo la base era temporal. Además cancela las órdenes de cada caso al terminarlo, para que un caso no le quite stock al siguiente.
 
