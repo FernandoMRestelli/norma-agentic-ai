@@ -171,7 +171,8 @@ class RespondToCustomerInput(BaseModel):
         default_factory=list,
         description=(
             "Con un pedido numerado: los renglones que le preguntás al cliente en este mensaje. El cliente no ve este "
-            "campo: la pregunta de cada renglón, con sus opciones, va escrita en `message`"
+            "campo: la pregunta de cada renglón, con sus opciones, va escrita en `message`, una por renglón con una "
+            "viñeta (•)"
         ),
     )
     afuera: list[RenglonAfuera] = Field(

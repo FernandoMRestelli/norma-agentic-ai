@@ -445,7 +445,7 @@ def _regla_pregunta(texto: str, pendientes: list[int]) -> Rechazo | None:
         return Rechazo(
             "pregunta_faltante",
             f"El cliente no ve `pendientes`: escribí en el mensaje la pregunta de cada renglón pendiente ({numeros}), "
-            "con sus opciones",
+            "con sus opciones, una por renglón con una viñeta (•)",
         )
     return None
 
