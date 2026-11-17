@@ -34,9 +34,22 @@ from internal.services.palabras_clave import interpretar_palabra_clave
 logger = logging.getLogger(__name__)
 
 WRITE_IT_PLEASE = "Por ahora solo puedo leer pedidos escritos. ¿Me lo mandás por texto?"
+
+
+def proposal_expired_message() -> str:
+    h = get_settings().conversation_timeout_hours
+    horas = int(h) if isinstance(h, (int, float)) and h.is_integer() else h
+    return (
+        f"Esa propuesta ya venció (tienen validez de {horas} h). "
+        "Para asegurarte stock y precios actualizados, pasame de nuevo lo que necesitás "
+        "y te armo el pedido en el momento."
+    )
+
+
 PROPOSAL_EXPIRED_MESSAGE = (
-    "Esa propuesta ya venció (tienen validez de 24 hs). "
-    "Para asegurarte stock y precios actualizados, pasame de nuevo lo que necesitás y te armo el pedido en el momento."
+    "Esa propuesta ya venció (tienen validez de 24 h). "
+    "Para asegurarte stock y precios actualizados, pasame de nuevo lo que necesitás "
+    "y te armo el pedido en el momento."
 )
 
 _locks: defaultdict[tuple[str, Channel], threading.Lock] = defaultdict(threading.Lock)
@@ -60,10 +73,10 @@ def _is_expired(conversation: ConversationRecord, now: datetime) -> bool:
     return (now - updated_at).total_seconds() > max_seconds
 
 
-def _expire_conversation(session: Session, conversation: ConversationRecord) -> None:
-    """Marca la conversación como vencida y descarta cualquier borrador pendiente (RF-28)."""
+def _expire_conversation(session: Session, conversation: ConversationRecord) -> int:
+    """Marca la conversación como vencida y descarta cualquier borrador pendiente (RF-28). Devuelve cuántos descartó."""
     conversation.status = "vencida"
-    session.execute(
+    result = session.execute(
         update(DraftRecord)
         .where(
             or_(
@@ -72,8 +85,12 @@ def _expire_conversation(session: Session, conversation: ConversationRecord) -> 
             ),
             DraftRecord.status == DraftStatus.PENDING_CONFIRMATION.value,
         )
-        .values(status=DraftStatus.DISCARDED.value)
+        .values(
+            status=DraftStatus.DISCARDED.value,
+            conversation_id=conversation.id,
+        )
     )
+    return result.rowcount
 
 
 def expire_open_conversations(now: datetime | None = None) -> int:
@@ -95,14 +112,15 @@ def startup() -> None:
     """Se llama al arrancar la API y el bot: sin skills válidas o sin tablas, mejor no arrancar."""
     validate_skills()
     init_db()
-    expire_open_conversations()
 
 
 def _open_conversation_id(customer_id: str, channel: Channel, now: datetime | None = None) -> tuple[int, bool]:
-    """Devuelve (conversation_id, vencio_previa).
+    """Devuelve (conversation_id, tenia_propuesta_vencida).
 
-    Si había una conversación abierta pero pasaron más de 24 h sin actividad, la marca como vencida
-    y descarta sus borradores pendientes (RF-28, CA-28), abriendo una conversación nueva.
+    Si había una conversación abierta pero pasaron más de conversation_timeout_hours sin actividad,
+    la marca como vencida y descarta sus borradores pendientes (RF-28, CA-28), abriendo una conversación nueva.
+    Devuelve True en el segundo elemento si y solo si la conversación previa vencida tenía una propuesta
+    pendiente que quedó descartada.
     """
     momento = now or _clock()
     with SessionLocal() as session:
@@ -113,17 +131,40 @@ def _open_conversation_id(customer_id: str, channel: Channel, now: datetime | No
                 ConversationRecord.status == "abierta",
             )
         )
-        vencio_previa = False
+        tenia_propuesta_vencida = False
         if conversation is not None:
             if _is_expired(conversation, momento):
-                _expire_conversation(session, conversation)
+                descartados = _expire_conversation(session, conversation)
                 session.commit()
+                tenia_propuesta_vencida = descartados > 0
                 conversation = None
-                vencio_previa = True
             else:
                 conversation.updated_at = momento
                 session.commit()
                 return conversation.id, False
+
+        # Si no había conversación abierta, puede haber vencido previamente (ej. por expire_open_conversations)
+        if conversation is None and not tenia_propuesta_vencida:
+            ultima_conv = session.scalar(
+                select(ConversationRecord)
+                .where(
+                    ConversationRecord.customer_id == customer_id,
+                    ConversationRecord.channel == channel.value,
+                )
+                .order_by(ConversationRecord.id.desc())
+                .limit(1)
+            )
+            if ultima_conv is not None and ultima_conv.status == "vencida":
+                borrador = session.scalar(
+                    select(DraftRecord)
+                    .where(
+                        DraftRecord.conversation_id == ultima_conv.id,
+                        DraftRecord.status == DraftStatus.DISCARDED.value,
+                    )
+                    .limit(1)
+                )
+                if borrador is not None:
+                    tenia_propuesta_vencida = True
 
         nueva = ConversationRecord(
             customer_id=customer_id,
@@ -134,7 +175,7 @@ def _open_conversation_id(customer_id: str, channel: Channel, now: datetime | No
         )
         session.add(nueva)
         session.commit()
-        return nueva.id, vencio_previa
+        return nueva.id, tenia_propuesta_vencida
 
 
 def _touch_conversation(conversation_id: int, now: datetime | None = None) -> None:
@@ -172,9 +213,9 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
 
     # Los turnos de una conversación se procesan de a uno (RNF-05)
     with _locks[(message.customer_id, message.channel)]:
-        conversation_id, vencio_previa = _open_conversation_id(message.customer_id, message.channel)
-        if vencio_previa and interpretar_palabra_clave(text) == ConfirmationAction.CONFIRM:
-            return ChannelReply(text=PROPOSAL_EXPIRED_MESSAGE)
+        conversation_id, tenia_propuesta_vencida = _open_conversation_id(message.customer_id, message.channel)
+        if tenia_propuesta_vencida and interpretar_palabra_clave(text) == ConfirmationAction.CONFIRM:
+            return ChannelReply(text=proposal_expired_message())
         outcome = get_agent().handle(
             thread_id=str(conversation_id),
             customer_id=message.customer_id,
