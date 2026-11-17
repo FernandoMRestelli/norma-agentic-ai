@@ -10,7 +10,7 @@
 | Estado | Propuesto |
 | Responsable | Federico Picado |
 | Requisitos de la spec del MVP | RF-62, RF-63, RF-65 a RF-68, RF-71 a RF-73, RNF-06, RNF-12, RNF-16 |
-| IDs que reserva | RF-84 a RF-95, RNF-17, CA-143 a CA-157, D-30 a D-37 |
+| IDs que reserva | RF-84 a RF-97, RNF-17, CA-144 a CA-161, D-30 a D-38 |
 
 **Índice**
 
@@ -29,9 +29,9 @@
 ## 1. Objetivo
 
 Hoy un turno es un único loop LLM ↔ tools ([spec del agente §3](agente.md#3-el-loop-de-un-turno)). Cada búsqueda
-suma su resultado al mismo contexto, que se reenvía entero en cada llamada. En un pedido largo el modelo da muchas
-vueltas con un contexto que no para de crecer, y las vueltas son lo caro: una llamada al LLM tarda segundos y una
-tool, milisegundos.
+suma su pedido y su resultado al contexto del turno, que se reenvía entero en cada llamada. Entre un turno y el
+siguiente ya se recorta, pero dentro del turno no: en un pedido largo el modelo da muchas vueltas con un contexto que
+no para de crecer, y las vueltas son lo caro: una llamada al LLM tarda segundos y una tool, milisegundos.
 
 Esta spec separa el turno en piezas con un trabajo cada una:
 
@@ -43,6 +43,10 @@ Esta spec separa el turno en piezas con un trabajo cada una:
 
 El objetivo es que un pedido largo cueste menos llamadas y menos tokens por llamada sin bajar el recall por línea, y
 que sumar skills no agrande el contexto de las que ya están.
+
+Es una propuesta: describe cómo debería funcionar el turno. Antes de implementarla se contrasta con lo que hace el
+código hoy (§3.1) y, al terminar, con la evaluación (§9, paso 5). Lo que no coincida se corrige acá antes de
+escribir código.
 
 ## 2. Alcance
 
@@ -66,6 +70,8 @@ que sumar skills no agrande el contexto de las que ya están.
 | La primera vuelta es ceremonia | `encaminar` numera los renglones (RF-65), pero espera a que el LLM pida `buscar_renglones` con esos mismos renglones | Una llamada al LLM solo para separar cantidad y tono y devolver lo que el backend ya tenía |
 | Historial del cliente por tool | `pedidos_anteriores` es una tool: si el modelo la necesita, cuesta una vuelta | Es un dato fijo durante el día, que el backend puede leer una vez |
 | Elegir la skill | El índice del system prompt muestra `nombre`, `funcion` y `cuando`, y el modelo elige con `leer_skill` (§4.5) | **Esto ya está bien y no se toca**: la nueva estructura se apoya en el mismo índice |
+| Qué ve cada vuelta | `context.build_messages` arma de nuevo el system prompt con el estado actual (renglones, propuesta, avisos de cierre) y le suma la charla anterior y todo el turno: el mensaje del cliente, cada pedido de tool con sus argumentos y cada resultado, errores incluidos. De los turnos anteriores quedan solo los mensajes del cliente y las respuestas | **No se toca la forma**, sí el tamaño: el sub-loop acumula igual, pero solo con sus renglones, y el orquestador ve la nota en lugar de cada búsqueda (§3.3) |
+| Quién decide que el turno sigue | Cada llamada lleva `tool_choice="any"` (RF-61): el modelo siempre pide una tool y elige cuál. El turno **no** termina cuando el modelo deja de pedir tools, sino cuando una tool terminal (`respond_to_customer`, `armar_pedido`) se ejecuta con éxito en `ejecutar_tools`. El texto sin tool es una red de seguridad que pasa por los guardrails. El backend también corta: tope de vueltas o de tiempo (cierre solo con `respond_to_customer`) y fallas del LLM | **No se toca**: el orquestador y el sub-loop terminan igual, cada uno con su tool terminal (RF-96) |
 
 Una traza local de un pedido largo, la única que había al escribir esto, sirve como orden de magnitud: 8 llamadas al
 LLM de 5,7 s en promedio y 13 tools de 43 ms en promedio, en un turno de 46 s. La línea de base real sale de
@@ -116,23 +122,81 @@ flowchart TD
 7. **Respuesta.** El orquestador decide si delega otra cosa o responde. La respuesta pasa por los mismos
    validadores de hoy: guardrails de salida y cobertura de renglones (RF-68).
 
-### 3.3 El sub-loop por dentro
+### 3.3 El loop vuelta por vuelta
+
+En cada vuelta hay dos decisiones distintas, y no las toma el mismo:
+
+- **Qué hacer la toma el modelo.** Con sus instrucciones y lo que se acumuló, elige qué tool pedir: otra búsqueda,
+  leer una skill, delegar, o la tool terminal que le responde al cliente. Con `tool_choice="any"` siempre pide una.
+- **Si el loop sigue lo decide el backend.** El loop termina cuando su tool terminal se ejecuta con éxito, cuando
+  llega a su tope o cuando falla el LLM. Que el modelo no pida tools no cierra nada: es un caso de error (RF-96).
+
+Lo que ve el modelo crece vuelta a vuelta como hoy: cada llamada lleva lo de la anterior más el pedido de tool que
+hizo y su resultado. Así, después de una búsqueda fallida, ve qué argumentos mandó y qué error volvió, y puede
+corregir. La diferencia es dónde se acumula: las búsquedas largas crecen dentro del sub-loop, y al orquestador le
+llega solo `delegar_skill` con la nota como resultado.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant B as Backend
+    participant O as Orquestador (LLM)
+    participant S as Sub-loop tomar_pedido (LLM)
+    participant T as Tools
+
+    Note over B: Turno nuevo · contexto_cliente, encaminar y precarga, sin LLM
+    B->>O: Vuelta 1 · system + índice + estado + contexto del cliente + nota de búsqueda + charla + mensaje
+    O->>B: delegar_skill(tomar_pedido, encargo, renglones 13 a 20)
+    B->>S: Vuelta 1 · skill + encargo + esos renglones + contexto del cliente + último mensaje
+    S->>T: buscar_renglones(...)
+    T-->>S: resultado
+    Note over S: Vuelta 2 · lo de la vuelta 1 + el pedido de tool + su resultado
+    S->>T: search_products(query)
+    T-->>S: sin resultados, con _hint
+    Note over S: Vuelta 3 · ve los argumentos y el error, prueba otra búsqueda
+    S->>T: search_products(otra query)
+    T-->>S: resultado
+    S->>B: entregar_nota(resueltos, pendientes, afuera, observaciones)
+    B->>B: valida la nota, hasta 2 rechazos, y actualiza renglones
+    Note over S: El contexto del sub-loop se descarta. Sus pedidos de tool quedan como intentos de la nota
+    B->>O: Vuelta 2 · lo de la vuelta 1 + delegar_skill + la nota como su resultado
+    O->>B: respond_to_customer(propuesta, pendientes)
+    B->>B: guardrails de salida y cobertura. Si pasan, cierra el turno
+    Note over B: pausa · al mensaje siguiente pasan la charla y el estado, no las notas
+```
+
+Cuándo termina cada loop:
+
+| Loop | Termina bien | Responde texto sin tool | Llega al tope | Falla el LLM |
+|---|---|---|---|---|
+| Orquestador | `respond_to_customer` o `armar_pedido` con éxito | Como hoy: pasa por los guardrails como respuesta informativa y, si se rechaza, reescribe | Cierre de hoy, solo con `respond_to_customer` | Falla del turno, como hoy |
+| Sub-loop | `entregar_nota` con una nota válida | No le llega a nadie: el backend responde con un aviso para que llame a `entregar_nota` y cuenta como iteración | Entrega la nota con lo que encontró (RF-93) | Falla del turno: la propuesta vigente no cambia |
+
+### 3.4 El sub-loop por dentro
 
 ```mermaid
 flowchart LR
-    I[encargo, renglones<br/>y contexto del cliente] --> L[llm del sub-loop]
+    I[encargo, renglones,<br/>contexto del cliente<br/>y nota anterior si la hay] --> L[llm del sub-loop]
     L -->|tools de catálogo| T[tools]
-    T --> L
+    T -->|pedido y resultado<br/>se suman al contexto| L
+    L -->|texto sin tool| A[aviso: llamá a entregar_nota]
+    A --> L
     L -->|entregar_nota| N{¿nota válida?}
     N -->|sí| R([vuelve al orquestador])
     N -->|no, hasta 2 veces| L
+    L -->|tope| R
 ```
 
+- Dentro del sub-loop el contexto se acumula igual que en el loop de hoy, pero solo con los renglones del encargo.
+  Al entregar la nota ese contexto se descarta: el orquestador no ve las búsquedas, ve la nota.
 - Tiene su propio tope de iteraciones (`max_iteraciones` de la skill), que también cuenta para el tope del turno
   (RF-93). Al llegar al tope entrega la nota con lo que encontró, igual que el cierre del turno de hoy.
+- El backend guarda con la nota los **intentos** del sub-loop: cada pedido de tool con sus argumentos, sin los
+  resultados. Si el orquestador vuelve a delegar esos renglones en el mismo turno, el sub-loop nuevo recibe la nota
+  anterior y sus intentos, para no repetir búsquedas que ya fallaron (RF-97).
 - Las BR llegan como hoy: adjuntas al resultado que las dispara (RF-63) o con `leer_br`, dentro del sub-loop.
 
-### 3.4 Qué dura cada cosa
+### 3.5 Qué dura cada cosa
 
 | Dato | Lo arma | Dura | Pasa al mensaje siguiente |
 |---|---|---|---|
@@ -145,7 +209,7 @@ Las observaciones de texto de una nota no pasan al turno siguiente (RF-92). Lo q
 queda en el estado estructurado, que ya existe y ya se muestra en el estado actual. Así el razonamiento de un turno
 no se va acumulando como texto, y un error de un turno no se arrastra a los siguientes.
 
-### 3.5 Ejemplos
+### 3.6 Ejemplos
 
 Pedido en dos mensajes del mismo día. Las llamadas son las que se esperan con el diseño; las reales salen de la
 evaluación.
@@ -164,9 +228,10 @@ Lista de 20 renglones por marca, 15 de forma inequívoca:
 | Sub-loop | Separa, busca y entrega la nota: 6 resueltos, 1 pendiente, 1 afuera | 2 a 3, con un contexto de 8 renglones |
 | Orquestador | Responde con la propuesta, la pregunta y el aviso | 1 |
 
-### 3.6 Qué no cambia
+### 3.7 Qué no cambia
 
-El índice de skills y sus encabezados, `leer_skill` y `leer_br`, las BR adjuntas al resultado, `confirmar` sin LLM
+`tool_choice="any"` en cada llamada al LLM (RF-61) y el cierre por tool terminal, el camino del texto sin tool del
+orquestador, el índice de skills y sus encabezados, `leer_skill` y `leer_br`, las BR adjuntas al resultado, `confirmar` sin LLM
 para una aceptación exacta, el filtro de temas y los topes de entrada previos al agente, los guardrails de salida,
 `pausa` con `interrupt()`, el checkpointer y el mensaje final armado por `validation_service`.
 
@@ -204,7 +269,8 @@ tools: [search_products, buscar_renglones, get_product, check_stock, explorar_ca
 | `encargo` | `str`, hasta 300 caracteres | Qué tiene que resolver, en palabras del orquestador |
 | `renglones` | `list[int]` | Números de renglones del estado. Puede ir vacía para una consulta sin renglones |
 
-Devuelve la nota validada (§4.3) en el sobre común. Se puede llamar más de una vez por turno.
+Devuelve la nota validada (§4.3) en el sobre común, sin los intentos. Se puede llamar más de una vez por turno: si
+algún renglón ya tiene una nota en este turno, el sub-loop nuevo recibe esa nota y sus intentos (RF-97).
 
 ### 4.3 Tool `entregar_nota` (sub-loop, terminal del sub-loop)
 
@@ -219,12 +285,15 @@ Cada renglón del encargo tiene que quedar en un solo lugar. Si no, el backend d
 2 veces; a la tercera, la nota sale con los renglones sin cuenta en `pendientes`, con la pregunta
 «¿me confirmás qué querías en este renglón?».
 
+Los **intentos** no los escribe el modelo: el backend los toma de los pedidos de tool del sub-loop (nombre y
+argumentos, sin resultados, hasta 10) y los guarda junto a la nota en `notas_turno`. El orquestador no los ve.
+
 ### 4.4 Estado del grafo
 
 | Campo nuevo | Tipo | Qué guarda |
 |---|---|---|
 | `contexto_cliente` | `{nombre, pedidos, comprados, desde, fecha}` o `None` | Lo que arma el backend (RF-84). `comprados` reemplaza la lectura perezosa de `TurnContext.comprados` |
-| `notas_turno` | `list[dict]` | La nota de búsqueda y las de los sub-loops de este turno. `pausa` la vacía |
+| `notas_turno` | `list[dict]` | La nota de búsqueda y las de los sub-loops de este turno, cada una con sus renglones y sus intentos. `pausa` la vacía |
 | `iteraciones_sub_loop` | `int` | Llamadas al LLM de los sub-loops en este turno, para el tope (RF-93) y las métricas |
 
 Todo serializable, como el resto de `EstadoNorma`. Un checkpoint anterior sin estos campos arranca con
@@ -259,34 +328,39 @@ dependen de la bandera.
 | RF-86 | Con renglones nuevos `sin_resolver`, el backend separa cantidad y tono de los que tienen una forma inequívoca y corre `buscar_renglones` con esos antes de la primera llamada al LLM. El resultado entra como nota de búsqueda y actualiza `renglones`. Un renglón sin forma inequívoca queda `sin_resolver` |
 | RF-87 | El orquestador ve el índice de skills, el contexto del cliente, el estado actual, las notas del turno y la charla anterior. Tiene las tools de catálogo de base, `leer_skill` para las skills `inline` y `delegar_skill` para las `sub_loop` |
 | RF-88 | El encabezado de una skill admite `modo` (`inline` o `sub_loop`) y `max_iteraciones` (1 a 15). Un valor inválido, o una skill `sub_loop` que lista una tool terminal hacia el cliente, impide arrancar |
-| RF-89 | Un sub-loop recibe las instrucciones de su skill, el encargo, el contexto del cliente, solo los renglones del encargo, el último mensaje del cliente y las opciones previas. No recibe la charla anterior ni las notas de otras skills |
+| RF-89 | Un sub-loop recibe las instrucciones de su skill, el encargo, el contexto del cliente, solo los renglones del encargo, el último mensaje del cliente y las opciones previas. No recibe la charla anterior ni las notas de otras skills. Dentro del sub-loop cada vuelta suma sus pedidos de tool y sus resultados; al entregar la nota ese contexto se descarta y el orquestador ve solo `delegar_skill` y la nota |
 | RF-90 | Un sub-loop nunca le responde al cliente: termina con `entregar_nota`. La respuesta al cliente es siempre del orquestador |
 | RF-91 | El backend valida cada nota: todo SKU salió de una búsqueda del sub-loop o de la precarga, y cada renglón del encargo queda en un solo lugar. Rechaza hasta 2 veces; a la tercera, los renglones sin cuenta salen en `pendientes` |
 | RF-92 | Las notas valen para el turno. Al mensaje siguiente pasan solo `contexto_cliente`, `renglones`, `propuesta` y `opciones_previas` |
 | RF-93 | Las iteraciones de los sub-loops cuentan para el tope del turno (RNF-16). Un sub-loop que llega a su `max_iteraciones`, o al tope del turno, entrega la nota con lo que encontró |
 | RF-94 | La traza de cada turno tiene spans `contexto_cliente`, `precarga_busqueda`, `sub_loop` (con la skill) y `nota`. La evaluación reporta llamadas al LLM y tokens de entrada por turno, separados por orquestador y sub-loop |
 | RF-95 | Con `AGENT_ORQUESTADOR=false` el turno corre como hoy, con el contexto del cliente y la precarga |
+| RF-96 | Cada llamada al LLM, del orquestador y del sub-loop, lleva `tool_choice="any"`. Un loop termina cuando su tool terminal se ejecuta con éxito (`respond_to_customer` o `armar_pedido` en el orquestador, `entregar_nota` en el sub-loop), al llegar a su tope o con una falla del LLM, nunca porque la respuesta no traiga tool calls. El texto sin tool del orquestador sigue el camino de hoy; el del sub-loop recibe un aviso para llamar a `entregar_nota` y cuenta como iteración |
+| RF-97 | Si el orquestador delega renglones que ya tienen una nota en el turno, el sub-loop nuevo recibe esa nota y sus intentos (pedidos de tool con sus argumentos, hasta 10). La nota nueva reemplaza a la anterior para esos renglones |
 | RNF-17 | En `evaluar_agente --set pedidos`, con el orquestador: menos llamadas al LLM por caso que la línea de base, tokens de entrada por llamada del sub-loop en la mitad o menos que los del loop de hoy, y recall por línea sin bajar más de 2 puntos |
 
 ## 6. Criterios de aceptación
 
 | ID | Dado | Cuando | Entonces | Test |
 |---|---|---|---|---|
-| CA-143 | Una conversación sin `contexto_cliente` y un cliente con pedidos anteriores | Llega un mensaje | Se lee la base una vez, el estado guarda el contexto con la fecha y la traza tiene el span `contexto_cliente` | `tests/test_contexto_cliente.py::test_primer_mensaje_del_dia_arma_el_contexto` |
-| CA-144 | Un `contexto_cliente` de hoy | Llega otro mensaje | No se lee la base y el prompt trae el mismo bloque | `tests/test_contexto_cliente.py::test_segundo_mensaje_reusa_el_contexto` |
-| CA-145 | Un `contexto_cliente` de ayer / un pedido registrado después de armarlo | Llega un mensaje | El contexto se vuelve a armar | `tests/test_contexto_cliente.py::test_el_contexto_vence` |
-| CA-146 | La base de pedidos falla | Se arma el contexto | El turno sigue, el contexto queda sin pedidos y queda un warning sin texto del cliente | `tests/test_contexto_cliente.py::test_si_falla_la_base_sigue_sin_contexto` |
-| CA-147 | Una lista «2 shampoo x900» y «3 jabon glicerina» | Abre el turno | `buscar_renglones` corre antes del LLM con cantidades 2 y 3, y el modelo falso recibe la nota de búsqueda en el contexto, sin tool calls inventadas | `tests/test_precarga.py::test_la_lista_se_busca_antes_del_llm` |
-| CA-148 | Un renglón sin forma inequívoca («lo de siempre de keratina») | Abre el turno | No se busca en la precarga y queda `sin_resolver` | `tests/test_precarga.py::test_renglon_ambiguo_queda_para_el_llm` |
-| CA-149 | Una lista en la que todos los renglones salen exactos y con stock en la precarga | Corre el turno con el modelo falso | Cierra con una sola llamada al LLM, que responde con la propuesta | `tests/test_precarga.py::test_lista_exacta_cierra_en_una_llamada` |
-| CA-150 | Una skill con `modo: otro`, `max_iteraciones: 0` o `modo: sub_loop` con `respond_to_customer` | Arranca la aplicación | No arranca y el error nombra la skill | `tests/test_skills.py::test_encabezado_de_sub_loop_invalido` |
-| CA-151 | El orquestador llama a `delegar_skill` con una skill `inline` | Se ejecuta la tool | Devuelve `skill_no_delegable` y el orquestador sigue | `tests/test_orquestador.py::test_no_se_delega_una_skill_inline` |
-| CA-152 | Un turno con charla anterior y una delegación | Corre el sub-loop | Su contexto no trae la charla anterior ni otras notas, y sus tools no incluyen `respond_to_customer` ni `armar_pedido` | `tests/test_orquestador.py::test_el_sub_loop_tiene_contexto_propio` |
-| CA-153 | Un sub-loop que entrega una nota con un SKU que no salió de ninguna búsqueda | Se valida la nota | Se rechaza con el error y el sub-loop vuelve a intentar | `tests/test_orquestador.py::test_nota_con_sku_inventado_se_rechaza` |
-| CA-154 | Un sub-loop que deja un renglón sin cuenta tres veces | Se valida la tercera nota | La nota sale con ese renglón en `pendientes` y el turno sigue | `tests/test_orquestador.py::test_renglon_sin_cuenta_sale_como_pendiente` |
-| CA-155 | Un sub-loop que nunca llama a `entregar_nota` | Llega a `max_iteraciones` | Entrega la nota con lo encontrado, el orquestador responde y no suma una falla | `tests/test_orquestador.py::test_sub_loop_al_tope_entrega_lo_encontrado` |
-| CA-156 | Una nota con `observaciones` | Termina el turno y llega el mensaje siguiente | Las observaciones no están en el contexto; los renglones resueltos y pendientes sí | `tests/test_orquestador.py::test_las_notas_no_pasan_al_turno_siguiente` |
-| CA-157 | Un mensaje que pregunta por shampoo y, el mismo día, otro que suma 3 jabones | Corren los dos turnos con el modelo falso | El segundo no rehace el contexto del cliente, y su respuesta trae los jabones y la pregunta pendiente por el shampoo | `tests/test_orquestador.py::test_pedido_en_dos_mensajes_del_mismo_dia` |
+| CA-144 | Una conversación sin `contexto_cliente` y un cliente con pedidos anteriores | Llega un mensaje | Se lee la base una vez, el estado guarda el contexto con la fecha y la traza tiene el span `contexto_cliente` | `tests/test_contexto_cliente.py::test_primer_mensaje_del_dia_arma_el_contexto` |
+| CA-145 | Un `contexto_cliente` de hoy | Llega otro mensaje | No se lee la base y el prompt trae el mismo bloque | `tests/test_contexto_cliente.py::test_segundo_mensaje_reusa_el_contexto` |
+| CA-146 | Un `contexto_cliente` de ayer / un pedido registrado después de armarlo | Llega un mensaje | El contexto se vuelve a armar | `tests/test_contexto_cliente.py::test_el_contexto_vence` |
+| CA-147 | La base de pedidos falla | Se arma el contexto | El turno sigue, el contexto queda sin pedidos y queda un warning sin texto del cliente | `tests/test_contexto_cliente.py::test_si_falla_la_base_sigue_sin_contexto` |
+| CA-148 | Una lista «2 shampoo x900» y «3 jabon glicerina» | Abre el turno | `buscar_renglones` corre antes del LLM con cantidades 2 y 3, y el modelo falso recibe la nota de búsqueda en el contexto, sin tool calls inventadas | `tests/test_precarga.py::test_la_lista_se_busca_antes_del_llm` |
+| CA-149 | Un renglón sin forma inequívoca («lo de siempre de keratina») | Abre el turno | No se busca en la precarga y queda `sin_resolver` | `tests/test_precarga.py::test_renglon_ambiguo_queda_para_el_llm` |
+| CA-150 | Una lista en la que todos los renglones salen exactos y con stock en la precarga | Corre el turno con el modelo falso | Cierra con una sola llamada al LLM, que responde con la propuesta | `tests/test_precarga.py::test_lista_exacta_cierra_en_una_llamada` |
+| CA-151 | Una skill con `modo: otro`, `max_iteraciones: 0` o `modo: sub_loop` con `respond_to_customer` | Arranca la aplicación | No arranca y el error nombra la skill | `tests/test_skills.py::test_encabezado_de_sub_loop_invalido` |
+| CA-152 | El orquestador llama a `delegar_skill` con una skill `inline` | Se ejecuta la tool | Devuelve `skill_no_delegable` y el orquestador sigue | `tests/test_orquestador.py::test_no_se_delega_una_skill_inline` |
+| CA-153 | Un turno con charla anterior y una delegación | Corre el sub-loop | Su contexto no trae la charla anterior ni otras notas, y sus tools no incluyen `respond_to_customer` ni `armar_pedido` | `tests/test_orquestador.py::test_el_sub_loop_tiene_contexto_propio` |
+| CA-154 | Un sub-loop que entrega una nota con un SKU que no salió de ninguna búsqueda | Se valida la nota | Se rechaza con el error y el sub-loop vuelve a intentar | `tests/test_orquestador.py::test_nota_con_sku_inventado_se_rechaza` |
+| CA-155 | Un sub-loop que deja un renglón sin cuenta tres veces | Se valida la tercera nota | La nota sale con ese renglón en `pendientes` y el turno sigue | `tests/test_orquestador.py::test_renglon_sin_cuenta_sale_como_pendiente` |
+| CA-156 | Un sub-loop que nunca llama a `entregar_nota` | Llega a `max_iteraciones` | Entrega la nota con lo encontrado, el orquestador responde y no suma una falla | `tests/test_orquestador.py::test_sub_loop_al_tope_entrega_lo_encontrado` |
+| CA-157 | Una nota con `observaciones` | Termina el turno y llega el mensaje siguiente | Las observaciones no están en el contexto; los renglones resueltos y pendientes sí | `tests/test_orquestador.py::test_las_notas_no_pasan_al_turno_siguiente` |
+| CA-158 | Un mensaje que pregunta por shampoo y, el mismo día, otro que suma 3 jabones | Corren los dos turnos con el modelo falso | El segundo no rehace el contexto del cliente, y su respuesta trae los jabones y la pregunta pendiente por el shampoo | `tests/test_orquestador.py::test_pedido_en_dos_mensajes_del_mismo_dia` |
+| CA-159 | Un sub-loop cuyo modelo falso responde texto sin tool y después llama a `entregar_nota` | Corre el sub-loop | El texto no llega al cliente ni al orquestador, el sub-loop recibe el aviso, la vuelta cuenta para `max_iteraciones` y la nota sale normal | `tests/test_orquestador.py::test_sub_loop_con_texto_suelto_recibe_aviso` |
+| CA-160 | Un sub-loop que buscó un renglón sin encontrarlo y lo dejó en `pendientes` | El orquestador vuelve a delegar ese renglón en el mismo turno | El sub-loop nuevo recibe la nota anterior y sus intentos con los argumentos de cada búsqueda | `tests/test_orquestador.py::test_redelegar_trae_los_intentos_anteriores` |
+| CA-161 | Un turno con una delegación cuyo sub-loop hizo tres búsquedas | Vuelve el control al orquestador | Sus mensajes traen la llamada a `delegar_skill` y la nota como resultado, no las búsquedas ni los intentos del sub-loop | `tests/test_orquestador.py::test_el_orquestador_ve_solo_la_nota` |
 
 ## 7. Errores y casos borde
 
@@ -296,7 +370,8 @@ dependen de la bandera.
 | El catálogo no se puede leer en la precarga | No precarga. El orquestador o el sub-loop buscan como hoy y las tools avisan que no está disponible |
 | La precarga separa mal una cantidad | El renglón queda con la cantidad equivocada en la nota de búsqueda. El orquestador puede volver a delegarlo, y la propuesta muestra cada línea con su cantidad para que el cliente la corrija. La evaluación mide cuántas veces pasa (D-32) |
 | Falla el LLM dentro de un sub-loop | Cuenta como falla del turno, igual que hoy (§6 de la spec del agente). La propuesta vigente no cambia |
-| El orquestador delega dos veces los mismos renglones | La segunda nota reemplaza a la primera para esos renglones |
+| El orquestador delega dos veces los mismos renglones | El sub-loop nuevo recibe la nota anterior y sus intentos, para no repetir lo que ya falló, y su nota reemplaza a la primera para esos renglones (RF-97) |
+| El sub-loop responde texto sin tool | El texto no sale: recibe un aviso para llamar a `entregar_nota` y la vuelta cuenta como iteración. Si llega al tope, entrega lo que encontró (RF-96) |
 | Se agota el tope del turno con un sub-loop corriendo | El sub-loop entrega lo que tiene y el orquestador entra en el cierre de hoy, solo con `respond_to_customer` |
 | Una conversación abierta antes del cambio de versión | Su checkpoint no tiene los campos nuevos: arranca con `contexto_cliente = None` y sigue |
 | El cliente cambia de nombre de perfil en el día | El contexto no se rehace por eso: el nombre que va a la orden sale del mensaje, como hoy |
@@ -313,18 +388,19 @@ dependen de la bandera.
 | D-35 | **Sub-loops en paralelo.** LangGraph lo permite con `Send`, por ejemplo uno por marca. Se evalúa después de medir, porque en el free tier suma requests por minuto | Abierta |
 | D-36 | **Convivencia con el grafo de hoy.** El grafo nuevo entra detrás de `AGENT_ORQUESTADOR` y se compara con la evaluación. El de hoy se borra en otra PR, si el nuevo cumple RNF-17 | Propuesta |
 | D-37 | **`pedidos_anteriores`.** Con el contexto del cliente, la tool queda redundante. Se mantiene hasta ver en las trazas que nadie la llama | Abierta |
+| D-38 | **Modelo del sub-loop.** La continuidad entre el orquestador y el sub-loop la da el contexto que arma el backend, no el modelo, así que el sub-loop podría correr con otro modelo, por ejemplo uno más barato para las búsquedas. Arranca con el mismo y se prueba después de medir | Abierta |
 
 ## 9. Plan de implementación
 
 Una tarea, una rama, una PR, en este orden. Las dos primeras ya bajan llamadas con el grafo de hoy.
 
 1. `feature/spec-orquestador-skills`: esta spec, sola.
-2. `feature/contexto-cliente`: RF-84, RF-85 y la parte de RF-92 que toca al contexto. CA-143 a CA-146.
+2. `feature/contexto-cliente`: RF-84, RF-85 y la parte de RF-92 que toca al contexto. CA-144 a CA-147.
    Archivos: `internal/agent/state.py`, `internal/agent/graph.py` (nodo `contexto_cliente`),
    `internal/agent/context.py`, `internal/agent/tool_registry.py` (`comprados` desde el estado), `internal/config.py`.
-3. `feature/precarga-busqueda`: RF-86. CA-147 a CA-149. Archivos: `internal/services/interpretation_service.py`
+3. `feature/precarga-busqueda`: RF-86. CA-148 a CA-150. Archivos: `internal/services/interpretation_service.py`
    (separar cantidad y tono), `internal/agent/graph.py` (nodo `precarga_busqueda`), `internal/agent/context.py`.
-4. `feature/orquestador-sub-loops`: RF-87 a RF-91, RF-93 a RF-95. CA-150 a CA-157. Archivos nuevos
+4. `feature/orquestador-sub-loops`: RF-87 a RF-91, RF-93 a RF-97. CA-151 a CA-161. Archivos nuevos
    `internal/agent/sub_loop.py` (el subgrafo) y `internal/agent/nota.py` (contrato y validación), más
    `internal/services/skill_service.py`, `internal/agent/tool_registry.py`, `internal/skills/tomar_pedido/skill.md`,
    `internal/agent/system_prompt.md` y `docs/spec/agente.md` §3 y §4.5.
