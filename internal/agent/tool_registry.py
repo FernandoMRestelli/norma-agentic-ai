@@ -171,7 +171,10 @@ def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict
         propuesta = propuesta.model_copy(update={"leftovers": reply_tools.fuera_del_pedido(renglones)})
     message = data.message
     # Lo que escribió el LLM pasa por los guardrails antes de llegar al cliente; la vigente no cambia si falla
-    rechazos = guardrails.validar_salida(message, data.kind.value, propuesta, options, ctx.turno, ctx.propuesta)
+    rechazos = guardrails.validar_salida(
+        message, data.kind.value, propuesta, options, ctx.turno, ctx.propuesta,
+        pendientes=[pendiente.renglon for pendiente in data.pendientes],
+    )  # fmt: skip
     if rechazos:
         ctx.turno.rechazos += 1
         if ctx.turno.rechazos <= guardrails.MAX_RECHAZOS:

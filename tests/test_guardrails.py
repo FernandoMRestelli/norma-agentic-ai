@@ -345,6 +345,32 @@ def test_varias_reglas_en_un_solo_rechazo():
     assert reglas == ["stock_revelado", "dato_interno", "promesa", "formato"]
 
 
+def test_renglones_pendientes_sin_pregunta():
+    """CA-143: con `pendientes`, un mensaje que no pregunta nada se rechaza; sin `pendientes` no hace falta."""
+    anuncio = "Te paso las dudas y alternativas que encontré en el catálogo:"
+    assert _reglas(anuncio, "aclaracion", pendientes=[1, 3]) == ["pregunta_faltante"]
+    assert _reglas("El shampoo, ¿de 400 ml? Y la crema, ¿la de 100 ml?", "aclaracion", pendientes=[1, 3]) == []
+    assert _reglas(anuncio, "aclaracion") == []
+
+
+def test_renglones_pendientes_sin_pregunta_se_reintenta():
+    """CA-143: el anuncio de una lista que no está no le llega al cliente; el LLM reescribe con las preguntas."""
+    pendientes = [{"renglon": 1, "opciones": [SKU_SHAMPOO]}, {"renglon": 2, "opciones": [SKU]}]
+    malo = "Te paso las dudas y alternativas que encontré en el catálogo:"
+    bueno = "El shampoo Pantene, ¿te sirve el de 400 ml? Y la crema Nivea, ¿la de 100 ml?"
+    agent, _ = _agente(
+        _responder(malo, kind="aclaracion", pendientes=pendientes),
+        _responder(bueno, kind="aclaracion", pendientes=pendientes),
+    )
+
+    resultado = agent.handle("1", text="2 shampoo pantene\n1 crema nivea", **CLIENTE)
+
+    rechazo = _resultados(agent, "respond_to_customer")[0]
+    assert rechazo["error"]["details"]["reglas"] == ["pregunta_faltante"]
+    assert "(1, 2)" in rechazo["error"]["message"]
+    assert resultado.message == bueno
+
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Intentos agotados y texto suelto
 # ---------------------------------------------------------------------------------------------------------------------
