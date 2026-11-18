@@ -252,6 +252,8 @@ def _turn_context(state: EstadoNorma, config: RunnableConfig, disponibles: list[
         propuesta = propuesta.model_copy(update={"conversation_id": conversation_id})
     if propuesta and propuesta.customer_name is None and customer_name:
         propuesta = OrderDraft.model_validate({**propuesta.model_dump(), "customer_name": customer_name})
+    if propuesta and state.get("descuento_autorizado") and not propuesta.discount_percentage:
+        propuesta = propuesta.model_copy(update={"discount_percentage": state.get("descuento_autorizado")})
     return tool_registry.TurnContext(
         customer_id=state["customer_id"],
         channel=Channel(state["channel"]),
@@ -264,6 +266,8 @@ def _turn_context(state: EstadoNorma, config: RunnableConfig, disponibles: list[
         origen=state.get("origen") or "texto",
         comprados=contexto_cliente.comprados(state.get("contexto_cliente")),
         propuesta=propuesta,
+        descuento_autorizado=state.get("descuento_autorizado"),
+        condicion_comercial=state.get("condicion_comercial"),
     )
 
 
@@ -419,6 +423,8 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             "options": ctx.options,
             "order_id": ctx.order_id,
             "derivation_reason": ctx.derivation_reason,
+            "descuento_autorizado": ctx.descuento_autorizado,
+            "condicion_comercial": ctx.condicion_comercial,
             "aclaraciones_seguidas": aclaraciones,
             "resultado": ctx.resultado,
             "notas_turno": ctx.notas_turno,

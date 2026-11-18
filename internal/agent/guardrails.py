@@ -406,6 +406,7 @@ def _regla_precios(
         lineas = [(item.unit_price, item.quantity) for item in draft.items if item.unit_price is not None]
         unitarios |= {precio for precio, _ in lineas}
         totales.add(sum((precio * cantidad for precio, cantidad in lineas), Decimal(0)))
+        totales.add(draft.total)
 
     def explicado(monto: Decimal) -> bool:
         if monto in unitarios or monto in totales:
@@ -426,12 +427,16 @@ def _regla_precios(
     return None
 
 
-def _regla_promesas(normalizado: str) -> Rechazo | None:
+def _regla_promesas(normalizado: str, descuento_autorizado: float | None = None) -> Rechazo | None:
     temas = []
     for oracion in _ORACIONES.split(_SIN_CARGO.sub("gratis", normalizado)):
         if _NIEGA_O_DERIVA.search(_NO_NIEGAN.sub(" ", oracion)):
             continue
-        temas.extend(tema for tema, patron in _TEMAS.items() if patron.search(oracion) and tema not in temas)
+        for tema, patron in _TEMAS.items():
+            if tema == "descuentos" and descuento_autorizado:
+                continue
+            if patron.search(oracion) and tema not in temas:
+                temas.append(tema)
     if temas:
         return Rechazo(
             "promesa",
@@ -470,6 +475,7 @@ def validar_salida(
     turno: ContextoTurno | None = None,
     vigente: OrderDraft | None = None,
     pendientes: list[int] | None = None,
+    descuento_autorizado: float | None = None,
 ) -> list[Rechazo]:
     """Las reglas que no cumple el mensaje del LLM. Vacía si puede llegar al cliente.
 
@@ -488,7 +494,7 @@ def validar_salida(
         _regla_internos(message, normalizado, skus | turno.skus_del_prompt),
         _regla_pedido_hecho(message, normalizado),
         _regla_precios(message, propuesta, vigente, turno),
-        _regla_promesas(normalizado),
+        _regla_promesas(normalizado, descuento_autorizado),
         _regla_formato(message),
         _regla_pregunta(message, pendientes or []),
     )

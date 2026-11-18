@@ -31,6 +31,12 @@ DATA_EXAMPLE_DIR = Path(__file__).resolve().parent.parent / "data_example"
 @pytest.fixture(autouse=True)
 def clean_state_and_auth(monkeypatch):
     monkeypatch.setenv("OPERATOR_TOKEN", OPERATOR_TOKEN)
+    from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+
+    from internal.agent import norma_agent
+
+    monkeypatch.setattr(norma_agent, "get_chat_model", lambda: GenericFakeChatModel(messages=iter([])))
+    norma_agent.get_agent.cache_clear()
     get_settings.cache_clear()
     init_db()
     with SessionLocal() as session:
@@ -42,6 +48,7 @@ def clean_state_and_auth(monkeypatch):
         session.execute(delete(OrderRecord))
         session.execute(delete(ConversationRecord))
         session.commit()
+    norma_agent.get_agent.cache_clear()
     get_settings.cache_clear()
 
 
@@ -184,6 +191,153 @@ def test_dashboard_conversations_listing():
     assert len(derivadas) == 2
     assert all(c["status"] == "derivada" for c in derivadas)
     assert {c["derivation_reason"] for c in derivadas} == {"solicitud_humano", "descuento"}
+
+
+def test_dashboard_conversation_detail_not_found():
+    resp = client.get("/dashboard/conversations/99999", headers=AUTH_HEADERS)
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Conversación no encontrada"
+
+
+def test_dashboard_conversation_detail_with_messages(monkeypatch):
+    with SessionLocal() as session:
+        conv = ConversationRecord(
+            customer_id="telegram:12345",
+            channel="telegram",
+            status="derivada",
+            derivation_reason="condicion_comercial",
+        )
+        session.add(conv)
+        session.commit()
+        session.refresh(conv)
+        conv_id = conv.id
+
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    from internal.agent.norma_agent import get_agent
+
+    agent = get_agent()
+    config = {"configurable": {"thread_id": str(conv_id)}}
+    agent.graph.update_state(
+        config,
+        {
+            "messages": [
+                HumanMessage(content="¿Tienen descuento por 50 bultos?"),
+                AIMessage(content="Te derivo con el equipo de ventas para coordinar condiciones."),
+            ]
+        },
+    )
+
+    resp = client.get(f"/dashboard/conversations/{conv_id}", headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["id"] == conv_id
+    assert data["customer_id"] == "telegram:12345"
+    assert data["channel"] == "telegram"
+    assert data["status"] == "derivada"
+    assert data["derivation_reason"] == "condicion_comercial"
+    assert len(data["messages"]) == 2
+    assert data["messages"][0]["role"] == "cliente"
+    assert data["messages"][0]["content"] == "¿Tienen descuento por 50 bultos?"
+    assert data["messages"][1]["role"] == "norma"
+    assert "Te derivo" in data["messages"][1]["content"]
+
+
+def test_dashboard_resolve_conversation_telegram_success(monkeypatch):
+    with SessionLocal() as session:
+        conv = ConversationRecord(
+            customer_id="telegram:860907231",
+            channel="telegram",
+            status="derivada",
+            derivation_reason="condicion_comercial",
+        )
+        session.add(conv)
+        session.commit()
+        session.refresh(conv)
+        conv_id = conv.id
+
+    sent_messages = []
+
+    class FakeTelegramClient:
+        def send_message(self, chat_id: int, text: str):
+            sent_messages.append((chat_id, text))
+
+    monkeypatch.setattr("internal.services.telegram_service.get_client", lambda: FakeTelegramClient())
+
+    payload = {
+        "resolution_type": "descuento_volumen",
+        "message": "¡Hola! Te autorizamos 15% de descuento por la compra por bulto.",
+        "discount_percentage": 15.0,
+        "operator_notes": "Aprobado por ventas para cliente mayorista",
+        "reactivate_bot": True,
+    }
+
+    resp = client.post(f"/dashboard/conversations/{conv_id}/resolve", json=payload, headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["id"] == conv_id
+    assert data["status"] == "abierta"
+    assert data["resolution_type"] == "descuento_volumen"
+    assert data["discount_percentage"] == 15.0
+    assert data["operator_notes"] == "Aprobado por ventas para cliente mayorista"
+
+    # Verificamos mensaje a Telegram
+    assert len(sent_messages) == 1
+    assert sent_messages[0][0] == 860907231
+    assert "15% de descuento" in sent_messages[0][1]
+
+    # Verificamos mensajes en la respuesta
+    roles = [m["role"] for m in data["messages"]]
+    assert "operador" in roles
+
+    # Verificamos estado en base de datos
+    with SessionLocal() as session:
+        updated_conv = session.get(ConversationRecord, conv_id)
+        assert updated_conv is not None
+        assert updated_conv.status == "abierta"
+        assert updated_conv.discount_percentage == 15.0
+        assert updated_conv.operator_notes == "Aprobado por ventas para cliente mayorista"
+        assert updated_conv.resolution_type == "descuento_volumen"
+
+
+def test_dashboard_resolve_conversation_keep_silenced(monkeypatch):
+    with SessionLocal() as session:
+        conv = ConversationRecord(
+            customer_id="telegram:999888",
+            channel="telegram",
+            status="derivada",
+            derivation_reason="reclamo",
+        )
+        session.add(conv)
+        session.commit()
+        session.refresh(conv)
+        conv_id = conv.id
+
+    sent_messages = []
+
+    class FakeTelegramClient:
+        def send_message(self, chat_id: int, text: str):
+            sent_messages.append((chat_id, text))
+
+    monkeypatch.setattr("internal.services.telegram_service.get_client", lambda: FakeTelegramClient())
+
+    payload = {
+        "resolution_type": "mensaje_directo",
+        "message": "Estamos revisando tu reclamo manualmente.",
+        "discount_percentage": None,
+        "operator_notes": "Atendido manual, bot sigue silenciado",
+        "reactivate_bot": False,
+    }
+
+    resp = client.post(f"/dashboard/conversations/{conv_id}/resolve", json=payload, headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "derivada"
+
+    with SessionLocal() as session:
+        updated_conv = session.get(ConversationRecord, conv_id)
+        assert updated_conv is not None
+        assert updated_conv.status == "derivada"
 
 
 # ============================================================================

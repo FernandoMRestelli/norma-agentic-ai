@@ -112,8 +112,12 @@ def _step_3_stock_aplicado(conn: Connection) -> None:
 
 
 def _step_4_motivo_derivacion(conn: Connection) -> None:
-    """3 → 4: `conversations.derivation_reason` para registrar por qué se derivó a un humano (RF-27, Issue #84)."""
+    """3 → 4: `conversations.derivation_reason`, descuento y resolución humana (RF-27, Issue #84)."""
     _add_column(conn, "conversations", "derivation_reason", "VARCHAR")
+    _add_column(conn, "conversations", "discount_percentage", "FLOAT")
+    _add_column(conn, "conversations", "operator_notes", "TEXT")
+    _add_column(conn, "conversations", "resolution_type", "VARCHAR")
+    _add_column(conn, "orders", "discount_percentage", "FLOAT")
 
 
 STEPS: list[tuple[int, Callable[[Connection], None]]] = [

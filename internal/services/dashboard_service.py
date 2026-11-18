@@ -1,17 +1,24 @@
 """Servicio del dashboard operativo: métricas, pedidos, stock y derivaciones (RF-22 a RF-25, RF-80 a RF-83)."""
 
+import logging
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
+from fastapi import HTTPException
+from langchain_core.messages import AIMessage, HumanMessage
 from sqlalchemy import select
 
+from internal.agent.norma_agent import get_agent
 from internal.database.connection import SessionLocal
-from internal.database.models import ConversationRecord, OrderRecord
+from internal.database.models import ConversationRecord, DraftRecord, OrderRecord
 from internal.schemas.dashboard_schema import (
     BreakdownItem,
+    ConversationDetailResponse,
+    ConversationMessageItem,
+    ConversationResolveRequest,
     DashboardConversationItem,
     DashboardMetrics,
     DashboardOrderItem,
@@ -21,8 +28,10 @@ from internal.schemas.dashboard_schema import (
     TimeSeriesPoint,
     TopProductItem,
 )
-from internal.schemas.order_schema import OrderStatus
-from internal.services import inventory_service, sheets_service
+from internal.schemas.order_schema import DraftStatus, OrderDraft, OrderStatus
+from internal.services import inventory_service, sheets_service, telegram_service
+
+logger = logging.getLogger(__name__)
 
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 MESES_ES = ("", "Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic")
@@ -439,11 +448,143 @@ def get_conversations(state: str | None = None) -> list[DashboardConversationIte
                 channel=r.channel,
                 status=r.status,
                 derivation_reason=r.derivation_reason,
+                discount_percentage=r.discount_percentage,
+                operator_notes=r.operator_notes,
+                resolution_type=r.resolution_type,
                 created_at=r.created_at,
                 updated_at=r.updated_at,
             )
             for r in records
         ]
+
+
+def get_conversation_detail(conversation_id: int) -> ConversationDetailResponse:
+    """Detalle de una conversación con el historial de mensajes y estado de derivación."""
+    with SessionLocal() as session:
+        conv = session.get(ConversationRecord, conversation_id)
+        if not conv:
+            raise HTTPException(status_code=404, detail="Conversación no encontrada")
+
+        messages: list[ConversationMessageItem] = []
+        try:
+            agent = get_agent()
+            config = {"configurable": {"thread_id": str(conversation_id)}}
+            state = agent.graph.get_state(config)
+            raw_messages = state.values.get("messages", [])
+            for m in raw_messages:
+                if isinstance(m, HumanMessage):
+                    messages.append(ConversationMessageItem(role="cliente", content=str(m.content)))
+                elif isinstance(m, AIMessage):
+                    content = str(m.content)
+                    if content.startswith("[Operador]"):
+                        messages.append(
+                            ConversationMessageItem(role="operador", content=content.removeprefix("[Operador]").strip())
+                        )
+                    elif content:
+                        messages.append(ConversationMessageItem(role="norma", content=content))
+        except Exception as exc:
+            logger.warning(
+                "No se pudieron cargar los mensajes del grafo para conversation_id=%s: %s", conversation_id, exc
+            )
+
+        return ConversationDetailResponse(
+            id=conv.id,
+            customer_id=conv.customer_id,
+            channel=conv.channel,
+            status=conv.status,
+            derivation_reason=conv.derivation_reason,
+            discount_percentage=conv.discount_percentage,
+            operator_notes=conv.operator_notes,
+            resolution_type=conv.resolution_type,
+            created_at=conv.created_at,
+            updated_at=conv.updated_at,
+            messages=messages,
+        )
+
+
+def resolve_conversation(
+    conversation_id: int, request: ConversationResolveRequest
+) -> ConversationDetailResponse:
+    """Resuelve una derivación humana: actualiza condición, envía mensaje y reactiva o no al bot."""
+    with SessionLocal() as session:
+        conv = session.get(ConversationRecord, conversation_id)
+        if not conv:
+            raise HTTPException(status_code=404, detail="Conversación no encontrada")
+
+        # 1. Si hay mensaje, enviar al cliente según el canal
+        if request.message and request.message.strip():
+            msg_text = request.message.strip()
+            if conv.channel == "telegram" and conv.customer_id.startswith("telegram:"):
+                try:
+                    chat_id = int(conv.customer_id.split(":")[1])
+                    telegram_service.get_client().send_message(chat_id, msg_text)
+                except Exception as exc:
+                    logger.error("Error al enviar mensaje de operador a Telegram: %s", exc)
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"No se pudo enviar el mensaje a Telegram: {exc}",
+                    ) from exc
+
+        # 2. Actualizar registro en base de datos
+        conv.resolution_type = request.resolution_type
+        conv.operator_notes = request.operator_notes
+        conv.discount_percentage = request.discount_percentage
+        if request.reactivate_bot:
+            conv.status = "abierta"
+            conv.updated_at = datetime.now(UTC)
+
+        # Si hay propuesta pendiente en la base y se autorizó descuento, actualizamos su total
+        if request.discount_percentage is not None:
+            pending_draft = session.scalar(
+                select(DraftRecord)
+                .where(
+                    DraftRecord.conversation_id == conversation_id,
+                    DraftRecord.status == DraftStatus.PENDING_CONFIRMATION.value,
+                )
+                .order_by(DraftRecord.version.desc())
+                .limit(1)
+            )
+            if pending_draft:
+                draft_obj = OrderDraft.model_validate({
+                    **dict(pending_draft.__dict__),
+                    "items": pending_draft.items,
+                    "discount_percentage": request.discount_percentage,
+                })
+                pending_draft.total = draft_obj.total
+
+        session.commit()
+
+        # 3. Actualizar estado en checkpointer de LangGraph
+        try:
+            agent = get_agent()
+            config = {"configurable": {"thread_id": str(conversation_id)}}
+            update_data: dict[str, Any] = {}
+            if request.message and request.message.strip():
+                update_data["messages"] = [AIMessage(content=f"[Operador] {request.message.strip()}")]
+            if request.discount_percentage is not None:
+                update_data["descuento_autorizado"] = request.discount_percentage
+                # Si ya había una propuesta armada en memoria, le aplicamos el descuento autorizado
+                st = agent.graph.get_state(config)
+                if st and st.values.get("propuesta"):
+                    prop = dict(st.values["propuesta"])
+                    prop["discount_percentage"] = request.discount_percentage
+                    update_data["propuesta"] = prop
+            if request.operator_notes or request.resolution_type:
+                condicion = f"{request.resolution_type}"
+                if request.operator_notes:
+                    condicion += f": {request.operator_notes}"
+                update_data["condicion_comercial"] = condicion
+            if request.reactivate_bot:
+                update_data["derivation_reason"] = None
+                update_data["resultado"] = "continuar"
+            if update_data:
+                agent.graph.update_state(config, update_data)
+        except Exception as exc:
+            logger.warning(
+                "No se pudo actualizar el estado de LangGraph para conversation_id=%s: %s", conversation_id, exc
+            )
+
+    return get_conversation_detail(conversation_id)
 
 
 def _con_zona(dt: datetime) -> datetime:

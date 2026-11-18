@@ -84,19 +84,22 @@ class NormaAgent:
         if self.graph.get_state(config).next == ("pausa",):
             entry: Command | EstadoNorma = Command(resume={"texto": text, "origen": origen})
         else:
+            prev_state = self.graph.get_state(config).values
             entry = {
                 "messages": [HumanMessage(content=text)],
                 "customer_id": customer_id,
                 "customer_name": customer_name,
                 "channel": channel.value,
                 "origen": origen,
-                "inicio_turno": 0,
+                "inicio_turno": len(prev_state.get("messages", [])) if prev_state else 0,
                 "skills_activas": [],
                 "iteraciones": 0,
                 "fallas": 0,
                 "falla_turno": False,
-                "propuesta": None,
-                "renglones": [],
+                "propuesta": prev_state.get("propuesta"),
+                "renglones": prev_state.get("renglones", []),
+                "descuento_autorizado": prev_state.get("descuento_autorizado"),
+                "condicion_comercial": prev_state.get("condicion_comercial"),
             }
         try:
             state = self.graph.invoke(entry, config)
