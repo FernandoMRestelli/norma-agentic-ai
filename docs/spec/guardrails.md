@@ -75,6 +75,7 @@ Todas se evalúan sobre el texto en minúsculas y sin tildes, salvo donde se ind
 | `precio_inventado` | Un monto con `$` o «pesos» que no es el precio de ningún producto del catálogo, ni un múltiplo exacto (hasta `MAX_QUANTITY` unidades) del precio de un producto del turno, ni el total de la propuesta | «$1000», «$1.000», «$1000,00» o «$11200» cuando salen del catálogo; «3 por $3000» cuando cada uno sale $1000 |
 | `promesa` | Una oración afirmativa sobre descuentos («descuento», «promo», «gratis», «sin cargo», «10% off»), envíos («envío», «a domicilio», «te lo llevamos»), plazos (verbo de entrega cerca de «hoy», «mañana», «en 48 hs», un día de la semana) o formas de pago («transferencia», «efectivo», «tarjeta», «cuotas», «Mercado Pago», «alias») | La misma oración con una negación o una derivación («no», «ni», «sin», «el equipo», «consultá», «te confirma»): «No tengo ese dato de envíos, te lo confirma alguien del equipo»; «¿te lo envío así?». Las frases hechas que no niegan nada no cuentan como negación: «sin falta», «sin problema», «sin drama», «sin vueltas», «no hay problema», «no te preocupes», «no pasa nada» |
 | `formato` | `**`, `__`, acento grave o un encabezado con `#` | `*texto*` y texto plano (formato de chat del system prompt) |
+| `pregunta_faltante` | Con `pendientes`, un mensaje sin ningún «?»: el cliente no ve ese campo, así que un mensaje que anuncia las dudas («te paso las dudas que encontré:») le llega sin ellas. Se evalúa sobre el texto original | Un mensaje con al menos una pregunta; cualquier mensaje sin `pendientes` |
 
 ### 3.3 Entrada
 
@@ -106,7 +107,8 @@ Dentro del turno:
 ## 4. Contratos
 
 - Módulo nuevo [`internal/agent/guardrails.py`](../../internal/agent/guardrails.py):
-  - `validar_salida(message, kind, propuesta, options, turno, vigente) -> list[Rechazo]`: lista vacía si pasa.
+  - `validar_salida(message, kind, propuesta, options, turno, vigente, pendientes) -> list[Rechazo]`: lista vacía si
+    pasa. `pendientes` son los números de los renglones que el LLM declaró como pregunta al cliente.
   - `ContextoTurno`: lo que el validador necesita del turno (SKU y precios vistos, productos que no alcanzaron y
     rechazos hechos), armado con `contexto_turno(state)` a partir de los mensajes del turno.
   - `rechazar(rechazos) -> ToolFailure` con código `respuesta_rechazada`, y `mensaje_seguro(propuesta)`.
@@ -124,7 +126,7 @@ Dentro del turno:
 
 | ID | Requisito |
 |---|---|
-| RF-40 | Todo mensaje que escribe el LLM pasa por un validador determinista antes de llegar al cliente: no revela stock (salvo el disponible real con `sin_stock`, BR-01), no nombra SKU, tools, skills, BR ni instrucciones, no dice que el pedido está hecho ni da un número de orden, no trae precios fuera del catálogo, no promete descuentos, envíos, plazos ni formas de pago y respeta el formato del canal |
+| RF-40 | Todo mensaje que escribe el LLM pasa por un validador determinista antes de llegar al cliente: no revela stock (salvo el disponible real con `sin_stock`, BR-01), no nombra SKU, tools, skills, BR ni instrucciones, no dice que el pedido está hecho ni da un número de orden, no trae precios fuera del catálogo, no promete descuentos, envíos, plazos ni formas de pago, respeta el formato del canal y, si deja renglones pendientes, le pregunta por ellos |
 | RF-41 | Si el mensaje no pasa, vuelve al LLM con qué corregir; tras 2 reintentos en el turno sale un mensaje fijo seguro, con el detalle de la propuesta si la hay |
 | RF-42 | El texto suelto del LLM pasa por el mismo validador; si no pasa, no llega al cliente ni al historial |
 | RF-43 | Un mensaje de más de 4000 caracteres o más de 10 mensajes por cliente por minuto reciben una respuesta fija sin llamar al LLM |
@@ -146,6 +148,7 @@ Dentro del turno:
 | CA-78 | Las respuestas de los tests del agente y mensajes naturales del rubro | Se validan | Ninguna se rechaza | `test_guardrails.py::test_respuestas_validas_no_se_rechazan` |
 | CA-79 | Un mensaje de 4001 caracteres / el mensaje 11 de un cliente en un minuto | Llega al orquestador | Respuesta fija sin llamar al LLM; otro cliente sigue normal y la ventana se libera al minuto | `test_guardrails.py::test_mensaje_demasiado_largo`, `test_guardrails.py::test_tope_de_mensajes_por_minuto` |
 | CA-80 | Un nombre de perfil con saltos, símbolos o instrucciones / un mensaje que pide ignorar las reglas | Corre el turno | El prompt recibe el nombre limpio o «desconocido» / el log y la traza registran el código del intento sin el texto, y el prompt avisa | `test_guardrails.py::test_nombre_del_perfil_se_limpia`, `test_guardrails.py::test_intento_de_cambiar_reglas_se_registra_sin_texto` |
+| CA-143 | Un pedido numerado con renglones en `pendientes` | El mensaje del LLM no tiene ninguna pregunta / la tiene | Se rechaza con `pregunta_faltante` y se reintenta / pasa | `test_guardrails.py::test_renglones_pendientes_sin_pregunta`, `test_guardrails.py::test_renglones_pendientes_sin_pregunta_se_reintenta` |
 
 ## 7. Errores y casos borde
 

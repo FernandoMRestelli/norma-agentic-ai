@@ -135,8 +135,9 @@ def _current_state(state: EstadoNorma) -> str:
         lines.append(
             "Aviso: se terminó el tiempo para buscar en este turno. Respondé ahora con `respond_to_customer` usando "
             "solo lo que ya encontraste en las búsquedas: lo identificado y con stock va en `propuesta`, lo que te "
-            "falta averiguar va en `pendientes` como pregunta al cliente y lo que no se trabaja en `afuera`. No "
-            "propongas un producto que no apareció en una búsqueda."
+            "falta averiguar va en `pendientes` y lo que no se trabaja en `afuera`. El cliente solo lee `message`: "
+            "escribí ahí la pregunta de cada renglón pendiente. No propongas un producto que no apareció en una "
+            "búsqueda."
         )
     messages = state.get("messages", [])
     start = state.get("inicio_turno", 0)

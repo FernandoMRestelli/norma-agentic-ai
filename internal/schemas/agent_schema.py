@@ -169,10 +169,18 @@ class RespondToCustomerInput(BaseModel):
 
     pendientes: list[RenglonPendiente] = Field(
         default_factory=list,
-        description="Con un pedido numerado: los renglones que le preguntás al cliente en este mensaje",
+        description=(
+            "Con un pedido numerado: los renglones que le preguntás al cliente en este mensaje. El cliente no ve este "
+            "campo: la pregunta de cada renglón, con sus opciones, va escrita en `message`, una por renglón con una "
+            "viñeta (•)"
+        ),
     )
     afuera: list[RenglonAfuera] = Field(
-        default_factory=list, description="Con un pedido numerado: los renglones que no entran al pedido, con el motivo"
+        default_factory=list,
+        description=(
+            "Con un pedido numerado: los renglones que no entran al pedido, con el motivo. El cliente no ve este "
+            "campo: lo que no trabajan se lo decís en `message`"
+        ),
     )
 
     @model_validator(mode="after")
