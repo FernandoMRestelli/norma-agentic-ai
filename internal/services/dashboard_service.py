@@ -576,7 +576,6 @@ def resolve_conversation(
                 update_data["condicion_comercial"] = condicion
             if request.reactivate_bot:
                 update_data["derivation_reason"] = None
-                update_data["resultado"] = "continuar"
             if update_data:
                 agent.graph.update_state(config, update_data)
         except Exception as exc:
