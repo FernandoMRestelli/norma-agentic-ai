@@ -72,6 +72,8 @@ class TurnContext:
     options: list[str] = field(default_factory=list)
     order_id: str | None = None
     derivation_reason: str | None = None
+    descuento_autorizado: float | None = None
+    condicion_comercial: str | None = None
     turno: guardrails.ContextoTurno = field(default_factory=guardrails.ContextoTurno)  # para validar la salida
     orquestador: bool = False  # con el orquestador, `leer_skill` de una skill sub_loop dice cómo delegarla
     notas_turno: list[dict[str, Any]] = field(default_factory=list)  # la nota de búsqueda y las de los sub-loops
@@ -197,12 +199,18 @@ def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict
     )
     if propuesta:
         # Lo que quedó afuera viaja con la propuesta: si el cliente la acepta, la orden lo guarda (RF-76)
-        propuesta = propuesta.model_copy(update={"leftovers": reply_tools.fuera_del_pedido(renglones)})
+        propuesta = propuesta.model_copy(
+            update={
+                "leftovers": reply_tools.fuera_del_pedido(renglones),
+                "discount_percentage": ctx.descuento_autorizado,
+            }
+        )
     message = data.message
     # Lo que escribió el LLM pasa por los guardrails antes de llegar al cliente; la vigente no cambia si falla
     rechazos = guardrails.validar_salida(
         message, data.kind.value, propuesta, options, ctx.turno, ctx.propuesta,
         pendientes=[pendiente.renglon for pendiente in data.pendientes],
+        descuento_autorizado=ctx.descuento_autorizado,
     )  # fmt: skip
     if rechazos:
         ctx.turno.rechazos += 1

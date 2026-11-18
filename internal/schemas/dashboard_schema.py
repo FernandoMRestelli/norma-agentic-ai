@@ -59,8 +59,41 @@ class DashboardConversationItem(BaseModel):
     channel: str
     status: str
     derivation_reason: str | None = None
+    discount_percentage: float | None = None
+    operator_notes: str | None = None
+    resolution_type: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class ConversationMessageItem(BaseModel):
+    role: Literal["cliente", "norma", "operador"]
+    content: str
+    timestamp: datetime | None = None
+
+
+class ConversationDetailResponse(BaseModel):
+    id: int
+    customer_id: str
+    channel: str
+    status: str
+    derivation_reason: str | None = None
+    discount_percentage: float | None = None
+    operator_notes: str | None = None
+    resolution_type: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    messages: list[ConversationMessageItem] = Field(default_factory=list)
+
+
+class ConversationResolveRequest(BaseModel):
+    resolution_type: str = Field(description="Tipo de resolución comercial")
+    message: str | None = Field(default=None, description="Mensaje a enviar al cliente")
+    discount_percentage: float | None = Field(
+        default=None, ge=0, le=100, description="Porcentaje de descuento autorizado"
+    )
+    operator_notes: str | None = Field(default=None, description="Notas internas del operador")
+    reactivate_bot: bool = Field(default=True, description="Si es True, levanta el silencio y reactiva a Norma")
 
 
 class UpdateOrderStatusInput(BaseModel):

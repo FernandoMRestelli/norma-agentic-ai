@@ -211,6 +211,7 @@ class OrderDraft(BaseModel):
     version: int = Field(default=1, ge=1)
     leftovers: list[Leftover] = Field(default_factory=list)  # lo que quedó afuera al proponer (RF-76)
     source: str = "texto"  # texto, audio o imagen (RF-79)
+    discount_percentage: float | None = Field(default=None, ge=0, le=100)
 
     @field_validator("notes")
     @classmethod
@@ -224,6 +225,14 @@ class OrderDraft(BaseModel):
 
     @property
     def total(self) -> Decimal:
+        sub = items_total(self.items)
+        if self.discount_percentage:
+            discount_amount = (sub * Decimal(str(self.discount_percentage)) / Decimal("100")).quantize(Decimal("0.01"))
+            return sub - discount_amount
+        return sub
+
+    @property
+    def subtotal(self) -> Decimal:
         return items_total(self.items)
 
 
@@ -269,6 +278,7 @@ class Order(BaseModel):
     status: OrderStatus = OrderStatus.RECEIVED
     sheets_synced: bool = False
     stock_applied: bool = False  # el stock ya se descontó del catálogo al despachar o retirar (Issue #61)
+    discount_percentage: float | None = None
     history: list[OrderEvent] = Field(default_factory=list)
     leftovers: list[Leftover] = Field(default_factory=list)
     source: str | None = None  # None en una orden anterior a la migración 2

@@ -7,7 +7,7 @@ existente necesita su paso de migración (docs/spec/guardado-de-pedidos.md §3.3
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import TypeDecorator
@@ -45,6 +45,9 @@ class ConversationRecord(Base):
     # Estados posibles: abierta, cerrada, fallida, vencida, descartada, derivada
     status: Mapped[str] = mapped_column(String, default="abierta")
     derivation_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    discount_percentage: Mapped[float | None] = mapped_column(Float, nullable=True)
+    operator_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolution_type: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 
@@ -71,6 +74,7 @@ class OrderRecord(Base):
     source: Mapped[str | None] = mapped_column(String)  # texto, audio o imagen (migración 2, RF-79)
     # Agregada en la migración 3: el stock ya se descontó del catálogo al despachar o retirar (Issue #61)
     stock_applied: Mapped[bool] = mapped_column(default=False, server_default="0")
+    discount_percentage: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     leftovers: Mapped[list["OrderLeftoverRecord"]] = relationship(
         back_populates="order",

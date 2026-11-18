@@ -148,6 +148,14 @@ def _current_state(state: EstadoNorma) -> str:
     if opciones := opciones_previas(state.get("opciones_previas") or []):
         lines.append(f"Opciones que le ofreciste en tu mensaje anterior: {opciones}")
     lines += _renglones(state.get("renglones") or [], precarga.precargados(state.get("notas_turno") or []))
+    if descuento := state.get("descuento_autorizado"):
+        pct_val = int(descuento) if float(descuento).is_integer() else descuento
+        lines.append(
+            f"Condición comercial aprobada por el operador humano: {pct_val}% de descuento autorizado en el total "
+            "de este pedido. Podés mencionarlo al cliente y se aplicará automáticamente en el total del pedido."
+        )
+    if condicion := state.get("condicion_comercial"):
+        lines.append(f"Resolución u observación comercial del operador: {condicion}")
     if state.get("cierre_desde") is not None:
         lines.append(
             "Aviso: se terminó el tiempo para buscar en este turno. Respondé ahora con `respond_to_customer` usando "
