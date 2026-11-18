@@ -10,7 +10,7 @@
 | Estado | Propuesto |
 | Responsable | Federico Picado |
 | Requisitos de la spec del MVP | RF-62, RF-63, RF-65 a RF-68, RF-71 a RF-73, RNF-06, RNF-12, RNF-16 |
-| IDs que reserva | RF-84 a RF-97, RNF-17, CA-144 a CA-161, D-30 a D-38 |
+| IDs que reserva | RF-84 a RF-97, RNF-17, CA-144 a CA-161, D-30 a D-39 |
 
 **Índice**
 
@@ -71,7 +71,7 @@ escribir código.
 | Historial del cliente por tool | `pedidos_anteriores` es una tool: si el modelo la necesita, cuesta una vuelta | Es un dato fijo durante el día, que el backend puede leer una vez |
 | Elegir la skill | El índice del system prompt muestra `nombre`, `funcion` y `cuando`, y el modelo elige con `leer_skill` (§4.5) | **Esto ya está bien y no se toca**: la nueva estructura se apoya en el mismo índice |
 | Qué ve cada vuelta | `context.build_messages` arma de nuevo el system prompt con el estado actual (renglones, propuesta, avisos de cierre) y le suma la charla anterior y todo el turno: el mensaje del cliente, cada pedido de tool con sus argumentos y cada resultado, errores incluidos. De los turnos anteriores quedan solo los mensajes del cliente y las respuestas | **No se toca la forma**, sí el tamaño: el sub-loop acumula igual, pero solo con sus renglones, y el orquestador ve la nota en lugar de cada búsqueda (§3.3) |
-| Quién decide que el turno sigue | Cada llamada lleva `tool_choice="any"` (RF-61): el modelo siempre pide una tool y elige cuál. El turno **no** termina cuando el modelo deja de pedir tools, sino cuando una tool terminal (`respond_to_customer`, `armar_pedido`) se ejecuta con éxito en `ejecutar_tools`. El texto sin tool es una red de seguridad que pasa por los guardrails. El backend también corta: tope de vueltas o de tiempo (cierre solo con `respond_to_customer`) y fallas del LLM | **No se toca**: el orquestador y el sub-loop terminan igual, cada uno con su tool terminal (RF-96) |
+| Quién decide que el turno sigue | El modelo. Cada llamada lleva `tool_choice="any"` (RF-61): siempre pide una tool y elige cuál. El turno sigue hasta que elige una tool terminal (`respond_to_customer`, `armar_pedido`) y esta se ejecuta con éxito en `ejecutar_tools`; no termina porque el modelo deje de pedir tools. El texto sin tool es una red de seguridad que pasa por los guardrails. El backend solo pone límites: tope de vueltas o de tiempo (cierre solo con `respond_to_customer`) y fallas del LLM | **No se toca**: el orquestador y el sub-loop terminan igual, cada uno con su tool terminal (RF-96) |
 
 Una traza local de un pedido largo, la única que había al escribir esto, sirve como orden de magnitud: 8 llamadas al
 LLM de 5,7 s en promedio y 13 tools de 43 ms en promedio, en un turno de 46 s. La línea de base real sale de
@@ -124,17 +124,62 @@ flowchart TD
 
 ### 3.3 El loop vuelta por vuelta
 
-En cada vuelta hay dos decisiones distintas, y no las toma el mismo:
+En cada vuelta hay dos decisiones distintas, y **las dos las toma el modelo**:
 
-- **Qué hacer la toma el modelo.** Con sus instrucciones y lo que se acumuló, elige qué tool pedir: otra búsqueda,
-  leer una skill, delegar, o la tool terminal que le responde al cliente. Con `tool_choice="any"` siempre pide una.
-- **Si el loop sigue lo decide el backend.** El loop termina cuando su tool terminal se ejecuta con éxito, cuando
-  llega a su tope o cuando falla el LLM. Que el modelo no pida tools no cierra nada: es un caso de error (RF-96).
+- **Qué hace en esta vuelta.** Pide otra tool o le responde al cliente. Lo decide con sus instrucciones y con lo
+  que se acumuló en el turno: el system prompt le pide que lea la skill que corresponde, que lo que diga de un
+  producto salga de un resultado de tool y que explique las políticas con las BR.
+- **Si el loop sigue.** El loop sigue mientras el modelo pida tools de trabajo, y termina cuando elige su tool
+  terminal: `respond_to_customer` o `armar_pedido` en el orquestador, `entregar_nota` en el sub-loop. El backend no
+  fija cuántas vueltas da un turno: una consulta corta cierra en una o dos, y una lista larga da las que hagan falta.
 
-Lo que ve el modelo crece vuelta a vuelta como hoy: cada llamada lleva lo de la anterior más el pedido de tool que
-hizo y su resultado. Así, después de una búsqueda fallida, ve qué argumentos mandó y qué error volvió, y puede
-corregir. La diferencia es dónde se acumula: las búsquedas largas crecen dentro del sub-loop, y al orquestador le
-llega solo `delegar_skill` con la nota como resultado.
+El backend no decide si el loop sigue. Ejecuta lo que pidió el modelo, suma el pedido y el resultado al contexto y lo
+vuelve a llamar. Interviene solo en tres casos, que son límites y no decisiones sobre el camino:
+
+- rechaza una respuesta o una nota que no pasa la validación (guardrails, cobertura de renglones, RF-91), y el modelo
+  vuelve a intentar;
+- corta al llegar al tope de vueltas o de tiempo;
+- corta si falla el LLM.
+
+La señal de salida es la tool terminal, no una respuesta sin tool calls (D-39). Es la misma idea, que el modelo
+diga cuándo terminó, pero en una forma que el backend puede validar: la respuesta trae como datos la propuesta, los
+pendientes y lo que queda afuera. Además, con `tool_choice="any"` (RF-61) el modelo siempre pide una tool, así que
+dejar de pedirlas no puede ser la señal (RF-96).
+
+Para que el modelo pueda decidir las dos cosas, en cada vuelta ve todo lo anterior. Su entrada crece así:
+
+```text
+Vuelta 1 del orquestador
+├── System prompt, con el estado actual
+├── Índice de skills y contexto del cliente
+├── Nota de búsqueda de la precarga
+├── Charla anterior y mensaje del cliente
+└── Tools disponibles
+    → el modelo pide delegar_skill(tomar_pedido, encargo, renglones)
+
+Vuelta 2 del orquestador
+├── El system prompt, armado de nuevo con el estado actual
+├── Índice de skills y contexto del cliente
+├── Nota de búsqueda de la precarga
+├── Charla anterior y mensaje del cliente
+├── El pedido de tool de la vuelta 1: delegar_skill con sus argumentos
+├── Su resultado: la nota del sub-loop
+└── Tools disponibles en esta vuelta
+    → el modelo pide respond_to_customer(...) y el loop termina
+
+Vuelta N = lo que recibió la vuelta N-1 + sus pedidos de tool + sus resultados
+```
+
+El modelo no recibe solo el último resultado: el pedido y el resultado de cada tool quedan en el historial como dos
+elementos distintos. El pedido registra qué quiso hacer el modelo y con qué argumentos. El resultado registra qué
+pasó al ejecutarlo: los datos que volvieron o el error con su `_hint`. Así, después de una búsqueda fallida, el
+modelo ve qué argumentos mandó y qué error volvió, y puede corregir.
+
+La continuidad entre vueltas la da este contexto que arma el backend, no el modelo. Por eso el sub-loop podría
+correr con otro modelo que el orquestador (D-38).
+
+Lo que cambia respecto de hoy es dónde se acumula: las búsquedas largas crecen dentro del sub-loop, y al orquestador
+le llega solo `delegar_skill` con la nota como resultado.
 
 ```mermaid
 sequenceDiagram
@@ -389,6 +434,7 @@ dependen de la bandera.
 | D-36 | **Convivencia con el grafo de hoy.** El grafo nuevo entra detrás de `AGENT_ORQUESTADOR` y se compara con la evaluación. El de hoy se borra en otra PR, si el nuevo cumple RNF-17 | Propuesta |
 | D-37 | **`pedidos_anteriores`.** Con el contexto del cliente, la tool queda redundante. Se mantiene hasta ver en las trazas que nadie la llama | Abierta |
 | D-38 | **Modelo del sub-loop.** La continuidad entre el orquestador y el sub-loop la da el contexto que arma el backend, no el modelo, así que el sub-loop podría correr con otro modelo, por ejemplo uno más barato para las búsquedas. Arranca con el mismo y se prueba después de medir | Abierta |
+| D-39 | **Señal de fin del loop.** El modelo decide cuándo termina el loop al elegir su tool terminal, no al responder sin tool calls, que es como cortan otros loops de agentes. Se elige así por dos motivos: la respuesta al cliente y la nota son datos que el backend valida antes de cerrar (guardrails, cobertura, RF-91), y `tool_choice="any"` (RF-61) bajó las vueltas por turno. En las dos formas decide el modelo; el backend solo pone límites | Propuesta |
 
 ## 9. Plan de implementación
 
