@@ -112,8 +112,12 @@ def _step_3_stock_aplicado(conn: Connection) -> None:
 
 
 def _step_4_motivo_derivacion(conn: Connection) -> None:
-    """3 → 4: `conversations.derivation_reason`, descuento y resolución humana (RF-27, Issue #84)."""
+    """3 → 4: `conversations.derivation_reason` para registrar por qué se derivó a un humano (RF-27, Issue #84)."""
     _add_column(conn, "conversations", "derivation_reason", "VARCHAR")
+
+
+def _step_5_resolucion_operador(conn: Connection) -> None:
+    """4 → 5: descuento y resolución humana en conversaciones y órdenes (RF-24, RF-27)."""
     _add_column(conn, "conversations", "discount_percentage", "FLOAT")
     _add_column(conn, "conversations", "operator_notes", "TEXT")
     _add_column(conn, "conversations", "resolution_type", "VARCHAR")
@@ -125,6 +129,7 @@ STEPS: list[tuple[int, Callable[[Connection], None]]] = [
     (2, _step_2_lineas_para_preparar),
     (3, _step_3_stock_aplicado),
     (4, _step_4_motivo_derivacion),
+    (5, _step_5_resolucion_operador),
 ]
 LATEST = STEPS[-1][0]
 
