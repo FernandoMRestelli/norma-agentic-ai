@@ -110,6 +110,8 @@ def cubrir_renglones(
     `afuera`. Con `tolerar`, los que faltan quedan pendientes en vez de fallar: el modelo ya tuvo sus intentos.
     Un renglón resuelto cuyo producto ya no está en la propuesta nueva pasa a `afuera`: lo sacó el cliente.
     """
+    if not renglones:
+        return []
     por_n = {renglon["n"]: dict(renglon) for renglon in renglones}
     nombrados = [
         *(item.renglon for item in data.propuesta or [] if item.renglon is not None),

@@ -10,6 +10,7 @@ from collections import defaultdict
 from collections.abc import Callable
 from datetime import UTC, datetime
 
+from langchain_core.messages import HumanMessage
 from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
@@ -187,6 +188,32 @@ def _close_conversation(
         session.commit()
 
 
+def _record_silenced_message(message: IncomingMessage) -> None:
+    """Registra en el historial el mensaje que envió el cliente mientras la conversación está derivada (RF-27).
+
+    El bot no contesta automáticamente, pero el operador puede leer lo que el cliente escribió desde el Dashboard.
+    """
+    if not message.text:
+        return
+    with SessionLocal() as session:
+        derivada = session.scalar(
+            select(ConversationRecord)
+            .where(
+                ConversationRecord.customer_id == message.customer_id,
+                ConversationRecord.channel == message.channel.value,
+                ConversationRecord.status == "derivada",
+            )
+            .order_by(ConversationRecord.updated_at.desc())
+        )
+        if derivada is not None:
+            try:
+                agent = get_agent()
+                config = {"configurable": {"thread_id": str(derivada.id)}}
+                agent.graph.update_state(config, {"messages": [HumanMessage(content=message.text)]})
+            except Exception:
+                logger.warning("No se pudo registrar mensaje silenciado en el checkpointer", exc_info=True)
+
+
 def handle_message(message: IncomingMessage) -> ChannelReply:
     # RF-27, CA-21: si el cliente fue derivado hace menos de 24 h, el bot no responde automáticamente
     if _is_silenced_by_derivation(message.customer_id, message.channel):
@@ -195,6 +222,7 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
             message.customer_id,
             message.channel.value,
         )
+        _record_silenced_message(message)
         return ChannelReply(text="")
 
     if message.type != MessageType.TEXT:

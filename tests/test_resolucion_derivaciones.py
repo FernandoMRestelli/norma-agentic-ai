@@ -276,3 +276,52 @@ def test_telegram_error_raises_http_502(monkeypatch):
         dashboard_service.resolve_conversation(conv_id, req)
     assert exc_info.value.status_code == 502
     assert "Telegram API down" in str(exc_info.value.detail)
+
+
+def test_silenced_messages_recorded_for_operator_view(monkeypatch):
+    customer_id = "telegram:333444"
+    channel = Channel.TELEGRAM
+
+    with SessionLocal() as session:
+        conv = ConversationRecord(
+            customer_id=customer_id,
+            channel=channel.value,
+            status="derivada",
+            derivation_reason="condicion_comercial",
+        )
+        session.add(conv)
+        session.commit()
+        session.refresh(conv)
+        conv_id = conv.id
+
+    # 1. Cliente envía mensaje mientras está derivado
+    msg = IncomingMessage(
+        customer_id=customer_id,
+        channel=channel,
+        type="text",
+        text="Hola, quiero pedir 20 botellas de aceite Natura con descuento por bulto",
+    )
+    reply = conversation_service.handle_message(msg)
+    # El bot permanece silenciado (RF-27)
+    assert reply.text == ""
+
+    # 2. El operador en el dashboard ve el mensaje que envió el cliente
+    detail = dashboard_service.get_conversation_detail(conv_id)
+    assert any("20 botellas de aceite Natura" in m.content for m in detail.messages)
+
+    # 3. Operador resuelve y reactiva el bot
+    monkeypatch.setattr(telegram_service, "get_client", lambda: type("C", (), {"send_message": lambda *a: None})())
+    req = ConversationResolveRequest(
+        resolution_type="descuento_volumen",
+        message="Te autorizamos 15% de descuento.",
+        discount_percentage=15.0,
+        reactivate_bot=True,
+    )
+    resolved_detail = dashboard_service.resolve_conversation(conv_id, req)
+    assert resolved_detail.status == "abierta"
+
+    # 4. El grafo no debe tener tareas intermedias encoladas (next debe ser vacio o encaminar)
+    agent = norma_agent.get_agent()
+    st = agent.graph.get_state({"configurable": {"thread_id": str(conv_id)}})
+    assert st.next in ((), ("encaminar",))
+
