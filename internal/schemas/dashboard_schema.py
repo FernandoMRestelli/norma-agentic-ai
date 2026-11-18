@@ -36,6 +36,8 @@ class DashboardOrderItem(BaseModel):
     notes: str | None = None
     items_summary: str
     items: list[DashboardOrderLineItem] = Field(default_factory=list)
+    subtotal: Decimal | None = None
+    discount_percentage: float | None = None
     total: Decimal
     stock_applied: bool = False
     read_only: bool = False  # solo está en la copia de Sheet 2: no se puede cambiar de estado (RF-82)
