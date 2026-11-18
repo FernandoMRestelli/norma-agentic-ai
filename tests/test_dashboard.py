@@ -652,13 +652,13 @@ def test_migracion_3_agrega_stock_applied(tmp_path):
         conn.exec_driver_sql("UPDATE schema_version SET version = 2")
 
     db_engine = make_engine(f"sqlite:///{path}")
-    assert init_db(db_engine) == LATEST == 4
+    assert init_db(db_engine) == LATEST == 5
     with Session(db_engine) as session:
         record = session.scalar(select(OrderRecord).where(OrderRecord.order_id == "ORD-0001"))
         assert record is not None
         assert record.stock_applied is False
     with db_engine.connect() as conn:
-        assert conn.exec_driver_sql("SELECT version FROM schema_version").scalar() == 4
+        assert conn.exec_driver_sql("SELECT version FROM schema_version").scalar() == 5
         assert conn.exec_driver_sql("SELECT order_id, stock_applied FROM orders").all() == [("ORD-0001", 0)]
 
 
@@ -676,14 +676,38 @@ def test_migracion_4_agrega_derivation_reason(tmp_path):
         conn.exec_driver_sql("UPDATE schema_version SET version = 3")
 
     db_engine = make_engine(f"sqlite:///{path}")
-    assert init_db(db_engine) == LATEST == 4
+    assert init_db(db_engine) == LATEST == 5
     with Session(db_engine) as session:
         conv = session.get(ConversationRecord, 100)
         assert conv is not None
         assert conv.derivation_reason is None
     with db_engine.connect() as conn:
-        assert conn.exec_driver_sql("SELECT version FROM schema_version").scalar() == 4
+        assert conn.exec_driver_sql("SELECT version FROM schema_version").scalar() == 5
         assert conn.exec_driver_sql("SELECT id, derivation_reason FROM conversations").all() == [(100, None)]
+
+
+def test_migracion_5_agrega_resolucion_operador(tmp_path):
+    """Una base en versión 4 gana columnas de resolución humana sin perder datos (RF-24, RF-27)."""
+    path = tmp_path / "norma_v4.db"
+    engine = make_engine(f"sqlite:///{path}")
+    init_db(engine)
+    with engine.begin() as conn:
+        conn.exec_driver_sql("ALTER TABLE conversations DROP COLUMN discount_percentage")
+        conn.exec_driver_sql(
+            "INSERT INTO conversations (id, customer_id, channel, status, created_at, updated_at) "
+            "VALUES (200, 'cust-v4', 'telegram', 'derivada', '2026-01-01 00:00:00', '2026-01-01 00:00:00')"
+        )
+        conn.exec_driver_sql("UPDATE schema_version SET version = 4")
+
+    db_engine = make_engine(f"sqlite:///{path}")
+    assert init_db(db_engine) == LATEST == 5
+    with Session(db_engine) as session:
+        conv = session.get(ConversationRecord, 200)
+        assert conv is not None
+        assert conv.discount_percentage is None
+    with db_engine.connect() as conn:
+        assert conn.exec_driver_sql("SELECT version FROM schema_version").scalar() == 5
+        assert conn.exec_driver_sql("SELECT id, discount_percentage FROM conversations").all() == [(200, None)]
 
 
 # ============================================================================
