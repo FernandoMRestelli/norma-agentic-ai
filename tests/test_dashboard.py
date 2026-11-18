@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from internal.config import get_settings
 from internal.database.connection import SessionLocal, init_db, make_engine
 from internal.database.migrations import LATEST
-from internal.database.models import ConversationRecord, OrderRecord
+from internal.database.models import ConversationRecord, OrderItemRecord, OrderRecord
 from internal.main import app
 from internal.schemas.order_schema import Channel, OrderDraft, OrderItem, OrderStatus
 from internal.services import google_sheets_client, inventory_service, order_service, sheets_service
@@ -835,3 +835,52 @@ def test_dashboard_summary_period_filtering_and_metrics_yesterday(monkeypatch, t
     assert len(m_yest["time_series"]) == 1
     assert m_yest["time_series"][0]["orders_count"] == 1
     assert m_yest["time_series"][0]["units_count"] == 3
+
+
+def test_dashboard_orders_with_discount():
+    with SessionLocal() as session:
+        rec = OrderRecord(
+            order_id="ORD-TEST-DESC",
+            draft_id="d-desc",
+            customer_id="telegram:860907231",
+            channel="telegram",
+            status="Recibido",
+            total=Decimal("202980.00"),
+            discount_percentage=15.0,
+            notes="Pedido con 15% de descuento",
+        )
+        session.add(rec)
+        session.flush()
+
+        item1 = OrderItemRecord(
+            order_pk=rec.id,
+            position=1,
+            sku="SH-PAN-400",
+            product_name="Shampoo Pantene Restauración",
+            presentation="400 ml",
+            quantity=24,
+            unit_price=Decimal("7350.00"),
+        )
+        item2 = OrderItemRecord(
+            order_pk=rec.id,
+            position=2,
+            sku="SH-SED-340",
+            product_name="Shampoo Sedal Ceramidas",
+            presentation="340 ml",
+            quantity=16,
+            unit_price=Decimal("3900.00"),
+        )
+        session.add_all([item1, item2])
+        session.commit()
+
+    resp = client.get("/dashboard/orders", headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    orders = resp.json()
+    target = next((o for o in orders if o["order_id"] == "ORD-TEST-DESC"), None)
+    assert target is not None
+    # Subtotal sin descuento = 24*7350 + 16*3900 = 176400 + 62400 = 238800.00
+    assert float(target["subtotal"]) == 238800.0
+    assert target["discount_percentage"] == 15.0
+    # Total con 15% descuento = 202980.00
+    assert float(target["total"]) == 202980.0
+

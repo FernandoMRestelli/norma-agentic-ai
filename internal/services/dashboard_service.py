@@ -107,12 +107,12 @@ def get_orders(status: str | None = None, limit: int = 50, offset: int = 0) -> l
     for o in page:
         items = o.get("items", [])
         line_items: list[DashboardOrderLineItem] = []
-        total = Decimal(0)
+        subtotal = Decimal(0)
         for it in items:
             qty = int(it.get("quantity", 0))
             unit_price = _line_price(it, catalog_prices)
-            subtotal = unit_price * qty
-            total += subtotal
+            item_subtotal = unit_price * qty
+            subtotal += item_subtotal
             line_items.append(
                 DashboardOrderLineItem(
                     sku=str(it.get("sku", "")),
@@ -120,9 +120,18 @@ def get_orders(status: str | None = None, limit: int = 50, offset: int = 0) -> l
                     presentation=it.get("presentation"),
                     quantity=qty,
                     unit_price=unit_price,
-                    subtotal=subtotal,
+                    subtotal=item_subtotal,
                 )
             )
+        discount_percentage = o.get("discount_percentage")
+        if o.get("total") is not None:
+            total = Decimal(str(o["total"]))
+        elif discount_percentage:
+            desc = (subtotal * Decimal(str(discount_percentage)) / Decimal("100")).quantize(Decimal("0.01"))
+            total = subtotal - desc
+        else:
+            total = subtotal
+
         items_summary = "; ".join(f"{it.quantity} x {it.product_name} ({it.sku})" for it in line_items)
         result.append(
             DashboardOrderItem(
@@ -134,6 +143,8 @@ def get_orders(status: str | None = None, limit: int = 50, offset: int = 0) -> l
                 notes=o.get("notes"),
                 items_summary=items_summary,
                 items=line_items,
+                subtotal=subtotal,
+                discount_percentage=discount_percentage,
                 total=total,
                 stock_applied=o.get("stock_applied", False),
                 read_only=o.get("read_only", False),
@@ -175,9 +186,16 @@ def _line_price(item: dict[str, Any], catalog_prices: dict[str, Decimal]) -> Dec
 
 
 def _order_revenue(order: dict[str, Any], catalog_prices: dict[str, Decimal]) -> Decimal:
-    """Total de la orden con `_line_price`."""
+    """Total de la orden con `_line_price` y descuento si corresponde."""
+    if order.get("total") is not None:
+        return Decimal(str(order["total"]))
     lineas = (_line_price(it, catalog_prices) * int(it.get("quantity", 0)) for it in order.get("items", []))
-    return sum(lineas, Decimal(0))
+    subtotal = sum(lineas, Decimal(0))
+    discount_percentage = order.get("discount_percentage")
+    if discount_percentage:
+        desc = (subtotal * Decimal(str(discount_percentage)) / Decimal("100")).quantize(Decimal("0.01"))
+        return subtotal - desc
+    return subtotal
 
 
 def _in_period(dt: datetime, period: Literal["all", "today", "yesterday", "7d", "30d"], today_ar: Any) -> bool:
@@ -620,6 +638,8 @@ def _get_all_orders() -> list[dict[str, Any]]:
                 "notes": r.notes,
                 "status": r.status,
                 "stock_applied": r.stock_applied,
+                "total": r.total,
+                "discount_percentage": r.discount_percentage,
                 "read_only": False,
             }
             for r in records
@@ -636,6 +656,8 @@ def _get_all_orders() -> list[dict[str, Any]]:
             "notes": o.notes,
             "status": o.status.value if hasattr(o.status, "value") else str(o.status),
             "stock_applied": False,
+            "total": o.total,
+            "discount_percentage": o.discount_percentage,
             "read_only": True,
         }
         for o in sheets_service.get_orders()

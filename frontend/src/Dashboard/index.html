@@ -713,7 +713,7 @@
             </tr>
           </thead>
           <tbody id="detailItemsBody" class="divide-y divide-zinc-100 dark:divide-zinc-900 text-zinc-700 dark:text-zinc-300"></tbody>
-          <tfoot class="bg-zinc-50 dark:bg-zinc-900 font-semibold text-zinc-950 dark:text-white">
+          <tfoot id="detailTfoot" class="bg-zinc-50 dark:bg-zinc-900 font-semibold text-zinc-950 dark:text-white">
             <tr>
               <td colspan="4" class="px-3 py-2.5 text-right text-xs uppercase text-zinc-500 dark:text-zinc-400">Total Pedido</td>
               <td id="detailTotalCell" class="px-3 py-2.5 text-right tabular-nums">$0,00</td>
@@ -1170,7 +1170,10 @@
             <td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 max-w-xs truncate" title="${escapeHtml(o.items_summary)}">
               ${escapeHtml(o.items_summary)}
             </td>
-            <td class="px-4 py-3 font-semibold text-zinc-950 dark:text-white tabular-nums">${formatARS(o.total)}</td>
+            <td class="px-4 py-3 font-semibold text-zinc-950 dark:text-white tabular-nums">
+              ${formatARS(o.total)}
+              ${o.discount_percentage ? `<span class="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-semibold whitespace-nowrap">-${o.discount_percentage}%</span>` : ''}
+            </td>
             <td class="px-4 py-3">
               <span class="px-2.5 py-0.5 rounded-full text-xs font-medium ${badgeClass}">${escapeHtml(o.status)}</span>
             </td>
@@ -1229,7 +1232,42 @@
           `).join('')
         : `<tr><td colspan="5" class="px-3 py-4 text-center text-zinc-400 text-xs">${escapeHtml(order.items_summary)}</td></tr>`;
 
-      document.getElementById('detailTotalCell').textContent = formatARS(order.total);
+      const subtotal = (order.subtotal !== null && order.subtotal !== undefined)
+        ? order.subtotal
+        : items.reduce((sum, it) => sum + (Number(it.subtotal) || 0), 0);
+      const discountPct = order.discount_percentage;
+      const total = order.total;
+      const discountAmount = (discountPct && discountPct > 0)
+        ? (Number(subtotal) * discountPct / 100)
+        : (Number(subtotal) - Number(total));
+
+      let tfootHtml = '';
+      if (discountPct && discountPct > 0) {
+        tfootHtml = `
+          <tr class="text-zinc-500 dark:text-zinc-400 border-t border-zinc-200 dark:border-zinc-800">
+            <td colspan="4" class="px-3 py-2 text-right text-xs uppercase font-medium">Subtotal</td>
+            <td class="px-3 py-2 text-right tabular-nums font-medium text-zinc-700 dark:text-zinc-300">${formatARS(subtotal)}</td>
+          </tr>
+          <tr class="text-emerald-600 dark:text-emerald-400">
+            <td colspan="4" class="px-3 py-1.5 text-right text-xs uppercase font-medium">Descuento (${discountPct}%)</td>
+            <td class="px-3 py-1.5 text-right tabular-nums font-medium">-${formatARS(discountAmount)}</td>
+          </tr>
+          <tr class="font-semibold text-zinc-950 dark:text-white border-t border-zinc-200 dark:border-zinc-800 bg-zinc-100/60 dark:bg-zinc-900">
+            <td colspan="4" class="px-3 py-2.5 text-right text-xs uppercase">Total Pedido</td>
+            <td id="detailTotalCell" class="px-3 py-2.5 text-right tabular-nums text-base">${formatARS(total)}</td>
+          </tr>
+        `;
+      } else {
+        tfootHtml = `
+          <tr class="font-semibold text-zinc-950 dark:text-white">
+            <td colspan="4" class="px-3 py-2.5 text-right text-xs uppercase text-zinc-500 dark:text-zinc-400">Total Pedido</td>
+            <td id="detailTotalCell" class="px-3 py-2.5 text-right tabular-nums">${formatARS(total)}</td>
+          </tr>
+        `;
+      }
+      const tfootEl = document.getElementById('detailTfoot');
+      if (tfootEl) tfootEl.innerHTML = tfootHtml;
+
       document.getElementById('detailActionButtons').innerHTML = buildActionButtons(order, true);
       orderDetailModal.classList.remove('hidden');
     };
