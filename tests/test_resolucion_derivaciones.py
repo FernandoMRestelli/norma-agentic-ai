@@ -36,7 +36,11 @@ from internal.services import (
 
 
 @pytest.fixture(autouse=True)
-def clean_state(monkeypatch):
+def clean_state(monkeypatch, tmp_path):
+    from internal.config import get_settings
+
+    monkeypatch.setenv("CHECKPOINT_DB", str(tmp_path / "checkpoints.db"))
+    get_settings.cache_clear()
     init_db()
     with SessionLocal() as session:
         session.execute(delete(OrderRecord))
@@ -52,6 +56,7 @@ def clean_state(monkeypatch):
         session.execute(delete(ConversationRecord))
         session.commit()
     norma_agent.get_agent.cache_clear()
+    get_settings.cache_clear()
 
 
 def test_order_draft_discount_calculations():
@@ -145,7 +150,7 @@ def test_guardrails_discount_authorization():
     reglas_sin = [r.regla for r in rechazos_sin]
     assert "promesa" in reglas_sin
 
-    # Con descuento autorizado: guardrail lo permite limpiamente
+    # Con descuento autorizado coincidente (10%): guardrail lo permite limpiamente
     rechazos_con = guardrails.validar_salida(
         message=message,
         kind="propuesta",
@@ -154,6 +159,16 @@ def test_guardrails_discount_authorization():
     )
     reglas_con = [r.regla for r in rechazos_con]
     assert "promesa" not in reglas_con
+
+    # Con descuento autorizado distinto (5% autorizado pero el mensaje dice 10%): guardrail lo rechaza
+    rechazos_distinto = guardrails.validar_salida(
+        message=message,
+        kind="propuesta",
+        propuesta=draft,
+        descuento_autorizado=5.0,
+    )
+    reglas_distinto = [r.regla for r in rechazos_distinto]
+    assert "promesa" in reglas_distinto
 
 
 def test_full_derivation_resolution_and_reactivation_flow(monkeypatch):
@@ -324,4 +339,30 @@ def test_silenced_messages_recorded_for_operator_view(monkeypatch):
     agent = norma_agent.get_agent()
     st = agent.graph.get_state({"configurable": {"thread_id": str(conv_id)}})
     assert st.next in ((), ("encaminar",))
+
+
+def test_resolve_conversation_canal_no_soportado_devuelve_501():
+    """Enviar mensaje desde el dashboard por un canal sin salida implementada (ej. web) devuelve 501."""
+    with SessionLocal() as session:
+        conv = ConversationRecord(
+            customer_id="web:cliente-1",
+            channel="web",
+            status="derivada",
+            derivation_reason="condicion_comercial",
+        )
+        session.add(conv)
+        session.commit()
+        session.refresh(conv)
+        conv_id = conv.id
+
+    req = ConversationResolveRequest(
+        resolution_type="descuento_volumen",
+        message="Te autorizamos un 10%.",
+        discount_percentage=10.0,
+        reactivate_bot=True,
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        dashboard_service.resolve_conversation(conv_id, req)
+    assert exc_info.value.status_code == 501
+    assert "web" in str(exc_info.value.detail)
 

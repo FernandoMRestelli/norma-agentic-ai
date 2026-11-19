@@ -248,12 +248,15 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
         if tenia_propuesta_vencida and clave == ConfirmationAction.CONFIRM:
             return ChannelReply(text=proposal_expired_message())
         if clave == ConfirmationAction.CANCEL:
-            # RF-26, CA-23: cancelación determinística de propuesta y descarte de borrador sin costo de tokens
+            # RF-26, CA-23: cancelación determinística solo si hay un borrador pendiente en la conversación
             with SessionLocal() as session:
-                _discard_pending_drafts(session, conversation_id, message.customer_id, message.channel.value)
+                descartados = _discard_pending_drafts(
+                    session, conversation_id, message.customer_id, message.channel.value
+                )
                 session.commit()
-            _close_conversation(conversation_id, "descartada", reason="cliente_cancelo")
-            return ChannelReply(text=DRAFT_DISCARDED_MESSAGE)
+            if descartados > 0:
+                _close_conversation(conversation_id, "descartada", reason="cliente_cancelo")
+                return ChannelReply(text=DRAFT_DISCARDED_MESSAGE)
         outcome = get_agent().handle(
             thread_id=str(conversation_id),
             customer_id=message.customer_id,

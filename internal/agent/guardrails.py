@@ -427,13 +427,23 @@ def _regla_precios(
     return None
 
 
-def _regla_promesas(normalizado: str, descuento_autorizado: float | None = None) -> Rechazo | None:
+_PORCENTAJE_EN_ORACION = re.compile(r"(\d+(?:[.,]\d+)?)\s*(?:%|por\s*ciento\b)")
+
+
+def _porcentajes_coinciden(oracion: str, descuento_autorizado: float | Decimal) -> bool:
+    """True si los porcentajes mencionados en la oración coinciden con el descuento autorizado."""
+    autorizado = Decimal(str(descuento_autorizado))
+    mencionados = _PORCENTAJE_EN_ORACION.findall(oracion)
+    return all(Decimal(p.replace(",", ".")) == autorizado for p in mencionados)
+
+
+def _regla_promesas(normalizado: str, descuento_autorizado: float | Decimal | None = None) -> Rechazo | None:
     temas = []
     for oracion in _ORACIONES.split(_SIN_CARGO.sub("gratis", normalizado)):
         if _NIEGA_O_DERIVA.search(_NO_NIEGAN.sub(" ", oracion)):
             continue
         for tema, patron in _TEMAS.items():
-            if tema == "descuentos" and descuento_autorizado:
+            if tema == "descuentos" and descuento_autorizado and _porcentajes_coinciden(oracion, descuento_autorizado):
                 continue
             if patron.search(oracion) and tema not in temas:
                 temas.append(tema)

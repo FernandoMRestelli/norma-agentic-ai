@@ -303,8 +303,32 @@ def _armar_pedido(_: ArmarPedidoInput, ctx: TurnContext) -> dict[str, Any]:
     return {"order_id": order.order_id}
 
 
+def _validar_mensaje_terminal(message: str | None, ctx: TurnContext, fallback: str) -> str:
+    """Valida con guardrails el mensaje libre del LLM en tools terminales de cierre (escalate/discard)."""
+    if not message:
+        return fallback
+    rechazos = guardrails.validar_salida(
+        message,
+        "informacion",
+        turno=ctx.turno,
+        vigente=ctx.propuesta,
+        descuento_autorizado=ctx.descuento_autorizado,
+    )
+    if rechazos:
+        ctx.turno.rechazos += 1
+        if ctx.turno.rechazos <= guardrails.MAX_RECHAZOS:
+            raise guardrails.rechazar(rechazos)
+        logger.warning(
+            "Guardrail: intentos agotados en cierre, sale el mensaje fijo (reglas=%s)",
+            ",".join(r.regla for r in rechazos),
+        )
+        return fallback
+    return message
+
+
 def _discard_order_draft(data: DiscardOrderDraftInput, ctx: TurnContext) -> dict[str, Any]:
-    mensaje, _ = reply_tools.discard_order_draft(data.reason, ctx.propuesta, data.message)
+    mensaje_valido = _validar_mensaje_terminal(data.message, ctx, reply_tools.DEFAULT_DISCARD_MESSAGE)
+    mensaje, _ = reply_tools.discard_order_draft(data.reason, ctx.propuesta, mensaje_valido)
     ctx.propuesta = None
     ctx.respuesta = mensaje
     ctx.kind = "descartado"
@@ -313,7 +337,8 @@ def _discard_order_draft(data: DiscardOrderDraftInput, ctx: TurnContext) -> dict
 
 
 def _escalate_to_human(data: EscalateToHumanInput, ctx: TurnContext) -> dict[str, Any]:
-    mensaje = reply_tools.escalate_to_human(data.reason, data.message)
+    mensaje_valido = _validar_mensaje_terminal(data.message, ctx, reply_tools.DEFAULT_HANDOFF_MESSAGE)
+    mensaje = reply_tools.escalate_to_human(data.reason, mensaje_valido)
     ctx.respuesta = mensaje
     ctx.kind = "derivada"
     ctx.derivation_reason = data.reason

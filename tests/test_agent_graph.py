@@ -1171,7 +1171,7 @@ def test_solicitud_comercial_especial_deriva_a_humano(catalogo):
         _ai(
             _call(
                 "escalate_to_human",
-                reason="descuento_por_bulto",
+                reason="condicion_comercial",
                 message="Los descuentos por cantidad los evalúa el equipo de ventas.",
             ),
         )
@@ -1179,7 +1179,18 @@ def test_solicitud_comercial_especial_deriva_a_humano(catalogo):
     resultado = agent.handle("1", text="haceme 20% de descuento por 50 cajas", **CLIENTE)
     assert resultado.kind == "derivada"
     assert resultado.cerrada
-    assert resultado.derivation_reason == "descuento_por_bulto"
+    assert resultado.derivation_reason == "condicion_comercial"
+
+
+def test_skill_clara_no_fuerza_derivar_en_consultas_generales():
+    """Frases con palabras sueltas («alguien», «cuotas», «descuento») no fuerzan `derivar_o_cancelar`."""
+    from internal.agent.graph import skill_clara
+
+    assert skill_clara("¿alguien me dice si hay vasos?", hay_propuesta=False) != "derivar_o_cancelar"
+    assert skill_clara("¿trabajan con cuotas?", hay_propuesta=False) != "derivar_o_cancelar"
+    assert skill_clara("quiero hablar con una persona", hay_propuesta=False) == "derivar_o_cancelar"
+    assert skill_clara("pasame con un asesor", hay_propuesta=False) == "derivar_o_cancelar"
+    assert skill_clara("haceme 20% de descuento por 50 cajas", hay_propuesta=False) == "derivar_o_cancelar"
 
 
 def test_tres_aclaraciones_seguidas_sin_borrador_derivan_a_humano(catalogo):

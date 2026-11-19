@@ -279,14 +279,14 @@ class DiscardOrderDraftInput(BaseModel):
     message: str | None = Field(default=None, description="Mensaje opcional para el cliente confirmando el descarte")
 
 
+DerivationReason = Literal["solicitud_humano", "condicion_comercial", "reclamo", "otro"]
+
+
 class EscalateToHumanInput(BaseModel):
     """Deriva la conversación a una persona del equipo (RF-27, Issue #84)."""
 
-    reason: str = Field(
-        description=(
-            "Motivo de la derivación: solicitud_humano, condicion_comercial, descuento, "
-            "envio_especial, pago_diferido, reclamo u otro"
-        )
+    reason: DerivationReason = Field(
+        description="Motivo de la derivación: solicitud_humano, condicion_comercial, reclamo u otro"
     )
     message: str | None = Field(
         default=None,

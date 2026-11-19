@@ -199,7 +199,13 @@ def test_dashboard_conversation_detail_not_found():
     assert resp.json()["detail"] == "Conversación no encontrada"
 
 
-def test_dashboard_conversation_detail_with_messages(monkeypatch):
+def test_dashboard_conversation_detail_with_messages(monkeypatch, tmp_path):
+    monkeypatch.setenv("CHECKPOINT_DB", str(tmp_path / "checkpoints.db"))
+    get_settings.cache_clear()
+    from internal.agent.norma_agent import get_agent
+
+    get_agent.cache_clear()
+
     with SessionLocal() as session:
         conv = ConversationRecord(
             customer_id="telegram:12345",
@@ -213,8 +219,6 @@ def test_dashboard_conversation_detail_with_messages(monkeypatch):
         conv_id = conv.id
 
     from langchain_core.messages import AIMessage, HumanMessage
-
-    from internal.agent.norma_agent import get_agent
 
     agent = get_agent()
     config = {"configurable": {"thread_id": str(conv_id)}}

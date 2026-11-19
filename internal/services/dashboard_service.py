@@ -542,14 +542,23 @@ def resolve_conversation(
                         status_code=502,
                         detail=f"No se pudo enviar el mensaje a Telegram: {exc}",
                     ) from exc
+            else:
+                raise HTTPException(
+                    status_code=501,
+                    detail=(
+                        f"El canal '{conv.channel}' todavía no soporta envío directo de mensajes desde el dashboard."
+                    ),
+                )
 
         # 2. Actualizar registro en base de datos
         conv.resolution_type = request.resolution_type
         conv.operator_notes = request.operator_notes
-        conv.discount_percentage = request.discount_percentage
+        conv.discount_percentage = (
+            Decimal(str(request.discount_percentage)) if request.discount_percentage is not None else None
+        )
+        conv.updated_at = datetime.now(UTC)
         if request.reactivate_bot:
             conv.status = "abierta"
-            conv.updated_at = datetime.now(UTC)
 
         # Si hay propuesta pendiente en la base y se autorizó descuento, actualizamos su total
         if request.discount_percentage is not None:
