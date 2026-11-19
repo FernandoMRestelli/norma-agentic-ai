@@ -253,3 +253,18 @@ a un pedido nuevo, y recorrer propuesta → observaciones → confirmación → 
 Pruebas en `tests/test_guardado_pedidos.py` y `tests/test_planillas.py`. La interpretación del lenguaje
 natural depende del LLM y requiere evaluación manual; las pruebas con modelo guionado validan el
 flujo y la persistencia, no garantizan la extracción por cualquier modelo.
+
+### Compatibilidad con derivaciones humanas (PR #90)
+
+Anotar una solicitud y derivarla al equipo son acciones complementarias. Se conserva el pedido original
+como solicitud pendiente y, cuando un operador resuelve, se incorporan los acuerdos operativos
+confirmados a las notas del pedido antes de que el cliente confirme la propuesta final. No se copia
+automáticamente `operator_notes`: ese campo es interno. El flujo de resolución necesita un campo
+explícito para acuerdos visibles del pedido (por ejemplo `order_notes`), separado de notas internas.
+Ejemplo: «Solicitud del cliente: retiro mañana a la mañana. Acuerdo confirmado: retiro de 9 a 12».
+Los descuentos autorizados conservan su campo numérico para calcular el total.
+
+La transferencia automática desde la resolución del dashboard corresponde al PR #90; esta PR
+conserva las notas estructuradas que recibe y define su criterio, sin implementar el dashboard
+ni dar por aceptadas solicitudes. Antes de fusionar #90 debe probarse que el acuerdo llega al
+resumen, la orden y Sheet 2, y que un comentario interno nunca se copia al pedido o al prompt.
