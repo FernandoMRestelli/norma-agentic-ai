@@ -1,3 +1,6 @@
+from decimal import Decimal
+
+from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import Channel, IncomingMessage
 from internal.services.interpretation_service import numerar_renglones
 from internal.services.message_service import partir, prepare
@@ -40,6 +43,36 @@ def test_numera_renglones_por_marca():
         (7, "1 gel", "LUMINE"),
     ]
     assert all(renglon["estado"] == "sin_resolver" for renglon in renglones)
+
+
+def test_la_introduccion_no_es_un_renglon():
+    """CA-162: la línea que presenta el pedido no se numera aunque nombre una palabra del catálogo (RF-65)."""
+    # Un producto inventado con «salón» y «paso» en el nombre: con eso la introducción parecía un renglón
+    productos = datos_sinteticos.catalogo_mayorista() + [
+        Product(
+            sku="SAL-001",
+            name="Capa de salón paso a paso",
+            brand="SALONERA",
+            category="Accesorios",
+            price=Decimal("1000"),
+            stock=10,
+            min_stock=1,
+        )
+    ]
+    texto = "Buenas! Para el salón necesito:\n- 2 sh keratina x900\nTe paso el resto:\n- 1 mascara argan x 1k"
+
+    renglones = numerar_renglones(texto, productos)
+
+    assert [(r["n"], r["texto"]) for r in renglones] == [(1, "- 2 sh keratina x900"), (2, "- 1 mascara argan x 1k")]
+
+
+def test_una_marca_que_no_esta_con_dos_puntos_corta_la_anterior():
+    """RF-65: «Kerastase:» no es una marca del catálogo; los renglones de abajo quedan sin marca."""
+    texto = "Nordika\n2 sh keratina x900\nKerastase:\n2 shampoo"
+
+    renglones = numerar_renglones(texto, datos_sinteticos.catalogo_mayorista())
+
+    assert [(r["texto"], r["marca"]) for r in renglones] == [("2 sh keratina x900", "NORDIKA"), ("2 shampoo", None)]
 
 
 def test_un_solo_renglon_no_se_numera():

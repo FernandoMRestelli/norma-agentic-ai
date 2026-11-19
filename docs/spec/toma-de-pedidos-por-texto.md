@@ -314,7 +314,10 @@ Además:
    en renglones y les pone número. Un encabezado de marca, que es una línea sin cantidad que coincide con una marca
    del catálogo aunque venga mal escrita, no se numera: le pone su marca a los renglones de abajo. Tampoco se
    numeran los saludos ni las líneas que no nombran nada del catálogo y no traen un número; una línea así puede ser
-   una marca que el catálogo no tiene, así que corta la marca anterior. El LLM recibe la lista numerada en el
+   una marca que el catálogo no tiene, así que corta la marca anterior. La línea que presenta el pedido
+   («Buenas! Para el salón necesito:») tampoco se numera: no trae números y termina en dos puntos o abre con un
+   saludo. Esto no depende del catálogo, porque una palabra suelta como «salón» puede estar en algún producto, y
+   un renglón de más corre la numeración que usa el modelo (CA-162). También corta la marca anterior. El LLM recibe la lista numerada en el
    estado actual. No interpreta productos: eso sigue siendo del LLM.
 
    Para que esto funcione, `message_service.normalize_text` dejó de juntar los renglones: antes reemplazaba cada
@@ -619,6 +622,7 @@ Todos están implementados en las ramas de [§10.1](#101-estado-de-implementaci�
 | CA-120 | Una propuesta vigente | El cliente escribe «dale» | Se registra sin llamar al LLM | `tests/test_palabras_clave.py::test_aceptaciones_exactas`, `tests/test_agent_graph.py::test_ok_exacto_registra_la_propuesta_sin_llamar_al_llm` |
 | CA-121 | Una propuesta vigente | El cliente escribe «dale, pero 2» | El mensaje va al agente y no se registra nada | `tests/test_palabras_clave.py::test_aceptacion_con_cambio_va_al_agente` |
 | CA-122 | Una lista con dos encabezados de marca y diez renglones | Se numera | Cada renglón de producto tiene su número y la marca de su encabezado | `tests/test_interpretation.py::test_numera_renglones_por_marca` |
+| CA-162 | Una lista que abre con «Buenas! Para el salón necesito:» y un catálogo con un producto que dice «salón» | Se numera | La línea de introducción no es un renglón: el primer producto es el renglón 1 | `tests/test_interpretation.py::test_la_introduccion_no_es_un_renglon` |
 | CA-123 | 30 renglones | Se llama a `buscar_renglones` | Devuelve 30 resultados con estado y, como mucho, 3 candidatos de 4 campos | `tests/test_busqueda.py::test_busqueda_por_lote` |
 | CA-124 | Un renglón de coloración con `tono` | Se busca | Encuentra la coloración de la marca y el tono no baja el puntaje | `tests/test_busqueda.py::test_tono_no_participa` |
 | CA-125 | «acondicionador» sobre un catálogo con 90 | Se busca | El resultado dice `total: 90` y `difieren_en` | `tests/test_busqueda.py::test_informa_el_total` |

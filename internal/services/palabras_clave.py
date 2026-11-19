@@ -19,6 +19,8 @@ _SALUDO = frozenset(
     "andas estas todo bien genial".split()
 )
 MAX_PALABRAS_SALUDO = 5
+# Palabras con las que abre un saludo: «buenas! para el salón necesito» empieza así, «todo nordika» no
+_APERTURA_SALUDO = frozenset("hola holaa holis buenas buen buenos".split())
 
 
 def _normalizar(texto: str) -> str:
@@ -55,3 +57,9 @@ def es_saludo(texto: str) -> bool:
     """True si el mensaje es solo un saludo o un agradecimiento: no nombra productos ni cantidades."""
     palabras = re.findall(r"[a-z]+", _normalizar(texto))
     return 0 < len(palabras) <= MAX_PALABRAS_SALUDO and all(palabra in _SALUDO for palabra in palabras)
+
+
+def empieza_con_saludo(texto: str) -> bool:
+    """True si el texto abre con un saludo («Buenas! Para el salón necesito»), aunque después siga."""
+    palabras = re.findall(r"[a-z]+", _normalizar(texto))
+    return bool(palabras) and palabras[0] in _APERTURA_SALUDO
