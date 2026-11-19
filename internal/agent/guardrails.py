@@ -83,6 +83,15 @@ def _recorrer(valor: Any, turno: ContextoTurno) -> None:
             _recorrer(hijo, turno)
 
 
+def sumar_notas(turno: ContextoTurno, notas: Iterable[dict[str, Any]]) -> ContextoTurno:
+    """Suma lo que el LLM vio en las notas del turno, que no llegan como resultados de tools: la nota de búsqueda de
+    la precarga y las de los sub-loops, con los faltantes de stock que encontraron (spec del orquestador §3.2)."""
+    for nota in notas:
+        _recorrer(nota, turno)
+        turno.faltantes.update(nota.get("faltantes") or {})
+    return turno
+
+
 def _decimal(valor: Any) -> Decimal | None:
     if isinstance(valor, bool) or valor is None:
         return None

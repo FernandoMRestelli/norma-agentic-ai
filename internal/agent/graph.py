@@ -13,7 +13,15 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import interrupt
 
-from internal.agent import context, guardrails, observabilidad, tool_registry
+from internal.agent import (
+    context,
+    contexto_cliente,
+    guardrails,
+    observabilidad,
+    precarga,
+    sub_loop,
+    tool_registry,
+)
 from internal.agent.state import EstadoNorma
 from internal.config import get_settings
 from internal.schemas.order_schema import Channel, ConfirmationAction, OrderDraft
@@ -92,6 +100,18 @@ def skill_clara(texto: str, hay_propuesta: bool) -> str | None:
     return "tomar_pedido" if renglones >= 2 or tiene_numero else None
 
 
+def armar_contexto_cliente(state: EstadoNorma) -> dict[str, Any]:
+    """Arma el contexto del cliente sin LLM si no hay uno de hoy; si lo hay, no toca la base (RF-84, CA-145)."""
+    if contexto_cliente.vigente(state.get("contexto_cliente")):
+        return {}
+    with observabilidad.paso("contexto_cliente", "RETRIEVER") as paso:
+        contexto = contexto_cliente.armar(state["customer_id"], state.get("customer_name"))
+        paso.atributos(pedidos=len(contexto["pedidos"]), comprados=len(contexto["comprados"]))
+        if not contexto["completo"]:
+            paso.fallo("historial_no_disponible")
+    return {"contexto_cliente": contexto}
+
+
 def encaminar(state: EstadoNorma) -> dict[str, Any]:
     """Abre el turno: si la ruta es clara, lee la skill antes de la primera llamada al LLM (RF-62).
 
@@ -113,6 +133,28 @@ def encaminar(state: EstadoNorma) -> dict[str, Any]:
         "turno_desde": _reloj(),
         "cierre_desde": None,
         "renglones": renglones + nuevos,
+        "notas_turno": [],
+        "iteraciones_sub_loop": 0,
+    }
+
+
+def precarga_busqueda(state: EstadoNorma) -> dict[str, Any]:
+    """Busca sin LLM los renglones nuevos de forma inequívoca y deja la nota de búsqueda (RF-86, CA-148)."""
+    renglones = [dict(renglon) for renglon in state.get("renglones") or []]
+    if not any(renglon["estado"] == "sin_resolver" for renglon in renglones):
+        return {}
+    skills_activas = list(state.get("skills_activas") or [])
+    br_entregadas = list(state.get("br_entregadas") or [])
+    comprados = contexto_cliente.comprados(state.get("contexto_cliente"))
+    with observabilidad.paso("precarga_busqueda", "RETRIEVER") as paso:
+        nota = precarga.precargar(renglones, comprados, skills_activas, br_entregadas)
+        paso.atributos(buscados=len(nota["renglones"]) if nota else 0)
+    if nota is None:
+        return {}
+    return {
+        "renglones": renglones,
+        "notas_turno": [*(state.get("notas_turno") or []), nota],
+        "br_entregadas": br_entregadas,
     }
 
 
@@ -138,13 +180,15 @@ def descubrir_tools(state: EstadoNorma, config: RunnableConfig) -> dict[str, Any
     if not state.get("iteraciones"):
         _registrar_intento(state, config)
     iteraciones = state.get("iteraciones", 0)
+    # Las vueltas de los sub-loops cuentan para el tope del turno (RF-93); el cierre cuenta las del orquestador
+    usadas = iteraciones + state.get("iteraciones_sub_loop", 0)
     if (cierre_desde := state.get("cierre_desde")) is not None:
         if iteraciones >= cierre_desde + ITERACIONES_CIERRE:
             logger.warning("Agente: tampoco pudo responder después de agotar el presupuesto del turno")
             return _failure(state)
         return {"tools_disponibles": [TOOL_CIERRE]}
     motivo = None
-    if iteraciones >= max_iteraciones():
+    if usadas >= max_iteraciones():
         motivo = "iteraciones"
         logger.warning("Agente: se alcanzó el tope de %d iteraciones, cierra con lo encontrado", max_iteraciones())
     elif _reloj() - state.get("turno_desde", _reloj()) > max_segundos_turno():
@@ -155,7 +199,8 @@ def descubrir_tools(state: EstadoNorma, config: RunnableConfig) -> dict[str, Any
         with observabilidad.paso("cierre", "CHAIN", motivo=motivo, iteraciones=iteraciones):
             pass
         return {"cierre_desde": iteraciones, "tools_disponibles": [TOOL_CIERRE]}
-    return {"tools_disponibles": tool_registry.available(state.get("skills_activas", []))}
+    orquestador = tool_registry.orquestador_activo()
+    return {"tools_disponibles": tool_registry.available(state.get("skills_activas", []), orquestador)}
 
 
 def _conversation_id(config: RunnableConfig) -> int | None:
@@ -183,11 +228,44 @@ def _turn_context(state: EstadoNorma, config: RunnableConfig, disponibles: list[
         br_entregadas=list(state.get("br_entregadas", [])),
         renglones=[dict(renglon) for renglon in state.get("renglones") or []],
         origen=state.get("origen") or "texto",
+        comprados=contexto_cliente.comprados(state.get("contexto_cliente")),
         propuesta=propuesta,
     )
 
 
+def _tras_registrar(order_id: str | None) -> dict[str, Any]:
+    """Un pedido registrado cambia el historial: el contexto del cliente se vuelve a armar (D-31, CA-146)."""
+    return {"contexto_cliente": None} if order_id else {}
+
+
+def _plazo_vencido(state: EstadoNorma) -> bool:
+    return _reloj() - state.get("turno_desde", _reloj()) > max_segundos_turno()
+
+
 def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> CompiledStateGraph:
+    def delegador(state: EstadoNorma) -> tool_registry.Delegar:
+        """`delegar_skill` corre el sub-loop con el mismo modelo (D-38) y lo que le queda al turno (RF-93)."""
+        entrada = state["messages"][state.get("inicio_turno", 0)]
+        opciones_previas = list(state.get("opciones_previas") or [])
+
+        def delegar(skill, encargo, numeros, ctx):
+            usadas = state.get("iteraciones", 0) + ctx.iteraciones_sub_loop
+            return sub_loop.correr(
+                model,
+                skill,
+                encargo,
+                numeros,
+                ctx,
+                contexto=state.get("contexto_cliente"),
+                ultimo_mensaje=entrada.text,
+                opciones_previas=opciones_previas,
+                opciones_texto=context.opciones_previas(opciones_previas),
+                presupuesto=max(max_iteraciones() - usadas, 0),
+                plazo_vencido=lambda: _plazo_vencido(state),
+            )
+
+        return delegar
+
     def llamar_modelo(state: EstadoNorma) -> dict[str, Any]:
         iterations = state.get("iteraciones", 0) + 1
         with observabilidad.paso("llm", "CHAT_MODEL", iteracion=iterations) as paso:
@@ -195,7 +273,7 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
                 # El modelo tiene que elegir una tool (RF-61): el texto suelto queda como red de seguridad
                 message = model.bind_tools(
                     tool_registry.schemas(state["tools_disponibles"]), tool_choice="any"
-                ).invoke(context.build_messages(state))
+                ).invoke(context.build_messages(state, tool_registry.orquestador_activo()))
             # Cada proveedor lanza sus propios errores; el mensaje puede traer texto del cliente
             except Exception as exc:
                 logger.warning("Agente: falló el LLM (%s)", type(exc).__name__)
@@ -211,6 +289,7 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
         logger.warning("Agente: el LLM respondió sin una tool terminal")
         # El texto suelto es un respond_to_customer(kind="informacion") sin propuesta: pasa por el mismo validador
         turno = guardrails.contexto_turno(state["messages"][state.get("inicio_turno", 0) :])
+        guardrails.sumar_notas(turno, state.get("notas_turno") or [])
         vigente = OrderDraft.model_validate(state["propuesta"]) if state.get("propuesta") else None
         rechazos = guardrails.validar_salida(text, "informacion", turno=turno, vigente=vigente)
         if rechazos:
@@ -243,15 +322,30 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
     def ejecutar_tools(state: EstadoNorma, config: RunnableConfig) -> dict[str, Any]:
         ctx = _turn_context(state, config, state["tools_disponibles"])
         del_turno = state["messages"][state.get("inicio_turno", 0) :]
-        ctx.turno = guardrails.contexto_turno(del_turno)
+        ctx.turno = guardrails.sumar_notas(guardrails.contexto_turno(del_turno), state.get("notas_turno") or [])
         ctx.coberturas_fallidas = sum(
             isinstance(m, ToolMessage) and '"code": "renglones_sin_cuenta"' in m.content for m in del_turno
         )
+        ctx.orquestador = tool_registry.orquestador_activo()
+        ctx.notas_turno = list(state.get("notas_turno") or [])
+        ctx.iteraciones_sub_loop = state.get("iteraciones_sub_loop", 0)
+        if ctx.orquestador:
+            ctx.delegar = delegador(state)
         messages: list[Any] = []
         for call in state["messages"][-1].tool_calls:
             if ctx.resultado == "continuar":
                 with observabilidad.paso(call["name"], "TOOL", iteracion=state.get("iteraciones")) as paso:
-                    result = tool_registry.execute(call["name"], call["args"], ctx)
+                    try:
+                        result = tool_registry.execute(call["name"], call["args"], ctx)
+                    except tool_registry.FallaSubLoop:
+                        # Como una falla del LLM del orquestador: la propuesta vigente no cambia (§7)
+                        paso.fallo("falla_sub_loop")
+                        return {
+                            **_failure(state),
+                            "notas_turno": ctx.notas_turno,
+                            "iteraciones_sub_loop": ctx.iteraciones_sub_loop,
+                            "resultado": "continuar",
+                        }
                     paso.resultado_tool(call["args"], result)
             else:
                 # Cada llamada necesita su resultado, pero la primera tool terminal que tiene éxito cierra el turno
@@ -273,6 +367,9 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             "options": ctx.options,
             "order_id": ctx.order_id,
             "resultado": ctx.resultado,
+            "notas_turno": ctx.notas_turno,
+            "iteraciones_sub_loop": ctx.iteraciones_sub_loop,
+            **_tras_registrar(ctx.order_id),
         }
 
     def pausa(state: EstadoNorma) -> dict[str, Any]:
@@ -287,6 +384,8 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             "inicio_turno": len(state["messages"]),
             "skills_activas": [],
             "iteraciones": 0,
+            "iteraciones_sub_loop": 0,
+            "notas_turno": [],
             "cierre_desde": None,
             "falla_turno": False,
             "respuesta": None,
@@ -316,6 +415,7 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             "kind": ctx.kind,
             "order_id": ctx.order_id,
             "resultado": ctx.resultado,
+            **_tras_registrar(ctx.order_id),
         }
 
     def decidir_tras_pausa(state: EstadoNorma) -> str:
@@ -340,15 +440,19 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
         return state["resultado"]
 
     graph = StateGraph(EstadoNorma)
+    graph.add_node("armar_contexto", armar_contexto_cliente)
     graph.add_node("encaminar", encaminar)
+    graph.add_node("precarga_busqueda", precarga_busqueda)
     graph.add_node("descubrir_tools", descubrir_tools)
     graph.add_node("llm", llamar_modelo)
     graph.add_node("tools", ejecutar_tools)
     graph.add_node("pausa", pausa)
     graph.add_node("confirmar", confirmar)
 
-    graph.add_edge(START, "encaminar")
-    graph.add_edge("encaminar", "descubrir_tools")
+    graph.add_edge(START, "armar_contexto")
+    graph.add_edge("armar_contexto", "encaminar")
+    graph.add_edge("encaminar", "precarga_busqueda")
+    graph.add_edge("precarga_busqueda", "descubrir_tools")
     graph.add_conditional_edges(
         "descubrir_tools", decidir_iteracion, {"llm": "llm", "error": "pausa", "handoff": END}
     )
@@ -360,8 +464,10 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
     graph.add_conditional_edges(
         "tools", decidir_resultado, {"continuar": "descubrir_tools", "pausar": "pausa", "final": END}
     )
-    graph.add_conditional_edges("pausa", decidir_tras_pausa, {"confirmar": "confirmar", "agente": "encaminar"})
     graph.add_conditional_edges(
-        "confirmar", decidir_resultado, {"continuar": "encaminar", "pausar": "pausa", "final": END}
+        "pausa", decidir_tras_pausa, {"confirmar": "confirmar", "agente": "armar_contexto"}
+    )
+    graph.add_conditional_edges(
+        "confirmar", decidir_resultado, {"continuar": "armar_contexto", "pausar": "pausa", "final": END}
     )
     return graph.compile(checkpointer=checkpointer)

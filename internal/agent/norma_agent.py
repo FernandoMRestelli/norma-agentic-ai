@@ -55,7 +55,8 @@ class NormaAgent:
         # Solo IDs, nombres y números: sin el texto de los mensajes (RNF-03, RNF-07)
         logger.info(
             "Agente: conversation_id=%s draft_id=%s order_id=%s kind=%s via=%s iteraciones=%d fallas=%d tools=%s "
-            "errores=%s skills=%s latencia_ms=%d tokens_entrada=%d tokens_salida=%d prompt_version=%s",
+            "errores=%s skills=%s latencia_ms=%d tokens_entrada=%d tokens_salida=%d sub_loops=%s llamadas_sub_loop=%d "
+            "tokens_entrada_sub_loop=%d prompt_version=%s",
             thread_id,
             resumen.draft_id or "-",
             outcome.order_id or "-",
@@ -69,6 +70,9 @@ class NormaAgent:
             latencia_ms,
             resumen.tokens_entrada,
             resumen.tokens_salida,
+            ",".join(resumen.sub_loops) or "-",
+            resumen.llamadas_sub_loop,
+            resumen.tokens_entrada_sub_loop,
             self.prompt_version,
         )
         return outcome
@@ -109,6 +113,7 @@ class NormaAgent:
             order_id=state.get("order_id"),
             options=state.get("options", []),
             iterations=state.get("iteraciones", 0),
+            llamadas_sub_loop=state.get("iteraciones_sub_loop", 0),
             cerrada="__interrupt__" not in state,
         )
         return outcome, state

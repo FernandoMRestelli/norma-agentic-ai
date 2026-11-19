@@ -177,8 +177,10 @@ El loop se implementa con LangGraph en `agent/graph.py`, y el modelo se llama co
 
 ```mermaid
 flowchart TD
-    S([START]) --> R[encaminar]
-    R --> D[descubrir_tools]
+    S([START]) --> A[armar_contexto]
+    A --> R[encaminar]
+    R --> PB[precarga_busqueda]
+    PB --> D[descubrir_tools]
     D -->|hay iteraciones| L[llm]
     D -->|tope, primera falla| P[pausa]
     D -->|tope, segunda falla| E([END])
@@ -188,21 +190,27 @@ flowchart TD
     T -->|continuar| D
     T -->|pausar| P
     T -->|final| E
-    P -->|otro mensaje| R
+    P -->|otro mensaje| A
     P -->|aceptación exacta, con propuesta| C[confirmar]
     C -->|orden creada| E
-    C -->|no se pudo| R
+    C -->|no se pudo| A
 ```
 
 | Nodo | Qué hace |
 |---|---|
+| `armar_contexto` | Si no hay un contexto del cliente de hoy, lo arma sin LLM: últimos pedidos y SKU comprados. Vence con el cambio de fecha o al registrar un pedido ([orquestador §3.2](orquestador-y-sub-loops.md#32-el-turno-con-el-orquestador), RF-84) |
 | `encaminar` | Abre el turno. Si el mensaje no admite dudas, lee la skill antes de la primera llamada al LLM: su texto va en el contexto y sus tools quedan habilitadas (RF-62) |
+| `precarga_busqueda` | Busca sin LLM los renglones nuevos de forma inequívoca («2 mascara argan x 1k», «tinte 8.1/2») y deja el resultado en el contexto como nota de búsqueda (RF-86) |
 | `descubrir_tools` | Calcula las tools permitidas: las de base más las de las skills leídas en el turno. Al llegar al tope de iteraciones o al plazo (RNF-16) deja solo `respond_to_customer` para cerrar con lo encontrado; si el cierre tampoco responde, corta |
 | `llm` | Arma el contexto (§8) y llama al modelo solo con esas tools. Guarda el `AIMessage` completo para conservar las firmas de Gemini |
 | `tools` | Rechaza lo no permitido, inyecta los datos del backend, ejecuta y guarda los resultados en el sobre común |
 | `pausa` | Devuelve el mensaje con `interrupt()` y espera. Al retomar, agrega el mensaje del cliente y reinicia iteraciones y skills |
 | `confirmar` | Registra la propuesta sin llamar al LLM, si el cliente respondió con una aceptación exacta (§2.1). Si no se puede, por ejemplo porque ya no alcanza el stock, sigue el agente |
 
+- **Orquestador (`AGENT_ORQUESTADOR=true`):** el mismo grafo, pero `llm` es el orquestador: suma `delegar_skill`,
+  que corre el sub-loop de una skill `sub_loop` dentro del nodo `tools` y devuelve su nota como resultado. Las
+  vueltas del sub-loop cuentan para el tope del turno
+  ([orquestador §3.3 y §3.4](orquestador-y-sub-loops.md#33-el-loop-vuelta-por-vuelta)).
 - **Persistencia:** el estado del grafo se guarda con `SqliteSaver` en `CHECKPOINT_DB`, un archivo propio dentro de
   `data/`, con `LANGGRAPH_STRICT_MSGPACK=true`. El `thread_id` es el ID de la conversación, y una conversación
   sigue aunque el proceso se reinicie entre dos mensajes.
@@ -390,6 +398,11 @@ internal/skills/tomar_pedido/
     ├── BR-09.md
     └── BR-10.md
 ```
+
+Una skill con `modo: sub_loop` en el encabezado (hoy `tomar_pedido`) suma `sub_loop.md`, lo que hace su sub-loop, y
+`respuesta.md`, cómo responde el orquestador con su nota. Su `skill.md` no lista `respond_to_customer`: la suma quien
+la tiene activa, y su sub-loop termina con `entregar_nota`
+([orquestador §4.1](orquestador-y-sub-loops.md#41-encabezado-de-la-skill)).
 
 `informar/` suma `datos_negocio.md`: los datos del negocio que la skill le puede dar al cliente, en un encabezado YAML
 con un texto o `null` por tema. `leer_skill` los devuelve en `datos_negocio`

@@ -8,12 +8,15 @@ from typing import Any
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import BaseModel, ValidationError
 
-from internal.agent import guardrails
+from internal.agent import guardrails, nota
 from internal.agent.state import Resultado
+from internal.config import get_settings
 from internal.schemas.agent_schema import (
     ArmarPedidoInput,
     BuscarRenglonesInput,
     CheckStockInput,
+    DelegarSkillInput,
+    EntregarNotaInput,
     ExplorarCatalogoInput,
     GetProductInput,
     LeerBrInput,
@@ -26,10 +29,23 @@ from internal.schemas.agent_schema import (
 from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import Channel, OrderDraft
 from internal.services import order_service, validation_service
-from internal.services.skill_service import SkillError, get_skills
+from internal.services.skill_service import TOOL_RESPUESTA, Skill, SkillError, get_skills
 from internal.tools import catalog_tools, inventory_tools, order_tools, reply_tools, skill_tools
 
 logger = logging.getLogger(__name__)
+
+
+def orquestador_activo() -> bool:
+    """El turno corre con orquestador y sub-loops (AGENT_ORQUESTADOR, RF-95)."""
+    return get_settings().agent_orquestador
+
+
+class FallaSubLoop(Exception):
+    """Falló el LLM dentro de un sub-loop: es una falla del turno, como una del orquestador (§7)."""
+
+
+# Corre el sub-loop de una skill y devuelve su entrada para `notas_turno`. La arma el grafo, que tiene el modelo
+Delegar = Callable[[Skill, str, list[int], "TurnContext"], dict[str, Any]]
 
 
 @dataclass
@@ -54,6 +70,10 @@ class TurnContext:
     options: list[str] = field(default_factory=list)
     order_id: str | None = None
     turno: guardrails.ContextoTurno = field(default_factory=guardrails.ContextoTurno)  # para validar la salida
+    orquestador: bool = False  # con el orquestador, `leer_skill` de una skill sub_loop dice cómo delegarla
+    notas_turno: list[dict[str, Any]] = field(default_factory=list)  # la nota de búsqueda y las de los sub-loops
+    iteraciones_sub_loop: int = 0  # llamadas al LLM de los sub-loops en este turno (RF-93)
+    delegar: Delegar | None = None
 
 
 @dataclass(frozen=True)
@@ -111,15 +131,21 @@ def _buscar_renglones(data: BuscarRenglonesInput, ctx: TurnContext) -> dict[str,
     resultados = catalog_tools.buscar_renglones(
         [renglon.model_dump() for renglon in data.renglones], _comprados(ctx)
     )
-    # Lo que la búsqueda dice de cada renglón queda en el estado: el tono va a la nota de la línea (RF-69) y la
-    # coincidencia aproximada se guarda con el pedido
-    numerados = {renglon["n"]: renglon for renglon in ctx.renglones}
-    for buscado, resultado in zip(data.renglones, resultados, strict=True):
-        if (renglon := numerados.get(buscado.n)) is not None:
-            renglon["coincidencia"] = "aproximada" if resultado["estado"] == "aproximado" else "exacta"
-            if buscado.tono:
-                renglon["tono"] = buscado.tono
+    anotar_busqueda(ctx.renglones, [renglon.model_dump() for renglon in data.renglones], resultados)
     return {"renglones": resultados}
+
+
+def anotar_busqueda(
+    renglones: list[dict[str, Any]], buscados: list[dict[str, Any]], resultados: list[dict[str, Any]]
+) -> None:
+    """Lo que la búsqueda dice de cada renglón queda en el estado: el tono va a la nota de la línea (RF-69) y la
+    coincidencia aproximada se guarda con el pedido. La usan `buscar_renglones` y la precarga (RF-86)."""
+    numerados = {renglon["n"]: renglon for renglon in renglones}
+    for buscado, resultado in zip(buscados, resultados, strict=True):
+        if (renglon := numerados.get(buscado["n"])) is not None:
+            renglon["coincidencia"] = "aproximada" if resultado["estado"] == "aproximado" else "exacta"
+            if buscado.get("tono"):
+                renglon["tono"] = buscado["tono"]
 
 
 def _get_product(data: GetProductInput, _: TurnContext) -> dict[str, Any]:
@@ -138,7 +164,7 @@ def _check_stock(data: CheckStockInput, _: TurnContext) -> dict[str, Any]:
 
 
 def _leer_skill(data: LeerSkillInput, ctx: TurnContext) -> dict[str, Any]:
-    skill = skill_tools.leer_skill(data.nombre)
+    skill = skill_tools.leer_skill(data.nombre, ctx.orquestador)
     if data.nombre not in ctx.skills_activas:
         ctx.skills_activas.append(data.nombre)
     return skill
@@ -200,6 +226,43 @@ def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict
         order_service.discard_draft(ctx.propuesta)
     ctx.propuesta = propuesta
     return {"enviado": True}
+
+
+def _delegar_skill(data: DelegarSkillInput, ctx: TurnContext) -> dict[str, Any]:
+    """Corre el sub-loop de la skill y devuelve su nota validada, sin los intentos (§4.2, RF-89 a RF-91)."""
+    skill = get_skills().get(data.skill)
+    if skill is None:
+        raise ToolFailure("skill_inexistente", f"No existe la skill {data.skill!r}: elegí una del índice")
+    if skill.modo != "sub_loop":
+        raise ToolFailure(
+            "skill_no_delegable",
+            f"La skill {data.skill!r} no se delega: leela con `leer_skill` y seguí sus instrucciones vos",
+        )
+    existentes = {renglon["n"] for renglon in ctx.renglones}
+    if desconocidos := sorted({n for n in data.renglones if n not in existentes}):
+        raise ToolFailure(
+            "renglon_inexistente",
+            f"No existen los renglones {desconocidos}: usá los números del estado actual",
+            renglones=desconocidos,
+        )
+    if ctx.delegar is None:
+        raise ToolFailure("delegar_no_disponible", "En este turno no se puede delegar: resolvelo con tus tools")
+    entrada = ctx.delegar(skill, data.encargo, list(dict.fromkeys(data.renglones)), ctx)
+    ctx.notas_turno.append(entrada)
+    guardrails.sumar_notas(ctx.turno, [entrada])  # lo que encontró el sub-loop puede ir en la respuesta
+    # El tono que resolvió el sub-loop va a la nota de la línea, como el de `buscar_renglones` (RF-69)
+    numerados = {renglon["n"]: renglon for renglon in ctx.renglones}
+    for resuelto in entrada["nota"]["resueltos"]:
+        if resuelto.get("tono") and resuelto["renglon"] in numerados:
+            numerados[resuelto["renglon"]]["tono"] = resuelto["tono"]
+    if skill.nombre not in ctx.skills_activas:  # sus BR y su respuesta al cliente quedan habilitadas
+        ctx.skills_activas.append(skill.nombre)
+    return nota.para_orquestador(entrada)
+
+
+def _entregar_nota(_: EntregarNotaInput, __: TurnContext) -> dict[str, Any]:
+    """La ejecuta el sub-loop, que la valida (internal/agent/sub_loop.py). Acá solo está su esquema."""
+    raise ToolFailure("tool_no_permitida", "`entregar_nota` solo se usa dentro de un sub-loop")
 
 
 PRECIO_CAMBIADO = (
@@ -300,6 +363,22 @@ TOOLS: dict[str, ToolSpec] = {
             _respond_to_customer,
         ),
         ToolSpec(
+            "delegar_skill",
+            "Le encarga a una skill que se delega (las marcadas así en el índice) que resuelva unos renglones en su "
+            "propio sub-loop, con su contexto. Devuelve su nota: `resueltos` (con SKU y cantidad), `pendientes` (con "
+            "la pregunta y sus opciones) y `afuera`, más `observaciones` para vos. El cliente no ve la nota: con ella "
+            "le respondés vos.",
+            DelegarSkillInput,
+            _delegar_skill,
+        ),
+        ToolSpec(
+            "entregar_nota",
+            "Termina tu trabajo y le entrega al orquestador lo que resolviste. Cada renglón del encargo va en un solo "
+            "lugar: `resueltos`, `pendientes` o `afuera`. Los SKU tienen que haber salido de una búsqueda.",
+            EntregarNotaInput,
+            _entregar_nota,
+        ),
+        ToolSpec(
             "armar_pedido",
             "Registra la propuesta vigente y termina el turno. El sistema le responde al cliente con el detalle y el "
             "número. Usala solo si el cliente aceptó la propuesta sin cambios.",
@@ -316,12 +395,24 @@ BASE_TOOLS = (
 )
 
 
-def available(skills_activas: list[str]) -> list[str]:
+# Las que cierran un loop: hacia el cliente en el orquestador (y en el grafo de hoy), hacia el orquestador en un
+# sub-loop. Una skill sub_loop no puede listar las primeras (RF-88, RF-90)
+TERMINALES_CLIENTE = (TOOL_RESPUESTA, "armar_pedido")
+TERMINAL_SUB_LOOP = "entregar_nota"
+SOLO_DEL_BACKEND = ("delegar_skill", TERMINAL_SUB_LOOP)  # las suma el backend según el modo; ninguna skill las lista
+
+
+def available(skills_activas: list[str], orquestador: bool = False) -> list[str]:
     skills = get_skills()
-    names = list(BASE_TOOLS)
+    names = [*BASE_TOOLS, "delegar_skill"] if orquestador else list(BASE_TOOLS)
     for nombre in skills_activas:
-        names.extend(tool for tool in skills[nombre].tools if tool not in names)
+        names.extend(tool for tool in skills[nombre].tools_inline if tool not in names)
     return names
+
+
+def available_sub_loop(skill: Skill) -> list[str]:
+    """Las tools de un sub-loop: las de su skill, `leer_br` y su tool terminal. Nunca las que le hablan al cliente."""
+    return list(dict.fromkeys([*skill.tools, "leer_br", TERMINAL_SUB_LOOP]))
 
 
 def schemas(names: list[str]) -> list[dict[str, Any]]:
@@ -340,6 +431,12 @@ def validate_skills() -> None:
         unknown = [tool for tool in skill.tools if tool not in TOOLS]
         if unknown:
             raise SkillError(f"La skill {skill.nombre} nombra tools inexistentes: {', '.join(unknown)}")
+        if reservadas := [tool for tool in skill.tools if tool in SOLO_DEL_BACKEND]:
+            raise SkillError(f"La skill {skill.nombre} nombra tools que suma el backend: {', '.join(reservadas)}")
+        if skill.modo == "sub_loop" and (terminales := [t for t in skill.tools if t in TERMINALES_CLIENTE]):
+            raise SkillError(
+                f"La skill {skill.nombre} es sub_loop y nombra tools que le hablan al cliente: {', '.join(terminales)}"
+            )
 
 
 # Cada error le dice al LLM qué hacer: el system prompt solo le pide seguir `error.message`
@@ -386,16 +483,24 @@ def _adjuntar_br(name: str, result: dict[str, Any], ctx: TurnContext) -> dict[st
 
     Sin una skill leída no se adjunta nada: el agente las lee con `leer_br`, como siempre.
     """
+    reglas = reglas_que_dispara(name, result, ctx.skills_activas, ctx.br_entregadas)
+    return {**result, "reglas": reglas} if reglas else result
+
+
+def reglas_que_dispara(
+    name: str, result: dict[str, Any], skills_activas: list[str], br_entregadas: list[str]
+) -> list[dict[str, Any]]:
+    """El texto de las BR nuevas que dispara un resultado. Suma a `br_entregadas` las que devuelve (RF-63)."""
     reglas = []
     for br in _brs_que_dispara(name, result):
-        if br in ctx.br_entregadas:
+        if br in br_entregadas:
             continue
         try:
-            reglas.append(skill_tools.leer_br(br, ctx.skills_activas))
+            reglas.append(skill_tools.leer_br(br, skills_activas))
         except ToolFailure:
             continue
-        ctx.br_entregadas.append(br)
-    return {**result, "reglas": reglas} if reglas else result
+        br_entregadas.append(br)
+    return reglas
 
 
 def execute(name: str, arguments: dict[str, Any], ctx: TurnContext) -> dict[str, Any]:
@@ -422,6 +527,8 @@ def _run(name: str, arguments: dict[str, Any], ctx: TurnContext) -> dict[str, An
         )
     except ToolFailure as exc:
         return _failure(exc.code, exc.message, **exc.details)
+    except FallaSubLoop:
+        raise  # no es un error de la tool: el turno falla, como cuando falla el LLM del orquestador
     except OSError:
         logger.exception("Tool %s: no se pudo leer el catálogo", name)
         return _failure("catalogo_no_disponible", _CATALOGO_NO_DISPONIBLE)

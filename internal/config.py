@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     # conversación. Al llegar a cualquiera de los dos topes el agente cierra con lo que ya encontró
     agent_max_iterations: int = 50
     agent_max_seconds_per_turn: float = 300.0
+    # Turno con orquestador y sub-loops (docs/spec/orquestador-y-sub-loops.md). Apagado: el loop de hoy (RF-95)
+    agent_orquestador: bool = False
 
     # Segundos que el canal espera más mensajes del mismo cliente antes de abrir el turno (RF-74, D-26). 0: no espera
     message_group_seconds: float = 0.0

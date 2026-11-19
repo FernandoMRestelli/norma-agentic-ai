@@ -1,5 +1,7 @@
 """Convierte lo que propone el LLM ({sku, quantity, note}) en líneas de pedido validadas contra el catálogo."""
 
+import re
+import unicodedata
 from typing import Any
 
 from internal.schemas.agent_schema import ProposedItem, ToolFailure
@@ -10,6 +12,14 @@ from internal.services.palabras_clave import es_saludo
 
 MAX_PALABRAS_ENCABEZADO = 3
 MIN_RENGLONES = 2  # un mensaje de un solo renglón no se numera: se trata como hasta ahora
+
+# Formas de un renglón que no admiten dudas (RF-86). Lo demás queda para el LLM
+MAX_CANTIDAD_PRECARGA = 99  # «250 shampoo» es más probable una medida que 250 unidades
+_CANTIDAD_ADELANTE = re.compile(r"^(?P<cantidad>\d{1,2})(?![\d.,/])\s*(?:x\s+|(?P<unidad>[a-z]+)\s+)?(?P<resto>.+)$")
+# «tinte 8.1/2»: tono con punto y cantidad. «821/2» (8.21 o 82.1) y «7/3» sin producto quedan para el LLM
+_TONO_Y_CANTIDAD = re.compile(r"^(?P<resto>.*[a-z].*?)\s+(?P<tono>\d{1,2}[.,]\d{1,2})\s*/\s*(?P<cantidad>\d{1,2})$")
+# Un renglón que depende del historial o de otro mensaje no es inequívoco
+_DEPENDE_DE_OTRA_COSA = re.compile(r"\b(siempre|mismo|misma|mismos|mismas|anterior|otra vez|igual|ese|esa|eso)\b")
 
 
 def normalize_items(items: list[ProposedItem], renglones: list[dict[str, Any]] | None = None) -> list[OrderItem]:
@@ -129,3 +139,38 @@ def numerar_renglones(texto: str, productos: list[Product], desde: int = 1) -> l
             continue
         renglones.append({"n": desde + len(renglones), "texto": linea, "marca": marca, "estado": "sin_resolver"})
     return renglones
+
+
+def _minusculas(texto: str) -> str:
+    sin_tildes = unicodedata.normalize("NFD", texto.lower())
+    return " ".join("".join(c for c in sin_tildes if unicodedata.category(c) != "Mn").split())
+
+
+def separar_renglon(texto: str) -> dict[str, Any] | None:
+    """Separa cantidad y tono de un renglón cuando la forma no admite dudas; None si no (RF-86, CA-149).
+
+    `2 mascara argan x 1k` es cantidad 2; `tinte 8.1/2` es tono 8.1 y cantidad 2. Un número adelante seguido de una
+    unidad («500 ml shampoo») es una medida, no una cantidad. Lo que no tiene una de estas formas queda para el LLM.
+    """
+    linea = _minusculas(texto)
+    if _DEPENDE_DE_OTRA_COSA.search(linea):
+        return None
+    if tono := _TONO_Y_CANTIDAD.match(linea):
+        resto = tono["resto"].strip()
+        if any(caracter.isdigit() for caracter in resto.split()[0]):
+            return None  # también trae una cantidad adelante: se lee de dos formas
+        return {"texto": resto, "cantidad": int(tono["cantidad"]), "tono": tono["tono"].replace(",", ".")}
+    adelante = _CANTIDAD_ADELANTE.match(linea)
+    if adelante is None:
+        return None
+    unidad = adelante["unidad"]
+    if unidad and busqueda_service.UNIDADES.get(unidad, ("", 0))[0] != "unid":
+        if unidad in busqueda_service.UNIDADES:
+            return None  # «500 ml»: es una medida
+        resto = f"{unidad} {adelante['resto']}"  # la primera palabra del producto, no una unidad
+    else:
+        resto = adelante["resto"].removeprefix("de ").strip()
+    cantidad = int(adelante["cantidad"])
+    if not 0 < cantidad <= MAX_CANTIDAD_PRECARGA or not any(c.isalpha() for c in resto) or "/" in resto:
+        return None
+    return {"texto": resto, "cantidad": cantidad, "tono": None}

@@ -208,6 +208,67 @@ class ArmarPedidoInput(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+MAX_LARGO_ENCARGO = 300
+MAX_LARGO_OBSERVACIONES = 300
+
+
+class DelegarSkillInput(BaseModel):
+    """Lo que el orquestador le encarga a una skill que corre en su propio sub-loop (spec del orquestador §4.2)."""
+
+    skill: str = Field(min_length=1, description="Una skill del índice que se delega (modo sub_loop)")
+    encargo: str = Field(
+        min_length=1,
+        max_length=MAX_LARGO_ENCARGO,
+        description="Qué tiene que resolver, en una o dos frases. Por ejemplo: resolvé tamaño y cantidad de estos",
+    )
+    renglones: list[int] = Field(
+        default_factory=list,
+        description="Números de los renglones del estado actual que tiene que resolver. Vacía si no hay renglones",
+    )
+
+
+class NotaResuelto(BaseModel):
+    renglon: int = Field(ge=1, description="Número del renglón que resuelve esta línea")
+    sku: str = Field(min_length=1, description="SKU exacto, tal como salió de una búsqueda")
+    cantidad: int = Field(gt=0, le=MAX_QUANTITY, description="Unidades")
+    tono: str | None = Field(default=None, max_length=20, description="Solo en coloración: el tono con punto")
+
+
+class NotaPendiente(BaseModel):
+    renglon: int = Field(ge=1, description="Número del renglón que hay que preguntarle al cliente")
+    pregunta: str = Field(min_length=1, max_length=200, description="Qué hay que preguntarle, en pocas palabras")
+    opciones: list[str] = Field(
+        default_factory=list, description="SKU de las opciones, tal como salieron de una búsqueda"
+    )
+
+
+class NotaAfuera(BaseModel):
+    renglon: int = Field(ge=1, description="Número del renglón que no entra al pedido")
+    motivo: MotivoAfuera = Field(
+        description=(
+            "fuera_de_catalogo: no lo trabajan. sin_stock: está agotado. lo_saco_el_cliente: pidió sacarlo. "
+            "no_es_producto: la línea no pide nada."
+        )
+    )
+
+
+class EntregarNotaInput(BaseModel):
+    """Cierra un sub-loop: lo que resolvió y lo que falta, para el orquestador (spec del orquestador §4.3)."""
+
+    resueltos: list[NotaResuelto] = Field(
+        default_factory=list, description="Los renglones identificados y con stock, cada uno con su SKU y cantidad"
+    )
+    pendientes: list[NotaPendiente] = Field(
+        default_factory=list, description="Los renglones que hay que preguntarle al cliente, con sus opciones"
+    )
+    afuera: list[NotaAfuera] = Field(default_factory=list, description="Los renglones que no entran al pedido")
+    observaciones: str = Field(
+        default="",
+        max_length=MAX_LARGO_OBSERVACIONES,
+        description="Lo que el orquestador tiene que saber para responder, en una o dos frases. El cliente no lo ve",
+    )
+
+
 class AgentOutcome(BaseModel):
     """Lo que devuelve NormaAgent al orquestador (spec del agente §9.2)."""
 
@@ -216,5 +277,6 @@ class AgentOutcome(BaseModel):
     draft: OrderDraft | None = None
     order_id: str | None = None
     options: list[str] = Field(default_factory=list)
-    iterations: int = 0
+    iterations: int = 0  # llamadas al LLM del loop principal (el de hoy o el orquestador)
+    llamadas_sub_loop: int = 0  # llamadas al LLM de los sub-loops del turno (RF-94)
     cerrada: bool = False
