@@ -495,7 +495,7 @@ Los criterios de observabilidad (CA-56 y CA-57) prueban RNF-03 y RNF-07, y está
 |---|---|---|---|
 | RF-26 | El cliente puede cancelar un pedido antes de confirmarlo; el borrador queda descartado | 04 | P |
 | RF-27 | La conversación se deriva a una persona si el cliente lo pide, tras 2 fallas o tras 3 aclaraciones seguidas sin borrador | 04 | P |
-| RF-28 | Una conversación abierta vence tras 24 h sin actividad; su borrador queda descartado | 04 | P |
+| RF-28 | Una conversación abierta vence tras 24 h sin actividad; su borrador queda descartado | 04 | I |
 
 ### Canal de prueba: Telegram
 
@@ -542,7 +542,7 @@ Mismas 7 etapas que [`roadmap.md`](../roadmap.md). Cerrar una etapa es una versi
 | 01 · Base compartida | Todos pueden ejecutar el proyecto | — | La API levanta en los tres equipos y el CI está en verde | 0.1.0 | ✅ Completa (publicada en 0.1.0) |
 | 02 · Datos del negocio | Consultar catálogo, precios y stock | RF-07, RF-35, RNF-13 | Pasan CA-27, CA-29, CA-53 y CA-55 con el catálogo de ejemplo, y se consulta Sheet 1 real sin tocar código | 0.2.0 | En curso: pasan los CA; falta Sheet 1 real |
 | 03 · Agente y pedidos multimodales | Del mensaje al borrador o la pregunta | RF-01, RF-04 a RF-06, RF-08 a RF-10, RF-33, RF-34 | Pasan CA-06 a CA-12, CA-20 y CA-37 a CA-44 con un modelo falso, y los casos de `mensajes.json` con el LLM elegido | 0.3.0 | En curso: loop, tools y skills con texto; faltan audio, imagen, chat web y la evaluación (D-01) |
-| 04 · Confirmación del cliente | Ningún pedido sin confirmación | RF-11 a RF-14, RF-16, RF-26 a RF-28 | Pasan CA-13, CA-14, CA-16, CA-17 y CA-21 a CA-23, CA-28 | 0.4.0 | En curso: propuesta, corrección y aceptación; faltan descarte, derivación y vencimiento |
+| 04 · Confirmación del cliente | Ningún pedido sin confirmación | RF-11 a RF-14, RF-16, RF-26 a RF-28 | Pasan CA-13, CA-14, CA-16, CA-17 y CA-21 a CA-23, CA-28 | 0.4.0 | En curso: propuesta, corrección, aceptación y vencimiento (CA-28); faltan descarte y derivación |
 | 05 · Registro y seguimiento | Pedido confirmado = trabajo operativo | RF-15, RF-17 a RF-21 | Pasan CA-15, CA-19 y CA-48 a CA-52 | 0.5.0 | En curso: órdenes en SQLite y CSV local; faltan Sheet 2 real y `order_items` |
 | 06 · Dashboard | Ver qué pasa en el negocio | RF-22 a RF-25, RF-80 a RF-83 | Pasan CA-24, CA-25 y CA-135 a CA-142 | 0.6.0 | En curso: dashboard de una página (D-11), estados y KPIs de ventas |
 | 07 · WhatsApp de punta a punta | Operar desde el canal del cliente | RF-02, RF-03 | Pasan CA-05 y CA-18, y un pedido real de prueba por WhatsApp llega al dashboard | 0.7.0 | Pendiente |
@@ -612,7 +612,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-21 | Una conversación con una falla previa | Ocurre una segunda falla | La conversación pasa a `derivada` y el bot no responde a ese cliente por 24 h | RF-27 | pendiente |
 | CA-22 | Cualquier conversación abierta | El cliente pide hablar con una persona | El turno termina en `derivado` | RF-27 | pendiente |
 | CA-23 | Un borrador pendiente | El cliente dice que ya no lo quiere | El borrador queda `descartado`, la conversación `descartada` y no hay orden | RF-26 | pendiente |
-| CA-28 | Una conversación abierta sin actividad | Pasan 24 h | Queda `vencida` y el siguiente mensaje abre una conversación nueva | RF-28 | pendiente |
+| CA-28 | Una conversación abierta sin actividad | Pasan 24 h | Queda `vencida` y el siguiente mensaje abre una conversación nueva | RF-28 | `test_conversation.py::test_conversacion_abierta_vence_tras_24_horas` |
 | CA-48 | Un request a `/orders/*` | Llega sin credencial o con token inválido | Se rechaza con `401 Unauthorized` | RF-20, RNF-01 | `test_api_orders.py::test_orders_endpoints_requieren_autenticacion` |
 | CA-49 | Una orden registrada | Se consulta por `GET /orders/{order_id}` con token de operador | Devuelve `200` con los datos de la orden; si no existe, `404` | RF-20 | `test_api_orders.py::test_get_order_*` |
 | CA-50 | Una orden activa | Se cancela por `POST /orders/{order_id}/cancel` con token de operador | Pasa a `Cancelado`, devuelve `200` y libera sus unidades comprometidas del stock disponible | RF-20 | `test_api_orders.py::test_cancel_order_api_success_and_frees_stock` |

@@ -125,7 +125,7 @@ Tools de base, disponibles desde el inicio del turno: `leer_skill`, `leer_br`, `
 
 | Lo que dice [`agente.md`](agente.md) | Lo que hace el código |
 |---|---|
-| §2: siete estados de conversación, con vencimiento a las 24 h | Solo `abierta`, `cerrada` y `fallida`. Nada vence |
+| §2: siete estados de conversación, con vencimiento a las 24 h | abierta, cerrada, fallida y vencida tras 24 h de inactividad (RF-28) |
 | §6: derivación tras 2 fallas o 3 aclaraciones seguidas | A la segunda falla la conversación queda `fallida` y nadie se entera. Las aclaraciones no se cuentan |
 | §8: el estado actual lleva la última pregunta y las opciones ofrecidas | `_current_state` lleva el nombre del cliente y la propuesta vigente. `options` se guarda en el estado del grafo y nunca se le muestra al LLM |
 | §8: cada mensaje del historial lleva su origen (`texto`, `audio transcripto`, `imagen leída`) | No hay origen en ningún lado |

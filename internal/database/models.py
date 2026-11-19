@@ -42,7 +42,7 @@ class ConversationRecord(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     customer_id: Mapped[str] = mapped_column(String, index=True)
     channel: Mapped[str] = mapped_column(String)
-    status: Mapped[str] = mapped_column(String, default="abierta")  # abierta, cerrada o fallida
+    status: Mapped[str] = mapped_column(String, default="abierta")  # abierta, cerrada, fallida o vencida
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 

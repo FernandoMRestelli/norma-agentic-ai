@@ -29,8 +29,8 @@ evaluación de `data_example/mensajes.json`.
 
 ## 2. Estados de la conversación
 
-> **Primer corte:** por ahora la conversación solo se guarda como `abierta`, `cerrada` o `fallida`. Los estados
-> de esta sección, el vencimiento y la derivación se suman en etapas siguientes.
+> **Primer corte:** la conversación se guarda en la base con sus estados de ciclo de vida (`abierta`, `cerrada`,
+> `fallida` y `vencida` tras 24 h sin actividad, RF-28). La derivación y descarte se suman en etapas siguientes.
 
 Una **conversación** es el intento de armar **un** pedido de un cliente por un canal. Hay como máximo una
 conversación abierta por `(customer_id, channel)`. Cuando termina (confirmada, descartada, vencida o derivada),

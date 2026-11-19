@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     # Segundos que el canal espera más mensajes del mismo cliente antes de abrir el turno (RF-74, D-26). 0: no espera
     message_group_seconds: float = 0.0
 
+    # Vencimiento de la conversación por inactividad (RF-28, D-07): tras estas horas sin mensajes, vence y su borrador
+    # queda descartado. El siguiente mensaje abre una conversación nueva con contexto limpio
+    conversation_timeout_hours: float = 24.0
+
     # Operador / Dashboard (autenticación de endpoints de gestión de órdenes)
     operator_token: str | None = None
 
