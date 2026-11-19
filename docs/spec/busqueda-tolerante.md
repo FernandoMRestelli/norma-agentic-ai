@@ -117,6 +117,20 @@ exactas. Entre dos palabras de 4 letras tampoco: ahí una letra cambiada ya es o
    no hay, de `sugerencias`): abreviaturas (`sh` → `shampoo`), variantes (`champu` → `shampoo`), sinónimos
    (`tintura` → `coloracion`), errores de tipeo o de sonido (`pantne` → `pantene`) y tonos (`71` → `7.1`). La clave
    es la palabra como la escribió el cliente, en minúsculas y sin tildes.
+7. **`pistas` y `_hint`**: cuando no hay `matches`, o el primero es `aproximado`, la búsqueda explica por qué no
+   hubo una coincidencia segura, para que el agente no vuelva a buscar a ciegas:
+   - `no_estan`: las palabras que no se parecen a ninguna del catálogo («kerastase»). Si es la marca o el
+     producto, no se trabaja.
+   - `cercanos`: hasta 3 productos con más partes de la búsqueda, y qué partes les faltan (`falta`).
+   - `medidas`: si lo buscado existe con todas sus palabras pero no en esa medida, las medidas que sí hay, de menor
+     a mayor y sin repetir («X 900» y «X 900 ML» son una). Solo si son 20 productos o menos: con más, la lista no
+     ayuda a preguntar.
+
+   `search_products`, cada renglón de `buscar_renglones`, `get_product` (SKU inexistente) y `explorar_catalogo`
+   (marca o categoría inexistente, con las más parecidas) traducen eso a un `_hint`: una o dos frases para el
+   modelo con el motivo y qué hacer («No hay ninguno en «500». De lo buscado hay: 200 g, 700 g. Preguntale al
+   cliente cuál quiere»). No hay `_hint` cuando no hay nada que explicar, por ejemplo si solo se corrigió un error de
+   tipeo, que ya está en `corregido`. El `_hint` nunca lleva el número de stock.
 
 ## 4. Contratos
 
@@ -135,6 +149,7 @@ exactas. Entre dos palabras de 4 letras tampoco: ahí una letra cambiada ya es o
   vacío si no se corrigió nada.
 - Cada producto trae los campos de `Product` salvo `stock`, `min_stock` e `is_low_stock`, más `score`,
   `aproximado` y `hay_stock`. El LLM no ve cantidades de stock.
+- `_hint` viene solo cuando no hubo una coincidencia segura (§3.4 punto 7).
 - Errores: `catalogo_no_disponible`, como antes.
 
 **Qué pasa con lo que ya lo usa:** `matches` mantiene su forma y suma `aproximado`. Las skills y el system prompt

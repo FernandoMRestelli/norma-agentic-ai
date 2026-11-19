@@ -21,6 +21,8 @@ class EstadoNorma(TypedDict, total=False):
     turno_desde: float  # cuándo empezó el turno, para el plazo total (RNF-16)
     tools_disponibles: list[str]
     iteraciones: int  # llamadas al LLM en este turno
+    # Iteración en la que se agotó el presupuesto del turno: desde ahí solo queda responder (RNF-16). None: no se agotó
+    cierre_desde: int | None
     fallas: int  # en toda la conversación
     falla_turno: bool
     propuesta: dict[str, Any] | None  # OrderDraft vigente, ya validado por el backend

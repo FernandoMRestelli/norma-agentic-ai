@@ -13,7 +13,7 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Literal
 
-from internal.schemas.catalog_schema import Product, ProductMatch, SearchResult
+from internal.schemas.catalog_schema import Cercano, Pistas, Product, ProductMatch, SearchResult
 
 MIN_SCORE = 0.6  # puntaje mínimo de un match confiable
 MARGEN = 0.1  # los resultados a más de esto del primero no aparecen: si está el de 400 ml, el de 200 ml sobra
@@ -440,6 +440,57 @@ def _corregido(puntuado: _Puntuado) -> dict[str, str]:
     return corregido
 
 
+MAX_CERCANOS = 3
+MAX_MEDIDAS = 8
+MAX_PRODUCTOS_PARA_MEDIDAS = 20  # con más, «shampoo 500» listaría las medidas de medio catálogo: no ayuda a preguntar
+
+
+def _medidas(productos: list[ProductoIndexado]) -> list[str]:
+    """Las medidas distintas de estos productos, de menor a mayor. «X 900» y «X 900 ML» son la misma: queda la que
+    dice la unidad."""
+    por_valor: dict[tuple[float, ...], str] = {}
+    for producto in productos:
+        numeros = producto.texto.numeros
+        if not numeros:
+            continue
+        clave = tuple(round(numero.base, 3) for numero in numeros)
+        texto = " ".join(numero.original for numero in numeros)
+        if len(texto) > len(por_valor.get(clave, "")):
+            por_valor[clave] = texto
+    return [por_valor[clave] for clave in sorted(por_valor)][:MAX_MEDIDAS]
+
+
+def _pistas(
+    busqueda: Texto, parecidos: list[dict[str, tuple[float, Tipo]]], puntuados: list[_Puntuado], indice: Indice
+) -> Pistas:
+    """Por qué no hubo una coincidencia confiable: qué palabras no existen, qué hay cerca y qué medidas hay."""
+    no_estan = [
+        palabra.original
+        for palabra, tabla in zip(busqueda.palabras, parecidos, strict=True)
+        if not any(valor >= MIN_PALABRA_SUGERENCIA for valor, _ in tabla.values())
+    ]
+    parciales = sorted(
+        (p for p in puntuados if p.score_sugerencia > 0), key=lambda p: (-p.score_sugerencia, p.sobrantes)
+    )
+    cercanos = [
+        Cercano(
+            sku=p.product.sku,
+            name=p.product.name,
+            falta=[q.original for q, termino in p.terminos if not termino.valor_sugerencia],
+        )
+        for p in parciales[:MAX_CERCANOS]
+    ]
+    medidas: list[str] = []
+    if busqueda.palabras and busqueda.numeros:
+        # Lo buscado existe con todas sus palabras, pero en otra medida: lo útil es saber cuáles hay
+        con_las_palabras = [
+            p for p in puntuados if all(t.valor_sugerencia for q, t in p.terminos if isinstance(q, Palabra))
+        ]
+        if len(con_las_palabras) <= MAX_PRODUCTOS_PARA_MEDIDAS:
+            medidas = _medidas([indice.productos[p.product.sku] for p in con_las_palabras])
+    return Pistas(no_estan=no_estan, cercanos=cercanos, medidas=medidas)
+
+
 def _es_coloracion(producto: ProductoIndexado) -> bool:
     return any(SINONIMOS.get(canon) == "coloracion" for canon in producto.canones)
 
@@ -493,14 +544,18 @@ def buscar(
             corregido=_corregido(matches[0]),
             total=len(matches),
             difieren_en=_difieren_en(matches, indice),
+            # Un match aproximado puede ser una palabra mal escrita o una medida que no existe: las pistas lo dicen
+            pistas=_pistas(busqueda, parecidos, puntuados, indice) if matches[0].aproximado else None,
         )
+    pistas = _pistas(busqueda, parecidos, puntuados, indice)
     sugeribles = [p for p in puntuados if p.sugerible and p.score_sugerencia >= MIN_SUGERENCIA]
     sugerencias = _cortar(sugeribles, lambda p: p.score_sugerencia, preferidos)
     if not sugerencias:
-        return SearchResult()
+        return SearchResult(pistas=pistas)
     return SearchResult(
         sugerencias=[_match(p, p.score_sugerencia, True, preferidos) for p in sugerencias[:limit]],
         corregido=_corregido(sugerencias[0]),
         total=len(sugerencias),
         difieren_en=_difieren_en(sugerencias, indice),
+        pistas=pistas,
     )

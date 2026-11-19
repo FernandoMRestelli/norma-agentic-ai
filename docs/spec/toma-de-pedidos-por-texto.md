@@ -229,6 +229,7 @@ directo al cliente. Los guardrails atajan ese texto, pero cada rechazo es otra l
    | Sin propuesta vigente y el mensaje es solo un saludo o un agradecimiento | `informar` |
    | Sin propuesta vigente y el mensaje tiene dos renglones o más, o una cantidad | `tomar_pedido` |
    | Con propuesta vigente y un mensaje de hasta 3 palabras sin números | `confirmar_pedido` |
+   | Con propuesta vigente y un mensaje de dos renglones o más (un pedido nuevo o cambios sobre la propuesta) | `tomar_pedido` |
    | Cualquier otro caso | Ninguna: elige el modelo, como hoy |
 
    El modelo puede leer otra skill si la preactivada no corresponde. Las skills siguen en el repo y el modelo
@@ -253,8 +254,11 @@ directo al cliente. Los guardrails atajan ese texto, pero cada rechazo es otra l
    lista otras que son aceptación pura: «dale», «sí», «listo», «de una», «mandale». Si el mensaje completo,
    normalizado, es una de esas, el backend registra la propuesta. La lista vive en un solo lugar,
    `palabras_clave.py`, y la BR-06 la cita. «¡Dale!» y «listo.» cuentan; «ok?» y «sí...» no, porque dudan.
-5. **Presupuesto del turno (RNF-16).** Tope de 8 iteraciones en lugar de 15 y un plazo total de 60 s por turno.
-   El plazo se controla entre una iteración y la siguiente: no corta una llamada al LLM que ya empezó.
+5. **Presupuesto del turno (RNF-16).** Tope de 50 iteraciones y un plazo total de 300 s por turno, configurables
+   (`AGENT_MAX_ITERATIONS`, `AGENT_MAX_SECONDS_PER_TURN`). El plazo se controla entre una iteración y la siguiente: no
+   corta una llamada al LLM que ya empezó. Al agotarse, el turno cierra respondiendo con lo encontrado en vez de
+   mandar el mensaje de falla. El primer corte era de 8 iteraciones y 60 s: con un modelo free tier, un pedido de 7
+   renglones sin skill activa llegaba al tope buscando y el cliente recibía solo «Tuve un problema».
 
 ```mermaid
 flowchart TD
@@ -310,7 +314,10 @@ Además:
    en renglones y les pone número. Un encabezado de marca, que es una línea sin cantidad que coincide con una marca
    del catálogo aunque venga mal escrita, no se numera: le pone su marca a los renglones de abajo. Tampoco se
    numeran los saludos ni las líneas que no nombran nada del catálogo y no traen un número; una línea así puede ser
-   una marca que el catálogo no tiene, así que corta la marca anterior. El LLM recibe la lista numerada en el
+   una marca que el catálogo no tiene, así que corta la marca anterior. La línea que presenta el pedido
+   («Buenas! Para el salón necesito:») tampoco se numera: no trae números y termina en dos puntos o abre con un
+   saludo. Esto no depende del catálogo, porque una palabra suelta como «salón» puede estar en algún producto, y
+   un renglón de más corre la numeración que usa el modelo (CA-162). También corta la marca anterior. El LLM recibe la lista numerada en el
    estado actual. No interpreta productos: eso sigue siendo del LLM.
 
    Para que esto funcione, `message_service.normalize_text` dejó de juntar los renglones: antes reemplazaba cada
@@ -391,7 +398,7 @@ puntaje el renglón queda `aproximado`. El resultado trae las BR de los estados 
 | Campo | Cambio |
 |---|---|
 | `propuesta[].renglon` | Nuevo, opcional: el número del renglón del cliente que resuelve esa línea |
-| `pendientes` | Nuevo: `[{"renglon": 3, "opciones": ["SKU-A", "SKU-B"]}]`, los renglones que se preguntan |
+| `pendientes` | Nuevo: `[{"renglon": 3, "opciones": ["SKU-A", "SKU-B"]}]`, los renglones que se preguntan. El cliente no lo ve: la pregunta va escrita en `message` (si no, `pregunta_faltante`, ver [guardrails](guardrails.md)) |
 | `afuera` | Nuevo: `[{"renglon": 7, "motivo": "fuera_de_catalogo"}]`. Motivos: `fuera_de_catalogo`, `sin_stock`, `lo_saco_el_cliente`, `no_es_producto` (un título o un comentario que quedó numerado) |
 | `options` | Se mantiene para un mensaje de un solo renglón. Con `pendientes`, se calcula a partir de ellos |
 
@@ -599,7 +606,7 @@ Todos están implementados en las ramas de [§10.1](#101-estado-de-implementaci�
 | RF-78 | M5 | El CSV neutraliza los textos que empiezan como fórmula y actualiza un encabezado viejo; la hoja Líneas del Excel trae la nota |
 | RF-79 | M5 | El origen del mensaje (`texto`, `audio`, `imagen`) viaja del canal a la orden |
 | RNF-15 | M1 | Umbral de release sobre el set de RF-59: recall por línea ≥ 95 %, precisión ≥ 98 %, 0 registros indebidos y 0 líneas perdidas. Los números se ajustan con la primera corrida (D-28) |
-| RNF-16 | M2 | Presupuesto del turno: hasta 2 llamadas al LLM en el camino normal, tope de 8 iteraciones y 60 s en total |
+| RNF-16 | M2 | Presupuesto del turno: hasta 2 llamadas al LLM en el camino normal, tope de 50 iteraciones y 300 s en total (configurables); al agotarse, el turno cierra respondiendo con lo encontrado |
 
 ## 7. Criterios de aceptación
 
@@ -615,6 +622,7 @@ Todos están implementados en las ramas de [§10.1](#101-estado-de-implementaci�
 | CA-120 | Una propuesta vigente | El cliente escribe «dale» | Se registra sin llamar al LLM | `tests/test_palabras_clave.py::test_aceptaciones_exactas`, `tests/test_agent_graph.py::test_ok_exacto_registra_la_propuesta_sin_llamar_al_llm` |
 | CA-121 | Una propuesta vigente | El cliente escribe «dale, pero 2» | El mensaje va al agente y no se registra nada | `tests/test_palabras_clave.py::test_aceptacion_con_cambio_va_al_agente` |
 | CA-122 | Una lista con dos encabezados de marca y diez renglones | Se numera | Cada renglón de producto tiene su número y la marca de su encabezado | `tests/test_interpretation.py::test_numera_renglones_por_marca` |
+| CA-162 | Una lista que abre con «Buenas! Para el salón necesito:» y un catálogo con un producto que dice «salón» | Se numera | La línea de introducción no es un renglón: el primer producto es el renglón 1 | `tests/test_interpretation.py::test_la_introduccion_no_es_un_renglon` |
 | CA-123 | 30 renglones | Se llama a `buscar_renglones` | Devuelve 30 resultados con estado y, como mucho, 3 candidatos de 4 campos | `tests/test_busqueda.py::test_busqueda_por_lote` |
 | CA-124 | Un renglón de coloración con `tono` | Se busca | Encuentra la coloración de la marca y el tono no baja el puntaje | `tests/test_busqueda.py::test_tono_no_participa` |
 | CA-125 | «acondicionador» sobre un catálogo con 90 | Se busca | El resultado dice `total: 90` y `difieren_en` | `tests/test_busqueda.py::test_informa_el_total` |

@@ -11,7 +11,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from sqlalchemy import delete, func, select
 
 from internal.agent import context, graph, norma_agent, tool_registry
-from internal.agent.graph import FAILURE_MESSAGE, MAX_ITERATIONS
+from internal.agent.graph import FAILURE_MESSAGE
 from internal.agent.norma_agent import NormaAgent
 from internal.database.connection import SessionLocal, init_db
 from internal.database.models import ConversationRecord, OrderRecord
@@ -456,27 +456,59 @@ def test_texto_sin_tools_pausa_como_informacion(catalogo):
     assert not resultado.cerrada
 
 
-def test_tope_de_iteraciones(catalogo):
-    """CA-20: corta con mensaje fijo y suma una falla, sin cerrar la conversación."""
-    agent, modelo = _agente(*[_ai(_call("get_product", sku=SKU)) for _ in range(MAX_ITERATIONS + 1)])
-    resultado = agent.handle("1", text="hola", **CLIENTE)
-    assert resultado.message == FAILURE_MESSAGE
-    assert resultado.kind == "error"
+TOPE = 3
+
+
+def test_tope_de_iteraciones_cierra_con_lo_encontrado(catalogo, monkeypatch):
+    """RNF-16: al agotar las iteraciones el turno no falla; el modelo responde con lo que ya encontró."""
+    monkeypatch.setattr(graph, "max_iteraciones", lambda: TOPE)
+    buscar = [_ai(_call("get_product", sku=SKU)) for _ in range(TOPE)]
+    agent, modelo = _agente(*buscar, _ai(_propuesta("Te armé esto", SKU, 2)))
+
+    resultado = agent.handle("1", text="tenés cremas", **CLIENTE)
+
+    assert resultado.kind == "propuesta"
+    assert resultado.message.startswith("Te armé esto")
     assert not resultado.cerrada
-    assert len(modelo.ofrecidas) == MAX_ITERATIONS
+    assert len(modelo.ofrecidas) == TOPE + 1
+    assert modelo.ofrecidas[TOPE] == ["respond_to_customer"]  # en el cierre solo queda responder
+    assert any("se terminó el tiempo para buscar" in m.text for m in modelo.recibidos[TOPE])
+    assert not any("se terminó el tiempo para buscar" in m.text for m in modelo.recibidos[TOPE - 1])
 
 
-def test_plazo_del_turno(catalogo, monkeypatch):
-    """RNF-16: pasado el plazo total, el turno corta con el mensaje fijo aunque le queden iteraciones."""
-    reloj = iter([0.0, 0.0, 61.0, 61.0])
-    monkeypatch.setattr(graph, "_reloj", lambda: next(reloj, 61.0))
-    agent, modelo = _agente(*[_ai(_call("get_product", sku=SKU)) for _ in range(3)])
+def test_tope_sin_respuesta_corta_con_mensaje_fijo(catalogo, monkeypatch):
+    """CA-20: si tampoco responde en el cierre, corta con el mensaje fijo y suma una falla, sin cerrar."""
+    monkeypatch.setattr(graph, "max_iteraciones", lambda: TOPE)
+    total = TOPE + graph.ITERACIONES_CIERRE
+    agent, modelo = _agente(*[_ai(_call("get_product", sku=SKU)) for _ in range(total)])
 
     resultado = agent.handle("1", text="tenés cremas", **CLIENTE)
 
     assert resultado.message == FAILURE_MESSAGE
     assert resultado.kind == "error"
-    assert len(modelo.ofrecidas) == 1
+    assert not resultado.cerrada
+    assert len(modelo.ofrecidas) == total
+
+
+def test_plazo_del_turno(catalogo, monkeypatch):
+    """RNF-16: pasado el plazo total, el turno cierra respondiendo aunque le queden iteraciones."""
+    monkeypatch.setattr(graph, "max_segundos_turno", lambda: 60.0)
+    reloj = iter([0.0, 0.0, 61.0, 61.0])
+    monkeypatch.setattr(graph, "_reloj", lambda: next(reloj, 61.0))
+    agent, modelo = _agente(_ai(_call("get_product", sku=SKU)), _ai(_propuesta("Te armé esto", SKU, 1)))
+
+    resultado = agent.handle("1", text="tenés cremas", **CLIENTE)
+
+    assert resultado.kind == "propuesta"
+    assert len(modelo.ofrecidas) == 2
+    assert modelo.ofrecidas[1] == ["respond_to_customer"]
+
+
+def test_presupuesto_por_defecto():
+    """RNF-16: el tope es por turno (cada mensaje del cliente), no por conversación."""
+    assert graph.max_iteraciones() == 50
+    assert graph.max_segundos_turno() == 300.0
+    assert graph.recursion_limit() > (graph.max_iteraciones() + graph.ITERACIONES_CIERRE) * 3
 
 
 def test_tool_obligatoria(catalogo):
@@ -500,7 +532,8 @@ def test_tool_obligatoria(catalogo):
         ("mmm dejame pensarlo", True, "confirmar_pedido"),
         ("dale, pero 2", True, None),  # cambia la propuesta
         ("sumale también un shampoo pantene", True, None),
-        ("Pantene\n2 sh 400", True, None),
+        ("Pantene\n2 sh 400", True, "tomar_pedido"),  # una lista con propuesta: pedido nuevo o cambios
+        ("hola!\n- 6 shampoo argan\n- 2 oxidantes", True, "tomar_pedido"),
     ],
 )
 def test_skill_clara(texto, hay_propuesta, skill):

@@ -17,7 +17,8 @@ from tests.test_agent_graph import ModeloGuionado, _ai, _call
 ROOT = Path(__file__).resolve().parent.parent
 VALIDACIONES = ROOT / "docs" / "validaciones_pendientes.md"
 TEMAS_DEL_NEGOCIO = {"horarios", "zona_de_entrega", "medios_de_pago", "minimo_de_compra"}
-EJEMPLO = re.compile(r"^- \*\*(?P<situacion>.+?):\*\* «(?P<respuesta>.+)»$", re.MULTILINE)
+# Un ejemplo puede seguir en los renglones de abajo, con sangría: las dudas de un pedido largo van una por viñeta
+EJEMPLO = re.compile(r"^- \*\*(?P<situacion>.+?):\*\*\s*«(?P<respuesta>[^»]+)»$", re.MULTILINE)
 MINIMO_DE_EJEMPLOS = {"tomar_pedido": 10, "confirmar_pedido": 4, "informar": 5}
 
 
@@ -69,7 +70,7 @@ def test_cada_skill_tiene_ejemplos_que_pasan_el_estilo(nombre):
     assert "## Ejemplos" in instrucciones
     seccion = instrucciones.split("## Ejemplos", 1)[1]
     assert "Muestran el tono, no qué decir" in seccion
-    ejemplos = [(m["situacion"], m["respuesta"]) for m in EJEMPLO.finditer(seccion)]
+    ejemplos = [(m["situacion"], re.sub(r"\n[ \t]+", "\n", m["respuesta"])) for m in EJEMPLO.finditer(seccion)]
     assert len(ejemplos) >= MINIMO_DE_EJEMPLOS[nombre]
 
     skus = _skus()
