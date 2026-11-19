@@ -8,7 +8,7 @@ from internal.schemas.agent_schema import ProposedItem, ToolFailure
 from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import OrderItem, clean_note
 from internal.services import busqueda_service, inventory_service
-from internal.services.palabras_clave import es_saludo
+from internal.services.palabras_clave import empieza_con_saludo, es_saludo
 
 MAX_PALABRAS_ENCABEZADO = 3
 MIN_RENGLONES = 2  # un mensaje de un solo renglón no se numera: se trata como hasta ahora
@@ -107,11 +107,23 @@ def _marca_del_encabezado(linea: str, marcas: dict[str, tuple[str, ...]]) -> str
     return mejor[1] if mejor else None
 
 
+def _es_introduccion(linea: str) -> bool:
+    """La línea que presenta el pedido y no pide nada: «Buenas! Para el salón necesito:» (RF-65).
+
+    Sin números, y que termine en dos puntos o abra con un saludo. No depende del catálogo: una palabra suelta
+    como «salón» o «paso» puede estar en algún producto y haría pasar la línea por un renglón.
+    """
+    if any(caracter.isdigit() for caracter in linea):
+        return False
+    return linea.rstrip().endswith(":") or empieza_con_saludo(linea)
+
+
 def numerar_renglones(texto: str, productos: list[Product], desde: int = 1) -> list[dict[str, Any]]:
     """Parte un pedido en renglones numerados y le pone a cada uno la marca de su encabezado (RF-65).
 
     No interpreta productos: eso es del LLM. Saca del medio lo que seguro no es un renglón de pedido, que son los
-    encabezados de marca, los saludos y las líneas que no nombran nada del catálogo ni traen un número. Una línea
+    encabezados de marca, los saludos, la línea que presenta el pedido («Buenas! Para el salón necesito:») y las
+    líneas que no nombran nada del catálogo ni traen un número. Una línea
     así puede ser una marca que el catálogo no tiene («Kerastase») o un «sumale»: corta la marca anterior, y los
     renglones que siguen quedan sin marca hasta el próximo encabezado. Un mensaje de una sola línea devuelve una
     lista vacía.
@@ -133,6 +145,10 @@ def numerar_renglones(texto: str, productos: list[Product], desde: int = 1) -> l
         tiene_numero = any(caracter.isdigit() for caracter in linea)
         del_catalogo = any(indice.parecidos(p) for p in busqueda_service.normalizar(linea).palabras)
         if es_saludo(linea):
+            continue
+        if _es_introduccion(linea):
+            # También puede ser una marca que el catálogo no tiene («Kerastase:»): corta la marca anterior
+            marca = None
             continue
         if not (tiene_numero or del_catalogo):
             marca = None
