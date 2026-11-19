@@ -204,6 +204,11 @@ def test_intento_de_confirmar_propuesta_vencida_avisa_al_cliente(clean_db, monke
 
     reloj[0] = t0 + timedelta(hours=30)
 
+    def _no_llamar_agente():
+        raise AssertionError("No debería invocarse al agente/LLM ante confirmación de propuesta vencida")
+
+    monkeypatch.setattr(conversation_service, "get_agent", _no_llamar_agente)
+
     # Ahora el cliente responde «dale»
     msg = IncomingMessage(customer_id="telegram:10", channel=Channel.TELEGRAM, text="dale")
     reply = conversation_service.handle_message(msg)
@@ -246,37 +251,46 @@ def test_confirmacion_tras_vencimiento_sin_borrador_no_muestra_aviso(clean_db, m
     assert len(llamado_al_agente) == 1
 
 
-def test_confirmacion_tras_expire_open_conversations_avisa_al_cliente(clean_db, monkeypatch):
-    """Si una conversación venció por expire_open_conversations() previo, 'dale' igual avisa al cliente."""
+def test_ok_tras_vencer_con_propuesta_ya_descartada_por_el_agente(clean_db, monkeypatch):
+    """Si el agente ya había descartado el borrador antes de vencer, 'ok' tras 25 h va al agente sin aviso."""
     t0 = datetime(2026, 11, 10, 10, 0, tzinfo=UTC)
     reloj = [t0]
     monkeypatch.setattr(conversation_service, "_clock", lambda: reloj[0])
 
     id1, _ = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
     with SessionLocal() as session:
-        draft = DraftRecord(
-            draft_id="d-batch-exp",
-            version=1,
-            conversation_id=id1,
-            customer_id="telegram:10",
-            channel=Channel.TELEGRAM.value,
-            items=[{"sku": "P-1", "quantity": 1}],
-            status=DraftStatus.PENDING_CONFIRMATION.value,
+        session.add(
+            DraftRecord(
+                draft_id="d-descartado-previo",
+                version=1,
+                conversation_id=id1,
+                customer_id="telegram:10",
+                channel=Channel.TELEGRAM.value,
+                items=[],
+                status=DraftStatus.DISCARDED.value,
+            )
         )
-        session.add(draft)
         session.commit()
 
-    # Se ejecuta el barrido a las 26 horas (por ejemplo en un cron o reinicio previo)
-    reloj[0] = t0 + timedelta(hours=26)
-    vencidas = conversation_service.expire_open_conversations()
-    assert vencidas == 1
+    reloj[0] = t0 + timedelta(hours=25)
 
-    # Luego el cliente manda «dale»
-    msg = IncomingMessage(customer_id="telegram:10", channel=Channel.TELEGRAM, text="dale")
-    reply = conversation_service.handle_message(msg)
+    llamado_al_agente = []
 
-    assert "propuesta ya venció" in reply.text
-    assert "24 h" in reply.text
+    class MockAgent:
+        def handle(self, **kwargs):
+            llamado_al_agente.append(kwargs)
+            from internal.schemas.agent_schema import AgentOutcome
+
+            return AgentOutcome(kind="mensaje", message="hola", cerrada=False)
+
+    monkeypatch.setattr(conversation_service, "get_agent", lambda: MockAgent())
+
+    reply = conversation_service.handle_message(
+        IncomingMessage(customer_id="telegram:10", channel=Channel.TELEGRAM, text="ok")
+    )
+    assert "propuesta ya venció" not in reply.text
+    assert reply.text == "hola"
+    assert len(llamado_al_agente) == 1
 
 
 def test_aviso_propuesta_vencida_respeta_conversation_timeout_hours(clean_db, monkeypatch):
@@ -308,24 +322,41 @@ def test_actividad_renueva_plazo_de_vencimiento(clean_db, monkeypatch):
     assert id_actual == id1
 
 
-def test_expire_open_conversations_batch(clean_db, monkeypatch):
-    """Vence todas las conversaciones abiertas que hayan superado el plazo en lote."""
+def test_vencimiento_no_toca_borrador_de_otra_conversacion(clean_db, monkeypatch):
+    """Al vencer una conversación abierta, no descarta ni reasigna borradores de otras conversaciones."""
     t0 = datetime(2026, 11, 10, 10, 0, tzinfo=UTC)
     reloj = [t0]
     monkeypatch.setattr(conversation_service, "_clock", lambda: reloj[0])
 
-    # Dos conversaciones
-    id_vieja, _ = conversation_service._open_conversation_id("telegram:viejo", Channel.TELEGRAM)
+    # Conversación previa fallida que dejó un borrador pendiente asociado a ella
+    id_fallida, _ = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    conversation_service._close_conversation(id_fallida, "fallida")
 
-    reloj[0] = t0 + timedelta(hours=20)
-    id_reciente, _ = conversation_service._open_conversation_id("telegram:reciente", Channel.TELEGRAM)
-
-    # Pasa el reloj a t0 + 26 h (id_vieja tiene 26 h sin actividad, id_reciente tiene 6 h)
-    reloj[0] = t0 + timedelta(hours=26)
-    vencidas = conversation_service.expire_open_conversations()
-    assert vencidas == 1
+    # Nueva conversación abierta sin borrador propio
+    id_abierta, _ = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
 
     with SessionLocal() as session:
-        assert session.get(ConversationRecord, id_vieja).status == "vencida"
-        assert session.get(ConversationRecord, id_reciente).status == "abierta"
+        session.add(
+            DraftRecord(
+                draft_id="d-de-fallida",
+                version=1,
+                conversation_id=id_fallida,
+                customer_id="telegram:10",
+                channel=Channel.TELEGRAM.value,
+                items=[{"sku": "P-1", "quantity": 1}],
+                status=DraftStatus.PENDING_CONFIRMATION.value,
+            )
+        )
+        session.commit()
+
+    # Pasan 25 h y vence id_abierta
+    reloj[0] = t0 + timedelta(hours=25)
+    id_nueva, tenia_propuesta = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    assert id_nueva != id_abierta
+    assert not tenia_propuesta
+
+    with SessionLocal() as session:
+        borrador = session.scalar(select(DraftRecord).where(DraftRecord.draft_id == "d-de-fallida"))
+        assert borrador.conversation_id == id_fallida
+        assert borrador.status == DraftStatus.PENDING_CONFIRMATION.value
 

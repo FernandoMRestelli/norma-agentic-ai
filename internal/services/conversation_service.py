@@ -46,12 +46,6 @@ def proposal_expired_message() -> str:
     )
 
 
-PROPOSAL_EXPIRED_MESSAGE = (
-    "Esa propuesta ya venció (tienen validez de 24 h). "
-    "Para asegurarte stock y precios actualizados, pasame de nuevo lo que necesitás "
-    "y te armo el pedido en el momento."
-)
-
 _locks: defaultdict[tuple[str, Channel], threading.Lock] = defaultdict(threading.Lock)
 
 
@@ -74,14 +68,16 @@ def _is_expired(conversation: ConversationRecord, now: datetime) -> bool:
 
 
 def _expire_conversation(session: Session, conversation: ConversationRecord) -> int:
-    """Marca la conversación como vencida y descarta cualquier borrador pendiente (RF-28). Devuelve cuántos descartó."""
+    """Marca la conversación como vencida y descarta sus borradores pendientes (RF-28). Devuelve cuántos descartó."""
     conversation.status = "vencida"
     result = session.execute(
         update(DraftRecord)
         .where(
             or_(
                 DraftRecord.conversation_id == conversation.id,
-                (DraftRecord.customer_id == conversation.customer_id) & (DraftRecord.channel == conversation.channel),
+                DraftRecord.conversation_id.is_(None)
+                & (DraftRecord.customer_id == conversation.customer_id)
+                & (DraftRecord.channel == conversation.channel),
             ),
             DraftRecord.status == DraftStatus.PENDING_CONFIRMATION.value,
         )
@@ -91,21 +87,6 @@ def _expire_conversation(session: Session, conversation: ConversationRecord) -> 
         )
     )
     return result.rowcount
-
-
-def expire_open_conversations(now: datetime | None = None) -> int:
-    """Vence todas las conversaciones abiertas sin actividad tras conversation_timeout_hours (RF-28, CA-28)."""
-    momento = now or _clock()
-    vencidas = 0
-    with SessionLocal() as session:
-        abiertas = session.scalars(select(ConversationRecord).where(ConversationRecord.status == "abierta")).all()
-        for conv in abiertas:
-            if _is_expired(conv, momento):
-                _expire_conversation(session, conv)
-                vencidas += 1
-        if vencidas:
-            session.commit()
-    return vencidas
 
 
 def startup() -> None:
@@ -137,34 +118,10 @@ def _open_conversation_id(customer_id: str, channel: Channel, now: datetime | No
                 descartados = _expire_conversation(session, conversation)
                 session.commit()
                 tenia_propuesta_vencida = descartados > 0
-                conversation = None
             else:
                 conversation.updated_at = momento
                 session.commit()
                 return conversation.id, False
-
-        # Si no había conversación abierta, puede haber vencido previamente (ej. por expire_open_conversations)
-        if conversation is None and not tenia_propuesta_vencida:
-            ultima_conv = session.scalar(
-                select(ConversationRecord)
-                .where(
-                    ConversationRecord.customer_id == customer_id,
-                    ConversationRecord.channel == channel.value,
-                )
-                .order_by(ConversationRecord.id.desc())
-                .limit(1)
-            )
-            if ultima_conv is not None and ultima_conv.status == "vencida":
-                borrador = session.scalar(
-                    select(DraftRecord)
-                    .where(
-                        DraftRecord.conversation_id == ultima_conv.id,
-                        DraftRecord.status == DraftStatus.DISCARDED.value,
-                    )
-                    .limit(1)
-                )
-                if borrador is not None:
-                    tenia_propuesta_vencida = True
 
         nueva = ConversationRecord(
             customer_id=customer_id,
