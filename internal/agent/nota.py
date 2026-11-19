@@ -28,10 +28,18 @@ def validar(data: EntregarNotaInput, encargo: list[int], vistos: set[str]) -> di
             "la tool, o dejá el renglón en `pendientes`",
             skus=inventados,
         )
+    items = [*data.resueltos, *data.pendientes, *data.afuera]
+    # Un pedido escrito en una línea no se numera: su encargo no trae renglones y sus líneas van sin número
+    if encargo and any(item.renglon is None for item in items):
+        return _error(
+            "renglon_faltante",
+            f"Cada línea de la nota lleva el número de su renglón del encargo ({encargo}): completá `renglon`",
+        )
     lugares: dict[int, set[str]] = {}
-    for lugar, items in (("resueltos", data.resueltos), ("pendientes", data.pendientes), ("afuera", data.afuera)):
-        for item in items:
-            lugares.setdefault(item.renglon, set()).add(lugar)
+    for lugar, del_lugar in (("resueltos", data.resueltos), ("pendientes", data.pendientes), ("afuera", data.afuera)):
+        for item in del_lugar:
+            if item.renglon is not None:
+                lugares.setdefault(item.renglon, set()).add(lugar)
     if ajenos := sorted(n for n in lugares if n not in encargo):
         return _error(
             "renglon_fuera_del_encargo",
@@ -58,21 +66,24 @@ def validar(data: EntregarNotaInput, encargo: list[int], vistos: set[str]) -> di
 def completar(data: EntregarNotaInput, encargo: list[int], vistos: set[str]) -> dict[str, Any]:
     """La nota después del último rechazo: sin lo inválido, y lo que queda sin cuenta va a `pendientes` (RF-91)."""
     # Un renglón puede resolverse con varias líneas (dos tonos): todas van, si cada SKU salió de una búsqueda
+    def valido(renglon: int | None) -> bool:
+        """Del encargo o, si el encargo no trae renglones, sin número."""
+        return renglon in encargo if encargo else renglon is None
+
     resueltos = [
-        item.model_dump(exclude_none=True)
-        for item in data.resueltos
-        if item.renglon in encargo and item.sku in vistos
+        item.model_dump(exclude_none=True) for item in data.resueltos if valido(item.renglon) and item.sku in vistos
     ]
-    ubicados = {resuelto["renglon"] for resuelto in resueltos}
+    ubicados = {resuelto.get("renglon") for resuelto in resueltos} - {None}
     pendientes: list[dict[str, Any]] = []
     afuera: list[dict[str, Any]] = []
     for item in data.pendientes:
-        if item.renglon in encargo and item.renglon not in ubicados:
-            pendientes.append({**item.model_dump(), "opciones": [sku for sku in item.opciones if sku in vistos]})
+        if valido(item.renglon) and (item.renglon is None or item.renglon not in ubicados):
+            opciones = [sku for sku in item.opciones if sku in vistos]
+            pendientes.append({**item.model_dump(exclude_none=True), "opciones": opciones})
             ubicados.add(item.renglon)
     for item in data.afuera:
-        if item.renglon in encargo and item.renglon not in ubicados:
-            afuera.append(item.model_dump())
+        if valido(item.renglon) and (item.renglon is None or item.renglon not in ubicados):
+            afuera.append(item.model_dump(exclude_none=True))
             ubicados.add(item.renglon)
     sin_cuenta = [n for n in encargo if n not in ubicados]
     pendientes += [{"renglon": n, "pregunta": PREGUNTA_SIN_CUENTA, "opciones": []} for n in sin_cuenta]

@@ -253,7 +253,7 @@ def _delegar_skill(data: DelegarSkillInput, ctx: TurnContext) -> dict[str, Any]:
     # El tono que resolvió el sub-loop va a la nota de la línea, como el de `buscar_renglones` (RF-69)
     numerados = {renglon["n"]: renglon for renglon in ctx.renglones}
     for resuelto in entrada["nota"]["resueltos"]:
-        if resuelto.get("tono") and resuelto["renglon"] in numerados:
+        if resuelto.get("tono") and resuelto.get("renglon") in numerados:
             numerados[resuelto["renglon"]]["tono"] = resuelto["tono"]
     if skill.nombre not in ctx.skills_activas:  # sus BR y su respuesta al cliente quedan habilitadas
         ctx.skills_activas.append(skill.nombre)

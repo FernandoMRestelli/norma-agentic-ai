@@ -227,15 +227,18 @@ class DelegarSkillInput(BaseModel):
     )
 
 
+_RENGLON_DE_LA_NOTA = "Número del renglón del encargo. Sin renglones en el encargo, omitilo"
+
+
 class NotaResuelto(BaseModel):
-    renglon: int = Field(ge=1, description="Número del renglón que resuelve esta línea")
+    renglon: int | None = Field(default=None, ge=1, description=_RENGLON_DE_LA_NOTA)
     sku: str = Field(min_length=1, description="SKU exacto, tal como salió de una búsqueda")
     cantidad: int = Field(gt=0, le=MAX_QUANTITY, description="Unidades")
     tono: str | None = Field(default=None, max_length=20, description="Solo en coloración: el tono con punto")
 
 
 class NotaPendiente(BaseModel):
-    renglon: int = Field(ge=1, description="Número del renglón que hay que preguntarle al cliente")
+    renglon: int | None = Field(default=None, ge=1, description=_RENGLON_DE_LA_NOTA)
     pregunta: str = Field(min_length=1, max_length=200, description="Qué hay que preguntarle, en pocas palabras")
     opciones: list[str] = Field(
         default_factory=list, description="SKU de las opciones, tal como salieron de una búsqueda"
@@ -243,7 +246,7 @@ class NotaPendiente(BaseModel):
 
 
 class NotaAfuera(BaseModel):
-    renglon: int = Field(ge=1, description="Número del renglón que no entra al pedido")
+    renglon: int | None = Field(default=None, ge=1, description=_RENGLON_DE_LA_NOTA)
     motivo: MotivoAfuera = Field(
         description=(
             "fuera_de_catalogo: no lo trabajan. sin_stock: está agotado. lo_saco_el_cliente: pidió sacarlo. "

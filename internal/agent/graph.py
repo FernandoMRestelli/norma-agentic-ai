@@ -238,6 +238,17 @@ def _tras_registrar(order_id: str | None) -> dict[str, Any]:
     return {"contexto_cliente": None} if order_id else {}
 
 
+def _contexto_validacion(state: EstadoNorma) -> guardrails.ContextoTurno:
+    """Lo que vio el LLM en el turno, para el validador de salida: los resultados de tools, las notas del turno y los
+    SKU que figuran en su prompt (opciones previas y pedidos anteriores), así tampoco se le escapa uno de esos."""
+    turno = guardrails.contexto_turno(state["messages"][state.get("inicio_turno", 0) :])
+    guardrails.sumar_notas(turno, state.get("notas_turno") or [])
+    turno.skus_del_prompt |= set(state.get("opciones_previas") or [])
+    for pedido in (state.get("contexto_cliente") or {}).get("pedidos") or []:
+        turno.skus_del_prompt |= {linea["sku"] for linea in pedido["lineas"]}
+    return turno
+
+
 def _plazo_vencido(state: EstadoNorma) -> bool:
     return _reloj() - state.get("turno_desde", _reloj()) > max_segundos_turno()
 
@@ -288,8 +299,7 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             return {**_failure(state), "iteraciones": iterations}
         logger.warning("Agente: el LLM respondió sin una tool terminal")
         # El texto suelto es un respond_to_customer(kind="informacion") sin propuesta: pasa por el mismo validador
-        turno = guardrails.contexto_turno(state["messages"][state.get("inicio_turno", 0) :])
-        guardrails.sumar_notas(turno, state.get("notas_turno") or [])
+        turno = _contexto_validacion(state)
         vigente = OrderDraft.model_validate(state["propuesta"]) if state.get("propuesta") else None
         rechazos = guardrails.validar_salida(text, "informacion", turno=turno, vigente=vigente)
         if rechazos:
@@ -322,7 +332,7 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
     def ejecutar_tools(state: EstadoNorma, config: RunnableConfig) -> dict[str, Any]:
         ctx = _turn_context(state, config, state["tools_disponibles"])
         del_turno = state["messages"][state.get("inicio_turno", 0) :]
-        ctx.turno = guardrails.sumar_notas(guardrails.contexto_turno(del_turno), state.get("notas_turno") or [])
+        ctx.turno = _contexto_validacion(state)
         ctx.coberturas_fallidas = sum(
             isinstance(m, ToolMessage) and '"code": "renglones_sin_cuenta"' in m.content for m in del_turno
         )

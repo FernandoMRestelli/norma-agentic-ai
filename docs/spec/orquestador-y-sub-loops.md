@@ -338,6 +338,9 @@ algún renglón ya tiene una nota en este turno, el sub-loop nuevo recibe esa no
 | `afuera` | `[{renglon, motivo}]` | Los motivos de `respond_to_customer`: `fuera_de_catalogo`, `sin_stock`, `lo_saco_el_cliente` o `no_es_producto` |
 | `observaciones` | `str`, hasta 300 caracteres | El razonamiento corto para el orquestador. No va al cliente ni al turno siguiente |
 
+Un pedido escrito en una sola línea no se numera (RF-65): si el encargo no trae renglones, las líneas de la nota van
+sin `renglon` y no hay control de cobertura. Si el encargo trae renglones, cada línea lleva el suyo.
+
 Cada renglón del encargo tiene que quedar en un solo lugar. Si no, el backend devuelve el error al sub-loop, hasta
 2 veces; a la tercera, la nota sale con los renglones sin cuenta en `pendientes`, con la pregunta
 «¿me confirmás qué querías en este renglón?».
@@ -498,7 +501,11 @@ Los pasos 2 a 4 están hechos y probados con el modelo guionado (CA-144 a CA-161
 - **Guardrails de salida:** el validador arma lo que vio el turno con sus resultados de tools. La nota de búsqueda y
   las notas de los sub-loops no son resultados de tools del loop principal, así que se le suman aparte
   (`guardrails.sumar_notas`): sin eso, «me queda 1» después de una precarga o de un sub-loop se rechazaba como stock
-  revelado.
+  revelado. Los SKU que el modelo ve en su prompt sin una tool (opciones previas y pedidos anteriores del contexto)
+  también se le pasan al validador, solo para que no lleguen al cliente.
+- **Precisión de la precarga:** contra los 11 casos de `data_example/pedidos_evaluacion.json`, separó 98 de 103
+  renglones y los 87 que salieron `unico` coinciden en SKU y cantidad con lo esperado. La coloración en `tono/cantidad`
+  queda para el LLM.
 - **Riesgo a medir:** las BR de `tomar_pedido` están escritas para quien responde («respondé con `kind = aclaracion`»).
   El sub-loop las recibe igual y `sub_loop.md` le dice dónde va cada caso en la nota. Si la evaluación muestra que el
   sub-loop se confunde, conviene separar en cada BR qué decide y cómo se responde.

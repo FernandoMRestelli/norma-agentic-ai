@@ -20,4 +20,4 @@ Escriben con apuro, con abreviaturas (sh, oxi, vol), errores de tipeo y nombres 
 - `afuera`: lo que no entra, con el motivo.
 - `observaciones`: una o dos frases para el orquestador, por ejemplo qué cambió respecto de lo que pidió el cliente.
 
-Cada renglón del encargo va en un solo lugar. Los SKU de la nota salen de un resultado de tool: si no lo encontraste, el renglón va en `pendientes` o en `afuera`.
+Cada renglón del encargo va en un solo lugar, con su número en `renglon`. Si el encargo no trae renglones (un pedido escrito en una sola línea), cada producto que pidió va igual en su lugar, sin `renglon`. Los SKU de la nota salen de un resultado de tool: si no lo encontraste, el renglón va en `pendientes` o en `afuera`.

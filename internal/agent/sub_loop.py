@@ -206,6 +206,7 @@ def correr(
                 entrada.update(nota=nota.con_lo_encontrado(numeros, busquedas), cerrada_por="tope")
                 break
             entrada["llamadas"] += 1
+            ctx.iteraciones_sub_loop += 1  # cuenta aunque falle el LLM: la llamada se hizo (RF-93, RF-94)
             with observabilidad.paso("llm", "CHAT_MODEL", sub_loop=skill.nombre, iteracion=entrada["llamadas"]) as p:
                 try:
                     message = model.bind_tools(schemas, tool_choice="any").invoke(list(messages))
@@ -258,7 +259,6 @@ def correr(
     entrada["faltantes"] = dict(datos.faltantes)
     # Las tools del sub-loop leen la base de lo que el cliente compró una sola vez por turno
     ctx.comprados = sub_ctx.comprados
-    ctx.iteraciones_sub_loop += entrada["llamadas"]
     return entrada
 
 

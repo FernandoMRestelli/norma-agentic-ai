@@ -8,6 +8,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 
 from internal.agent import nota
 from internal.config import get_settings
+from internal.schemas import agent_schema
 from internal.schemas.catalog_schema import Product
 from internal.services import order_service, sheets_service, skill_service
 from internal.tools import order_tools
@@ -333,6 +334,7 @@ def test_si_falla_el_llm_del_sub_loop_falla_el_turno(catalogo):
     assert resultado.kind == "error"
     estado = _estado(agent)
     assert estado["fallas"] == 1 and estado["propuesta"] is None
+    assert estado["iteraciones_sub_loop"] == 1  # la llamada que falló también cuenta (RF-94)
 
 
 def test_las_vueltas_del_sub_loop_cuentan_para_el_tope(catalogo, monkeypatch):
@@ -423,3 +425,47 @@ def test_los_skus_de_explorar_catalogo_valen_para_la_nota():
     assert sub_loop._vistos(explorado) == {"JAB-GLI"}
     error = {"ok": False, "error": {"code": "sku_inexistente", "details": {"sku": "INVENTADO"}}}
     assert sub_loop._vistos(error) == set()
+
+
+def test_delegar_un_pedido_sin_renglones(catalogo):
+    """Un pedido escrito en una línea no se numera: el sub-loop entrega sus líneas sin `renglon` y el orquestador
+    propone con ellas. Con un encargo que sí trae renglones, una línea sin número se rechaza."""
+    agent, modelo = _agente(
+        _ai(_call_id("delegar_skill", 1, skill="tomar_pedido", encargo="Resolvé el pedido", renglones=[])),
+        _ai(_call_id("search_products", 1, query="jabon glicerina")),
+        _ai(_call_id("entregar_nota", 1, resueltos=[{"sku": "JAB-GLI", "cantidad": 3}])),
+        _ai(_call("respond_to_customer", kind="propuesta", message="Te armé los 3 jabones de glicerina. ¿Lo confirmo?",
+                  propuesta=[{"sku": "JAB-GLI", "quantity": 3}])),
+    )  # fmt: skip
+
+    resultado = agent.handle("1", text="quiero 3 jabones de glicerina", **CLIENTE)
+
+    (delegacion,) = _resultados(agent, "delegar_skill")
+    assert delegacion["data"]["resueltos"] == [{"sku": "JAB-GLI", "cantidad": 3}]
+    assert delegacion["data"]["completa"]
+    assert [(item.sku, item.quantity) for item in resultado.draft.items] == [("JAB-GLI", 3)]
+
+    sin_numero = agent_schema.EntregarNotaInput.model_validate({"resueltos": [{"sku": "JAB-GLI", "cantidad": 3}]})
+    assert nota.validar(sin_numero, [1], {"JAB-GLI"})["code"] == "renglon_faltante"
+    completa = nota.completar(sin_numero, [1], {"JAB-GLI"})
+    assert completa["resueltos"] == [] and completa["pendientes"][0]["renglon"] == 1
+
+
+def test_un_sku_del_contexto_no_llega_al_cliente(catalogo, monkeypatch):
+    """Los SKU del contexto del cliente están en el prompt aunque ninguna tool los devolvió: el validador de salida
+    también los conoce y rechaza un mensaje que los nombra."""
+    anterior = {"fecha": "2026-11-02", "lineas": [{"sku": "SH-KER-900", "name": "Shampoo Keratina", "cantidad": 4}]}
+    monkeypatch.setattr(order_tools, "pedidos_anteriores", lambda *a, **k: [anterior])
+    monkeypatch.setattr(order_service, "skus_comprados", lambda *a, **k: frozenset({"SH-KER-900"}))
+    agent, _ = _agente(
+        _ai(_call("leer_skill", nombre="informar")),
+        _ai(_call_id("respond_to_customer", 1, kind="informacion", message="¡Hola! La otra vez llevaste SH-KER-900.")),
+        _ai(_call_id("respond_to_customer", 2, kind="informacion", message="¡Hola! ¿Qué te preparo hoy?")),
+    )
+
+    resultado = agent.handle("1", text="hola", **CLIENTE)
+
+    rechazo, aceptada = _resultados(agent, "respond_to_customer")
+    assert rechazo["error"]["code"] == "respuesta_rechazada"
+    assert "dato_interno" in json.dumps(rechazo["error"], ensure_ascii=False)
+    assert aceptada["ok"] and "SH-KER-900" not in resultado.message
