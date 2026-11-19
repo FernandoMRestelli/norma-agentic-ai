@@ -399,6 +399,68 @@ def test_cancelacion_deterministica_descarta_borrador_y_cierra_conversacion(clea
         assert session.get(ConversationRecord, id2).status == "abierta"
 
 
+def test_no_gracias_no_cancela_propuesta(clean_db, monkeypatch):
+    """«no gracias» no dispara la cancelación determinística (evita cancelar ante «¿sumás algo más?»)."""
+    id1, _ = conversation_service._open_conversation_id("telegram:nogracias", Channel.TELEGRAM)
+    with SessionLocal() as session:
+        session.add(
+            DraftRecord(
+                draft_id="d-nogracias",
+                version=1,
+                conversation_id=id1,
+                customer_id="telegram:nogracias",
+                channel=Channel.TELEGRAM.value,
+                items=[{"sku": "P-1", "quantity": 1}],
+                status=DraftStatus.PENDING_CONFIRMATION.value,
+            )
+        )
+        session.commit()
+
+    llamado = []
+
+    class MockAgent:
+        def handle(self, **kwargs):
+            llamado.append(kwargs)
+            from internal.schemas.agent_schema import AgentOutcome
+
+            return AgentOutcome(kind="mensaje", message="Perfecto, ¿confirmo entonces?", cerrada=False)
+
+    monkeypatch.setattr(conversation_service, "get_agent", lambda: MockAgent())
+
+    reply = conversation_service.handle_message(
+        IncomingMessage(customer_id="telegram:nogracias", channel=Channel.TELEGRAM, text="no gracias")
+    )
+    assert reply.text == "Perfecto, ¿confirmo entonces?"
+    assert len(llamado) == 1
+    with SessionLocal() as session:
+        draft_bd = session.scalar(select(DraftRecord).where(DraftRecord.draft_id == "d-nogracias"))
+        assert draft_bd.status == DraftStatus.PENDING_CONFIRMATION.value
+
+
+def test_cancelar_sin_borrador_pendiente_no_cierra_conversacion(clean_db, monkeypatch):
+    """«cancelar» sin propuesta pendiente no cierra la conversación como descartada ni miente que canceló."""
+    id1, _ = conversation_service._open_conversation_id("telegram:cancel-vacio", Channel.TELEGRAM)
+
+    llamado = []
+
+    class MockAgent:
+        def handle(self, **kwargs):
+            llamado.append(kwargs)
+            from internal.schemas.agent_schema import AgentOutcome
+
+            return AgentOutcome(kind="informacion", message="No tenés ningún pedido armado.", cerrada=False)
+
+    monkeypatch.setattr(conversation_service, "get_agent", lambda: MockAgent())
+
+    reply = conversation_service.handle_message(
+        IncomingMessage(customer_id="telegram:cancel-vacio", channel=Channel.TELEGRAM, text="cancelar")
+    )
+    assert "cancelé la propuesta" not in reply.text.lower()
+    assert len(llamado) == 1
+    with SessionLocal() as session:
+        assert session.get(ConversationRecord, id1).status == "abierta"
+
+
 def test_derivada_a_humano_silencia_al_bot_durante_24h(clean_db, monkeypatch):
     """RF-27 / CA-21 / CA-22: tras derivación a humano, el bot no responde por 24 h y luego abre nueva conversación."""
     t0 = datetime(2026, 11, 10, 10, 0, tzinfo=UTC)

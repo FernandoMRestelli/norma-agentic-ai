@@ -118,10 +118,10 @@ def _step_4_motivo_derivacion(conn: Connection) -> None:
 
 def _step_5_resolucion_operador(conn: Connection) -> None:
     """4 → 5: descuento y resolución humana en conversaciones y órdenes (RF-24, RF-27)."""
-    _add_column(conn, "conversations", "discount_percentage", "FLOAT")
+    _add_column(conn, "conversations", "discount_percentage", "VARCHAR")
     _add_column(conn, "conversations", "operator_notes", "TEXT")
     _add_column(conn, "conversations", "resolution_type", "VARCHAR")
-    _add_column(conn, "orders", "discount_percentage", "FLOAT")
+    _add_column(conn, "orders", "discount_percentage", "VARCHAR")
 
 
 STEPS: list[tuple[int, Callable[[Connection], None]]] = [

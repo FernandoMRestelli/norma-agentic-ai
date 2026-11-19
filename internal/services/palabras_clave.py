@@ -19,8 +19,6 @@ CANCELACIONES = frozenset(
         "cancelar",
         "cancela",
         "cancelalo",
-        "no quiero nada",
-        "no gracias",
         "deja sin efecto",
         "anular",
         "anula",
@@ -88,9 +86,10 @@ def es_pedido_humano(texto: str) -> bool:
     normalizado = _normalizar(texto)
     return bool(
         re.search(
-            r"\b(?:humano|persona|alguien|operador|asesor|representante|vendedor)\b|"
-            r"\b(?:hablar|comunicar|pasar|pasame|comunicame) con\b|"
-            r"\batencion humana\b",
+            r"\b(?:hablar|comunicar|comunicame|pasar|pasame|atender|atendeme)\s+con\s+"
+            r"(?:un[ao]?\s+)?(?:humano|persona|alguien|operador|asesor|representante|vendedor)\b|"
+            r"\batencion humana\b|"
+            r"\bderiva(?:me|r)?\s+(?:a|con)\s+(?:un[ao]?\s+)?(?:humano|persona|operador|asesor|vendedor)\b",
             normalizado,
         )
     )
@@ -102,19 +101,24 @@ def es_cancelacion(texto: str) -> bool:
     return bool(
         re.search(
             r"\b(?:cancelar|cancela|cancelame|cancelalo|anular|anula|anulalo|descartar|descarta)\b|"
-            r"\bno quiero nada\b|\bdeja(?:lo)? sin efecto\b",
+            r"\bdeja(?:lo)? sin efecto\b",
             normalizado,
         )
     )
 
 
 def es_solicitud_comercial(texto: str) -> bool:
-    """True si pide condiciones comerciales especiales (descuento, envíos al interior, plazos diferidos) (Issue #84)."""
+    """True si pide explícitamente condiciones comerciales especiales (Issue #84).
+
+    Evita palabras sueltas como «descuento» o «cuotas» para no forzar `derivar_o_cancelar`
+    en consultas de catálogo; esos casos ambiguos quedan a criterio del modelo.
+    """
     normalizado = _normalizar(texto)
     return bool(
         re.search(
-            r"\bdescuentos?\b|\bbonificacion|\brebajas?\b|\bprecio especial\b|"
-            r"\bcuenta corriente\b|\bpago diferido\b|\bcuotas\b|"
+            r"\bdescuento(?:s)?\s+(?:por\s+(?:volumen|bulto|cantidad|mayor)|especial)\b|"
+            r"\b(?:hacen|hacer(?:me)?|haceme|pedir)\s+(?:un\s+)?(?:\d+\s*%?\s*(?:de\s+)?)?descuento\b|"
+            r"\bprecio especial\b|\bcuenta corriente\b|\bpago diferido\b|"
             r"\benvio al interior\b|\bflete especial\b|\btransporte al interior\b",
             normalizado,
         )

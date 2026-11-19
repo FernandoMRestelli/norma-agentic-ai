@@ -401,13 +401,60 @@ def test_tool_escalate_to_human():
     )
     result = tool_registry.execute(
         "escalate_to_human",
-        {"reason": "condicion_comercial_descuento", "message": "Te paso con ventas para coordinar."},
+        {"reason": "condicion_comercial", "message": "Te paso con ventas para coordinar."},
         ctx,
     )
     assert result["ok"]
     assert result["data"]["derivada"] is True
     assert ctx.kind == "derivada"
     assert ctx.resultado == "final"
-    assert ctx.derivation_reason == "condicion_comercial_descuento"
+    assert ctx.derivation_reason == "condicion_comercial"
     assert ctx.respuesta == "Te paso con ventas para coordinar."
+
+
+def test_tool_escalate_to_human_rechaza_motivo_invalido():
+    """EscalateToHumanInput solo acepta los motivos tipificados en DerivationReason."""
+    ctx = tool_registry.TurnContext(
+        customer_id="c2",
+        channel=Channel.TELEGRAM,
+        disponibles=["escalate_to_human"],
+    )
+    result = tool_registry.execute(
+        "escalate_to_human",
+        {"reason": "motivo_inventado", "message": "Te paso con ventas."},
+        ctx,
+    )
+    assert not result["ok"]
+    assert ctx.resultado == "continuar"
+
+
+def test_tool_escalate_y_discard_validan_guardrails():
+    """El mensaje libre de escalate_to_human y discard_order_draft pasa por guardrails.validar_salida."""
+    ctx_esc = tool_registry.TurnContext(
+        customer_id="c2",
+        channel=Channel.TELEGRAM,
+        disponibles=["escalate_to_human"],
+    )
+    res_esc = tool_registry.execute(
+        "escalate_to_human",
+        {"reason": "condicion_comercial", "message": "Te hago un 20% de descuento y te paso con ventas."},
+        ctx_esc,
+    )
+    assert not res_esc["ok"]
+    assert res_esc["error"]["code"] == "respuesta_rechazada"
+    assert ctx_esc.resultado == "continuar"
+
+    ctx_disc = tool_registry.TurnContext(
+        customer_id="c2",
+        channel=Channel.TELEGRAM,
+        disponibles=["discard_order_draft"],
+    )
+    res_disc = tool_registry.execute(
+        "discard_order_draft",
+        {"reason": "cliente_cancelo", "message": "Cancelado, la próxima te hacemos un 15% de descuento."},
+        ctx_disc,
+    )
+    assert not res_disc["ok"]
+    assert res_disc["error"]["code"] == "respuesta_rechazada"
+    assert ctx_disc.resultado == "continuar"
 
