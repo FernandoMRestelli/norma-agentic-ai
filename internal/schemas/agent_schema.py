@@ -156,7 +156,14 @@ class RespondToCustomerInput(BaseModel):
         default=None,
         description=(
             "Pedido completo que le proponés, solo con kind propuesta o sin_stock. Reemplaza a la propuesta vigente: "
-            "incluí todas las líneas. Si la omitís, la vigente deja de valer."
+            "incluí todas las líneas. Si la omitís, la vigente sigue igual."
+        ),
+    )
+    descartar_propuesta: bool = Field(
+        default=False,
+        description=(
+            "true solo si el cliente rechaza la propuesta vigente o saca todo: deja de valer. Va sin `propuesta`. "
+            "Una pregunta o una consulta no la descarta"
         ),
     )
     notes: str | None = Field(
@@ -197,6 +204,10 @@ class RespondToCustomerInput(BaseModel):
             raise ValueError("`propuesta` solo se usa con kind propuesta o sin_stock")
         if self.kind == ReplyKind.PROPUESTA and not self.propuesta:
             raise ValueError("Con kind propuesta hay que indicar `propuesta`")
+        if self.descartar_propuesta and self.propuesta:
+            raise ValueError(
+                "`descartar_propuesta` va sin `propuesta`: una propuesta nueva ya reemplaza a la vigente"
+            )
         if self.notes and not self.propuesta:
             raise ValueError("`notes` es la observación de una propuesta: omitila si no estás proponiendo nada")
         return self
