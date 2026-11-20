@@ -17,7 +17,8 @@ from tests.test_agent_graph import ModeloGuionado, _ai, _call
 ROOT = Path(__file__).resolve().parent.parent
 VALIDACIONES = ROOT / "docs" / "validaciones_pendientes.md"
 TEMAS_DEL_NEGOCIO = {"horarios", "zona_de_entrega", "medios_de_pago", "minimo_de_compra"}
-EJEMPLO = re.compile(r"^- \*\*(?P<situacion>.+?):\*\* «(?P<respuesta>.+)»$", re.MULTILINE)
+# Un ejemplo puede seguir en los renglones de abajo, con sangría: las dudas de un pedido largo van una por viñeta
+EJEMPLO = re.compile(r"^- \*\*(?P<situacion>.+?):\*\*\s*«(?P<respuesta>[^»]+)»$", re.MULTILINE)
 MINIMO_DE_EJEMPLOS = {"tomar_pedido": 10, "confirmar_pedido": 4, "informar": 5}
 
 
@@ -69,7 +70,7 @@ def test_cada_skill_tiene_ejemplos_que_pasan_el_estilo(nombre):
     assert "## Ejemplos" in instrucciones
     seccion = instrucciones.split("## Ejemplos", 1)[1]
     assert "Muestran el tono, no qué decir" in seccion
-    ejemplos = [(m["situacion"], m["respuesta"]) for m in EJEMPLO.finditer(seccion)]
+    ejemplos = [(m["situacion"], re.sub(r"\n[ \t]+", "\n", m["respuesta"])) for m in EJEMPLO.finditer(seccion)]
     assert len(ejemplos) >= MINIMO_DE_EJEMPLOS[nombre]
 
     skus = _skus()
@@ -213,3 +214,51 @@ def test_evaluacion_de_varios_turnos_con_modelo_falso(tmp_path):
     assert "> **Cliente:** el de 400" in texto
     assert "**Norma** (`aclaracion`)" in texto
     assert "cierre_variado" in texto
+
+
+ENCABEZADO = "---\nnombre: mi_skill\nfuncion: x\ncuando: x\n{extra}---\nTexto"
+
+
+@pytest.mark.parametrize(
+    ("extra", "archivos"),
+    [
+        ("tools: [leer_br]\nmodo: otro\n", ()),
+        ("tools: [leer_br]\nmodo: sub_loop\nmax_iteraciones: 0\n", ("sub_loop.md", "respuesta.md")),
+        ("tools: [leer_br]\nmodo: sub_loop\nmax_iteraciones: 16\n", ("sub_loop.md", "respuesta.md")),
+        ("tools: [leer_br]\nmodo: sub_loop\n", ("respuesta.md",)),  # sin las instrucciones de su sub-loop
+        ("tools: [search_products, respond_to_customer]\nmodo: sub_loop\n", ("sub_loop.md", "respuesta.md")),
+        ("tools: [search_products, armar_pedido]\nmodo: sub_loop\n", ("sub_loop.md", "respuesta.md")),
+        ("tools: [search_products, entregar_nota]\n", ()),  # la suma el backend
+    ],
+)
+def test_encabezado_de_sub_loop_invalido(tmp_path, monkeypatch, extra, archivos):
+    """CA-151: un `modo` o un `max_iteraciones` inválidos, o una skill sub_loop que le habla al cliente, no dejan
+    arrancar, y el error nombra la skill."""
+    from internal.agent import tool_registry
+
+    folder = tmp_path / "mi_skill"
+    folder.mkdir()
+    (folder / "skill.md").write_text(ENCABEZADO.format(extra=extra), encoding="utf-8")
+    for archivo in archivos:
+        (folder / archivo).write_text("Instrucciones", encoding="utf-8")
+    with pytest.raises(SkillError, match="mi_skill"):
+        skills = load_skills(tmp_path)
+        monkeypatch.setattr(tool_registry, "get_skills", lambda: skills)
+        tool_registry.validate_skills()
+
+
+def test_tomar_pedido_se_delega_y_no_le_habla_al_cliente():
+    """§4.1: `tomar_pedido` corre en un sub-loop sin tools hacia el cliente, y quien la tiene activa puede responder."""
+    from internal.agent import tool_registry
+
+    skill = skill_service.get_skills()["tomar_pedido"]
+    assert (skill.modo, skill.max_iteraciones) == ("sub_loop", 8)
+    assert skill.sub_loop and skill.respuesta
+    sub_loop = tool_registry.available_sub_loop(skill)
+    assert "entregar_nota" in sub_loop and not set(tool_registry.TERMINALES_CLIENTE) & set(sub_loop)
+    assert "respond_to_customer" in tool_registry.available(["tomar_pedido"])
+    assert "delegar_skill" in tool_registry.available([], orquestador=True)
+    assert "delegar_skill" not in tool_registry.available([])
+    for tool in tool_registry.TOOLS:  # sus textos solo nombran tools que puede usar quien los lee
+        assert f"`{tool}`" not in skill.sub_loop or tool in sub_loop, tool
+        assert f"`{tool}`" not in skill.respuesta or tool in skill.tools_inline, tool

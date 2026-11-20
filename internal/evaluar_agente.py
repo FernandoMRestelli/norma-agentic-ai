@@ -138,11 +138,15 @@ def lineas_esperadas(esperado: dict) -> dict[str, int] | None:
     return None
 
 
-def medir_lineas(esperado: dict, obtenidos: dict[str, int], preguntados: Iterable[str] = ()) -> dict[str, int]:
+def medir_lineas(
+    esperado: dict, obtenidos: dict[str, int], preguntados: Iterable[str] = (), avisados: Iterable[str] | None = None
+) -> dict[str, int]:
     """Compara línea por línea lo esperado con lo que quedó propuesto o registrado (RF-60).
 
     Una línea es correcta si coinciden el SKU y la cantidad. Una línea esperada está perdida si no quedó en el
     pedido y el agente tampoco preguntó por ella; lo mismo una duda (`dudas`) de la que no ofreció ninguna opción.
+    Con `avisados` (los renglones que el agente dejó afuera o pendientes, RF-68), también se pierde un renglón de
+    `afuera` que no está entre ellos.
     """
     esperados = lineas_esperadas(esperado)
     if esperados is None:
@@ -150,6 +154,8 @@ def medir_lineas(esperado: dict, obtenidos: dict[str, int], preguntados: Iterabl
     a_la_vista = set(obtenidos) | set(preguntados)
     perdidas = sum(1 for sku in esperados if sku not in a_la_vista)
     perdidas += sum(1 for duda in esperado.get("dudas", []) if not a_la_vista & set(duda["opciones"]))
+    if avisados is not None:
+        perdidas += len(set(esperado.get("afuera", [])) - set(avisados))
     return {
         "lineas_esperadas": len(esperados),
         "lineas_propuestas": len(obtenidos),
@@ -187,6 +193,10 @@ def _pct(parte: int, total: int) -> float:
     return round(100 * parte / total, 1) if total else 0.0
 
 
+def _por_llamada(tokens: int, llamadas: int) -> float:
+    return round(tokens / llamadas, 1) if llamadas else 0.0
+
+
 def _metricas(filas: list[dict]) -> dict[str, float]:
     evaluadas = [fila for fila in filas if fila["resultado"] != "sin_evaluar"]
     correctas = sum(fila["resultado"] == "correcto" for fila in evaluadas)
@@ -213,6 +223,14 @@ def _metricas(filas: list[dict]) -> dict[str, float]:
         "iteraciones_promedio": round(sum(f["iteraciones"] for f in evaluadas) / len(evaluadas), 2) if evaluadas else 0,
         "tokens_entrada": sum(fila["tokens_entrada"] for fila in filas),
         "tokens_salida": sum(fila["tokens_salida"] for fila in filas),
+        # Separados por loop (RF-94, RNF-17): las llamadas del orquestador son las del último turno, como sus tokens
+        "llamadas_sub_loop_promedio": round(suma("llamadas_sub_loop") / len(evaluadas), 2) if evaluadas else 0,
+        "tokens_entrada_por_llamada": _por_llamada(
+            suma("tokens_entrada"), sum(f["iteraciones"] for f in evaluadas)
+        ),
+        "tokens_entrada_por_llamada_sub_loop": _por_llamada(
+            suma("tokens_entrada_sub_loop"), suma("llamadas_sub_loop_ultimo_turno")
+        ),
         "latencia_p50_ms": _percentil(latencias, 50),
         "latencia_p95_ms": _percentil(latencias, 95),
     }
@@ -314,6 +332,12 @@ def main() -> int:
         f"{metricas['aclaraciones_de_mas']} aclaraciones de más, "
         f"{metricas['llamadas_llm_promedio']} llamadas al LLM por caso"
     )
+    if metricas["llamadas_sub_loop_promedio"]:  # con AGENT_ORQUESTADOR (RF-94)
+        print(
+            f"Sub-loops: {metricas['llamadas_sub_loop_promedio']} llamadas por caso; tokens de entrada por llamada "
+            f"{metricas['tokens_entrada_por_llamada_sub_loop']} en el sub-loop y "
+            f"{metricas['tokens_entrada_por_llamada']} en el orquestador"
+        )
     if args.repeticiones > 1:
         for caso, (correctas, evaluadas) in tasas_por_caso(filas).items():
             print(f"   {caso}: {correctas}/{evaluadas}")
@@ -345,13 +369,14 @@ def _evaluar(agent, case: dict, skus: Iterable[str] = (), repeticion: int = 1) -
     corrida = case["id"] if repeticion == 1 else f"{case['id']}@{repeticion}"
     thread_id, conversaciones_cerradas = corrida, 0
     conversacion: list[dict] = []
-    llamadas_llm, ordenes = 0, []
+    llamadas_llm, llamadas_sub_loop, ordenes = 0, 0, []
     for texto in _turnos(case):
         turn = {"thread_id": thread_id, "customer_id": message["customer_id"], "channel": Channel(message["channel"])}
         inicio = time.perf_counter()
         outcome = agent.handle(text=texto, **turn)
         latencia_ms = round((time.perf_counter() - inicio) * 1000)
-        llamadas_llm += outcome.iterations
+        llamadas_llm += outcome.iterations + outcome.llamadas_sub_loop
+        llamadas_sub_loop += outcome.llamadas_sub_loop
         if outcome.order_id:
             ordenes.append(outcome.order_id)
         # La respuesta de una orden y la de una falla las escribe el sistema: no se chequean
@@ -388,7 +413,12 @@ def _evaluar(agent, case: dict, skus: Iterable[str] = (), repeticion: int = 1) -
         "tokens_entrada": resumen.tokens_entrada,
         "tokens_salida": resumen.tokens_salida,
         "latencia_ms": latencia_ms,
-        "llamadas_llm": llamadas_llm,
+        "llamadas_llm": llamadas_llm,  # orquestador y sub-loops, de todos los turnos del caso
+        # Con el orquestador (RF-94). Los tokens son del último turno, como `tokens_entrada`
+        "llamadas_sub_loop": llamadas_sub_loop,
+        "llamadas_sub_loop_ultimo_turno": resumen.llamadas_sub_loop,
+        "tokens_entrada_sub_loop": resumen.tokens_entrada_sub_loop,
+        "tokens_salida_sub_loop": resumen.tokens_salida_sub_loop,
     }
     order_items = None
     if outcome.order_id:
@@ -401,7 +431,10 @@ def _evaluar(agent, case: dict, skus: Iterable[str] = (), repeticion: int = 1) -
         return fila, conversacion
     esperado = case["esperado"]
     obtenidos = order_items if order_items is not None else _items(outcome.draft.items if outcome.draft else [])
-    fila.update(medir_lineas(esperado, obtenidos, outcome.options))
+    # Los renglones que el agente declaró afuera o dejó pendientes, si el pedido vino numerado (RF-68)
+    renglones = state.get("renglones") or []
+    avisados = [r["texto"] for r in renglones if r["estado"] in ("afuera", "pendiente")] if renglones else None
+    fila.update(medir_lineas(esperado, obtenidos, outcome.options, avisados))
     fila["registro_indebido"] = int(esperado["resultado"] == "sin_pedido" and order_items is not None)
     fila["aclaracion_de_mas"] = int(
         esperado["resultado"] in ("borrador", "pedido") and outcome.kind == "aclaracion" and not esperado.get("dudas")

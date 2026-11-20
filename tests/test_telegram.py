@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -126,6 +128,49 @@ def test_mensaje_de_integrante_llega_al_orquestador(orquestador):
     assert bot.calls == [("send_message", USUARIO, "respuesta")]
 
 
+def test_mensajes_seguidos_llegan_juntos_al_orquestador(monkeypatch, orquestador):
+    """RF-74: con `MESSAGE_GROUP_SECONDS`, dos mensajes seguidos son un solo turno y una sola respuesta."""
+    from internal.services.agrupador import Agrupador
+
+    temporizadores = []
+
+    class Temporizador:
+        def __init__(self, espera, funcion, args=()):
+            self.funcion, self.args, self.cancelado = funcion, args, False
+            temporizadores.append(self)
+
+        def start(self):
+            pass
+
+        def cancel(self):
+            self.cancelado = True
+
+    monkeypatch.setenv("MESSAGE_GROUP_SECONDS", "6")
+    get_settings.cache_clear()
+    monkeypatch.setattr(telegram_service, "_agrupador", Agrupador(6, temporizador=Temporizador))
+    bot = FakeTelegram()
+
+    telegram_service.handle_update(mensaje(update_id=1, text="Pantene"), bot)
+    telegram_service.handle_update(mensaje(update_id=2, text="2 sh 400"), bot)
+    assert orquestador == [] and bot.sent == []  # todavía espera
+
+    for temporizador in temporizadores:
+        if not temporizador.cancelado:
+            temporizador.funcion(*temporizador.args)
+
+    assert [m.text for m in orquestador] == ["Pantene\n2 sh 400"]
+    assert bot.sent == [("send_message", USUARIO, "respuesta")]
+
+
+def test_sin_ventana_cada_mensaje_se_contesta_al_llegar(orquestador):
+    """RF-74: por defecto no se agrupa, como hasta ahora."""
+    bot = FakeTelegram()
+    telegram_service.handle_update(mensaje(update_id=1, text="Pantene"), bot)
+    telegram_service.handle_update(mensaje(update_id=2, text="2 sh 400"), bot)
+    assert [m.text for m in orquestador] == ["Pantene", "2 sh 400"]
+    assert len(bot.sent) == 2
+
+
 def test_usuario_fuera_de_la_lista_blanca(orquestador):
     """CA-31: responde un texto fijo con su id y no llega al orquestador."""
     bot = FakeTelegram()
@@ -195,6 +240,23 @@ def test_cliente_de_telegram_arma_el_pedido():
     (request,) = requests
     assert request.url.path == "/bot123:token-de-prueba/sendMessage"
     assert b'"inline_keyboard"' not in request.content
+
+
+def test_cliente_de_telegram_parte_un_mensaje_largo():
+    """RF-70: una propuesta de muchas líneas pasa el límite de Telegram y sale en varios mensajes, por renglón."""
+    enviados = []
+
+    def handler(request):
+        enviados.append(json.loads(request.content)["text"])
+        return httpx.Response(200, json={"ok": True, "result": True})
+
+    client = TelegramClient("123:token-de-prueba", http=httpx.Client(transport=httpx.MockTransport(handler)))
+    lineas = [f"• 2 x Producto de prueba con un nombre bastante largo número {n} ($12500.00 c/u)" for n in range(80)]
+    client.send_message(USUARIO, "\n".join(lineas))
+
+    assert len(enviados) == 2
+    assert all(len(texto) <= telegram_service.MAX_LARGO_MENSAJE for texto in enviados)
+    assert "\n".join(enviados).splitlines() == lineas
 
 
 def test_cliente_de_telegram_respuesta_con_error():

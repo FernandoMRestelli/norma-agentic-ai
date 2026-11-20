@@ -20,18 +20,22 @@ if TYPE_CHECKING:
 
 
 def get_committed_stock(session: "Session | None" = None) -> dict[str, int]:
-    """Calcula las unidades comprometidas por SKU en órdenes activas (no canceladas).
+    """Calcula las unidades comprometidas por SKU en órdenes activas (no canceladas ni con stock ya aplicado).
 
-    Una orden en estado 'recibido', 'preparado' o 'retirado' reserva sus unidades.
-    Solo las órdenes 'canceladas' liberan su stock. Las líneas salen de `order_items` (RF-21): un SKU puede tener
-    varias líneas en una orden (una por nota) y se suman todas.
+    Una orden en estado 'recibido' o 'preparado' (o 'despachado'/'retirado' antes de descontar) reserva sus unidades.
+    Las órdenes 'canceladas' o con `stock_applied` (el catálogo ya se descontó, Issue #61) no reservan. Las líneas
+    salen de `order_items` (RF-21): un SKU puede tener varias líneas en una orden (una por nota) y se suman todas.
     """
 
     def _calculate(s: "Session") -> dict[str, int]:
         rows = s.execute(
             select(OrderItemRecord.sku, func.sum(OrderItemRecord.quantity))
             .join(OrderRecord, OrderItemRecord.order_pk == OrderRecord.id)
-            .where(OrderRecord.status != OrderStatus.CANCELLED.value, OrderItemRecord.quantity > 0)
+            .where(
+                OrderRecord.status != OrderStatus.CANCELLED.value,
+                OrderRecord.stock_applied.is_(False),
+                OrderItemRecord.quantity > 0,
+            )
             .group_by(OrderItemRecord.sku)
         ).all()
         return {sku: int(quantity) for sku, quantity in rows}

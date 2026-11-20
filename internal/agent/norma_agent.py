@@ -14,7 +14,7 @@ from langgraph.errors import GraphRecursionError
 from langgraph.types import Command
 
 from internal.agent import context, observabilidad
-from internal.agent.graph import FAILURE_MESSAGE, RECURSION_LIMIT, build_graph
+from internal.agent.graph import FAILURE_MESSAGE, build_graph, recursion_limit
 from internal.agent.llm import get_chat_model
 from internal.agent.state import EstadoNorma
 from internal.config import get_settings
@@ -34,19 +34,29 @@ class NormaAgent:
         self.prompt_version = context.prompt_version()
 
     def handle(
-        self, thread_id: str, customer_id: str, channel: Channel, text: str, customer_name: str | None = None
+        self,
+        thread_id: str,
+        customer_id: str,
+        channel: Channel,
+        text: str,
+        customer_name: str | None = None,
+        origen: str = "texto",
     ) -> AgentOutcome:
-        """Procesa un mensaje ya preparado por message_service. `thread_id` identifica la conversación."""
+        """Procesa un mensaje ya preparado por message_service. `thread_id` identifica la conversación.
+
+        `origen` dice de dónde salió el texto (`texto`, `audio` o `imagen`) y queda en la orden (RF-79).
+        """
         inicio = time.perf_counter()
         with observabilidad.turno(thread_id, channel.value, text) as turno:
-            outcome, state = self._run(thread_id, customer_id, channel, text, customer_name)
+            outcome, state = self._run(thread_id, customer_id, channel, text, customer_name, origen)
             resumen = observabilidad.resumir(state)
             latencia_ms = round((time.perf_counter() - inicio) * 1000)
             turno.cerrar(outcome, resumen, latencia_ms, self.prompt_version)
         # Solo IDs, nombres y números: sin el texto de los mensajes (RNF-03, RNF-07)
         logger.info(
             "Agente: conversation_id=%s draft_id=%s order_id=%s kind=%s via=%s iteraciones=%d fallas=%d tools=%s "
-            "errores=%s skills=%s latencia_ms=%d tokens_entrada=%d tokens_salida=%d prompt_version=%s",
+            "errores=%s skills=%s latencia_ms=%d tokens_entrada=%d tokens_salida=%d sub_loops=%s llamadas_sub_loop=%d "
+            "tokens_entrada_sub_loop=%d prompt_version=%s",
             thread_id,
             resumen.draft_id or "-",
             outcome.order_id or "-",
@@ -60,28 +70,33 @@ class NormaAgent:
             latencia_ms,
             resumen.tokens_entrada,
             resumen.tokens_salida,
+            ",".join(resumen.sub_loops) or "-",
+            resumen.llamadas_sub_loop,
+            resumen.tokens_entrada_sub_loop,
             self.prompt_version,
         )
         return outcome
 
     def _run(
-        self, thread_id: str, customer_id: str, channel: Channel, text: str, customer_name: str | None
+        self, thread_id: str, customer_id: str, channel: Channel, text: str, customer_name: str | None, origen: str
     ) -> tuple[AgentOutcome, EstadoNorma]:
-        config = {"configurable": {"thread_id": thread_id}, "recursion_limit": RECURSION_LIMIT}
+        config = {"configurable": {"thread_id": thread_id}, "recursion_limit": recursion_limit()}
         if self.graph.get_state(config).next == ("pausa",):
-            entry: Command | EstadoNorma = Command(resume=text)
+            entry: Command | EstadoNorma = Command(resume={"texto": text, "origen": origen})
         else:
             entry = {
                 "messages": [HumanMessage(content=text)],
                 "customer_id": customer_id,
                 "customer_name": customer_name,
                 "channel": channel.value,
+                "origen": origen,
                 "inicio_turno": 0,
                 "skills_activas": [],
                 "iteraciones": 0,
                 "fallas": 0,
                 "falla_turno": False,
                 "propuesta": None,
+                "renglones": [],
             }
         try:
             state = self.graph.invoke(entry, config)
@@ -98,6 +113,7 @@ class NormaAgent:
             order_id=state.get("order_id"),
             options=state.get("options", []),
             iterations=state.get("iteraciones", 0),
+            llamadas_sub_loop=state.get("iteraciones_sub_loop", 0),
             cerrada="__interrupt__" not in state,
         )
         return outcome, state

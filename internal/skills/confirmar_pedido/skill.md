@@ -5,7 +5,7 @@ cuando: Hay una propuesta vigente y el cliente la acepta, la rechaza o duda. Si 
 tools: [armar_pedido, respond_to_customer]
 requiere_propuesta: true
 ---
-1. Si el cliente solo aceptó, sin agregar nada más («dale», «sí», «listo»), llamá a `armar_pedido`. No recibe productos: registra la propuesta vigente, y el sistema le responde al cliente con el detalle y el número.
+1. Si el cliente solo aceptó, sin agregar nada más («dale», «sí», «listo»), llamá a `armar_pedido`. No recibe productos: registra la propuesta vigente, y el sistema le responde al cliente con el detalle y el número. Si tu mensaje anterior le preguntó otra cosa (una medida, un tono, «¿es el de 400?»), ese «sí» o ese «dale» contesta la pregunta y no acepta el pedido: leé la skill `tomar_pedido`.
 2. Si dijo algo más que aceptar, leé BR-06 y respondé con `respond_to_customer` como indica, sin armar nada.
 3. Si `armar_pedido` devuelve `stock_insuficiente`, leé la skill `tomar_pedido` y su BR-01, y ofrecé lo que queda.
 

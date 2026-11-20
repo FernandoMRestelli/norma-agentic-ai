@@ -5,6 +5,7 @@ Las tools consultan un índice en memoria: nunca arman una ruta con lo que manda
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
@@ -13,6 +14,12 @@ SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
 SKILL_FILE = "skill.md"
 BR_DIR = "BR"
 DATOS_FILE = "datos_negocio.md"  # opcional: datos del negocio que la skill le puede dar al cliente (RF-57)
+# Solo en una skill `sub_loop` (spec del orquestador §4.1): lo que hace su sub-loop y cómo responde el orquestador
+# con la nota. `skill.md` sigue siendo lo que lee el grafo de hoy, que usa la skill inline
+SUB_LOOP_FILE = "sub_loop.md"
+RESPUESTA_FILE = "respuesta.md"
+# La respuesta al cliente de una skill `sub_loop`: el sub-loop no la tiene, la usa quien la tiene activa (RF-90)
+TOOL_RESPUESTA = "respond_to_customer"
 
 # Un dato es un texto corto o null, si el negocio todavía no lo confirmó
 _DATOS = TypeAdapter(dict[str, str | None])
@@ -30,6 +37,9 @@ class SkillHeader(BaseModel):
     cuando: str = Field(min_length=1)
     tools: list[str] = Field(min_length=1)
     requiere_propuesta: bool = False  # sin propuesta vigente, el índice no la muestra
+    # inline: se lee con `leer_skill`. sub_loop: con el orquestador, se delega con `delegar_skill` (RF-88)
+    modo: Literal["inline", "sub_loop"] = "inline"
+    max_iteraciones: int = Field(default=8, ge=1, le=15)  # tope de su sub-loop
 
 
 class Skill(SkillHeader):
@@ -38,6 +48,15 @@ class Skill(SkillHeader):
     instrucciones: str
     br: dict[str, str]
     datos_negocio: dict[str, str | None] | None = None
+    sub_loop: str | None = None  # instrucciones de su sub-loop
+    respuesta: str | None = None  # cómo responde el orquestador con su nota
+
+    @property
+    def tools_inline(self) -> list[str]:
+        """Las tools de quien la tiene activa. Una `sub_loop` suma la respuesta al cliente, que su sub-loop no tiene."""
+        if self.modo == "sub_loop" and TOOL_RESPUESTA not in self.tools:
+            return [*self.tools, TOOL_RESPUESTA]
+        return list(self.tools)
 
 
 def _split_header(path: Path) -> tuple[object, str]:
@@ -75,7 +94,13 @@ def _parse_skill(folder: Path) -> Skill:
         raise SkillError(f"La skill de la carpeta {folder.name} se llama {header.nombre}")
     br = {file.stem: file.read_text(encoding="utf-8") for file in sorted((folder / BR_DIR).glob("*.md"))}
     datos = _parse_datos(folder / DATOS_FILE)
-    return Skill(**header.model_dump(), instrucciones=instrucciones, br=br, datos_negocio=datos)
+    extras = {}
+    if header.modo == "sub_loop":
+        for campo, archivo in (("sub_loop", SUB_LOOP_FILE), ("respuesta", RESPUESTA_FILE)):
+            if not (folder / archivo).is_file():
+                raise SkillError(f"La skill {folder.name} es sub_loop y no tiene {archivo}")
+            extras[campo] = (folder / archivo).read_text(encoding="utf-8").strip()
+    return Skill(**header.model_dump(), instrucciones=instrucciones, br=br, datos_negocio=datos, **extras)
 
 
 def load_skills(base: Path = SKILLS_DIR) -> dict[str, Skill]:

@@ -13,7 +13,7 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Literal
 
-from internal.schemas.catalog_schema import Product, ProductMatch, SearchResult
+from internal.schemas.catalog_schema import Cercano, Pistas, Product, ProductMatch, SearchResult
 
 MIN_SCORE = 0.6  # puntaje mínimo de un match confiable
 MARGEN = 0.1  # los resultados a más de esto del primero no aparecen: si está el de 400 ml, el de 200 ml sobra
@@ -391,17 +391,37 @@ def _puntuar(
     )
 
 
-def _cortar(puntuados: list[_Puntuado], clave, limit: int) -> list[_Puntuado]:
+def _cortar(puntuados: list[_Puntuado], clave, preferidos: frozenset[str] = frozenset()) -> list[_Puntuado]:
+    """Los que quedan a menos de MARGEN del primero, sin tope: quien llama muestra los primeros y cuenta el total.
+
+    Con el mismo puntaje, primero van los `preferidos`: lo que ese cliente ya compró (RF-73).
+    """
     if not puntuados:
         return []
-    puntuados.sort(key=lambda p: (-clave(p), p.sobrantes))
+    puntuados.sort(key=lambda p: (-clave(p), p.product.sku not in preferidos, p.sobrantes))
     primero = clave(puntuados[0])
-    return [p for p in puntuados if clave(p) >= primero - MARGEN - 1e-9][:limit]
+    return [p for p in puntuados if clave(p) >= primero - MARGEN - 1e-9]
 
 
-def _match(puntuado: _Puntuado, score: float, aproximado: bool) -> ProductMatch:
+def _difieren_en(cortados: list[_Puntuado], indice: Indice) -> str | None:
+    """En qué se distinguen los productos que coinciden igual: es lo que hay que preguntarle al cliente (RF-69)."""
+    if len(cortados) < 2:
+        return None
+    if len({p.product.brand for p in cortados}) > 1:
+        return "marca"
+    medidas = {
+        tuple(sorted((n.dimension or "", round(n.base, 3)) for n in indice.productos[p.product.sku].texto.numeros))
+        for p in cortados
+    }
+    return "medida" if len(medidas) > 1 else "variante"
+
+
+def _match(puntuado: _Puntuado, score: float, aproximado: bool, preferidos: frozenset[str]) -> ProductMatch:
     return ProductMatch(
-        **puntuado.product.model_dump(exclude={"is_low_stock"}), score=round(score, 2), aproximado=aproximado
+        **puntuado.product.model_dump(exclude={"is_low_stock"}),
+        score=round(score, 2),
+        aproximado=aproximado,
+        comprado_antes=puntuado.product.sku in preferidos,
     )
 
 
@@ -420,6 +440,57 @@ def _corregido(puntuado: _Puntuado) -> dict[str, str]:
     return corregido
 
 
+MAX_CERCANOS = 3
+MAX_MEDIDAS = 8
+MAX_PRODUCTOS_PARA_MEDIDAS = 20  # con más, «shampoo 500» listaría las medidas de medio catálogo: no ayuda a preguntar
+
+
+def _medidas(productos: list[ProductoIndexado]) -> list[str]:
+    """Las medidas distintas de estos productos, de menor a mayor. «X 900» y «X 900 ML» son la misma: queda la que
+    dice la unidad."""
+    por_valor: dict[tuple[float, ...], str] = {}
+    for producto in productos:
+        numeros = producto.texto.numeros
+        if not numeros:
+            continue
+        clave = tuple(round(numero.base, 3) for numero in numeros)
+        texto = " ".join(numero.original for numero in numeros)
+        if len(texto) > len(por_valor.get(clave, "")):
+            por_valor[clave] = texto
+    return [por_valor[clave] for clave in sorted(por_valor)][:MAX_MEDIDAS]
+
+
+def _pistas(
+    busqueda: Texto, parecidos: list[dict[str, tuple[float, Tipo]]], puntuados: list[_Puntuado], indice: Indice
+) -> Pistas:
+    """Por qué no hubo una coincidencia confiable: qué palabras no existen, qué hay cerca y qué medidas hay."""
+    no_estan = [
+        palabra.original
+        for palabra, tabla in zip(busqueda.palabras, parecidos, strict=True)
+        if not any(valor >= MIN_PALABRA_SUGERENCIA for valor, _ in tabla.values())
+    ]
+    parciales = sorted(
+        (p for p in puntuados if p.score_sugerencia > 0), key=lambda p: (-p.score_sugerencia, p.sobrantes)
+    )
+    cercanos = [
+        Cercano(
+            sku=p.product.sku,
+            name=p.product.name,
+            falta=[q.original for q, termino in p.terminos if not termino.valor_sugerencia],
+        )
+        for p in parciales[:MAX_CERCANOS]
+    ]
+    medidas: list[str] = []
+    if busqueda.palabras and busqueda.numeros:
+        # Lo buscado existe con todas sus palabras, pero en otra medida: lo útil es saber cuáles hay
+        con_las_palabras = [
+            p for p in puntuados if all(t.valor_sugerencia for q, t in p.terminos if isinstance(q, Palabra))
+        ]
+        if len(con_las_palabras) <= MAX_PRODUCTOS_PARA_MEDIDAS:
+            medidas = _medidas([indice.productos[p.product.sku] for p in con_las_palabras])
+    return Pistas(no_estan=no_estan, cercanos=cercanos, medidas=medidas)
+
+
 def _es_coloracion(producto: ProductoIndexado) -> bool:
     return any(SINONIMOS.get(canon) == "coloracion" for canon in producto.canones)
 
@@ -433,13 +504,19 @@ def _cantidad_al_principio(query: str, busqueda: Texto) -> bool:
     return primero.original == inicio.group(1) and primero.dimension is None
 
 
-def buscar(query: str, productos: list[Product], limit: int = 5) -> SearchResult:
-    """Busca en `productos` (con el stock del momento) y devuelve matches, sugerencias y palabras corregidas."""
+def buscar(
+    query: str, productos: list[Product], limit: int = 5, preferidos: frozenset[str] = frozenset()
+) -> SearchResult:
+    """Busca en `productos` (con el stock del momento) y devuelve matches, sugerencias y palabras corregidas.
+
+    `preferidos` son los SKU que el cliente ya compró: desempatan entre productos con el mismo puntaje (RF-73).
+    """
     indice = obtener_indice(productos)
     por_sku = {product.sku: product for product in productos}
     sku = indice.skus.get(query.strip().lower())
     if sku:
-        return SearchResult(matches=[ProductMatch(**por_sku[sku].model_dump(exclude={"is_low_stock"}), score=1)])
+        exacto = ProductMatch(**por_sku[sku].model_dump(exclude={"is_low_stock"}), score=1)
+        return SearchResult(matches=[exacto], total=1)
     busqueda = normalizar(query)
     if not busqueda.palabras and not busqueda.numeros:
         return SearchResult()
@@ -454,7 +531,7 @@ def buscar(query: str, productos: list[Product], limit: int = 5) -> SearchResult
             if _es_coloracion(producto) and sin_cantidad and not sin_cantidad.numeros:
                 texto = busqueda
             puntuados.append(_puntuar(product, producto, texto, parecidos))
-        return puntuados, _cortar([p for p in puntuados if p.score >= MIN_SCORE], lambda p: p.score, limit)
+        return puntuados, _cortar([p for p in puntuados if p.score >= MIN_SCORE], lambda p: p.score, preferidos)
 
     puntuados, matches = puntuar_todos()
     if _cantidad_al_principio(query, busqueda):
@@ -463,12 +540,22 @@ def buscar(query: str, productos: list[Product], limit: int = 5) -> SearchResult
             puntuados, matches = puntuar_todos(Texto(busqueda.palabras, busqueda.numeros[1:]))
     if matches:
         return SearchResult(
-            matches=[_match(p, p.score, p.aproximado) for p in matches], corregido=_corregido(matches[0])
+            matches=[_match(p, p.score, p.aproximado, preferidos) for p in matches[:limit]],
+            corregido=_corregido(matches[0]),
+            total=len(matches),
+            difieren_en=_difieren_en(matches, indice),
+            # Un match aproximado puede ser una palabra mal escrita o una medida que no existe: las pistas lo dicen
+            pistas=_pistas(busqueda, parecidos, puntuados, indice) if matches[0].aproximado else None,
         )
+    pistas = _pistas(busqueda, parecidos, puntuados, indice)
     sugeribles = [p for p in puntuados if p.sugerible and p.score_sugerencia >= MIN_SUGERENCIA]
-    sugerencias = _cortar(sugeribles, lambda p: p.score_sugerencia, limit)
+    sugerencias = _cortar(sugeribles, lambda p: p.score_sugerencia, preferidos)
     if not sugerencias:
-        return SearchResult()
+        return SearchResult(pistas=pistas)
     return SearchResult(
-        sugerencias=[_match(p, p.score_sugerencia, True) for p in sugerencias], corregido=_corregido(sugerencias[0])
+        sugerencias=[_match(p, p.score_sugerencia, True, preferidos) for p in sugerencias[:limit]],
+        corregido=_corregido(sugerencias[0]),
+        total=len(sugerencias),
+        difieren_en=_difieren_en(sugerencias, indice),
+        pistas=pistas,
     )

@@ -91,15 +91,18 @@ def cancel_order(order_id: str) -> Order:
 
 
 class StatusChange(BaseModel):
-    status: str = Field(min_length=1, description="Estado nuevo: Preparado, Retirado o Cancelado")
+    status: str = Field(
+        min_length=1, description="Estado nuevo: Preparado, Despachado, Retirado, Entregado o Cancelado"
+    )
 
 
 @router.post("/{order_id}/status", response_model=Order)
 def change_status(order_id: str, body: StatusChange) -> Order:
     """Pasa una orden a otro estado según `can_transition` y guarda el cambio en su historial (RF-47).
 
-    `Recibido → Preparado → Retirado`, y `Cancelado` desde `Recibido` o `Preparado`. Devuelve 422 si el estado no
-    existe, 404 si la orden no existe y 400 si la transición no es válida.
+    `Recibido → Preparado → Retirado` o `Preparado → Despachado → Entregado`, y `Cancelado` desde `Recibido` o
+    `Preparado`. Al pasar a Despachado o Retirado se descuenta el stock del catálogo (Issue #61). Devuelve 422 si el
+    estado no existe, 404 si la orden no existe y 400 si la transición no es válida.
     """
     try:
         nuevo = order_service.parse_status(body.status)
