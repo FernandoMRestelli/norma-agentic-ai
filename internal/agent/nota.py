@@ -18,8 +18,13 @@ def _error(code: str, message: str, **details: Any) -> dict[str, Any]:
     return {"code": code, "message": message, "details": details}
 
 
-def validar(data: EntregarNotaInput, encargo: list[int], vistos: set[str]) -> dict[str, Any] | None:
-    """El error que vuelve al sub-loop, o None si la nota es válida (CA-154, CA-155)."""
+def validar(
+    data: EntregarNotaInput, encargo: list[int], vistos: set[str], disponibles: dict[int, int] | None = None
+) -> dict[str, Any] | None:
+    """El error que vuelve al sub-loop, o None si la nota es válida (CA-154, CA-155).
+
+    `disponibles` son las unidades que quedan de los renglones cuya búsqueda dio `sin_stock` con algo de stock.
+    """
     skus = [r.sku for r in data.resueltos] + [sku for p in data.pendientes for sku in p.opciones]
     if inventados := sorted({sku for sku in skus if sku not in vistos}):
         return _error(
@@ -52,6 +57,19 @@ def validar(data: EntregarNotaInput, encargo: list[int], vistos: set[str]) -> di
             f"Los renglones {repetidos} están en más de un lugar: cada uno va solo en `resueltos`, `pendientes` o "
             "`afuera`",
             renglones=repetidos,
+        )
+    # BR-01: si queda algo, se le ofrece lo que hay; afuera va solo lo agotado
+    if parciales := sorted(
+        item.renglon
+        for item in data.afuera
+        if item.motivo == "sin_stock" and item.renglon is not None and (disponibles or {}).get(item.renglon, 0) > 0
+    ):
+        quedan = ", ".join(f"del {n} quedan {(disponibles or {})[n]}" for n in parciales)
+        return _error(
+            "stock_parcial",
+            f"Los renglones {parciales} no están agotados ({quedan}): van en `pendientes`, con la pregunta de si "
+            "quiere lo que hay (BR-01)",
+            renglones=parciales,
         )
     if sin_cuenta := [n for n in encargo if n not in lugares]:
         return _error(
@@ -134,10 +152,17 @@ def para_orquestador(entrada: dict[str, Any]) -> dict[str, Any]:
     """Lo que vuelve como resultado de `delegar_skill`: la nota con el nombre de cada producto, sin los intentos."""
     nota = entrada["nota"]
     skus = {r["sku"] for r in nota["resueltos"]} | {sku for p in nota["pendientes"] for sku in p["opciones"]}
+    nombres = _nombres(skus)
+    # Cada duda con el nombre de sus opciones al lado: con solo los SKU, el modelo los copiaba en el mensaje
+    pendientes = [
+        {**pendiente, "nombres": [nombres.get(sku, sku) for sku in pendiente["opciones"]]}
+        for pendiente in nota["pendientes"]
+    ]
     return {
         "skill": entrada["skill"],
         **nota,
-        "productos": _nombres(skus),  # para nombrarlos en el mensaje; los SKU no van al cliente
+        "pendientes": pendientes,
+        "productos": nombres,  # para nombrarlos en el mensaje; los SKU no van al cliente
         # SKU → unidades que quedan, de los que no alcanzaron: el único caso en que el número va al cliente (BR-01)
         "disponibles": dict(entrada.get("faltantes") or {}),
         "completa": entrada["cerrada_por"] == "nota",
