@@ -373,10 +373,20 @@ def test_resolve_conversation_canal_no_soportado_devuelve_501():
 
 
 def test_guardrails_rechaza_porcentaje_en_letras_distinto():
-    """Con 5% autorizado, «veinte por ciento» debe ser rechazado por _regla_promesas."""
+    """Con 5% autorizado, porcentajes no coincidentes, no listados («dieciocho») o sin cifra se rechazan."""
     msg = "Te hago un veinte por ciento de descuento en el total."
     rechazos_mal = guardrails.validar_salida(message=msg, kind="informacion", descuento_autorizado=5.0)
     assert "promesa" in [r.regla for r in rechazos_mal]
+
+    rechazos_no_listado = guardrails.validar_salida(
+        message="Te hago un dieciocho por ciento de descuento.", kind="informacion", descuento_autorizado=5.0
+    )
+    assert "promesa" in [r.regla for r in rechazos_no_listado]
+
+    rechazos_sin_cifra = guardrails.validar_salida(
+        message="Te hago un descuento extra por cantidad.", kind="informacion", descuento_autorizado=5.0
+    )
+    assert "promesa" in [r.regla for r in rechazos_sin_cifra]
 
     rechazos_ok = guardrails.validar_salida(message=msg, kind="informacion", descuento_autorizado=20.0)
     assert "promesa" not in [r.regla for r in rechazos_ok]
@@ -560,17 +570,25 @@ def test_flujo_completo_resolucion_propuesta_confirmacion_csv_y_sheet2_sin_notas
         session.refresh(conv)
         conv_id = conv.id
 
-    # 1. Resolución del operador (con reintento para verificar no-duplicación)
-    req = ConversationResolveRequest(
+    # 1. Resolución del operador (con reintento antes de reactivar para verificar no-duplicación)
+    req_previa = ConversationResolveRequest(
         resolution_type="descuento_volumen",
         message="Te autorizamos 15% de descuento y retiro de 9 a 12.",
         discount_percentage=15.0,
         order_notes="retiro de 9 a 12",
         operator_notes=nota_interna,
+        reactivate_bot=False,
+    )
+    req_final = ConversationResolveRequest(
+        resolution_type="descuento_volumen",
+        message="Confirmamos las condiciones y te paso con Norma para cerrar el pedido.",
+        discount_percentage=15.0,
+        order_notes="retiro de 9 a 12",
+        operator_notes=nota_interna,
         reactivate_bot=True,
     )
-    dashboard_service.resolve_conversation(conv_id, req)
-    dashboard_service.resolve_conversation(conv_id, req)  # reintento idempotente
+    dashboard_service.resolve_conversation(conv_id, req_previa)
+    dashboard_service.resolve_conversation(conv_id, req_final)  # reintento idempotente
 
     # 2. Comprobar que el contexto que ve el LLM NO incluye `operator_notes` pero SÍ `acuerdo_operativo` y 15%
     agent = norma_agent.get_agent()
@@ -644,4 +662,90 @@ def test_flujo_completo_resolucion_propuesta_confirmacion_csv_y_sheet2_sin_notas
     row_notas = sheet_rows[-1][notas_idx]
     assert row_notas == "Solicitud del cliente: retiro mañana a la mañana. Acuerdo confirmado: retiro de 9 a 12"
     assert nota_interna not in str(sheet_rows[-1])
+
+
+def test_resolve_conversation_rechaza_conversacion_no_derivada_con_409():
+    """Intentar resolver una conversación que no está 'derivada' (ej. 'cerrada') devuelve 409 Conflict."""
+    with SessionLocal() as session:
+        conv = ConversationRecord(
+            customer_id="telegram:555111",
+            channel="telegram",
+            status="cerrada",
+        )
+        session.add(conv)
+        session.commit()
+        session.refresh(conv)
+        conv_id = conv.id
+
+    req = ConversationResolveRequest(
+        resolution_type="mensaje_directo",
+        message="Hola",
+        reactivate_bot=True,
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        dashboard_service.resolve_conversation(conv_id, req)
+    assert exc_info.value.status_code == 409
+
+
+def test_resolve_conversation_segunda_resolucion_mantiene_consistencia_bd_y_estado(monkeypatch):
+    """Una segunda resolución sin campos opcionales conserva los previos; enviarlos en None limpia ambos lados."""
+    monkeypatch.setattr(telegram_service, "get_client", lambda: type("C", (), {"send_message": lambda *a: None})())
+    with SessionLocal() as session:
+        conv = ConversationRecord(
+            customer_id="telegram:777333",
+            channel="telegram",
+            status="derivada",
+            derivation_reason="condicion_comercial",
+        )
+        session.add(conv)
+        session.commit()
+        session.refresh(conv)
+        conv_id = conv.id
+
+    # 1. Primera resolución: otorga 10% + notas, sin reactivar
+    dashboard_service.resolve_conversation(
+        conv_id,
+        ConversationResolveRequest(
+            resolution_type="descuento_volumen",
+            message="Te autorizamos 10%.",
+            discount_percentage=10.0,
+            order_notes="retiro 10 a 12",
+            operator_notes="aprobado por gerencia",
+            reactivate_bot=False,
+        ),
+    )
+
+    # 2. Segunda resolución: manda solo mensaje omitiendo descuento y notas -> preserva en BD y checkpointer
+    detail2 = dashboard_service.resolve_conversation(
+        conv_id,
+        ConversationResolveRequest(
+            resolution_type="mensaje_directo",
+            message="¿Necesitás algo más?",
+            reactivate_bot=False,
+        ),
+    )
+    agent = norma_agent.get_agent()
+    st2 = agent.graph.get_state({"configurable": {"thread_id": str(conv_id)}}).values
+    assert detail2.discount_percentage == 10.0
+    assert detail2.operator_notes == "aprobado por gerencia"
+    assert detail2.order_notes == "retiro 10 a 12"
+    assert st2.get("descuento_autorizado") == 10.0
+    assert st2.get("acuerdo_operativo") == "retiro 10 a 12"
+
+    # 3. Tercera resolución: borra explícitamente descuento y acuerdo con None -> limpia en BD y checkpointer
+    detail3 = dashboard_service.resolve_conversation(
+        conv_id,
+        ConversationResolveRequest(
+            resolution_type="mensaje_directo",
+            message="Finalmente queda precio de lista.",
+            discount_percentage=None,
+            order_notes=None,
+            reactivate_bot=True,
+        ),
+    )
+    st3 = agent.graph.get_state({"configurable": {"thread_id": str(conv_id)}}).values
+    assert detail3.discount_percentage is None
+    assert detail3.order_notes is None
+    assert st3.get("descuento_autorizado") is None
+    assert st3.get("acuerdo_operativo") is None
 

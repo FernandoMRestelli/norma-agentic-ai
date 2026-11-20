@@ -1268,6 +1268,12 @@ def test_skill_clara_no_fuerza_derivar_en_consultas_generales():
     assert skill_clara("pasame con un asesor", hay_propuesta=False) == "derivar_o_cancelar"
     assert skill_clara("pasame con el vendedor", hay_propuesta=False) == "derivar_o_cancelar"
     assert skill_clara("haceme 20% de descuento por 50 cajas", hay_propuesta=False) == "derivar_o_cancelar"
+    # Ediciones parciales con propuesta vigente NO fuerzan `derivar_o_cancelar`
+    assert skill_clara("cancelá los vasos y sumá 2 platos", hay_propuesta=True) != "derivar_o_cancelar"
+    assert skill_clara("no, cancelá el rojo", hay_propuesta=True) != "derivar_o_cancelar"
+    # Cancelación explícita de todo el pedido SÍ preactiva `derivar_o_cancelar`
+    assert skill_clara("cancelar", hay_propuesta=True) == "derivar_o_cancelar"
+    assert skill_clara("quiero cancelar el pedido", hay_propuesta=True) == "derivar_o_cancelar"
 
 
 def test_tres_aclaraciones_seguidas_sin_borrador_derivan_a_humano(catalogo):

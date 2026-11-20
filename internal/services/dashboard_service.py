@@ -526,24 +526,30 @@ def resolve_conversation(
     conversation_id: int, request: ConversationResolveRequest
 ) -> ConversationDetailResponse:
     """Resuelve una derivación humana: actualiza condición, envía mensaje y reactiva o no al bot."""
+    msg_text = request.message.strip() if request.message and request.message.strip() else None
+    fields = request.model_fields_set
+    has_discount = "discount_percentage" in fields
+    has_operator_notes = "operator_notes" in fields
+    has_order_notes = "order_notes" in fields
+    clean_order_notes = request.order_notes.strip() if request.order_notes and request.order_notes.strip() else None
+
     with SessionLocal() as session:
         conv = session.get(ConversationRecord, conversation_id)
         if not conv:
             raise HTTPException(status_code=404, detail="Conversación no encontrada")
+        if conv.status != "derivada":
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Solo se pueden resolver conversaciones en estado 'derivada' (estado actual: '{conv.status}')."
+                ),
+            )
 
-        # 1. Si hay mensaje, enviar al cliente según el canal
-        if request.message and request.message.strip():
-            msg_text = request.message.strip()
+        # 1. Validar soporte de canal antes de mutar la base o enviar
+        chat_id: int | None = None
+        if msg_text:
             if conv.channel == "telegram" and conv.customer_id.startswith("telegram:"):
-                try:
-                    chat_id = int(conv.customer_id.split(":")[1])
-                    telegram_service.get_client().send_message(chat_id, msg_text)
-                except Exception as exc:
-                    logger.error("Error al enviar mensaje de operador a Telegram: %s", exc)
-                    raise HTTPException(
-                        status_code=502,
-                        detail=f"No se pudo enviar el mensaje a Telegram: {exc}",
-                    ) from exc
+                chat_id = int(conv.customer_id.split(":")[1])
             else:
                 raise HTTPException(
                     status_code=501,
@@ -552,15 +558,17 @@ def resolve_conversation(
                     ),
                 )
 
-        # 2. Actualizar registro en base de datos
+        # 2. Preparar actualización en base de datos y validar con flush antes de enviar a Telegram
         # `operator_notes` es estrictamente interno; `order_notes` son los acuerdos operativos del pedido.
-        clean_order_notes = request.order_notes.strip() if request.order_notes and request.order_notes.strip() else None
         conv.resolution_type = request.resolution_type
-        conv.operator_notes = request.operator_notes
-        conv.order_notes = clean_order_notes
-        conv.discount_percentage = (
-            Decimal(str(request.discount_percentage)) if request.discount_percentage is not None else None
-        )
+        if has_operator_notes:
+            conv.operator_notes = request.operator_notes
+        if has_order_notes:
+            conv.order_notes = clean_order_notes
+        if has_discount:
+            conv.discount_percentage = (
+                Decimal(str(request.discount_percentage)) if request.discount_percentage is not None else None
+            )
         conv.updated_at = datetime.now(UTC)
         if request.reactivate_bot:
             conv.status = "abierta"
@@ -568,7 +576,7 @@ def resolve_conversation(
             conv.status = "resuelta"
 
         # Si hay propuesta pendiente en la base y cambió descuento o acuerdos, actualizamos total y notas sin duplicar
-        condiciones_cambiaron = request.discount_percentage is not None or clean_order_notes is not None
+        condiciones_cambiaron = has_discount or has_order_notes
         if condiciones_cambiaron:
             pending_draft = session.scalar(
                 select(DraftRecord)
@@ -580,9 +588,9 @@ def resolve_conversation(
                 .limit(1)
             )
             if pending_draft:
-                if clean_order_notes:
+                if has_order_notes and clean_order_notes:
                     pending_draft.notes = validation_service.merge_order_notes(pending_draft.notes, clean_order_notes)
-                if request.discount_percentage is not None:
+                if has_discount:
                     draft_obj = OrderDraft.model_validate({
                         **dict(pending_draft.__dict__),
                         "items": pending_draft.items,
@@ -590,18 +598,31 @@ def resolve_conversation(
                     })
                     pending_draft.total = draft_obj.total
 
+        session.flush()
+
+        # 3. Enviar mensaje al cliente (si falla, el rollback evita dejar la base cambiada)
+        if msg_text and chat_id is not None:
+            try:
+                telegram_service.get_client().send_message(chat_id, msg_text)
+            except Exception as exc:
+                logger.error("Error al enviar mensaje de operador a Telegram: %s", exc)
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"No se pudo enviar el mensaje a Telegram: {exc}",
+                ) from exc
+
         session.commit()
 
-        # 3. Actualizar estado en checkpointer de LangGraph (NUNCA inyectar `operator_notes`)
+        # 4. Actualizar estado en checkpointer de LangGraph con la misma semántica (NUNCA `operator_notes`)
         try:
             agent = get_agent()
             config = {"configurable": {"thread_id": str(conversation_id)}}
             update_data: dict[str, Any] = {}
-            if request.message and request.message.strip():
-                update_data["messages"] = [AIMessage(content=f"[Operador] {request.message.strip()}")]
-            if request.discount_percentage is not None:
+            if msg_text:
+                update_data["messages"] = [AIMessage(content=f"[Operador] {msg_text}")]
+            if has_discount:
                 update_data["descuento_autorizado"] = request.discount_percentage
-            if clean_order_notes is not None:
+            if has_order_notes:
                 update_data["acuerdo_operativo"] = clean_order_notes
             if request.resolution_type:
                 update_data["condicion_comercial"] = request.resolution_type
@@ -609,9 +630,9 @@ def resolve_conversation(
                 st = agent.graph.get_state(config)
                 if st and st.values.get("propuesta"):
                     prop = dict(st.values["propuesta"])
-                    if request.discount_percentage is not None:
+                    if has_discount:
                         prop["discount_percentage"] = request.discount_percentage
-                    if clean_order_notes:
+                    if has_order_notes and clean_order_notes:
                         prop["notes"] = validation_service.merge_order_notes(prop.get("notes"), clean_order_notes)
                     update_data["propuesta"] = prop
                     # Exigimos mostrar el resumen actualizado y nueva confirmación antes de crear la orden

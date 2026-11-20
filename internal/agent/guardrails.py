@@ -463,11 +463,12 @@ _PORCENTAJE_EN_LETRAS = re.compile(
 
 
 def _porcentajes_coinciden(oracion: str, descuento_autorizado: float | Decimal) -> bool:
-    """True si los porcentajes mencionados (en cifras o en letras) coinciden con el descuento autorizado."""
+    """True si la oración menciona al menos un porcentaje reconocible y todos coinciden con el autorizado."""
     autorizado = Decimal(str(descuento_autorizado))
     cifras = [Decimal(p.replace(",", ".")) for p in _PORCENTAJE_EN_ORACION.findall(oracion)]
     letras = [_PALABRAS_PORCENTAJE[w] for w in _PORCENTAJE_EN_LETRAS.findall(oracion)]
-    return all(val == autorizado for val in (*cifras, *letras))
+    todos = [*cifras, *letras]
+    return bool(todos) and all(val == autorizado for val in todos)
 
 
 def _regla_promesas(normalizado: str, descuento_autorizado: float | Decimal | None = None) -> Rechazo | None:
