@@ -230,6 +230,10 @@ def explorar_catalogo(
                 for p in matched[:limit]
             ],
         }
+        if len(matched) > limit:
+            salida["_hint"] = (
+                f"Se muestran {limit} de {len(matched)} productos: si busca uno puntual, buscalo con search_products."
+            )
         if not matched:
             de_la_marca = {p.category for p in products if p.category and b_norm in _normalizar(p.brand or "")}
             de_esa_marca = (

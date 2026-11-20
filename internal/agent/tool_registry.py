@@ -115,7 +115,24 @@ def _comprados(ctx: TurnContext) -> frozenset[str]:
 
 
 def _pedidos_anteriores(data: PedidosAnterioresInput, ctx: TurnContext) -> dict[str, Any]:
-    return {"pedidos": order_tools.pedidos_anteriores(ctx.customer_id, data.limite)}
+    pedidos = order_tools.pedidos_anteriores(ctx.customer_id, data.limite)
+    if not pedidos:
+        return {"pedidos": [], "_hint": "Este cliente no tiene pedidos anteriores por este chat: seguí BR-11."}
+    fuera = False
+    for linea in (linea for pedido in pedidos for linea in pedido["lineas"]):
+        # El catálogo cambia: lo que compró hace un mes puede no estar o estar agotado hoy
+        product = catalog_tools.get_product(linea["sku"])
+        linea["en_catalogo"] = product is not None
+        if product is not None:
+            linea["hay_stock"] = product.stock > 0
+        fuera = fuera or product is None
+    salida: dict[str, Any] = {"pedidos": pedidos}
+    if fuera:
+        salida["_hint"] = (
+            "Algunos productos ya no están en el catálogo (`en_catalogo: false`): no los propongas y avisale cuáles "
+            "quedan afuera (BR-04)."
+        )
+    return salida
 
 
 def _search_products(data: SearchProductsInput, ctx: TurnContext) -> dict[str, Any]:
@@ -489,6 +506,8 @@ def _brs_que_dispara(name: str, result: dict[str, Any]) -> list[str]:
     data = result["data"]
     if name == "check_stock":
         return [] if data["is_enough"] else ["BR-01"]
+    if name == "pedidos_anteriores":
+        return ["BR-11"]  # es la regla de cómo usar lo que trae
     if name == "buscar_renglones":
         estados = {renglon["estado"] for renglon in data["renglones"]}
         return [br for estado, br in _BR_POR_ESTADO.items() if estado in estados]

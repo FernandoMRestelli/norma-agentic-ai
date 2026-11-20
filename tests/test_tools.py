@@ -10,7 +10,7 @@ from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import Channel
 from internal.services import sheets_service, skill_service
 from internal.services.skill_service import SkillError, load_skills
-from internal.tools import catalog_tools, inventory_tools, skill_tools
+from internal.tools import catalog_tools, inventory_tools, order_tools, skill_tools
 
 
 @pytest.mark.parametrize("query", ["shampoo pantene 400", "Shampoo Pantene 400ML", "shampo pantne 400"])
@@ -469,6 +469,33 @@ def test_explorar_catalogo_marca_sin_esa_categoria_ofrece_otras_marcas():
     assert res["total_productos"] == 0
     assert "De esa marca hay: Shampoo." in res["_hint"]
     assert "Tienen esa categoría: Pantene, Sedal." in res["_hint"]
+
+
+def test_pedidos_anteriores_marca_lo_que_ya_no_esta_en_el_catalogo(monkeypatch):
+    """Lo que compró hace un mes puede no estar hoy: el agente no lo propone y llega BR-11 (cómo usar la tool)."""
+    lineas = [
+        {"sku": "SH-PAN-400", "name": "Shampoo", "cantidad": 2},
+        {"sku": "XX-VIEJO", "name": "Otro", "cantidad": 1},
+    ]
+    monkeypatch.setattr(order_tools, "pedidos_anteriores", lambda *_: [{"fecha": "2026-10-01", "lineas": lineas}])
+    resultado = tool_registry.execute("pedidos_anteriores", {}, _contexto("tomar_pedido"))
+    nuevas = resultado["data"]["pedidos"][0]["lineas"]
+    assert [(linea["en_catalogo"], linea.get("hay_stock")) for linea in nuevas] == [(True, True), (False, None)]
+    assert "BR-04" in resultado["data"]["_hint"]
+    assert [regla["id"] for regla in resultado["reglas"]] == ["BR-11"]
+
+
+def test_pedidos_anteriores_vacio_lleva_a_br_11(monkeypatch):
+    monkeypatch.setattr(order_tools, "pedidos_anteriores", lambda *_: [])
+    data = tool_registry.execute("pedidos_anteriores", {}, _contexto())["data"]
+    assert data == {"pedidos": [], "_hint": "Este cliente no tiene pedidos anteriores por este chat: seguí BR-11."}
+
+
+def test_explorar_catalogo_avisa_cuando_recorta_la_muestra():
+    res = catalog_tools.explorar_catalogo(brand="pantene", category="shampoo", limit=1)
+    assert len(res["muestra_productos"]) == 1
+    assert "Se muestran 1 de 2 productos" in res["_hint"]
+    assert "_hint" not in catalog_tools.explorar_catalogo(brand="pantene", category="shampoo", limit=2)
 
 
 def test_get_product_inexistente_explica_como_seguir():

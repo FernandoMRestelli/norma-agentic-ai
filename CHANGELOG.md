@@ -25,6 +25,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Cambiado
 
+- `pedidos_anteriores` marca en cada línea si el producto sigue en el catálogo y si hay stock, avisa con un `_hint` cuando el cliente no tiene pedidos o alguno ya no está, y adjunta BR-11. `explorar_catalogo` avisa cuando la muestra de productos se recorta.
 - Los errores de permisos del agente dicen qué leer: `tool_no_permitida` nombra la skill que habilita la tool, `br_no_permitida` la skill de esa BR, `br_inexistente` las BR disponibles con su título y `skill_inexistente` las skills del índice. Antes pedían «leé la skill que la permite» sin decir cuál.
 - `leer_skill` y la skill que el sistema precarga muestran el título de cada BR (`BR-01 (Falta de stock)`), no solo su número, para que el agente elija cuál leer sin leerlas todas. Una BR que no empieza con `# BR-xx: <título>` impide arrancar.
 - `explorar_catalogo` encuentra la marca aunque se escriba con apóstrofo o tilde («L'Oréal» trae `LOREAL`; antes respondía que no existía), y cuando la marca no tiene la categoría pedida su `_hint` suma las marcas que sí la tienen, para ofrecerle otra sin una vuelta más.

@@ -307,6 +307,14 @@ Errores: `catalogo_no_disponible`.
 
 Entrada `sku: str`. Salida `data.product`: `{sku, name, brand, presentation, price, stock}` o `null`. Errores: `catalogo_no_disponible`.
 
+#### `pedidos_anteriores`
+
+Entrada `limite: int` (1 a 5, por defecto 3). Inyectado: `customer_id`. Salida `data.pedidos`: los últimos pedidos del
+cliente, cada uno con `fecha` y `lineas` (`sku`, `name`, `cantidad`, `nota`), sin precios, número de orden ni estado
+(RF-73). Cada línea suma `en_catalogo` y, si está, `hay_stock`: el catálogo cambia y lo de hace un mes puede no
+estar hoy. Sin pedidos, o con productos que ya no están, trae `_hint`. Siempre adjunta BR-11, la regla de cómo usar
+lo que trae.
+
 #### `explorar_catalogo`
 
 | Entrada | Tipo | Reglas |
@@ -323,6 +331,7 @@ Devuelve un diccionario estructurado según los parámetros provistos:
 - Si se indican ambos (`brand` y `category`): muestra acotada de nombres y presentaciones de productos (`tipo_consulta: productos_por_marca_y_categoria`).
 - Si no se indican parámetros: listado general de categorías con su total de productos (`tipo_consulta: categorias_generales`).
 
+Si la muestra se recorta por `limit`, `_hint` lo avisa y sugiere buscar el producto puntual con `search_products`.
 La marca y la categoría se comparan sin mayúsculas, tildes ni signos: «L'Oréal» encuentra la marca cargada como
 `LOREAL`. Sin resultados, `_hint` trae las marcas o categorías más parecidas. Si la marca existe pero no tiene esa
 categoría, dice qué categorías tiene la marca y hasta cinco marcas que sí tienen la categoría, para ofrecerle otra

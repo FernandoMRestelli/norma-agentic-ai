@@ -1115,7 +1115,7 @@ def test_pedidos_anteriores_del_cliente(catalogo):
     (resultado,) = _resultados(agent, "pedidos_anteriores")
     assert resultado["ok"]
     assert [pedido["lineas"] for pedido in resultado["data"]["pedidos"]] == [
-        [{"sku": SKU, "name": "Producto", "cantidad": 1}]
+        [{"sku": SKU, "name": "Producto", "cantidad": 1, "en_catalogo": True, "hay_stock": True}]
     ]
     texto = json.dumps(resultado)
     assert "ORD-" not in texto and "price" not in texto and "Recibido" not in texto and "1000" not in texto
