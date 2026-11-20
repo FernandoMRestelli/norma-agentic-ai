@@ -875,7 +875,10 @@ def test_pedido_por_renglones_en_dos_llamadas(catalogo_largo):
     (busqueda,) = _resultados(agent, "buscar_renglones")
     estados = {r["n"]: r["estado"] for r in busqueda["data"]["renglones"]}
     assert estados == {**dict.fromkeys(range(1, 10), "unico"), 3: "varias"}
-    assert [regla["id"] for regla in busqueda["reglas"]] == ["BR-03"]  # la skill estaba preactivada (RF-63)
+    # La skill estaba preactivada y la precarga ya buscó la lista: BR-03 llegó con la nota de búsqueda y no se
+    # repite en el resultado de la tool (RF-63, RF-86)
+    assert "### BR-03" in sistema.split("## Nota de búsqueda")[1]
+    assert "reglas" not in busqueda
     assert [(item.sku, item.quantity) for item in resultado.draft.items] == LINEAS_CLARAS
     assert resultado.options == ["MU-MAS-ARG-250", "MU-MAS-ARG-1K"]
     renglones = _renglones(agent)

@@ -40,6 +40,11 @@ class ResumenTurno:
     fallas: int = 0  # en toda la conversación
     draft_id: str | None = None
     via: str = "llm"  # confirmar_directo: «OK» registró la propuesta sin llamar al LLM (RF-13)
+    # Los sub-loops, aparte del orquestador (RF-94): sus mensajes no quedan en el estado, sí su uso en la nota
+    llamadas_sub_loop: int = 0
+    tokens_entrada_sub_loop: int = 0
+    tokens_salida_sub_loop: int = 0
+    sub_loops: list[str] = field(default_factory=list)  # la skill de cada delegación, en orden
 
 
 def resumir(state: EstadoNorma) -> ResumenTurno:
@@ -56,6 +61,12 @@ def resumir(state: EstadoNorma) -> ResumenTurno:
                 resumen.errores.append(result["error"]["code"])
         elif isinstance(message, HumanMessage) and "guardrail" in message.additional_kwargs:
             resumen.errores.append("respuesta_rechazada")  # texto suelto que no pasó el validador
+    for nota in state.get("notas_turno") or []:
+        if nota.get("tipo") == "sub_loop":
+            resumen.sub_loops.append(nota["skill"])
+            resumen.llamadas_sub_loop += nota.get("llamadas", 0)
+            resumen.tokens_entrada_sub_loop += nota.get("tokens_entrada", 0)
+            resumen.tokens_salida_sub_loop += nota.get("tokens_salida", 0)
     if propuesta := state.get("propuesta"):
         resumen.draft_id = propuesta.get("draft_id")
     if state.get("kind") == "pedido" and not state.get("iteraciones"):
@@ -163,6 +174,9 @@ class Turno(Paso):
                 skills=resumen.skills,
                 tokens_entrada=resumen.tokens_entrada,
                 tokens_salida=resumen.tokens_salida,
+                llamadas_sub_loop=resumen.llamadas_sub_loop,
+                tokens_entrada_sub_loop=resumen.tokens_entrada_sub_loop,
+                sub_loops=resumen.sub_loops,
                 latencia_ms=latencia_ms,
                 draft_id=resumen.draft_id,
                 order_id=outcome.order_id,
