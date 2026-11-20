@@ -144,6 +144,11 @@ def para_orquestador(entrada: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def cuentas(nota: dict[str, Any] | None) -> dict[str, int]:
+    """Cuántos renglones resolvió, dejó pendientes o afuera: números para la traza, sin texto (RNF-03)."""
+    return {lugar: len((nota or {}).get(lugar) or []) for lugar in ("resueltos", "pendientes", "afuera")}
+
+
 def skus(entrada: dict[str, Any]) -> set[str]:
     """Los SKU de una nota anterior: cuentan como buscados si se vuelven a delegar esos renglones (RF-97)."""
     nota = entrada["nota"]

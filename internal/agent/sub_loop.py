@@ -200,6 +200,7 @@ def correr(
     rechazos = 0
     entregada: dict[str, Any] | None = None
     with observabilidad.paso("sub_loop", "AGENT", skill=skill.nombre, renglones=len(numeros)) as span:
+        span.texto(entrada={"encargo": encargo, "renglones": numeros})
         while entregada is None:
             if entrada["llamadas"] >= tope or plazo_vencido():
                 logger.warning("Agente: el sub-loop de %s llegó a su tope, entrega lo encontrado", skill.nombre)
@@ -255,7 +256,15 @@ def correr(
                         content=json.dumps(resultado, ensure_ascii=False), tool_call_id=call["id"], name=call["name"]
                     )
                 )
-        span.atributos(llamadas=entrada["llamadas"], cerrada_por=entrada["cerrada_por"], rechazos=rechazos)
+        span.atributos(
+            llamadas=entrada["llamadas"],
+            cerrada_por=entrada["cerrada_por"],
+            rechazos=rechazos,
+            tokens_entrada=entrada["tokens_entrada"],
+            tokens_salida=entrada["tokens_salida"],
+            **nota.cuentas(entrada["nota"]),
+        )
+        span.texto(salida=entrada["nota"])
     entrada["faltantes"] = dict(datos.faltantes)
     # Las tools del sub-loop leen la base de lo que el cliente compró una sola vez por turno
     ctx.comprados = sub_ctx.comprados
@@ -270,7 +279,7 @@ def _entregar(
     busquedas: dict[int, tuple[dict, dict]],
 ) -> tuple[dict[str, Any], dict[str, Any] | None, int]:
     """Valida una nota. Devuelve el resultado para el sub-loop, la nota aceptada (o None) y los rechazos."""
-    with observabilidad.paso("nota", "PARSER", renglones=len(numeros)) as paso:
+    with observabilidad.paso("nota", "PARSER", renglones=len(numeros), entrega=rechazos + 1) as paso:
         try:
             data = EntregarNotaInput.model_validate(args)
         except ValidationError as exc:
@@ -283,8 +292,11 @@ def _entregar(
             data = None
         else:
             error = nota.validar(data, numeros, vistos)
+        paso.texto(entrada=args, salida=error)
         if error is None:
-            return {"ok": True, "data": {"recibida": True}}, data.model_dump(exclude_none=True), rechazos
+            aceptada = data.model_dump(exclude_none=True)
+            paso.atributos(**nota.cuentas(aceptada))
+            return {"ok": True, "data": {"recibida": True}}, aceptada, rechazos
         rechazos += 1
         paso.fallo(error["code"])
         if rechazos <= nota.MAX_RECHAZOS:
@@ -293,4 +305,5 @@ def _entregar(
         # A la tercera, la completa el backend: lo que queda sin cuenta sale como pendiente (RF-91, CA-155)
         logger.warning("Agente: nota completada por el sistema tras %d rechazos (%s)", rechazos - 1, error["code"])
         completa = nota.completar(data, numeros, vistos) if data else nota.con_lo_encontrado(numeros, busquedas)
+        paso.atributos(completada_por_el_sistema=True, **nota.cuentas(completa))
         return {"ok": True, "data": {"recibida": True, "completada_por_el_sistema": True}}, completa, rechazos

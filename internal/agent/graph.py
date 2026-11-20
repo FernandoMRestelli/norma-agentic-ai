@@ -107,6 +107,7 @@ def armar_contexto_cliente(state: EstadoNorma) -> dict[str, Any]:
     with observabilidad.paso("contexto_cliente", "RETRIEVER") as paso:
         contexto = contexto_cliente.armar(state["customer_id"], state.get("customer_name"))
         paso.atributos(pedidos=len(contexto["pedidos"]), comprados=len(contexto["comprados"]))
+        paso.texto(salida=contexto)
         if not contexto["completo"]:
             paso.fallo("historial_no_disponible")
     return {"contexto_cliente": contexto}
@@ -147,8 +148,11 @@ def precarga_busqueda(state: EstadoNorma) -> dict[str, Any]:
     br_entregadas = list(state.get("br_entregadas") or [])
     comprados = contexto_cliente.comprados(state.get("contexto_cliente"))
     with observabilidad.paso("precarga_busqueda", "RETRIEVER") as paso:
+        sin_resolver = sum(1 for renglon in renglones if renglon["estado"] == "sin_resolver")  # antes de buscar
         nota = precarga.precargar(renglones, comprados, skills_activas, br_entregadas)
-        paso.atributos(buscados=len(nota["renglones"]) if nota else 0)
+        paso.atributos(**precarga.cuentas(nota, sin_resolver))
+        if nota:
+            paso.texto(entrada={"buscados": nota["buscados"]}, salida={"resultados": nota["resultados"]})
     if nota is None:
         return {}
     return {

@@ -6,6 +6,7 @@ el modelo lo usa como si hubiera llamado a `buscar_renglones`, sin gastar una vu
 
 import json
 import logging
+from collections import Counter
 from typing import Any
 
 from internal.agent import tool_registry
@@ -54,6 +55,13 @@ def precargar(
         "resultados": resultados,
         "reglas": reglas,
     }
+
+
+def cuentas(nota: dict[str, Any] | None, sin_resolver: int) -> dict[str, int]:
+    """Para la traza: cuántos renglones buscó, cuántos quedaron para el LLM y cuántos dieron cada estado."""
+    buscados = len(nota["renglones"]) if nota else 0
+    estados = Counter(resultado["estado"] for resultado in (nota or {}).get("resultados") or [])
+    return {"buscados": buscados, "sin_separar": sin_resolver - buscados, **estados}
 
 
 def precargados(notas: list[dict[str, Any]]) -> set[int]:
