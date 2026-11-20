@@ -16,7 +16,9 @@ from internal.schemas.agent_schema import (
     BuscarRenglonesInput,
     CheckStockInput,
     DelegarSkillInput,
+    DiscardOrderDraftInput,
     EntregarNotaInput,
+    EscalateToHumanInput,
     ExplorarCatalogoInput,
     GetProductInput,
     LeerBrInput,
@@ -69,6 +71,11 @@ class TurnContext:
     kind: str | None = None
     options: list[str] = field(default_factory=list)
     order_id: str | None = None
+    derivation_reason: str | None = None
+    descuento_autorizado: float | None = None
+    condicion_comercial: str | None = None
+    acuerdo_operativo: str | None = None
+    propuesta_pendiente_mostrar: bool = False
     turno: guardrails.ContextoTurno = field(default_factory=guardrails.ContextoTurno)  # para validar la salida
     orquestador: bool = False  # con el orquestador, `leer_skill` de una skill sub_loop dice cómo delegarla
     notas_turno: list[dict[str, Any]] = field(default_factory=list)  # la nota de búsqueda y las de los sub-loops
@@ -193,13 +200,25 @@ def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict
         data, ctx.renglones, tolerar=ctx.coberturas_fallidas >= MAX_COBERTURAS_FALLIDAS
     )
     if propuesta:
-        # Lo que quedó afuera viaja con la propuesta: si el cliente la acepta, la orden lo guarda (RF-76)
-        propuesta = propuesta.model_copy(update={"leftovers": reply_tools.fuera_del_pedido(renglones)})
+        # Lo que quedó afuera viaja con la propuesta: si el cliente la acepta, la orden lo guarda (RF-76).
+        # También conservamos el descuento autorizado y el acuerdo operativo confirmado sin duplicarlo.
+        try:
+            notas_combinadas = validation_service.merge_order_notes(propuesta.notes, ctx.acuerdo_operativo)
+        except validation_service.OrderNotesTooLongError as exc:
+            raise ToolFailure("notas_demasiado_largas", str(exc)) from exc
+        propuesta = propuesta.model_copy(
+            update={
+                "leftovers": reply_tools.fuera_del_pedido(renglones),
+                "discount_percentage": ctx.descuento_autorizado,
+                "notes": notas_combinadas,
+            }
+        )
     message = data.message
     # Lo que escribió el LLM pasa por los guardrails antes de llegar al cliente; la vigente no cambia si falla
     rechazos = guardrails.validar_salida(
         message, data.kind.value, propuesta, options, ctx.turno, ctx.propuesta,
         pendientes=[pendiente.renglon for pendiente in data.pendientes],
+        descuento_autorizado=ctx.descuento_autorizado,
     )  # fmt: skip
     if rechazos:
         ctx.turno.rechazos += 1
@@ -224,9 +243,11 @@ def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict
     if propuesta:
         order_service.record_draft(propuesta)
         ctx.propuesta = propuesta
+        ctx.propuesta_pendiente_mostrar = False
     elif data.descartar_propuesta and ctx.propuesta:
         order_service.discard_draft(ctx.propuesta)
         ctx.propuesta = None
+        ctx.propuesta_pendiente_mostrar = False
     return {"enviado": True}
 
 
@@ -271,9 +292,23 @@ PRECIO_CAMBIADO = (
     "Desde que te armé el pedido cambió el precio de algún producto. Te lo paso con los precios de hoy. "
     "¿Lo confirmo así?"
 )
+CONDICIONES_ACTUALIZADAS = (
+    "Actualicé tu propuesta con las condiciones autorizadas por el equipo. Revisá el resumen actualizado: "
+    "¿lo confirmo así?"
+)
 
 
 def _armar_pedido(_: ArmarPedidoInput, ctx: TurnContext) -> dict[str, Any]:
+    if ctx.propuesta and ctx.propuesta_pendiente_mostrar:
+        # No se confirma una propuesta modificada por el operador sin que el cliente vea antes el total y acuerdos
+        nueva = ctx.propuesta.model_copy(update={"version": ctx.propuesta.version + 1})
+        order_service.record_draft(nueva)
+        ctx.propuesta = nueva
+        ctx.propuesta_pendiente_mostrar = False
+        ctx.respuesta = f"{CONDICIONES_ACTUALIZADAS}\n\n{validation_service.build_proposal_detail(nueva)}"
+        ctx.kind = "propuesta"
+        ctx.resultado = "pausar"
+        return {"condiciones_actualizadas": True}
     try:
         order = order_tools.armar_pedido(ctx.propuesta)
     except order_service.PriceChangedError as exc:
@@ -282,16 +317,61 @@ def _armar_pedido(_: ArmarPedidoInput, ctx: TurnContext) -> dict[str, Any]:
         nueva = order_service.actualizar_precios(ctx.propuesta)
         order_service.record_draft(nueva)
         ctx.propuesta = nueva
+        ctx.propuesta_pendiente_mostrar = False
         ctx.respuesta = f"{PRECIO_CAMBIADO}\n\n{validation_service.build_proposal_detail(nueva)}"
         ctx.kind = "propuesta"
         ctx.resultado = "pausar"
         return {"precio_cambiado": True, "lineas": exc.lines}
     ctx.propuesta = None
+    ctx.propuesta_pendiente_mostrar = False
     ctx.order_id = order.order_id
     ctx.respuesta = validation_service.build_order_message(order)
     ctx.kind = "pedido"
     ctx.resultado = "final"
     return {"order_id": order.order_id}
+
+
+def _validar_mensaje_terminal(message: str | None, ctx: TurnContext, fallback: str) -> str:
+    """Valida con guardrails el mensaje libre del LLM en tools terminales de cierre (escalate/discard)."""
+    if not message:
+        return fallback
+    rechazos = guardrails.validar_salida(
+        message,
+        "informacion",
+        turno=ctx.turno,
+        vigente=ctx.propuesta,
+        descuento_autorizado=ctx.descuento_autorizado,
+    )
+    if rechazos:
+        ctx.turno.rechazos += 1
+        if ctx.turno.rechazos <= guardrails.MAX_RECHAZOS:
+            raise guardrails.rechazar(rechazos)
+        logger.warning(
+            "Guardrail: intentos agotados en cierre, sale el mensaje fijo (reglas=%s)",
+            ",".join(r.regla for r in rechazos),
+        )
+        return fallback
+    return message
+
+
+def _discard_order_draft(data: DiscardOrderDraftInput, ctx: TurnContext) -> dict[str, Any]:
+    mensaje_valido = _validar_mensaje_terminal(data.message, ctx, reply_tools.DEFAULT_DISCARD_MESSAGE)
+    mensaje, _ = reply_tools.discard_order_draft(data.reason, ctx.propuesta, mensaje_valido)
+    ctx.propuesta = None
+    ctx.respuesta = mensaje
+    ctx.kind = "descartado"
+    ctx.resultado = "final"
+    return {"descartado": True, "motivo": data.reason}
+
+
+def _escalate_to_human(data: EscalateToHumanInput, ctx: TurnContext) -> dict[str, Any]:
+    mensaje_valido = _validar_mensaje_terminal(data.message, ctx, reply_tools.DEFAULT_HANDOFF_MESSAGE)
+    mensaje = reply_tools.escalate_to_human(data.reason, mensaje_valido)
+    ctx.respuesta = mensaje
+    ctx.kind = "derivada"
+    ctx.derivation_reason = data.reason
+    ctx.resultado = "final"
+    return {"derivada": True, "motivo": data.reason}
 
 
 TOOLS: dict[str, ToolSpec] = {
@@ -386,6 +466,21 @@ TOOLS: dict[str, ToolSpec] = {
             "número. Usala solo si el cliente aceptó la propuesta sin cambios.",
             ArmarPedidoInput,
             _armar_pedido,
+        ),
+        ToolSpec(
+            "discard_order_draft",
+            "Descarta el borrador de pedido pendiente y cancela la conversación cuando el cliente explícitamente "
+            "dice que ya no lo quiere o que cancela el pedido (RF-26).",
+            DiscardOrderDraftInput,
+            _discard_order_draft,
+        ),
+        ToolSpec(
+            "escalate_to_human",
+            "Deriva la conversación a una persona del equipo cuando el cliente pide hablar con alguien humano, o "
+            "cuando solicita condiciones comerciales especiales que no se pueden autorizar por chat (descuentos por "
+            "cantidad/bulto, envíos al interior/especiales, formas de pago diferidas, etc.) (RF-27, Issue #84).",
+            EscalateToHumanInput,
+            _escalate_to_human,
         ),
     )
 }

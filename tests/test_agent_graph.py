@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from sqlalchemy import delete, func, select
 
 from internal.agent import context, graph, norma_agent, tool_registry
-from internal.agent.graph import FAILURE_MESSAGE
+from internal.agent.graph import FAILURE_MESSAGE, HANDOFF_MESSAGE
 from internal.agent.norma_agent import NormaAgent
 from internal.database.connection import SessionLocal, init_db
 from internal.database.models import ConversationRecord, DraftRecord, OrderRecord
@@ -686,12 +686,14 @@ def test_cambia_la_skill_preactivada(catalogo):
 
 
 def test_segunda_falla_termina_la_conversacion(catalogo):
+    """CA-21 / RF-27: tras una segunda falla, deriva a una persona con HANDOFF_MESSAGE y cierra."""
     agent, _ = _agente(RuntimeError("uno"), RuntimeError("dos"))
     primera = agent.handle("1", text="hola", **CLIENTE)
     assert primera.message == FAILURE_MESSAGE
     assert not primera.cerrada
     segunda = agent.handle("1", text="hola?", **CLIENTE)
-    assert segunda.message == FAILURE_MESSAGE
+    assert segunda.message == HANDOFF_MESSAGE
+    assert segunda.kind == "derivada"
     assert segunda.cerrada
 
 
@@ -1218,3 +1220,117 @@ def tool_registry_ctx(customer_id: str):
     return tool_registry.TurnContext(
         customer_id=customer_id, channel=Channel.TELEGRAM, disponibles=list(tool_registry.BASE_TOOLS)
     )
+
+
+def test_solicitud_humano_usa_escalate_to_human(catalogo):
+    """CA-22 / RF-27: cuando el cliente pide hablar con una persona, se deriva la conversación."""
+    agent, _ = _agente(
+        _ai(
+            _call("leer_skill", nombre="derivar_o_cancelar"),
+            _call(
+                "escalate_to_human",
+                reason="solicitud_humano",
+                message="Te comunico con alguien del equipo.",
+            ),
+        )
+    )
+    resultado = agent.handle("1", text="quiero hablar con una persona", **CLIENTE)
+    assert resultado.kind == "derivada"
+    assert resultado.cerrada
+    assert resultado.derivation_reason == "solicitud_humano"
+    assert resultado.message == "Te comunico con alguien del equipo."
+
+
+def test_solicitud_comercial_especial_deriva_a_humano(catalogo):
+    """Issue #84: solicitud de descuento comercial especial se deriva al equipo humano."""
+    agent, _ = _agente(
+        _ai(
+            _call(
+                "escalate_to_human",
+                reason="condicion_comercial",
+                message="Los descuentos por cantidad los evalúa el equipo de ventas.",
+            ),
+        )
+    )
+    resultado = agent.handle("1", text="haceme 20% de descuento por 50 cajas", **CLIENTE)
+    assert resultado.kind == "derivada"
+    assert resultado.cerrada
+    assert resultado.derivation_reason == "condicion_comercial"
+
+
+def test_skill_clara_no_fuerza_derivar_en_consultas_generales():
+    """Frases con palabras sueltas («alguien», «cuotas», «descuento») no fuerzan `derivar_o_cancelar`."""
+    from internal.agent.graph import skill_clara
+
+    assert skill_clara("¿alguien me dice si hay vasos?", hay_propuesta=False) != "derivar_o_cancelar"
+    assert skill_clara("¿trabajan con cuotas?", hay_propuesta=False) != "derivar_o_cancelar"
+    assert skill_clara("quiero hablar con una persona", hay_propuesta=False) == "derivar_o_cancelar"
+    assert skill_clara("pasame con un asesor", hay_propuesta=False) == "derivar_o_cancelar"
+    assert skill_clara("pasame con el vendedor", hay_propuesta=False) == "derivar_o_cancelar"
+    assert skill_clara("haceme 20% de descuento por 50 cajas", hay_propuesta=False) == "derivar_o_cancelar"
+    # Ediciones parciales con propuesta vigente NO fuerzan `derivar_o_cancelar`
+    assert skill_clara("cancelá los vasos y sumá 2 platos", hay_propuesta=True) != "derivar_o_cancelar"
+    assert skill_clara("no, cancelá el rojo", hay_propuesta=True) != "derivar_o_cancelar"
+    # Cancelación explícita de todo el pedido SÍ preactiva `derivar_o_cancelar`
+    assert skill_clara("cancelar", hay_propuesta=True) == "derivar_o_cancelar"
+    assert skill_clara("quiero cancelar el pedido", hay_propuesta=True) == "derivar_o_cancelar"
+
+
+def test_tres_aclaraciones_seguidas_sin_borrador_derivan_a_humano(catalogo):
+    """RF-27: tres aclaraciones consecutivas sin borrador derivan a humano automáticamente."""
+    agent, _ = _agente(
+        _ai(_call("respond_to_customer", kind="aclaracion", message="¿Qué marca buscás?")),
+        _ai(_call("respond_to_customer", kind="aclaracion", message="¿Qué medida buscás?")),
+        _ai(_call("respond_to_customer", kind="aclaracion", message="¿Qué variedad buscás?")),
+    )
+    r1 = agent.handle("1", text="1 algo para el pelo", **CLIENTE)
+    assert r1.kind == "aclaracion"
+    assert not r1.cerrada
+
+    r2 = agent.handle("1", text="1 para peinar", **CLIENTE)
+    assert r2.kind == "aclaracion"
+    assert not r2.cerrada
+
+    # 3ra aclaración seguida sin propuesta: deriva automáticamente a humano (RF-27)
+    r3 = agent.handle("1", text="1 cualquiera", **CLIENTE)
+    assert r3.kind == "derivada"
+    assert r3.cerrada
+    assert r3.message == HANDOFF_MESSAGE
+    assert r3.derivation_reason == "aclaraciones_repetidas"
+
+
+
+def test_una_respuesta_de_informacion_corta_la_racha_de_aclaraciones(catalogo):
+    """RF-27: las 3 aclaraciones tienen que ser seguidas; una respuesta de otro tipo en el medio reinicia la cuenta."""
+    agent, _ = _agente(
+        _ai(_call("respond_to_customer", kind="aclaracion", message="¿Qué marca buscás?")),
+        _ai(_call("leer_skill", nombre="informar")),  # la pregunta no tiene skill clara: la elige el modelo
+        _ai(_call("respond_to_customer", kind="informacion", message="Por este chat te tomo los pedidos.")),
+        _ai(_call("respond_to_customer", kind="aclaracion", message="¿Qué medida buscás?")),
+        _ai(_call("respond_to_customer", kind="aclaracion", message="¿Qué variedad buscás?")),
+    )
+    respuestas = [
+        agent.handle("1", text=texto, **CLIENTE)
+        for texto in ("1 algo para el pelo", "¿qué hacés?", "1 para peinar", "1 cualquiera")
+    ]
+    assert [r.kind for r in respuestas] == ["aclaracion", "informacion", "aclaracion", "aclaracion"]
+    assert not respuestas[-1].cerrada
+
+
+def test_cancelar_un_producto_no_es_cancelar_el_pedido():
+    """RF-26: «cancelá el shampoo» cambia una línea (tomar_pedido); solo el pedido entero va a derivar_o_cancelar."""
+    from internal.agent.graph import skill_clara
+
+    cambio = "cancelá el shampoo y mandame 2 acondicionadores"
+    assert skill_clara(cambio, hay_propuesta=True) != "derivar_o_cancelar"
+    assert skill_clara("cancelá el shampoo", hay_propuesta=True) != "derivar_o_cancelar"
+    assert skill_clara("cancelá el pedido", hay_propuesta=True) == "derivar_o_cancelar"
+    assert skill_clara("cancelar todo", hay_propuesta=True) == "derivar_o_cancelar"
+
+
+def test_preguntar_por_descuentos_no_deriva():
+    """Issue #84: preguntar si hay descuento es una consulta; derivarla silenciaría al bot 24 h."""
+    from internal.agent.graph import skill_clara
+
+    assert skill_clara("¿hacen descuento si llevo 2 cajas?", hay_propuesta=False) != "derivar_o_cancelar"
+    assert skill_clara("quiero pedir un descuento por 50 cajas", hay_propuesta=False) == "derivar_o_cancelar"

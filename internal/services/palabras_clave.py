@@ -13,6 +13,20 @@ from internal.schemas.order_schema import ConfirmationAction
 # Aceptación pura: el mensaje completo es una de estas, sin nada más (RF-13, RF-64, D-23). La BR-06 las cita
 ACEPTACIONES = frozenset({"ok", "confirmar", "dale", "si", "listo", "de una", "mandale"})
 
+# Cancelación pura: el mensaje completo pide descartar el pedido (RF-26, CA-23)
+CANCELACIONES = frozenset(
+    {
+        "cancelar",
+        "cancela",
+        "cancelalo",
+        "deja sin efecto",
+        "anular",
+        "anula",
+        "anulalo",
+        "cancelar pedido",
+    }
+)
+
 # Palabras de un saludo o un agradecimiento: un mensaje hecho solo con estas no pide ni consulta nada (RF-62)
 _SALUDO = frozenset(
     "hola holaa holis buenas buen buenos dia dias tarde tardes noche noches gracias muchas mil que tal como va "
@@ -48,6 +62,8 @@ def interpretar_palabra_clave(texto: str) -> ConfirmationAction | None:
     normalizado = _normalizar(texto)
     if normalizado in ACEPTACIONES:
         return ConfirmationAction.CONFIRM
+    if normalizado in CANCELACIONES:
+        return ConfirmationAction.CANCEL
     if normalizado == "corregir":
         return ConfirmationAction.CORRECT
     return None
@@ -63,3 +79,56 @@ def empieza_con_saludo(texto: str) -> bool:
     """True si el texto abre con un saludo («Buenas! Para el salón necesito»), aunque después siga."""
     palabras = re.findall(r"[a-z]+", _normalizar(texto))
     return bool(palabras) and palabras[0] in _APERTURA_SALUDO
+
+
+def es_pedido_humano(texto: str) -> bool:
+    """True si el cliente pide explícitamente hablar con una persona, operador o asesor (RF-27)."""
+    normalizado = _normalizar(texto)
+    return bool(
+        re.search(
+            r"\b(?:hablar|comunicar|comunicame|pasar|pasame|atender|atendeme)\s+con\s+"
+            r"(?:(?:un[ao]?|el|la)\s+)?(?:humano|persona|alguien|operador|asesor|representante|vendedor)\b|"
+            r"\batencion humana\b|"
+            r"\bderiva(?:me|r)?\s+(?:a|con)\s+(?:(?:un[ao]?|el|la)\s+)?"
+            r"(?:humano|persona|operador|asesor|vendedor)\b",
+            normalizado,
+        )
+    )
+
+
+def es_cancelacion(texto: str) -> bool:
+    """True si el mensaje completo pide cancelar o descartar la propuesta o el pedido (RF-26).
+
+    Exige coincidencia del mensaje completo para no forzar `derivar_o_cancelar` ante ediciones parciales
+    como «cancelá los vasos y sumá 2 platos» o «no, cancelá el rojo».
+    """
+    normalizado = _normalizar(texto)
+    if normalizado in CANCELACIONES:
+        return True
+    return bool(
+        re.fullmatch(
+            r"(?:quiero\s+)?(?:cancelar|cancela|cancelame|cancelalo|anular|anula|anulalo|descartar|descarta)"
+            r"(?:\s+(?:todo|el\s+pedido|la\s+propuesta))?|"
+            r"deja(?:lo)?\s+sin\s+efecto",
+            normalizado,
+        )
+    )
+
+
+def es_solicitud_comercial(texto: str) -> bool:
+    """True si pide explícitamente condiciones comerciales especiales (Issue #84).
+
+    Evita palabras sueltas como «descuento» o «cuotas» para no forzar `derivar_o_cancelar`
+    en consultas de catálogo; esos casos ambiguos quedan a criterio del modelo. Una pregunta como «¿hacen
+    descuento si llevo 2 cajas?» también: derivarla silencia al bot 24 h por una consulta que se contesta.
+    """
+    normalizado = _normalizar(texto)
+    return bool(
+        re.search(
+            r"\bdescuento(?:s)?\s+(?:por\s+(?:volumen|bulto|cantidad|mayor)|especial)\b|"
+            r"\b(?:hacer(?:me)?|haceme|pedir)\s+(?:un\s+)?(?:\d+\s*%?\s*(?:de\s+)?)?descuento\b|"
+            r"\bprecio especial\b|\bcuenta corriente\b|\bpago diferido\b|"
+            r"\benvio al interior\b|\bflete especial\b|\btransporte al interior\b",
+            normalizado,
+        )
+    )

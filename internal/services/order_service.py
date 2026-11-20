@@ -172,6 +172,7 @@ def _to_order(record: OrderRecord) -> Order:
         source=record.source,
         notes=record.notes,
         total=record.total,
+        discount_percentage=record.discount_percentage,
         status=record.status,
         sheets_synced=record.sheets_synced,
         stock_applied=record.stock_applied,
@@ -314,6 +315,7 @@ def confirm_draft(draft: OrderDraft) -> Order:
             conversation_id=draft.conversation_id,
             notes=draft.notes,
             total=draft.total,
+            discount_percentage=draft.discount_percentage,
             source=draft.source,
             status=OrderStatus.RECEIVED.value,
             leftovers=[
