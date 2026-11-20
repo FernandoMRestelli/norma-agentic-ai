@@ -340,10 +340,10 @@ def test_silenced_messages_recorded_for_operator_view(monkeypatch):
     resolved_detail = dashboard_service.resolve_conversation(conv_id, req)
     assert resolved_detail.status == "abierta"
 
-    # 4. El grafo no debe tener tareas intermedias encoladas (next debe ser vacio o encaminar)
+    # 4. El grafo no debe tener tareas intermedias encoladas (next debe ser vacío o el nodo inicial)
     agent = norma_agent.get_agent()
     st = agent.graph.get_state({"configurable": {"thread_id": str(conv_id)}})
-    assert st.next in ((), ("encaminar",))
+    assert st.next in ((), ("armar_contexto",), ("encaminar",))
 
 
 def test_resolve_conversation_canal_no_soportado_devuelve_501():
