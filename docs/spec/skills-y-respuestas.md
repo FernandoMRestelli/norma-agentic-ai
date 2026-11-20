@@ -165,7 +165,6 @@ Hoy los cuatro están en `null`: el negocio no confirmó ninguno ([V-06](../vali
 | Situación | Qué hace el sistema |
 |---|---|
 | `search_products` todavía no trae `sugerencias` ni `aproximado` (sin el frente A) | BR-09 no aplica; la búsqueda se interpreta como en la 0.1.1 |
-| `respond_to_customer` todavía no acepta `notes` ni `note` (sin el frente C) | El agente no los manda; la observación queda en el mensaje |
 | El cliente pide «mandámelo el lunes» | No es una observación: el agente dice que eso no lo puede coordinar por este chat (BR-06 si hay propuesta) |
 | Un dato del negocio está en `null` | El agente dice que no tiene ese dato y ofrece tomar el pedido |
 | El cliente manda una lista de tres renglones o más | `una_pregunta` no aplica a esa respuesta |

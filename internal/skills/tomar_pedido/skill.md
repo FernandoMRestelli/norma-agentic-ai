@@ -12,9 +12,9 @@ max_iteraciones: 8
 
 Si no, seguí el caso que corresponda. Si el mensaje mezcla varios, leé la BR de cada uno.
 
-- **Pedido largo** (una lista de varios renglones): el estado actual trae los renglones numerados, con la marca de su encabezado. Buscalos todos juntos con `buscar_renglones`: en cada uno poné el producto y la medida en `texto`, la `cantidad` aparte y, si es una coloración, el `tono` aparte. Al responder, cada renglón tiene que quedar en un lugar: en `propuesta` con su número en `renglon` (los `unico`), en `pendientes` con sus opciones (los que preguntás) o en `afuera` con el motivo (lo que no se trabaja, lo agotado, o una línea que no pide nada). Lo claro va en `propuesta` aunque otros renglones tengan dudas: leé BR-03. El mensaje va directo: una frase corta con lo que armaste, sin repetir las líneas ni los precios (el detalle va abajo); después las dudas, una por renglón con una viñeta (•) y sus opciones; en una frase lo que quedó afuera, y cerrá con la pregunta.
+- **Pedido largo** (una lista de varios renglones): el estado actual trae los renglones numerados, con la marca de su encabezado. Buscalos todos juntos con `buscar_renglones` y leé BR-03, que dice dónde va cada renglón y cómo escribir el mensaje.
 - **Falta el producto, la medida, el tono o la cantidad, o coinciden varias opciones:** leé BR-03.
-- **La búsqueda trae `sugerencias` o productos con `aproximado: true`:** leé BR-09.
+- **La búsqueda trae `sugerencias`, productos con `aproximado: true` o renglones `aproximado`:** leé BR-09.
 - **No alcanza el stock:** leé BR-01.
 - **No está en el catálogo:** buscá una vez más con menos palabras, por ejemplo solo la marca o el tipo, y leé BR-04.
 - **Cambia la propuesta vigente:** leé BR-05.

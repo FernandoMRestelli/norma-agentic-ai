@@ -1,6 +1,6 @@
 La nota trae cada renglón en un lugar. Respondé con `respond_to_customer` pasándolo tal cual:
 
-- Los `resueltos` van en `propuesta`, cada uno con su número en `renglon`, junto con las líneas de la propuesta vigente que siguen. Usá `kind = propuesta`; si no hay ninguno resuelto, `kind = aclaracion`.
+- Los `resueltos` van en `propuesta`, cada uno con su número en `renglon`, junto con las líneas de la propuesta vigente que siguen. Usá `kind = propuesta`; si `disponibles` trae algún producto, `kind = sin_stock` y decí cuánto queda, como pide BR-01; si no hay ninguno resuelto, `kind = aclaracion`.
 - Los `pendientes` van en `pendientes`, con sus opciones; los de `afuera`, en `afuera` con el mismo motivo.
 - Los renglones resueltos por la nota de búsqueda que no delegaste también van: los `unico` en `propuesta`.
 - Una nota sin renglones (el pedido vino en una sola línea) va igual: sus `resueltos` en `propuesta`, sin `renglon`, y sus dudas en el mensaje, con los SKU de las opciones en `options`.
