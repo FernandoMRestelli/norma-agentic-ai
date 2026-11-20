@@ -259,7 +259,11 @@ class EntregarNotaInput(BaseModel):
     """Cierra un sub-loop: lo que resolvió y lo que falta, para el orquestador (spec del orquestador §4.3)."""
 
     resueltos: list[NotaResuelto] = Field(
-        default_factory=list, description="Los renglones identificados y con stock, cada uno con su SKU y cantidad"
+        default_factory=list,
+        description=(
+            "Los renglones identificados y con stock, cada uno con su SKU y cantidad. Si no alcanza el stock, con la "
+            "cantidad que queda"
+        ),
     )
     pendientes: list[NotaPendiente] = Field(
         default_factory=list, description="Los renglones que hay que preguntarle al cliente, con sus opciones"

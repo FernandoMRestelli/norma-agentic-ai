@@ -14,7 +14,7 @@ Si no, seguí el caso que corresponda. Si el mensaje mezcla varios, leé la BR d
 
 - **Pedido largo** (una lista de varios renglones): el estado actual trae los renglones numerados, con la marca de su encabezado. Buscalos todos juntos con `buscar_renglones` y leé BR-03, que dice dónde va cada renglón y cómo escribir el mensaje.
 - **Falta el producto, la medida, el tono o la cantidad, o coinciden varias opciones:** leé BR-03.
-- **La búsqueda trae `sugerencias` o productos con `aproximado: true`:** leé BR-09.
+- **La búsqueda trae `sugerencias`, productos con `aproximado: true` o renglones `aproximado`:** leé BR-09.
 - **No alcanza el stock:** leé BR-01.
 - **No está en el catálogo:** buscá una vez más con menos palabras, por ejemplo solo la marca o el tipo, y leé BR-04.
 - **Cambia la propuesta vigente:** leé BR-05.
