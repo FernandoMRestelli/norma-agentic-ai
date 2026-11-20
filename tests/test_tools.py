@@ -6,6 +6,7 @@ import pytest
 
 from internal.agent import tool_registry
 from internal.schemas.agent_schema import ToolFailure
+from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import Channel
 from internal.services import sheets_service, skill_service
 from internal.services.skill_service import SkillError, load_skills
@@ -385,6 +386,28 @@ def test_explorar_catalogo_categoria_inexistente_sugiere_la_parecida():
     res = catalog_tools.explorar_catalogo(category="champu")
     assert res["total_productos"] == 0
     assert "Shampoo" in res["_hint"]
+
+
+@pytest.mark.parametrize("escrito", ["L'Oréal", "l'oreal", "LOREAL", "  Loréal  "])
+def test_explorar_catalogo_ignora_tildes_y_signos(escrito):
+    """«L'Oréal», como lo nombra el system prompt, encuentra la marca cargada como LOREAL."""
+    assert catalog_tools._normalizar(escrito) == "loreal"
+
+
+def test_explorar_catalogo_encuentra_la_marca_escrita_con_apostrofo(monkeypatch):
+    loreal = Product(sku="LO-SH-1", name="Shampoo Loreal", brand="LOREAL", category="Shampoo", price=1, stock=3)
+    monkeypatch.setattr(sheets_service, "get_catalog", lambda: [loreal])
+    res = catalog_tools.explorar_catalogo(brand="L'Oréal")
+    assert res["tipo_consulta"] == "categorias_por_marca"
+    assert res["categorias"] == {"Shampoo": 1}
+
+
+def test_explorar_catalogo_marca_sin_esa_categoria_ofrece_otras_marcas():
+    """Elvive solo tiene shampoo: el hint dice qué tiene la marca y qué marcas tienen acondicionador."""
+    res = catalog_tools.explorar_catalogo(brand="elvive", category="acondicionador")
+    assert res["total_productos"] == 0
+    assert "De esa marca hay: Shampoo." in res["_hint"]
+    assert "Tienen esa categoría: Pantene, Sedal." in res["_hint"]
 
 
 def test_get_product_inexistente_explica_como_seguir():

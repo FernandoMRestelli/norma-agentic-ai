@@ -320,6 +320,11 @@ Devuelve un diccionario estructurado según los parámetros provistos:
 - Si se indican ambos (`brand` y `category`): muestra acotada de nombres y presentaciones de productos (`tipo_consulta: productos_por_marca_y_categoria`).
 - Si no se indican parámetros: listado general de categorías con su total de productos (`tipo_consulta: categorias_generales`).
 
+La marca y la categoría se comparan sin mayúsculas, tildes ni signos: «L'Oréal» encuentra la marca cargada como
+`LOREAL`. Sin resultados, `_hint` trae las marcas o categorías más parecidas. Si la marca existe pero no tiene esa
+categoría, dice qué categorías tiene la marca y hasta cinco marcas que sí tienen la categoría, para ofrecerle otra
+sin una vuelta más.
+
 
 #### `check_stock`
 
