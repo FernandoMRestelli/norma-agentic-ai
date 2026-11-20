@@ -22,6 +22,19 @@ def quitar_acuerdo(notes: str | None) -> str | None:
     return _ACUERDO_RE.sub("", notes).strip() or None
 
 
+class OrderNotesTooLongError(ValueError):
+    """La solicitud y el acuerdo no entran completos; nunca se recortan silenciosamente."""
+
+
+def _complete_notes(text: str) -> str:
+    if len(text) > MAX_ORDER_NOTES_LENGTH:
+        raise OrderNotesTooLongError(
+            f"Las observaciones y el acuerdo superan los {MAX_ORDER_NOTES_LENGTH} caracteres. "
+            "Resumilos conservando las condiciones importantes y volvé a intentar; no se guardó el cambio."
+        )
+    return text
+
+
 def merge_order_notes(existing_notes: str | None, order_notes: str | None) -> str | None:
     """Combina las notas del cliente con el acuerdo operativo confirmado sin duplicar al reintentar.
 
@@ -35,12 +48,12 @@ def merge_order_notes(existing_notes: str | None, order_notes: str | None) -> st
         return existing_notes
     segmento = f"Acuerdo confirmado: {acuerdo}"
     if not existing_notes or not existing_notes.strip():
-        return segmento[:MAX_ORDER_NOTES_LENGTH]
+        return _complete_notes(segmento)
     base = _ACUERDO_RE.sub("", existing_notes.strip()).strip()
     if not base:
-        return segmento[:MAX_ORDER_NOTES_LENGTH]
+        return _complete_notes(segmento)
     separador = " " if base.endswith((".", ";", "!", "?")) else ". "
-    return f"{base}{separador}{segmento}"[:MAX_ORDER_NOTES_LENGTH]
+    return _complete_notes(f"{base}{separador}{segmento}")
 
 
 def porcentaje_legible(porcentaje: float) -> str:

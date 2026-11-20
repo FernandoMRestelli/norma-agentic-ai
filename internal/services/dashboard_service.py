@@ -2,6 +2,7 @@
 
 import logging
 from collections import defaultdict
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal
@@ -518,7 +519,10 @@ def get_conversation_detail(conversation_id: int) -> ConversationDetailResponse:
 def _notas_con_acuerdo(notas: str | None, acuerdo: str | None) -> str | None:
     """Las notas del pedido con el acuerdo vigente: lo agrega o reemplaza y, si ya no hay acuerdo, lo saca."""
     if acuerdo:
-        return validation_service.merge_order_notes(notas, acuerdo)
+        try:
+            return validation_service.merge_order_notes(notas, acuerdo)
+        except validation_service.OrderNotesTooLongError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     return validation_service.quitar_acuerdo(notas)
 
 
@@ -532,6 +536,8 @@ def resolve_conversation(
     has_operator_notes = "operator_notes" in fields
     has_order_notes = "order_notes" in fields
     clean_order_notes = request.order_notes.strip() if request.order_notes and request.order_notes.strip() else None
+    if has_order_notes and clean_order_notes:
+        _notas_con_acuerdo(None, clean_order_notes)
 
     with SessionLocal() as session:
         conv = session.get(ConversationRecord, conversation_id)
@@ -601,46 +607,62 @@ def resolve_conversation(
         agent = get_agent()
         config = {"configurable": {"thread_id": str(conversation_id)}}
         update_data: dict[str, Any] = {}
-        if has_discount:
-            update_data["descuento_autorizado"] = request.discount_percentage
-        if has_order_notes:
-            update_data["acuerdo_operativo"] = clean_order_notes
+        update_data["descuento_autorizado"] = (
+            float(conv.discount_percentage) if conv.discount_percentage is not None else None
+        )
+        update_data["acuerdo_operativo"] = conv.order_notes
         if request.resolution_type:
             update_data["condicion_comercial"] = request.resolution_type
         if request.reactivate_bot:
             update_data["derivation_reason"] = None
         try:
-            if condiciones_cambiaron:
-                st = agent.graph.get_state(config)
-                if st and st.values.get("propuesta"):
-                    prop = dict(st.values["propuesta"])
-                    if has_discount:
-                        prop["discount_percentage"] = request.discount_percentage
-                    if has_order_notes:
-                        prop["notes"] = _notas_con_acuerdo(prop.get("notes"), clean_order_notes)
-                    update_data["propuesta"] = prop
-                    # Exigimos mostrar el resumen actualizado y nueva confirmación antes de crear la orden
+            st = agent.graph.get_state(config)
+            previous_values = deepcopy(st.values) if st else {}
+            if st and st.values.get("propuesta"):
+                prop = dict(st.values["propuesta"])
+                prop["discount_percentage"] = update_data["descuento_autorizado"]
+                prop["notes"] = _notas_con_acuerdo(prop.get("notes"), conv.order_notes)
+                update_data["propuesta"] = prop
+                # También repara una compensación fallida: la base vuelve a ser la fuente de condiciones.
+                if condiciones_cambiaron or prop != st.values["propuesta"]:
                     update_data["propuesta_pendiente_mostrar"] = True
+            previous_update = {key: previous_values.get(key) for key in update_data}
             if update_data:
                 agent.graph.update_state(config, update_data)
+        except HTTPException:
+            raise
         except Exception as exc:
             logger.exception("No se pudo actualizar el estado del agente para conversation_id=%s", conversation_id)
             raise HTTPException(
                 status_code=500, detail="No se guardó la resolución: falló el estado del agente. Probá de nuevo."
             ) from exc
 
-        # 4. Enviar mensaje al cliente (si falla, el rollback evita dejar la base cambiada)
-        if msg_text and chat_id is not None:
+        # La base y el checkpointer son transacciones distintas. Si Telegram o el commit fallan,
+        # revertimos las condiciones del agente además del rollback de la base, sin tocar los mensajes.
+        try:
+            if msg_text and chat_id is not None:
+                try:
+                    telegram_service.get_client().send_message(chat_id, msg_text)
+                except Exception as exc:
+                    logger.error("Error al enviar mensaje de operador a Telegram: %s", exc)
+                    raise HTTPException(
+                        status_code=502, detail=f"No se pudo enviar el mensaje a Telegram: {exc}"
+                    ) from exc
+            session.commit()
+        except Exception as exc:
+            session.rollback()
             try:
-                telegram_service.get_client().send_message(chat_id, msg_text)
-            except Exception as exc:
-                logger.error("Error al enviar mensaje de operador a Telegram: %s", exc)
+                agent.graph.update_state(config, previous_update)
+            except Exception as restore_error:
+                logger.exception("No se pudo restaurar el agente para conversation_id=%s", conversation_id)
                 raise HTTPException(
-                    status_code=502,
-                    detail=f"No se pudo enviar el mensaje a Telegram: {exc}",
-                ) from exc
-
-        session.commit()
+                    status_code=503,
+                    detail="La resolución no se completó y no se pudo restaurar el agente. Reintentá la resolución.",
+                ) from restore_error
+            if isinstance(exc, HTTPException):
+                raise
+            logger.exception("No se pudo guardar la resolución para conversation_id=%s", conversation_id)
+            raise HTTPException(status_code=500, detail="No se pudo guardar la resolución. Probá de nuevo.") from exc
 
         # 5. El mensaje del operador al historial, recién cuando salió: solo lo lee el dashboard y el agente
         if msg_text:

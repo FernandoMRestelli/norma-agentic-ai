@@ -8,6 +8,10 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Sin publicar]
 
+### Corregido
+
+- Resolver una derivación restaura las condiciones del agente si falla Telegram o el commit, además del rollback de la base. Las observaciones y acuerdos ya no se recortan silenciosamente: si no entran en 300 caracteres se pide resumir antes de guardarlos o enviarlos. Sin migraciones ni configuración nueva.
+
 ### Agregado
 
 - Derivaciones y descarte de pedidos (RF-26, RF-27, CA-21, CA-22, CA-23, Issue #84, Etapa 04):

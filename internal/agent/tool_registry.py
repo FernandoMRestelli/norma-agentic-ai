@@ -202,7 +202,10 @@ def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict
     if propuesta:
         # Lo que quedó afuera viaja con la propuesta: si el cliente la acepta, la orden lo guarda (RF-76).
         # También conservamos el descuento autorizado y el acuerdo operativo confirmado sin duplicarlo.
-        notas_combinadas = validation_service.merge_order_notes(propuesta.notes, ctx.acuerdo_operativo)
+        try:
+            notas_combinadas = validation_service.merge_order_notes(propuesta.notes, ctx.acuerdo_operativo)
+        except validation_service.OrderNotesTooLongError as exc:
+            raise ToolFailure("notas_demasiado_largas", str(exc)) from exc
         propuesta = propuesta.model_copy(
             update={
                 "leftovers": reply_tools.fuera_del_pedido(renglones),

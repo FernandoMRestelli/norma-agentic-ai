@@ -876,3 +876,232 @@ def test_sheet2_explica_el_descuento_del_total():
     fila = dict(zip(sheets_service.ORDER_COLUMNS, sheets_service.format_order_row(order), strict=True))
     assert fila["total"] == "875.00"
     assert fila["descuento"] == "12.5"
+
+
+def test_fallo_telegram_no_deja_descuento_en_agente(monkeypatch):
+    conv_id = _conversacion()
+    from internal.agent import norma_agent
+
+    agent = norma_agent.get_agent()
+    config = {"configurable": {"thread_id": str(conv_id)}}
+    agent.graph.update_state(config, {"descuento_autorizado": None, "acuerdo_operativo": None})
+
+    class TelegramCaido:
+        def send_message(self, chat_id, text):
+            raise telegram_service.TelegramError("Falla sintética")
+
+    monkeypatch.setattr(telegram_service, "get_client", lambda: TelegramCaido())
+    req = ConversationResolveRequest(
+        resolution_type="descuento_volumen",
+        discount_percentage=10,
+        order_notes="Retiro de 9 a 12",
+        message="Te paso las condiciones",
+        reactivate_bot=True,
+    )
+    with pytest.raises(HTTPException) as exc:
+        dashboard_service.resolve_conversation(conv_id, req)
+    assert exc.value.status_code == 502
+    with SessionLocal() as session:
+        conv = session.get_one(ConversationRecord, conv_id)
+        assert conv.status == "derivada"
+        assert conv.discount_percentage is None
+        assert conv.order_notes is None
+    # El reintento sin descuento debería conservar el estado anterior (sin autorización).
+    dashboard_service.resolve_conversation(
+        conv_id,
+        ConversationResolveRequest(
+            resolution_type="mensaje_directo",
+            reactivate_bot=True,
+        ),
+    )
+    with SessionLocal() as session:
+        conv = session.get_one(ConversationRecord, conv_id)
+        assert conv.status == "abierta"
+        assert conv.discount_percentage is None
+    estado = agent.graph.get_state(config).values
+    assert estado.get("descuento_autorizado") is None, "El rollback no revirtió el descuento del agente"
+    assert estado.get("acuerdo_operativo") is None
+
+
+@pytest.mark.parametrize("with_draft", [False, True])
+def test_notas_largas_rechazan_resolucion_sin_recortar_ni_enviar(monkeypatch, with_draft):
+    """Si el acuerdo no entra completo, 422 sin cambiar base/agente ni enviar mensaje."""
+    from internal.schemas.order_schema import MAX_ORDER_NOTES_LENGTH
+
+    conv_id = _conversacion()
+    enviados = _telegram(monkeypatch)
+    agent = norma_agent.get_agent()
+    config = {"configurable": {"thread_id": str(conv_id)}}
+    if with_draft:
+        notas = ("Pedido sin bolsa. " * 17)[: MAX_ORDER_NOTES_LENGTH - 1]
+        prop = OrderDraft(
+            draft_id="d-notas-largas",
+            customer_id="telegram:424242",
+            channel=Channel.TELEGRAM,
+            items=[OrderItem(sku="SKU-1", product_name="Producto sintético", quantity=1, unit_price=Decimal("100"))],
+            notes=notas,
+        )
+        agent.graph.update_state(config, {"propuesta": prop.model_dump(mode="json")})
+        from internal.services import order_service
+
+        order_service.record_draft(prop.model_copy(update={"conversation_id": conv_id}))
+        acuerdo = "Retirar de 9 a 12"
+    else:
+        acuerdo = "x" * MAX_ORDER_NOTES_LENGTH
+    previo = agent.graph.get_state(config).values
+    req = ConversationResolveRequest(
+        resolution_type="envio_especial", order_notes=acuerdo, message="Solicitud sintética", discount_percentage=10
+    )
+    with pytest.raises(HTTPException) as exc:
+        dashboard_service.resolve_conversation(conv_id, req)
+    assert exc.value.status_code == 422
+    assert enviados == []
+    assert agent.graph.get_state(config).values == previo
+    with SessionLocal() as session:
+        conv = session.get_one(ConversationRecord, conv_id)
+        assert conv.status == "derivada"
+        assert conv.order_notes is None
+        assert conv.discount_percentage is None
+
+
+def test_notas_limite_exacto_se_conservan_completas():
+    from internal.schemas.order_schema import MAX_ORDER_NOTES_LENGTH
+
+    acuerdo = "Retirar de 9 a 12"
+    sufijo = f". Acuerdo confirmado: {acuerdo}"
+    base = "x" * (MAX_ORDER_NOTES_LENGTH - len(sufijo))
+    combinado = validation_service.merge_order_notes(base, acuerdo)
+    assert combinado == base + sufijo
+    assert len(combinado) == MAX_ORDER_NOTES_LENGTH
+    with pytest.raises(validation_service.OrderNotesTooLongError):
+        validation_service.merge_order_notes(base + "x", acuerdo)
+
+
+def test_fallo_commit_restaura_condiciones_del_agente(monkeypatch):
+    """Un error al confirmar la base tampoco deja autorizaciones nuevas en el checkpointer."""
+    from sqlalchemy.orm import Session
+
+    conv_id = _conversacion()
+    agent = norma_agent.get_agent()
+    config = {"configurable": {"thread_id": str(conv_id)}}
+    agent.graph.update_state(config, {"descuento_autorizado": 5, "acuerdo_operativo": "Retiro previo"})
+    previo = agent.graph.get_state(config).values
+
+    def fallar_commit(self):
+        raise RuntimeError("Falla sintética de commit")
+
+    monkeypatch.setattr(Session, "commit", fallar_commit)
+    req = ConversationResolveRequest(
+        resolution_type="condicion_pago", discount_percentage=10, order_notes="Retiro nuevo", reactivate_bot=True
+    )
+    with pytest.raises(HTTPException) as exc:
+        dashboard_service.resolve_conversation(conv_id, req)
+    assert exc.value.status_code == 500
+    actual = agent.graph.get_state(config).values
+    for key in ("descuento_autorizado", "acuerdo_operativo", "derivation_reason", "condicion_comercial"):
+        assert actual.get(key) == previo.get(key)
+    with SessionLocal() as session:
+        assert session.get_one(ConversationRecord, conv_id).status == "derivada"
+    monkeypatch.undo()
+
+
+def test_tool_devuelve_error_corregible_si_no_entran_las_notas(monkeypatch):
+    """El modelo puede corregir las notas; nunca recibe un falso enviado ni una propuesta recortada."""
+    from internal.agent import tool_registry
+    from internal.schemas.catalog_schema import Product
+    from internal.services import sheets_service
+
+    monkeypatch.setattr(
+        sheets_service,
+        "get_catalog",
+        lambda: [Product(sku="SKU-SINT", name="Producto sintético", price=Decimal("100"), stock=10)],
+    )
+    ctx = tool_registry.TurnContext(
+        customer_id="cliente-sintetico",
+        channel=Channel.TELEGRAM,
+        disponibles=["respond_to_customer"],
+        acuerdo_operativo="Retiro de 9 a 12",
+    )
+    result = tool_registry.execute(
+        "respond_to_customer",
+        {
+            "kind": "propuesta",
+            "message": "¿Lo confirmás?",
+            "propuesta": [{"sku": "SKU-SINT", "quantity": 1}],
+            "notes": "x" * 299,
+        },
+        ctx,
+    )
+    assert result["ok"] is False
+    assert result["error"]["code"] == "notas_demasiado_largas"
+    assert ctx.propuesta is None
+    assert ctx.respuesta is None
+
+
+def test_si_falla_compensacion_no_informa_resolucion_exitosa(monkeypatch):
+    """Un checkpointer caído durante la restauración deja un 503 explícito y la base sin resolver."""
+    from types import SimpleNamespace
+
+    conv_id = _conversacion()
+
+    class Grafo:
+        intentos = 0
+
+        def get_state(self, config):
+            return SimpleNamespace(values={})
+
+        def update_state(self, config, values):
+            self.intentos += 1
+            if self.intentos > 1:
+                raise RuntimeError("Checkpointer sintético caído")
+
+    class TelegramCaido:
+        def send_message(self, chat_id, text):
+            raise telegram_service.TelegramError("Falla sintética")
+
+    monkeypatch.setattr(dashboard_service, "get_agent", lambda: SimpleNamespace(graph=Grafo()))
+    monkeypatch.setattr(telegram_service, "get_client", lambda: TelegramCaido())
+    req = ConversationResolveRequest(resolution_type="mensaje_directo", message="Hola", discount_percentage=10)
+    with pytest.raises(HTTPException) as exc:
+        dashboard_service.resolve_conversation(conv_id, req)
+    assert exc.value.status_code == 503
+    with SessionLocal() as session:
+        conv = session.get_one(ConversationRecord, conv_id)
+        assert conv.status == "derivada"
+        assert conv.discount_percentage is None
+
+
+def test_reintento_repara_propuesta_residual_desde_base(monkeypatch):
+    """Si una compensación anterior falló, el reintento sin campos no conserva un descuento residual."""
+    conv_id = _conversacion()
+    agent = norma_agent.get_agent()
+    config = {"configurable": {"thread_id": str(conv_id)}}
+    prop = OrderDraft(
+        draft_id="d-residual",
+        customer_id="telegram:424242",
+        channel=Channel.TELEGRAM,
+        items=[OrderItem(sku="SKU-SINT", product_name="Producto sintético", quantity=1, unit_price=Decimal("100"))],
+        discount_percentage=10,
+        notes="Sin bolsa. Acuerdo confirmado: retirar mañana",
+    )
+    agent.graph.update_state(
+        config,
+        {
+            "propuesta": prop.model_dump(mode="json"),
+            "descuento_autorizado": 10,
+            "acuerdo_operativo": "retirar mañana",
+        },
+    )
+    dashboard_service.resolve_conversation(
+        conv_id,
+        ConversationResolveRequest(
+            resolution_type="mensaje_directo",
+            reactivate_bot=True,
+        ),
+    )
+    estado = agent.graph.get_state(config).values
+    assert estado["descuento_autorizado"] is None
+    assert estado["acuerdo_operativo"] is None
+    assert estado["propuesta"]["discount_percentage"] is None
+    assert estado["propuesta"]["notes"] == "Sin bolsa."
+    assert estado["propuesta_pendiente_mostrar"] is True

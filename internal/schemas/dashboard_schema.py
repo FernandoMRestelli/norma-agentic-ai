@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from internal.schemas.order_schema import OrderStatus
+from internal.schemas.order_schema import MAX_ORDER_NOTES_LENGTH, OrderStatus
 
 
 class DashboardSummary(BaseModel):
@@ -98,6 +98,7 @@ class ConversationResolveRequest(BaseModel):
     )
     order_notes: str | None = Field(
         default=None,
+        max_length=MAX_ORDER_NOTES_LENGTH,
         description="Acuerdos operativos confirmados para el pedido (visibles en la propuesta, orden y planilla)",
     )
     operator_notes: str | None = Field(
