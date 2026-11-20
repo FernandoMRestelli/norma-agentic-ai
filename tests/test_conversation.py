@@ -487,5 +487,3 @@ def test_derivada_a_humano_silencia_al_bot_durante_24h(clean_db, monkeypatch):
     assert id2 != id1
     with SessionLocal() as session:
         assert session.get(ConversationRecord, id2).status == "abierta"
-
-

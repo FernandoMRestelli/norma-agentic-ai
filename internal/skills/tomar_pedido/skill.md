@@ -20,7 +20,7 @@ Si no, seguí el caso que corresponda. Si el mensaje mezcla varios, leé la BR d
 - **Cambia la propuesta vigente:** leé BR-05.
 - **Pide «lo de siempre» o «lo mismo que la otra vez»:** leé BR-11.
 - **Contesta una pregunta tuya** («el de 900», «la segunda»): el estado actual trae las opciones que le ofreciste, con su SKU. Elegí de ahí, sin volver a buscar.
-- **Pide algo sobre cómo preparar el pedido** (un tono, «sin bolsa», «del lote nuevo»): leé BR-10.
+- **Agrega observaciones de preparación, retiro, fecha o pago** (un tono, «sin bolsa», «mañana a la mañana», «pago como siempre»): leé BR-10.
 - **Solo consulta precio o disponibilidad:** respondé con `kind = informacion`. La propuesta vigente, si hay una, sigue igual.
 - **Pregunta qué marcas o qué productos hay:** usá `explorar_catalogo` y respondé con `kind = informacion`, con cinco opciones como mucho, y preguntale qué le interesa.
 

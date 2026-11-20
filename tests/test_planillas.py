@@ -791,3 +791,15 @@ def test_lineas_en_sheet2_si_hay_hoja_configurada(google, orders_csv, monkeypatc
     hoja = google.hojas[f"{ORDERS_ID}/Lineas"]
     assert hoja[0] == sheets_service.LINE_COLUMNS and len(hoja) == 2
     assert hoja[1][:3] == [order.order_id, "1", "PL-SH-900"]
+
+
+def test_observaciones_del_cliente_en_columna_notas_de_sheet2(google, orders_csv):
+    """Observaciones: Sheet 2 recibe las solicitudes de retiro/pago literalmente como notas, una sola vez."""
+    notas = "Cliente solicita retiro mañana a la mañana; indica que paga como siempre. Sujeto a validación del negocio"
+    pedido = orden(notes=notas)
+    sheets_service.append_order(pedido)
+    sheets_service.append_order(pedido)
+    filas = google.pedidos()
+    assert len(filas) == 2
+    assert filas[1][filas[0].index("notas")] == notas
+    assert filas_csv(orders_csv)[1][filas[0].index("notas")] == notas

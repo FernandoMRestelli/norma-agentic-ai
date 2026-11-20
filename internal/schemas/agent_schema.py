@@ -170,7 +170,9 @@ class RespondToCustomerInput(BaseModel):
         default=None,
         max_length=MAX_ORDER_NOTES_LENGTH,
         description=(
-            "Observación general del pedido que dio el cliente, solo con `propuesta`. Por ejemplo: retira el sábado"
+            "Observaciones completas del cliente, solo con `propuesta`, incluidas solicitudes de retiro y pago. "
+            "No implican aceptación del negocio. Omitir conserva las notas vigentes; null o texto vacío las borra. "
+            "Al actualizar, incluir también las notas anteriores que sigan vigentes."
         ),
     )
 
