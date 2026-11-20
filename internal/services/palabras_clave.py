@@ -97,12 +97,19 @@ def es_pedido_humano(texto: str) -> bool:
 
 
 def es_cancelacion(texto: str) -> bool:
-    """True si el texto pide cancelar o descartar la propuesta o el pedido (RF-26)."""
+    """True si el mensaje completo pide cancelar o descartar la propuesta o el pedido (RF-26).
+
+    Exige coincidencia del mensaje completo para no forzar `derivar_o_cancelar` ante ediciones parciales
+    como «cancelá los vasos y sumá 2 platos» o «no, cancelá el rojo».
+    """
     normalizado = _normalizar(texto)
+    if normalizado in CANCELACIONES:
+        return True
     return bool(
-        re.search(
-            r"\b(?:cancelar|cancela|cancelame|cancelalo|anular|anula|anulalo|descartar|descarta)\b|"
-            r"\bdeja(?:lo)? sin efecto\b",
+        re.fullmatch(
+            r"(?:quiero\s+)?(?:cancelar|cancela|cancelame|cancelalo|anular|anula|anulalo|descartar|descarta)"
+            r"(?:\s+(?:todo|el\s+pedido|la\s+propuesta))?|"
+            r"deja(?:lo)?\s+sin\s+efecto",
             normalizado,
         )
     )
