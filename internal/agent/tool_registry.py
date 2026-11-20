@@ -171,7 +171,7 @@ def _check_stock(data: CheckStockInput, _: TurnContext) -> dict[str, Any]:
 
 
 def _leer_skill(data: LeerSkillInput, ctx: TurnContext) -> dict[str, Any]:
-    skill = skill_tools.leer_skill(data.nombre, ctx.orquestador)
+    skill = skill_tools.leer_skill(data.nombre, ctx.orquestador, hay_propuesta=ctx.propuesta is not None)
     if data.nombre not in ctx.skills_activas:
         ctx.skills_activas.append(data.nombre)
     return skill
@@ -239,7 +239,8 @@ def _delegar_skill(data: DelegarSkillInput, ctx: TurnContext) -> dict[str, Any]:
     """Corre el sub-loop de la skill y devuelve su nota validada, sin los intentos (§4.2, RF-89 a RF-91)."""
     skill = get_skills().get(data.skill)
     if skill is None:
-        raise ToolFailure("skill_inexistente", f"No existe la skill {data.skill!r}: elegí una del índice")
+        delegables = ", ".join(s.nombre for s in get_skills().values() if s.modo == "sub_loop") or "ninguna"
+        raise ToolFailure("skill_inexistente", f"No existe la skill {data.skill!r}. Las que se delegan: {delegables}")
     if skill.modo != "sub_loop":
         raise ToolFailure(
             "skill_no_delegable",
@@ -458,6 +459,22 @@ _ERROR_INTERNO = (
 )
 
 
+def _tool_no_permitida(name: str, ctx: TurnContext) -> str:
+    """Qué skill habilita la tool, para que el LLM lea esa y no adivine (los sub-loops arman su propio error)."""
+    if name not in TOOLS:
+        return f"No existe la tool {name!r}: usá solo las que tenés"
+    skills = [skill for skill in get_skills().values() if name in skill.tools_inline]
+    leibles = [skill.nombre for skill in skills if ctx.propuesta or not skill.requiere_propuesta]
+    if leibles:
+        return (
+            f"La tool {name!r} la habilita la skill {' o '.join(leibles)}: si es la que corresponde a este caso, "
+            "leela con leer_skill y volvé a llamarla en la próxima iteración"
+        )
+    if skills:
+        return f"La tool {name!r} solo se usa con una propuesta vigente, y no hay ninguna: no hay nada que registrar"
+    return f"La tool {name!r} no está disponible en este turno: usá las que tenés"
+
+
 def _failure(code: str, message: str, **details: Any) -> dict[str, Any]:
     return {"ok": False, "error": {"code": code, "message": message, "details": details}}
 
@@ -520,9 +537,7 @@ def execute(name: str, arguments: dict[str, Any], ctx: TurnContext) -> dict[str,
 def _run(name: str, arguments: dict[str, Any], ctx: TurnContext) -> dict[str, Any]:
     """Ejecuta una tool y devuelve el sobre común. Un error vuelve al LLM para que lo corrija."""
     if name not in ctx.disponibles or name not in TOOLS:
-        return _failure(
-            "tool_no_permitida", f"La tool {name!r} no está disponible: leé con leer_skill la skill que la permite"
-        )
+        return _failure("tool_no_permitida", _tool_no_permitida(name, ctx))
     spec = TOOLS[name]
     try:
         data = spec.input_model.model_validate(arguments)

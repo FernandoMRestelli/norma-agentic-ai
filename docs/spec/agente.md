@@ -274,12 +274,13 @@ Entrada `nombre: str`. Busca en el índice de skills cargado al arrancar. Salida
 tools, br}`, donde `br` es la lista de `{id, titulo}`: el título sale del encabezado de cada BR
 («# BR-01: Falta de stock»), así el agente elige cuál leer sin leerlas todas. Una BR sin ese encabezado impide
 arrancar. Desde la iteración siguiente, las tools de esa skill quedan disponibles y sus BR se pueden leer.
-Errores: `skill_inexistente`.
+Errores: `skill_inexistente`, que lista las skills del índice (sin propuesta vigente, no las que la necesitan).
 
 #### `leer_br`
 
 Entrada `id: str`. Inyectado: `skills_activas`. Busca en el índice de BR cargado al arrancar. Salida `data`:
-`{id, texto}`. Errores: `br_inexistente`, `br_no_permitida` (ninguna skill leída en este turno la permite).
+`{id, texto}`. Errores: `br_inexistente`, que lista las BR de las skills leídas con su título, y `br_no_permitida`
+(ninguna skill leída en este turno la permite), que nombra la skill de esa BR.
 
 Ninguna de las dos arma una ruta de archivo con lo que manda el LLM: el nombre o el ID solo se comparan contra el
 índice. Así, un mensaje malicioso no puede hacer que el agente lea otro archivo del sistema, como `.env`.
@@ -390,6 +391,8 @@ LangChain traduce esos esquemas al formato del proveedor elegido (D-01).
 
 Antes de cada iteración, el registro calcula las tools disponibles: las **tools de base** más las que permiten las
 skills activas. Al LLM solo se le ofrecen esas, y si pide otra recibe el error `tool_no_permitida` sin ejecutarla.
+El mensaje nombra la skill que la habilita, para que lea esa y no adivine. Sin propuesta vigente no sugiere las
+skills que la necesitan: `armar_pedido` responde que no hay nada que registrar.
 
 ### 4.5 Skills
 

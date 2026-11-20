@@ -198,6 +198,51 @@ def test_tool_no_disponible_no_se_ejecuta():
     assert result["error"]["code"] == "tool_no_permitida"
 
 
+def _error(name, arguments, **contexto):
+    ctx = tool_registry.TurnContext(customer_id="c", channel=Channel.WEB, **contexto)
+    return tool_registry.execute(name, arguments, ctx)["error"]
+
+
+def test_tool_no_permitida_nombra_la_skill_que_la_habilita():
+    """El LLM lee la skill que corresponde en vez de adivinar; sin propuesta, no le sugiere confirmar_pedido."""
+    error = _error("respond_to_customer", {}, disponibles=list(tool_registry.BASE_TOOLS))
+    assert error["code"] == "tool_no_permitida"
+    assert "informar" in error["message"]
+    assert "tomar_pedido" in error["message"]
+    assert "confirmar_pedido" not in error["message"]
+
+
+def test_armar_pedido_sin_propuesta_dice_que_no_hay_nada_que_registrar():
+    error = _error("armar_pedido", {}, disponibles=list(tool_registry.BASE_TOOLS))
+    assert error["code"] == "tool_no_permitida"
+    assert "propuesta vigente" in error["message"]
+    assert "leer_skill" not in error["message"]
+
+
+def test_tool_inexistente_no_sugiere_leer_una_skill():
+    error = _error("borrar_todo", {}, disponibles=list(tool_registry.BASE_TOOLS))
+    assert error["message"] == "No existe la tool 'borrar_todo': usá solo las que tenés"
+
+
+def test_skill_inexistente_lista_las_del_indice():
+    error = _error("leer_skill", {"nombre": "vender"}, disponibles=list(tool_registry.BASE_TOOLS))
+    assert error["code"] == "skill_inexistente"
+    assert "informar" in error["message"]
+    assert "tomar_pedido" in error["message"]
+    assert "confirmar_pedido" not in error["message"]  # sin propuesta, el índice no la muestra
+
+
+def test_errores_de_br_dicen_cual_leer():
+    no_permitida = _error("leer_br", {"id": "BR-01"}, disponibles=list(tool_registry.BASE_TOOLS))
+    assert no_permitida["code"] == "br_no_permitida"
+    assert "tomar_pedido" in no_permitida["message"]
+    inexistente = _error(
+        "leer_br", {"id": "BR-99"}, disponibles=list(tool_registry.BASE_TOOLS), skills_activas=["tomar_pedido"]
+    )
+    assert inexistente["code"] == "br_inexistente"
+    assert "BR-01 (Falta de stock)" in inexistente["message"]
+
+
 def test_argumentos_invalidos_vuelven_al_llm():
     ctx = tool_registry.TurnContext(customer_id="c", channel=Channel.WEB, disponibles=["check_stock"])
     result = tool_registry.execute("check_stock", {"sku": "SH-PAN-400", "quantity": 0}, ctx)
