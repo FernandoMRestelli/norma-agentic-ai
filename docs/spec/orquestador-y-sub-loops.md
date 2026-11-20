@@ -506,6 +506,19 @@ Los pasos 2 a 4 están hechos y probados con el modelo guionado (CA-144 a CA-161
 - **Precisión de la precarga:** contra los 11 casos de `data_example/pedidos_evaluacion.json`, separó 98 de 103
   renglones y los 87 que salieron `unico` coinciden en SKU y cantidad con lo esperado. La coloración en `tono/cantidad`
   queda para el LLM.
+- **Lo que mostraron las primeras pruebas con el bot** (con un modelo gratuito de OpenRouter, sin medir todavía):
+  - La precarga no separaba las listas con viñeta («- 6 shampoo»): ahora `separar_renglon` saca la viñeta o el
+    número de orden antes de leer la cantidad.
+  - El sub-loop volvía a buscar con el mismo texto lo que ya traía la precarga, y buscaba también los renglones que
+    no se le delegaron, porque arrancaba con el mensaje del cliente entero. Ahora arranca con su trabajo («resolvé
+    solo los renglones 2, 3…») y el mensaje va como contexto. Además, su `buscar_renglones` devuelve el resultado
+    anterior con `ya_buscado: true` en lugar de repetir una búsqueda igual, y no busca fuera del encargo.
+  - La nota dejaba en `afuera` como `sin_stock` un renglón del que quedaban unidades. La validación lo rechaza con
+    `stock_parcial`: va en `pendientes`, para ofrecerle lo que hay (BR-01).
+  - El orquestador copiaba en el mensaje los SKU de las opciones de una duda. Cada pendiente de la nota trae ahora
+    `nombres` al lado de `opciones`, y `respuesta.md` dice qué campo va al cliente.
+  - La traza cuenta lo que buscó la precarga y lo que resolvió cada sub-loop; con `MLFLOW_TRACE_TEXT` suma el
+    encargo, la nota y las búsquedas.
 - **Riesgo a medir:** las BR de `tomar_pedido` están escritas para quien responde («respondé con `kind = aclaracion`»).
   El sub-loop las recibe igual y `sub_loop.md` le dice dónde va cada caso en la nota. Si la evaluación muestra que el
   sub-loop se confunde, conviene separar en cada BR qué decide y cómo se responde.
