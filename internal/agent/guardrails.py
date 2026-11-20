@@ -75,6 +75,8 @@ def _recorrer(valor: Any, turno: ContextoTurno) -> None:
             turno.skus.add(sku)
             if valor.get("is_enough") is False and isinstance(valor.get("available"), int):
                 turno.faltantes[sku] = valor["available"]  # check_stock
+            if valor.get("alcanza") is False and isinstance(valor.get("disponible"), int):
+                turno.faltantes[sku] = valor["disponible"]  # search_products con quantity
             if {"requested", "available"} <= valor.keys() and valor["requested"] > valor["available"]:
                 turno.faltantes[sku] = valor["available"]  # lineas de stock_insuficiente
         if (precio := _decimal(valor.get("price"))) is not None:

@@ -4,11 +4,11 @@ import re
 
 import pytest
 
-from internal.agent import tool_registry
+from internal.agent import sub_loop, tool_registry
 from internal.schemas.agent_schema import ToolFailure
 from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import Channel
-from internal.services import sheets_service, skill_service
+from internal.services import inventory_service, sheets_service, skill_service
 from internal.services.skill_service import SkillError, load_skills
 from internal.tools import catalog_tools, inventory_tools, order_tools, skill_tools
 
@@ -490,6 +490,22 @@ def test_pedidos_anteriores_vacio_lleva_a_br_11(monkeypatch):
     data = tool_registry.execute("pedidos_anteriores", {}, _contexto())["data"]
     assert data == {"pedidos": [], "_hint": "Este cliente no tiene pedidos anteriores por este chat: seguí BR-11."}
 
+
+
+def test_pedidos_anteriores_lee_el_catalogo_una_sola_vez(monkeypatch):
+    lineas = [{"sku": "SH-PAN-400", "name": "Shampoo", "cantidad": 1}] * 5
+    monkeypatch.setattr(order_tools, "pedidos_anteriores", lambda *_: [{"fecha": "2026-10-01", "lineas": lineas}] * 3)
+    lecturas = []
+    original = inventory_service.get_catalog
+    monkeypatch.setattr(inventory_service, "get_catalog", lambda *a, **k: lecturas.append(1) or original(*a, **k))
+    tool_registry.execute("pedidos_anteriores", {}, _contexto("tomar_pedido"))
+    assert len(lecturas) == 1
+
+
+def test_el_prompt_del_sub_loop_trae_el_titulo_de_cada_br():
+    skill = skill_service.get_skills()["tomar_pedido"]
+    prompt = sub_loop.construir_prompt(skill, "Resolvé el pedido", [], [], None, "", [])
+    assert "BR-01 (Falta de stock)" in prompt
 
 def test_explorar_catalogo_avisa_cuando_recorta_la_muestra():
     res = catalog_tools.explorar_catalogo(brand="pantene", category="shampoo", limit=1)

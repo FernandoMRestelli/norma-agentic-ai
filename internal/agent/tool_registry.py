@@ -28,7 +28,7 @@ from internal.schemas.agent_schema import (
 )
 from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import Channel, OrderDraft
-from internal.services import order_service, validation_service
+from internal.services import inventory_service, order_service, validation_service
 from internal.services.skill_service import TOOL_RESPUESTA, Skill, SkillError, get_skills
 from internal.tools import catalog_tools, inventory_tools, order_tools, reply_tools, skill_tools
 
@@ -119,9 +119,10 @@ def _pedidos_anteriores(data: PedidosAnterioresInput, ctx: TurnContext) -> dict[
     if not pedidos:
         return {"pedidos": [], "_hint": "Este cliente no tiene pedidos anteriores por este chat: seguí BR-11."}
     fuera = False
+    catalogo = {product.sku: product for product in inventory_service.get_catalog()}  # una lectura para todas
     for linea in (linea for pedido in pedidos for linea in pedido["lineas"]):
         # El catálogo cambia: lo que compró hace un mes puede no estar o estar agotado hoy
-        product = catalog_tools.get_product(linea["sku"])
+        product = catalogo.get(linea["sku"])
         linea["en_catalogo"] = product is not None
         if product is not None:
             linea["hay_stock"] = product.stock > 0
