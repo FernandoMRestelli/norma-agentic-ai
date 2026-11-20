@@ -177,3 +177,38 @@ Dentro del turno:
 
 1. `feature/guardrails-del-agente`: esta spec, `guardrails.py`, los enganches en `tool_registry`, `graph`,
    `context` y `conversation_service`, y `tests/test_guardrails.py`.
+
+## 10. Filtro de tema antes del modelo
+
+El servicio compartido de conversación aplica `topic_filter.is_off_topic` después de los topes de entrada
+y antes de abrir una conversación o llamar a `get_agent`. No consulta catálogo, base ni un clasificador LLM.
+Para intenciones conocidas sin señales de negocio devuelve exactamente:
+
+> Por acá te ayudo con productos y pedidos de Norma. ¿Qué necesitás?
+
+Cubre solicitudes de chistes, cuentos, poemas, horóscopos, capitales, código, resultados de Boca/River,
+elecciones, medicamentos, instrucciones internas y algunos cambios de rol. Normaliza mayúsculas, tildes
+y espacios. No registra el texto del cliente en logs. Un bloqueo no consume tokens ni cambia o cierra
+una propuesta vigente. Los topes de frecuencia siguen contando estos mensajes.
+
+Es un filtro conservador de expresiones, no una garantía de clasificación semántica. Reformulaciones
+no previstas pasan al agente. Señales de productos o negocio dejan pasar el mensaje completo: no se
+eliminan fragmentos que podrían ser observaciones legítimas. El prompt exige omitir la parte ajena
+en mensajes mixtos; esta última conducta requiere evaluación con el modelo real. No se promete cero
+tokens para mensajes mixtos, ni bloqueo exhaustivo de temas ajenos.
+
+Criterios locales de esta sección (sin reservar IDs globales):
+
+| Caso | Resultado | Prueba |
+|---|---|---|
+| Chiste, capital o código, y otras intenciones conocidas | Respuesta fija, cero invocaciones del agente ni apertura de conversación | `test_desvios_no_invocan_agente` |
+| Saludo, confirmación, corrección, marca desconocida, consulta del negocio o mensaje mixto | Llega sin cambios al agente | `test_mensajes_validos_llegan_al_agente` |
+| Pedido vigente, desvío y luego confirmación | Mismo hilo y propuesta; el desvío no registra órdenes | `test_desvio_conserva_conversacion` |
+
+Casos observados en la prueba manual: «Contame un chiste», «Cuál es la capital de Francia?» y
+«Escribime un codigo en Python». Antes el modelo los contestaba y luego ofrecía un pedido;
+ahora estas expresiones reciben el mensaje fijo antes de invocar al modelo.
+
+El filtro tampoco actualiza la última actividad de la conversación: un desvío no renueva la vigencia
+de una propuesta. Tras superar el plazo configurado, la confirmación siguiente conserva el control
+de vencimiento de RF-28 (`test_desvio_no_renueva_propuesta_vencida`).
