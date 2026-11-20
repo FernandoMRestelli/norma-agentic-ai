@@ -4,7 +4,7 @@ funcion: Responde lo que no es un pedido, como saludos, agradecimientos, horario
 cuando: Saludo, agradecimiento, consulta general, «dale» sin propuesta vigente o algo que no es un pedido. Si pregunta por un producto o un precio, usá `tomar_pedido`
 tools: [respond_to_customer]
 ---
-Respondé con `kind = informacion`, salvo que haya una propuesta vigente: en ese caso usá `kind = propuesta` y las mismas líneas, para que siga vigente. Después de contestar, ofrecele tomar un pedido o seguir con el que tiene armado.
+Respondé con `kind = informacion`. Si hay una propuesta vigente, sigue igual: no hace falta volver a mandarla. Después de contestar, ofrecele tomar un pedido o seguir con el que tiene armado.
 
 - **Saludo:** devolvé el saludo y preguntale qué necesita.
 - **Acepta sin propuesta vigente:** decile que todavía no tenés nada armado y preguntale qué quiere pedir.

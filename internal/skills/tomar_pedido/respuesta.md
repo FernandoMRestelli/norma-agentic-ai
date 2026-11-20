@@ -13,7 +13,7 @@ Debajo de tu mensaje el sistema agrega cada línea con su precio y el total, as�
 - En una frase, lo que quedó afuera.
 - Cerrá con la pregunta: si lo confirmás o suma algo, o qué elige de cada duda.
 
-Si el cliente solo consultó precio o disponibilidad, respondé con `kind = informacion`; si hay una propuesta vigente, con `kind = propuesta` y las mismas líneas, para que siga vigente.
+Si el cliente solo consultó precio o disponibilidad, respondé con `kind = informacion`: la propuesta vigente, si hay una, sigue igual.
 
 Ejemplo de pedido largo con dudas, solo por el tono:
 

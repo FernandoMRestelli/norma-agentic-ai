@@ -85,6 +85,22 @@ def _registrar_intento(state: EstadoNorma, config: RunnableConfig) -> None:
         pass
 
 
+# Después de estas respuestas, lo último que el cliente leyó es la propuesta: «dale» solo puede aceptarla
+KINDS_QUE_CIERRAN = ("propuesta", "sin_stock")
+
+
+def pregunta_abierta(state: EstadoNorma) -> bool:
+    """El mensaje anterior del bot preguntó algo más que «¿lo confirmo?»: un «sí» puede contestar eso (RF-99).
+
+    Con opciones ofrecidas (también las de los renglones pendientes) o después de una aclaración, una consulta o un
+    error, decide el LLM. Un checkpoint de antes de este cambio no trae `kind_anterior`: ahí solo cuentan las opciones.
+    """
+    if state.get("opciones_previas"):
+        return True
+    kind = state.get("kind_anterior")
+    return kind is not None and kind not in KINDS_QUE_CIERRAN
+
+
 def skill_clara(texto: str, hay_propuesta: bool) -> str | None:
     """La skill del turno cuando el mensaje no admite dudas; None si tiene que elegir el modelo (RF-62)."""
     tiene_numero = any(caracter.isdigit() for caracter in texto)
@@ -302,7 +318,8 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             logger.warning("Agente: el LLM no devolvió texto ni tools")
             return {**_failure(state), "iteraciones": iterations}
         logger.warning("Agente: el LLM respondió sin una tool terminal")
-        # El texto suelto es un respond_to_customer(kind="informacion") sin propuesta: pasa por el mismo validador
+        # El texto suelto es un respond_to_customer(kind="informacion") sin propuesta: pasa por el mismo validador y,
+        # como ese, deja la vigente como estaba (RF-98)
         turno = _contexto_validacion(state)
         vigente = OrderDraft.model_validate(state["propuesta"]) if state.get("propuesta") else None
         rechazos = guardrails.validar_salida(text, "informacion", turno=turno, vigente=vigente)
@@ -323,15 +340,8 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
                 "iteraciones": iterations,
                 "respuesta": text,
                 "kind": "informacion",
-                "propuesta": None,
             }
-        return {
-            "messages": [message],
-            "iteraciones": iterations,
-            "respuesta": text,
-            "kind": "informacion",
-            "propuesta": None,
-        }
+        return {"messages": [message], "iteraciones": iterations, "respuesta": text, "kind": "informacion"}
 
     def ejecutar_tools(state: EstadoNorma, config: RunnableConfig) -> dict[str, Any]:
         ctx = _turn_context(state, config, state["tools_disponibles"])
@@ -395,6 +405,7 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             "messages": [HumanMessage(content=text)],
             "origen": _sumar_origen(state.get("origen"), origen),
             "opciones_previas": list(state.get("options") or []),
+            "kind_anterior": state.get("kind"),
             "inicio_turno": len(state["messages"]),
             "skills_activas": [],
             "iteraciones": 0,
@@ -434,7 +445,7 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
 
     def decidir_tras_pausa(state: EstadoNorma) -> str:
         confirma = interpretar_palabra_clave(state["messages"][-1].content) == ConfirmationAction.CONFIRM
-        return "confirmar" if confirma and state.get("propuesta") else "agente"
+        return "confirmar" if confirma and state.get("propuesta") and not pregunta_abierta(state) else "agente"
 
     def ruta_falla(state: EstadoNorma) -> str:
         return "handoff" if state.get("fallas", 0) >= MAX_FAILURES else "error"
