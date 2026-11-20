@@ -790,7 +790,12 @@
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">Notas internas de auditoría (opcional)</label>
+          <label class="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">Acuerdo operativo para el pedido (visible en propuesta, orden y planilla)</label>
+          <input type="text" id="convOrderNotes" placeholder="Ej. Retiro mañana de 9 a 12 / Envío por expreso a Rosario" class="w-full text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white px-2.5 py-1.5 focus:ring-1 focus:ring-brand-5" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">Notas internas de auditoría (solo dashboard; nunca sale al cliente ni al pedido)</label>
           <input type="text" id="convOperatorNotes" placeholder="Ej. Aprobado por Gerencia Comercial para pedido mayorista" class="w-full text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white px-2.5 py-1.5 focus:ring-1 focus:ring-brand-5" />
         </div>
 
@@ -799,11 +804,19 @@
           <textarea id="convMessageText" rows="3" class="w-full text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white p-2.5 focus:ring-1 focus:ring-brand-5"></textarea>
         </div>
 
-        <div class="flex items-center space-x-2 pt-1">
-          <input type="checkbox" id="convReactivateBot" checked class="rounded border-zinc-300 text-brand-5 focus:ring-brand-5" />
-          <label for="convReactivateBot" class="text-xs text-zinc-700 dark:text-zinc-300">
-            Reactivar bot (levantar silencio para que Norma continúe atendiendo con esta condición autorizada)
-          </label>
+        <div class="space-y-1.5 pt-1">
+          <div class="flex items-center space-x-2">
+            <input type="checkbox" id="convReactivateBot" checked class="rounded border-zinc-300 text-brand-5 focus:ring-brand-5" />
+            <label for="convReactivateBot" class="text-xs text-zinc-700 dark:text-zinc-300">
+              Reactivar bot (levantar silencio para que Norma continúe atendiendo con esta condición autorizada)
+            </label>
+          </div>
+          <div class="flex items-center space-x-2">
+            <input type="checkbox" id="convCloseConversation" class="rounded border-zinc-300 text-brand-5 focus:ring-brand-5" />
+            <label for="convCloseConversation" class="text-xs text-zinc-500 dark:text-zinc-400">
+              Cerrar conversación definitivamente como «resuelta» (solo si el bot no se reactiva)
+            </label>
+          </div>
         </div>
       </div>
 
@@ -1956,11 +1969,17 @@
         } else {
           document.getElementById('convDiscountPct').value = 10;
         }
+        if (data.order_notes) {
+          document.getElementById('convOrderNotes').value = data.order_notes;
+        } else {
+          document.getElementById('convOrderNotes').value = '';
+        }
         if (data.operator_notes) {
           document.getElementById('convOperatorNotes').value = data.operator_notes;
         } else {
           document.getElementById('convOperatorNotes').value = '';
         }
+        document.getElementById('convCloseConversation').checked = data.status === 'resuelta';
 
         updateScenarioUI();
       } catch (err) {
@@ -2003,8 +2022,10 @@
       const scenario = document.getElementById('convScenario').value;
       const discountPct = scenario === 'descuento_volumen' ? (parseFloat(document.getElementById('convDiscountPct').value) || null) : null;
       const message = document.getElementById('convMessageText').value.trim() || null;
+      const orderNotes = document.getElementById('convOrderNotes').value.trim() || null;
       const operatorNotes = document.getElementById('convOperatorNotes').value.trim() || null;
       const reactivateBot = document.getElementById('convReactivateBot').checked;
+      const closeConversation = document.getElementById('convCloseConversation').checked;
 
       try {
         const resp = await apiFetch(`/dashboard/conversations/${currentConvId}/resolve`, {
@@ -2013,8 +2034,10 @@
             resolution_type: scenario,
             message: message,
             discount_percentage: discountPct,
+            order_notes: orderNotes,
             operator_notes: operatorNotes,
-            reactivate_bot: reactivateBot
+            reactivate_bot: reactivateBot,
+            close_conversation: closeConversation
           })
         });
 

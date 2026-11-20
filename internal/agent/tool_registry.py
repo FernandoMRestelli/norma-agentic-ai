@@ -74,6 +74,8 @@ class TurnContext:
     derivation_reason: str | None = None
     descuento_autorizado: float | None = None
     condicion_comercial: str | None = None
+    acuerdo_operativo: str | None = None
+    propuesta_pendiente_mostrar: bool = False
     turno: guardrails.ContextoTurno = field(default_factory=guardrails.ContextoTurno)  # para validar la salida
     orquestador: bool = False  # con el orquestador, `leer_skill` de una skill sub_loop dice cómo delegarla
     notas_turno: list[dict[str, Any]] = field(default_factory=list)  # la nota de búsqueda y las de los sub-loops
@@ -198,11 +200,14 @@ def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict
         data, ctx.renglones, tolerar=ctx.coberturas_fallidas >= MAX_COBERTURAS_FALLIDAS
     )
     if propuesta:
-        # Lo que quedó afuera viaja con la propuesta: si el cliente la acepta, la orden lo guarda (RF-76)
+        # Lo que quedó afuera viaja con la propuesta: si el cliente la acepta, la orden lo guarda (RF-76).
+        # También conservamos el descuento autorizado y el acuerdo operativo confirmado sin duplicarlo.
+        notas_combinadas = validation_service.merge_order_notes(propuesta.notes, ctx.acuerdo_operativo)
         propuesta = propuesta.model_copy(
             update={
                 "leftovers": reply_tools.fuera_del_pedido(renglones),
                 "discount_percentage": ctx.descuento_autorizado,
+                "notes": notas_combinadas,
             }
         )
     message = data.message
@@ -233,8 +238,10 @@ def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict
     # Todo control de la salida tiene que ir antes de este punto.
     if propuesta:
         order_service.record_draft(propuesta)
+        ctx.propuesta_pendiente_mostrar = False
     elif ctx.propuesta:
         order_service.discard_draft(ctx.propuesta)
+        ctx.propuesta_pendiente_mostrar = False
     ctx.propuesta = propuesta
     return {"enviado": True}
 
@@ -280,9 +287,23 @@ PRECIO_CAMBIADO = (
     "Desde que te armé el pedido cambió el precio de algún producto. Te lo paso con los precios de hoy. "
     "¿Lo confirmo así?"
 )
+CONDICIONES_ACTUALIZADAS = (
+    "Actualicé tu propuesta con las condiciones autorizadas por el equipo. Revisá el resumen actualizado: "
+    "¿lo confirmo así?"
+)
 
 
 def _armar_pedido(_: ArmarPedidoInput, ctx: TurnContext) -> dict[str, Any]:
+    if ctx.propuesta and ctx.propuesta_pendiente_mostrar:
+        # No se confirma una propuesta modificada por el operador sin que el cliente vea antes el total y acuerdos
+        nueva = ctx.propuesta.model_copy(update={"version": ctx.propuesta.version + 1})
+        order_service.record_draft(nueva)
+        ctx.propuesta = nueva
+        ctx.propuesta_pendiente_mostrar = False
+        ctx.respuesta = f"{CONDICIONES_ACTUALIZADAS}\n\n{validation_service.build_proposal_detail(nueva)}"
+        ctx.kind = "propuesta"
+        ctx.resultado = "pausar"
+        return {"condiciones_actualizadas": True}
     try:
         order = order_tools.armar_pedido(ctx.propuesta)
     except order_service.PriceChangedError as exc:
@@ -291,11 +312,13 @@ def _armar_pedido(_: ArmarPedidoInput, ctx: TurnContext) -> dict[str, Any]:
         nueva = order_service.actualizar_precios(ctx.propuesta)
         order_service.record_draft(nueva)
         ctx.propuesta = nueva
+        ctx.propuesta_pendiente_mostrar = False
         ctx.respuesta = f"{PRECIO_CAMBIADO}\n\n{validation_service.build_proposal_detail(nueva)}"
         ctx.kind = "propuesta"
         ctx.resultado = "pausar"
         return {"precio_cambiado": True, "lineas": exc.lines}
     ctx.propuesta = None
+    ctx.propuesta_pendiente_mostrar = False
     ctx.order_id = order.order_id
     ctx.respuesta = validation_service.build_order_message(order)
     ctx.kind = "pedido"

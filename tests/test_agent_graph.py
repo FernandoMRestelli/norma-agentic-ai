@@ -1190,6 +1190,7 @@ def test_skill_clara_no_fuerza_derivar_en_consultas_generales():
     assert skill_clara("¿trabajan con cuotas?", hay_propuesta=False) != "derivar_o_cancelar"
     assert skill_clara("quiero hablar con una persona", hay_propuesta=False) == "derivar_o_cancelar"
     assert skill_clara("pasame con un asesor", hay_propuesta=False) == "derivar_o_cancelar"
+    assert skill_clara("pasame con el vendedor", hay_propuesta=False) == "derivar_o_cancelar"
     assert skill_clara("haceme 20% de descuento por 50 cajas", hay_propuesta=False) == "derivar_o_cancelar"
 
 

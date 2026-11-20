@@ -35,6 +35,11 @@ from internal.services import (
 )
 
 
+class _FakeToolChatModel(GenericFakeChatModel):
+    def bind_tools(self, tools, **kwargs):
+        return self
+
+
 @pytest.fixture(autouse=True)
 def clean_state(monkeypatch, tmp_path):
     from internal.config import get_settings
@@ -47,7 +52,7 @@ def clean_state(monkeypatch, tmp_path):
         session.execute(delete(DraftRecord))
         session.execute(delete(ConversationRecord))
         session.commit()
-    monkeypatch.setattr(norma_agent, "get_chat_model", lambda: GenericFakeChatModel(messages=iter([])))
+    monkeypatch.setattr(norma_agent, "get_chat_model", lambda: _FakeToolChatModel(messages=iter([])))
     norma_agent.get_agent.cache_clear()
     yield
     with SessionLocal() as session:
@@ -365,4 +370,278 @@ def test_resolve_conversation_canal_no_soportado_devuelve_501():
         dashboard_service.resolve_conversation(conv_id, req)
     assert exc_info.value.status_code == 501
     assert "web" in str(exc_info.value.detail)
+
+
+def test_guardrails_rechaza_porcentaje_en_letras_distinto():
+    """Con 5% autorizado, «veinte por ciento» debe ser rechazado por _regla_promesas."""
+    msg = "Te hago un veinte por ciento de descuento en el total."
+    rechazos_mal = guardrails.validar_salida(message=msg, kind="informacion", descuento_autorizado=5.0)
+    assert "promesa" in [r.regla for r in rechazos_mal]
+
+    rechazos_ok = guardrails.validar_salida(message=msg, kind="informacion", descuento_autorizado=20.0)
+    assert "promesa" not in [r.regla for r in rechazos_ok]
+
+
+def test_merge_order_notes_conserva_solicitud_y_no_duplica():
+    """Combina solicitud original del cliente + acuerdo confirmado sin duplicar al reintentar."""
+    solicitud = "Solicitud del cliente: retiro mañana a la mañana."
+    merged1 = validation_service.merge_order_notes(solicitud, "retiro de 9 a 12")
+    assert merged1 == "Solicitud del cliente: retiro mañana a la mañana. Acuerdo confirmado: retiro de 9 a 12"
+
+    # Reintento con el mismo acuerdo: idempotente
+    merged2 = validation_service.merge_order_notes(merged1, "retiro de 9 a 12")
+    assert merged2 == merged1
+
+    # Reintento con acuerdo actualizado: reemplaza el acuerdo sin tocar la solicitud original
+    merged3 = validation_service.merge_order_notes(merged2, "Acuerdo confirmado: retiro de 10 a 13")
+    assert merged3 == "Solicitud del cliente: retiro mañana a la mañana. Acuerdo confirmado: retiro de 10 a 13"
+
+
+def test_resolucion_con_close_conversation_marca_resuelta(monkeypatch):
+    """Con reactivate_bot=False y close_conversation=True, la conversación pasa a estado 'resuelta'."""
+    customer_id = "telegram:998877"
+    with SessionLocal() as session:
+        conv = ConversationRecord(
+            customer_id=customer_id,
+            channel="telegram",
+            status="derivada",
+            derivation_reason="reclamo",
+        )
+        session.add(conv)
+        session.commit()
+        session.refresh(conv)
+        conv_id = conv.id
+
+    monkeypatch.setattr(telegram_service, "get_client", lambda: type("C", (), {"send_message": lambda *a: None})())
+    req = ConversationResolveRequest(
+        resolution_type="mensaje_directo",
+        message="Ya quedó resuelto tu reclamo, ¡gracias!",
+        reactivate_bot=False,
+        close_conversation=True,
+    )
+    detail = dashboard_service.resolve_conversation(conv_id, req)
+    assert detail.status == "resuelta"
+    assert conversation_service._is_silenced_by_derivation(customer_id, Channel.TELEGRAM) is False
+
+
+def test_confirmacion_con_borrador_actualizado_muestra_total_antes_de_crear_orden(monkeypatch):
+    """Si el operador cambia descuento/acuerdos sobre una propuesta previa, 'dale' muestra el nuevo total primero."""
+    from langchain_core.messages import AIMessage
+    from sqlalchemy import select
+
+    from internal.schemas.catalog_schema import Product
+    from internal.services import inventory_service
+
+    prod = Product(sku="CR-NIV-100", name="Crema Nivea", presentation="100 ml", price=Decimal("1000.00"), stock=20)
+    monkeypatch.setattr(inventory_service, "get_catalog", lambda *a, **kw: [prod])
+
+    customer_id = "telegram:445566"
+    with SessionLocal() as session:
+        conv = ConversationRecord(
+            customer_id=customer_id,
+            channel="telegram",
+            status="derivada",
+            derivation_reason="condicion_comercial",
+        )
+        session.add(conv)
+        session.commit()
+        session.refresh(conv)
+        conv_id = conv.id
+
+    # Simulamos una conversación pausada con propuesta vigente de 2 x $1000 = $2000
+    call_propuesta = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "respond_to_customer",
+                "args": {
+                    "kind": "propuesta",
+                    "message": "Te armé 2 Cremas Nivea. ¿Confirmo?",
+                    "propuesta": [{"sku": "CR-NIV-100", "quantity": 2}],
+                    "notes": "Solicitud del cliente: retiro mañana a la mañana.",
+                },
+                "id": "call-prop-1",
+                "type": "tool_call",
+            }
+        ],
+    )
+    monkeypatch.setattr(norma_agent, "get_chat_model", lambda: _FakeToolChatModel(messages=iter([call_propuesta])))
+    norma_agent.get_agent.cache_clear()
+    agent = norma_agent.get_agent()
+
+    r1 = agent.handle(str(conv_id), customer_id, Channel.TELEGRAM, "quiero 2 cremas nivea")
+    assert r1.kind == "propuesta"
+    assert r1.draft is not None
+    assert r1.draft.total == Decimal("2000.00")
+
+    # Operador autoriza 15% de descuento y acuerdo operativo de retiro
+    monkeypatch.setattr(telegram_service, "get_client", lambda: type("C", (), {"send_message": lambda *a: None})())
+    dashboard_service.resolve_conversation(
+        conv_id,
+        ConversationResolveRequest(
+            resolution_type="descuento_volumen",
+            message="Te autorizamos 15% de descuento y retiro de 9 a 12.",
+            discount_percentage=15.0,
+            order_notes="retiro de 9 a 12",
+            operator_notes="INTERNO_NO_FILTRAR",
+            reactivate_bot=True,
+        ),
+    )
+
+    # Primer 'dale': NO crea la orden todavía; muestra el total actualizado ($1700) y el acuerdo confirmado
+    r2 = agent.handle(str(conv_id), customer_id, Channel.TELEGRAM, "dale")
+    assert r2.kind == "propuesta"
+    assert r2.order_id is None
+    assert "Descuento (15%): -$300.00" in r2.message
+    assert "Total estimado: $1700.00" in r2.message
+    assert "Acuerdo confirmado: retiro de 9 a 12" in r2.message
+    assert "INTERNO_NO_FILTRAR" not in r2.message
+
+    # Segundo 'dale' tras ver el total actualizado: ahora sí confirma y crea la orden
+    r3 = agent.handle(str(conv_id), customer_id, Channel.TELEGRAM, "dale")
+    assert r3.kind == "pedido"
+    assert r3.order_id is not None
+    assert "Total: $1700.00" in r3.message
+
+    with SessionLocal() as session:
+        order = session.scalar(select(OrderRecord).where(OrderRecord.order_id == r3.order_id))
+        assert order is not None
+        assert order.total == Decimal("1700.00")
+        assert order.discount_percentage == Decimal("15.0")
+        assert "Solicitud del cliente: retiro mañana a la mañana." in (order.notes or "")
+        assert "Acuerdo confirmado: retiro de 9 a 12" in (order.notes or "")
+        assert "INTERNO_NO_FILTRAR" not in (order.notes or "")
+
+
+def test_flujo_completo_resolucion_propuesta_confirmacion_csv_y_sheet2_sin_notas_internas(monkeypatch, tmp_path):
+    """Prueba E2E con servicios falsos: resolución -> propuesta -> confirmación -> BD/CSV/Sheet 2.
+
+    Verifica que:
+    - `operator_notes` NUNCA aparece en el contexto del LLM, la propuesta, la BD, el CSV ni Sheet 2.
+    - `order_notes` (acuerdo confirmado) se combina con la solicitud del cliente sin duplicar al reintentar.
+    - El descuento numérico se aplica de punta a punta.
+    """
+    import csv
+
+    from langchain_core.messages import AIMessage
+    from sqlalchemy import select
+
+    from internal.agent import context
+    from internal.config import get_settings
+    from internal.schemas.catalog_schema import Product
+    from internal.services import google_sheets_client, inventory_service
+    from tests.test_planillas import ORDERS_ID, FakeSheets
+
+    # Configurar catálogo, CSV temporal y Sheet 2 falsa
+    prod = Product(sku="SH-PAN-200", name="Shampoo Pantene", presentation="200 ml", price=Decimal("4000.00"), stock=50)
+    monkeypatch.setattr(inventory_service, "get_catalog", lambda *a, **kw: [prod])
+
+    csv_path = tmp_path / "pedidos.csv"
+    monkeypatch.setenv("ORDERS_FILE", str(csv_path))
+    monkeypatch.setenv("GOOGLE_CREDENTIALS_FILE", "credentials/no-se-lee-en-los-tests.json")
+    monkeypatch.setenv("ORDERS_SHEET_ID", ORDERS_ID)
+    get_settings.cache_clear()
+
+    fake_sheets = FakeSheets()
+    monkeypatch.setattr(google_sheets_client, "get_client", lambda: fake_sheets)
+    monkeypatch.setattr(telegram_service, "get_client", lambda: type("C", (), {"send_message": lambda *a: None})())
+
+    nota_interna = "CONFIDENCIAL_MARGEN_INTERNO_999"
+    customer_id = "telegram:860907231"
+    with SessionLocal() as session:
+        conv = ConversationRecord(
+            customer_id=customer_id,
+            channel="telegram",
+            status="derivada",
+            derivation_reason="condicion_comercial",
+        )
+        session.add(conv)
+        session.commit()
+        session.refresh(conv)
+        conv_id = conv.id
+
+    # 1. Resolución del operador (con reintento para verificar no-duplicación)
+    req = ConversationResolveRequest(
+        resolution_type="descuento_volumen",
+        message="Te autorizamos 15% de descuento y retiro de 9 a 12.",
+        discount_percentage=15.0,
+        order_notes="retiro de 9 a 12",
+        operator_notes=nota_interna,
+        reactivate_bot=True,
+    )
+    dashboard_service.resolve_conversation(conv_id, req)
+    dashboard_service.resolve_conversation(conv_id, req)  # reintento idempotente
+
+    # 2. Comprobar que el contexto que ve el LLM NO incluye `operator_notes` pero SÍ `acuerdo_operativo` y 15%
+    agent = norma_agent.get_agent()
+    st_values = agent.graph.get_state({"configurable": {"thread_id": str(conv_id)}}).values
+    llm_msgs = context.build_messages(st_values)
+    llm_dump = "\n".join(str(m.content) for m in llm_msgs)
+    assert nota_interna not in llm_dump
+    assert "retiro de 9 a 12" in llm_dump
+    assert "15%" in llm_dump
+
+    # 3. Propuesta armada por el agente falso conservando la solicitud original del cliente
+    call_propuesta = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "respond_to_customer",
+                "args": {
+                    "kind": "propuesta",
+                    "message": "Te armo 10 Shampoo Pantene con el 15% de descuento autorizado. ¿Confirmás?",
+                    "propuesta": [{"sku": "SH-PAN-200", "quantity": 10}],
+                    "notes": "Solicitud del cliente: retiro mañana a la mañana.",
+                },
+                "id": "call-e2e-1",
+                "type": "tool_call",
+            }
+        ],
+    )
+    monkeypatch.setattr(norma_agent, "get_chat_model", lambda: _FakeToolChatModel(messages=iter([call_propuesta])))
+    norma_agent.get_agent.cache_clear()
+    agent = norma_agent.get_agent()
+
+    res_prop = agent.handle(str(conv_id), customer_id, Channel.TELEGRAM, "armame 10 shampoo pantene")
+    assert res_prop.kind == "propuesta"
+    assert "Subtotal: $40000.00" in res_prop.message
+    assert "Descuento (15%): -$6000.00" in res_prop.message
+    assert "Total estimado: $34000.00" in res_prop.message
+    assert "Solicitud del cliente: retiro mañana a la mañana. Acuerdo confirmado: retiro de 9 a 12" in res_prop.message
+    assert nota_interna not in res_prop.message
+    assert res_prop.message.count("Acuerdo confirmado:") == 1
+
+    # 4. Confirmación del cliente
+    res_conf = agent.handle(str(conv_id), customer_id, Channel.TELEGRAM, "dale")
+    assert res_conf.kind == "pedido"
+    assert res_conf.order_id is not None
+    assert nota_interna not in res_conf.message
+
+    # 5. Verificar BD
+    with SessionLocal() as session:
+        order = session.scalar(select(OrderRecord).where(OrderRecord.order_id == res_conf.order_id))
+        assert order is not None
+        assert order.total == Decimal("34000.00")
+        assert order.discount_percentage == Decimal("15.0")
+        assert order.notes == "Solicitud del cliente: retiro mañana a la mañana. Acuerdo confirmado: retiro de 9 a 12"
+        assert nota_interna not in (order.notes or "")
+
+    # 6. Verificar CSV
+    assert csv_path.exists()
+    with csv_path.open("r", encoding="utf-8") as fh:
+        csv_rows = list(csv.DictReader(fh))
+    assert len(csv_rows) == 1
+    assert csv_rows[0]["notas"] == (
+        "Solicitud del cliente: retiro mañana a la mañana. Acuerdo confirmado: retiro de 9 a 12"
+    )
+    assert nota_interna not in str(csv_rows[0])
+
+    # 7. Verificar columna `notas` en Sheet 2 (FakeSheets)
+    sheet_rows = fake_sheets.hojas[ORDERS_ID]
+    assert len(sheet_rows) >= 2  # encabezado + fila del pedido
+    header = sheet_rows[0]
+    notas_idx = header.index("notas")
+    row_notas = sheet_rows[-1][notas_idx]
+    assert row_notas == "Solicitud del cliente: retiro mañana a la mañana. Acuerdo confirmado: retiro de 9 a 12"
+    assert nota_interna not in str(sheet_rows[-1])
 

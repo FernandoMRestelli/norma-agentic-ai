@@ -63,6 +63,7 @@ class DashboardConversationItem(BaseModel):
     derivation_reason: str | None = None
     discount_percentage: float | None = None
     operator_notes: str | None = None
+    order_notes: str | None = None
     resolution_type: str | None = None
     created_at: datetime
     updated_at: datetime
@@ -82,6 +83,7 @@ class ConversationDetailResponse(BaseModel):
     derivation_reason: str | None = None
     discount_percentage: float | None = None
     operator_notes: str | None = None
+    order_notes: str | None = None
     resolution_type: str | None = None
     created_at: datetime
     updated_at: datetime
@@ -94,8 +96,18 @@ class ConversationResolveRequest(BaseModel):
     discount_percentage: float | None = Field(
         default=None, ge=0, le=100, description="Porcentaje de descuento autorizado"
     )
-    operator_notes: str | None = Field(default=None, description="Notas internas del operador")
+    order_notes: str | None = Field(
+        default=None,
+        description="Acuerdos operativos confirmados para el pedido (visibles en la propuesta, orden y planilla)",
+    )
+    operator_notes: str | None = Field(
+        default=None, description="Notas internas del operador (solo dashboard; nunca van al cliente ni al pedido)"
+    )
     reactivate_bot: bool = Field(default=True, description="Si es True, levanta el silencio y reactiva a Norma")
+    close_conversation: bool = Field(
+        default=False,
+        description="Si es True (y reactivate_bot es False), cierra la conversación en estado 'resuelta'",
+    )
 
 
 class UpdateOrderStatusInput(BaseModel):

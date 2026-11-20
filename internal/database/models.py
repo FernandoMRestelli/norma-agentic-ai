@@ -42,11 +42,12 @@ class ConversationRecord(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     customer_id: Mapped[str] = mapped_column(String, index=True)
     channel: Mapped[str] = mapped_column(String)
-    # Estados posibles: abierta, cerrada, fallida, vencida, descartada, derivada
+    # Estados posibles: abierta, cerrada, fallida, vencida, descartada, derivada, resuelta
     status: Mapped[str] = mapped_column(String, default="abierta")
     derivation_reason: Mapped[str | None] = mapped_column(String, nullable=True)
     discount_percentage: Mapped[Decimal | None] = mapped_column(DecimalText, nullable=True)
     operator_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    order_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     resolution_type: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
