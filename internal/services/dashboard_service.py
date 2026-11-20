@@ -29,7 +29,7 @@ from internal.schemas.dashboard_schema import (
     TopProductItem,
 )
 from internal.schemas.order_schema import DraftStatus, OrderDraft, OrderStatus
-from internal.services import inventory_service, sheets_service, telegram_service
+from internal.services import inventory_service, sheets_service, telegram_service, validation_service
 
 logger = logging.getLogger(__name__)
 
@@ -468,6 +468,7 @@ def get_conversations(state: str | None = None) -> list[DashboardConversationIte
                 derivation_reason=r.derivation_reason,
                 discount_percentage=r.discount_percentage,
                 operator_notes=r.operator_notes,
+                order_notes=r.order_notes,
                 resolution_type=r.resolution_type,
                 created_at=r.created_at,
                 updated_at=r.updated_at,
@@ -513,6 +514,7 @@ def get_conversation_detail(conversation_id: int) -> ConversationDetailResponse:
             derivation_reason=conv.derivation_reason,
             discount_percentage=conv.discount_percentage,
             operator_notes=conv.operator_notes,
+            order_notes=conv.order_notes,
             resolution_type=conv.resolution_type,
             created_at=conv.created_at,
             updated_at=conv.updated_at,
@@ -551,17 +553,23 @@ def resolve_conversation(
                 )
 
         # 2. Actualizar registro en base de datos
+        # `operator_notes` es estrictamente interno; `order_notes` son los acuerdos operativos del pedido.
+        clean_order_notes = request.order_notes.strip() if request.order_notes and request.order_notes.strip() else None
         conv.resolution_type = request.resolution_type
         conv.operator_notes = request.operator_notes
+        conv.order_notes = clean_order_notes
         conv.discount_percentage = (
             Decimal(str(request.discount_percentage)) if request.discount_percentage is not None else None
         )
         conv.updated_at = datetime.now(UTC)
         if request.reactivate_bot:
             conv.status = "abierta"
+        elif request.close_conversation:
+            conv.status = "resuelta"
 
-        # Si hay propuesta pendiente en la base y se autorizó descuento, actualizamos su total
-        if request.discount_percentage is not None:
+        # Si hay propuesta pendiente en la base y cambió descuento o acuerdos, actualizamos total y notas sin duplicar
+        condiciones_cambiaron = request.discount_percentage is not None or clean_order_notes is not None
+        if condiciones_cambiaron:
             pending_draft = session.scalar(
                 select(DraftRecord)
                 .where(
@@ -572,16 +580,19 @@ def resolve_conversation(
                 .limit(1)
             )
             if pending_draft:
-                draft_obj = OrderDraft.model_validate({
-                    **dict(pending_draft.__dict__),
-                    "items": pending_draft.items,
-                    "discount_percentage": request.discount_percentage,
-                })
-                pending_draft.total = draft_obj.total
+                if clean_order_notes:
+                    pending_draft.notes = validation_service.merge_order_notes(pending_draft.notes, clean_order_notes)
+                if request.discount_percentage is not None:
+                    draft_obj = OrderDraft.model_validate({
+                        **dict(pending_draft.__dict__),
+                        "items": pending_draft.items,
+                        "discount_percentage": request.discount_percentage,
+                    })
+                    pending_draft.total = draft_obj.total
 
         session.commit()
 
-        # 3. Actualizar estado en checkpointer de LangGraph
+        # 3. Actualizar estado en checkpointer de LangGraph (NUNCA inyectar `operator_notes`)
         try:
             agent = get_agent()
             config = {"configurable": {"thread_id": str(conversation_id)}}
@@ -590,17 +601,21 @@ def resolve_conversation(
                 update_data["messages"] = [AIMessage(content=f"[Operador] {request.message.strip()}")]
             if request.discount_percentage is not None:
                 update_data["descuento_autorizado"] = request.discount_percentage
-                # Si ya había una propuesta armada en memoria, le aplicamos el descuento autorizado
+            if clean_order_notes is not None:
+                update_data["acuerdo_operativo"] = clean_order_notes
+            if request.resolution_type:
+                update_data["condicion_comercial"] = request.resolution_type
+            if condiciones_cambiaron:
                 st = agent.graph.get_state(config)
                 if st and st.values.get("propuesta"):
                     prop = dict(st.values["propuesta"])
-                    prop["discount_percentage"] = request.discount_percentage
+                    if request.discount_percentage is not None:
+                        prop["discount_percentage"] = request.discount_percentage
+                    if clean_order_notes:
+                        prop["notes"] = validation_service.merge_order_notes(prop.get("notes"), clean_order_notes)
                     update_data["propuesta"] = prop
-            if request.operator_notes or request.resolution_type:
-                condicion = f"{request.resolution_type}"
-                if request.operator_notes:
-                    condicion += f": {request.operator_notes}"
-                update_data["condicion_comercial"] = condicion
+                    # Exigimos mostrar el resumen actualizado y nueva confirmación antes de crear la orden
+                    update_data["propuesta_pendiente_mostrar"] = True
             if request.reactivate_bot:
                 update_data["derivation_reason"] = None
             if update_data:

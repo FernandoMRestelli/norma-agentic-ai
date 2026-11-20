@@ -428,13 +428,46 @@ def _regla_precios(
 
 
 _PORCENTAJE_EN_ORACION = re.compile(r"(\d+(?:[.,]\d+)?)\s*(?:%|por\s*ciento\b)")
+_PALABRAS_PORCENTAJE: dict[str, Decimal] = {
+    "un": Decimal("1"),
+    "uno": Decimal("1"),
+    "dos": Decimal("2"),
+    "tres": Decimal("3"),
+    "cuatro": Decimal("4"),
+    "cinco": Decimal("5"),
+    "seis": Decimal("6"),
+    "siete": Decimal("7"),
+    "ocho": Decimal("8"),
+    "nueve": Decimal("9"),
+    "diez": Decimal("10"),
+    "once": Decimal("11"),
+    "doce": Decimal("12"),
+    "trece": Decimal("13"),
+    "catorce": Decimal("14"),
+    "quince": Decimal("15"),
+    "veinte": Decimal("20"),
+    "veinticinco": Decimal("25"),
+    "treinta": Decimal("30"),
+    "treinta y cinco": Decimal("35"),
+    "cuarenta": Decimal("40"),
+    "cincuenta": Decimal("50"),
+    "sesenta": Decimal("60"),
+    "setenta": Decimal("70"),
+    "ochenta": Decimal("80"),
+    "noventa": Decimal("90"),
+    "cien": Decimal("100"),
+}
+_PORCENTAJE_EN_LETRAS = re.compile(
+    r"\b(" + "|".join(sorted(_PALABRAS_PORCENTAJE, key=len, reverse=True)) + r")\s+por\s*ciento\b"
+)
 
 
 def _porcentajes_coinciden(oracion: str, descuento_autorizado: float | Decimal) -> bool:
-    """True si los porcentajes mencionados en la oración coinciden con el descuento autorizado."""
+    """True si los porcentajes mencionados (en cifras o en letras) coinciden con el descuento autorizado."""
     autorizado = Decimal(str(descuento_autorizado))
-    mencionados = _PORCENTAJE_EN_ORACION.findall(oracion)
-    return all(Decimal(p.replace(",", ".")) == autorizado for p in mencionados)
+    cifras = [Decimal(p.replace(",", ".")) for p in _PORCENTAJE_EN_ORACION.findall(oracion)]
+    letras = [_PALABRAS_PORCENTAJE[w] for w in _PORCENTAJE_EN_LETRAS.findall(oracion)]
+    return all(val == autorizado for val in (*cifras, *letras))
 
 
 def _regla_promesas(normalizado: str, descuento_autorizado: float | Decimal | None = None) -> Rechazo | None:

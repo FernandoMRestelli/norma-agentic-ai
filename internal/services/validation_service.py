@@ -1,8 +1,33 @@
 """Arma los textos del pedido que ve el cliente, siempre a partir de datos validados."""
 
+import re
 from decimal import Decimal
 
-from internal.schemas.order_schema import Order, OrderDraft, OrderItem, items_total
+from internal.schemas.order_schema import MAX_ORDER_NOTES_LENGTH, Order, OrderDraft, OrderItem, items_total
+
+_ACUERDO_RE = re.compile(r"(?:^|\s*)Acuerdo confirmado:\s*.*$", re.IGNORECASE)
+_ACUERDO_PREFIJO_RE = re.compile(r"^Acuerdo confirmado:\s*", re.IGNORECASE)
+
+
+def merge_order_notes(existing_notes: str | None, order_notes: str | None) -> str | None:
+    """Combina las notas del cliente con el acuerdo operativo confirmado sin duplicar al reintentar.
+
+    Conserva la solicitud original del cliente (si existe) y reemplaza o agrega el bloque
+    «Acuerdo confirmado: ...» al final.
+    """
+    if not order_notes or not order_notes.strip():
+        return existing_notes
+    acuerdo = _ACUERDO_PREFIJO_RE.sub("", order_notes.strip()).strip()
+    if not acuerdo:
+        return existing_notes
+    segmento = f"Acuerdo confirmado: {acuerdo}"
+    if not existing_notes or not existing_notes.strip():
+        return segmento[:MAX_ORDER_NOTES_LENGTH]
+    base = _ACUERDO_RE.sub("", existing_notes.strip()).strip()
+    if not base:
+        return segmento[:MAX_ORDER_NOTES_LENGTH]
+    separador = " " if base.endswith((".", ";", "!", "?")) else ". "
+    return f"{base}{separador}{segmento}"[:MAX_ORDER_NOTES_LENGTH]
 
 
 def _line(item: OrderItem) -> str:

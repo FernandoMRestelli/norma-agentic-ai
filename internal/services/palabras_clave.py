@@ -87,9 +87,10 @@ def es_pedido_humano(texto: str) -> bool:
     return bool(
         re.search(
             r"\b(?:hablar|comunicar|comunicame|pasar|pasame|atender|atendeme)\s+con\s+"
-            r"(?:un[ao]?\s+)?(?:humano|persona|alguien|operador|asesor|representante|vendedor)\b|"
+            r"(?:(?:un[ao]?|el|la)\s+)?(?:humano|persona|alguien|operador|asesor|representante|vendedor)\b|"
             r"\batencion humana\b|"
-            r"\bderiva(?:me|r)?\s+(?:a|con)\s+(?:un[ao]?\s+)?(?:humano|persona|operador|asesor|vendedor)\b",
+            r"\bderiva(?:me|r)?\s+(?:a|con)\s+(?:(?:un[ao]?|el|la)\s+)?"
+            r"(?:humano|persona|operador|asesor|vendedor)\b",
             normalizado,
         )
     )

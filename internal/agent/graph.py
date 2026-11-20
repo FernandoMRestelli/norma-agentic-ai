@@ -25,7 +25,7 @@ from internal.agent import (
 from internal.agent.state import EstadoNorma
 from internal.config import get_settings
 from internal.schemas.order_schema import Channel, ConfirmationAction, OrderDraft
-from internal.services import interpretation_service, inventory_service
+from internal.services import interpretation_service, inventory_service, validation_service
 from internal.services.palabras_clave import (
     es_cancelacion,
     es_pedido_humano,
@@ -254,6 +254,10 @@ def _turn_context(state: EstadoNorma, config: RunnableConfig, disponibles: list[
         propuesta = OrderDraft.model_validate({**propuesta.model_dump(), "customer_name": customer_name})
     if propuesta and state.get("descuento_autorizado") and not propuesta.discount_percentage:
         propuesta = propuesta.model_copy(update={"discount_percentage": state.get("descuento_autorizado")})
+    if propuesta and state.get("acuerdo_operativo"):
+        merged = validation_service.merge_order_notes(propuesta.notes, state.get("acuerdo_operativo"))
+        if merged != propuesta.notes:
+            propuesta = propuesta.model_copy(update={"notes": merged})
     return tool_registry.TurnContext(
         customer_id=state["customer_id"],
         channel=Channel(state["channel"]),
@@ -268,6 +272,8 @@ def _turn_context(state: EstadoNorma, config: RunnableConfig, disponibles: list[
         propuesta=propuesta,
         descuento_autorizado=state.get("descuento_autorizado"),
         condicion_comercial=state.get("condicion_comercial"),
+        acuerdo_operativo=state.get("acuerdo_operativo"),
+        propuesta_pendiente_mostrar=bool(state.get("propuesta_pendiente_mostrar", False)),
     )
 
 
@@ -425,6 +431,8 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             "derivation_reason": ctx.derivation_reason,
             "descuento_autorizado": ctx.descuento_autorizado,
             "condicion_comercial": ctx.condicion_comercial,
+            "acuerdo_operativo": ctx.acuerdo_operativo,
+            "propuesta_pendiente_mostrar": ctx.propuesta_pendiente_mostrar,
             "aclaraciones_seguidas": aclaraciones,
             "resultado": ctx.resultado,
             "notas_turno": ctx.notas_turno,
@@ -471,8 +479,9 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             return {"resultado": "continuar"}
         return {
             "messages": [AIMessage(content=ctx.respuesta)],
-            # Queda una propuesta solo si cambió un precio: sale de nuevo con los de hoy y espera otra confirmación
+            # Queda una propuesta solo si cambió un precio o condiciones: sale de nuevo y espera otra confirmación
             "propuesta": ctx.propuesta.model_dump(mode="json") if ctx.propuesta else None,
+            "propuesta_pendiente_mostrar": ctx.propuesta_pendiente_mostrar,
             "respuesta": ctx.respuesta,
             "kind": ctx.kind,
             "order_id": ctx.order_id,

@@ -100,6 +100,8 @@ class NormaAgent:
                 "renglones": prev_state.get("renglones", []),
                 "descuento_autorizado": prev_state.get("descuento_autorizado"),
                 "condicion_comercial": prev_state.get("condicion_comercial"),
+                "acuerdo_operativo": prev_state.get("acuerdo_operativo"),
+                "propuesta_pendiente_mostrar": bool(prev_state.get("propuesta_pendiente_mostrar", False)),
             }
         try:
             state = self.graph.invoke(entry, config)
