@@ -63,6 +63,9 @@ class ContextoTurno:
     skus: set[str] = field(default_factory=set)  # SKU que aparecieron en tools o argumentos
     precios: set[Decimal] = field(default_factory=set)  # precios que devolvieron las tools
     faltantes: dict[str, int] = field(default_factory=dict)  # SKU → disponible, cuando no alcanzó (BR-01)
+    # SKU que el LLM ve en su prompt sin que una tool los devuelva (opciones previas, pedidos anteriores): solo para
+    # que no lleguen al cliente; no cuentan como productos vistos en el turno
+    skus_del_prompt: set[str] = field(default_factory=set)
     rechazos: int = 0  # mensajes ya rechazados en este turno
 
 
@@ -81,6 +84,15 @@ def _recorrer(valor: Any, turno: ContextoTurno) -> None:
     elif isinstance(valor, list):
         for hijo in valor:
             _recorrer(hijo, turno)
+
+
+def sumar_notas(turno: ContextoTurno, notas: Iterable[dict[str, Any]]) -> ContextoTurno:
+    """Suma lo que el LLM vio en las notas del turno, que no llegan como resultados de tools: la nota de búsqueda de
+    la precarga y las de los sub-loops, con los faltantes de stock que encontraron (spec del orquestador §3.2)."""
+    for nota in notas:
+        _recorrer(nota, turno)
+        turno.faltantes.update(nota.get("faltantes") or {})
+    return turno
 
 
 def _decimal(valor: Any) -> Decimal | None:
@@ -473,7 +485,7 @@ def validar_salida(
             skus |= {item.sku for item in draft.items}
     reglas = (
         _regla_stock(normalizado, kind, propuesta, options, turno, len(skus)),
-        _regla_internos(message, normalizado, skus),
+        _regla_internos(message, normalizado, skus | turno.skus_del_prompt),
         _regla_pedido_hecho(message, normalizado),
         _regla_precios(message, propuesta, vigente, turno),
         _regla_promesas(normalizado),

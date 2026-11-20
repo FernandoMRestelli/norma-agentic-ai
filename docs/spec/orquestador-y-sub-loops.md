@@ -7,7 +7,7 @@
 | | |
 |---|---|
 | Etapa del roadmap | Transversal al agente: 03 · Pedidos multimodales, 04 · Confirmación |
-| Estado | Propuesto |
+| Estado | Implementado detrás de `AGENT_ORQUESTADOR`, sin medir todavía (§9, paso 5) |
 | Responsable | Federico Picado |
 | Requisitos de la spec del MVP | RF-62, RF-63, RF-65 a RF-68, RF-71 a RF-73, RNF-06, RNF-12, RNF-16 |
 | IDs que reserva | RF-84 a RF-97, RNF-17, CA-144 a CA-161, D-30 a D-39 |
@@ -104,7 +104,9 @@ flowchart TD
 3. **Precarga de la búsqueda (sin LLM, RF-86).** Si hay renglones nuevos `sin_resolver`, el backend separa cantidad
    y tono solo cuando la forma no admite dudas (por ejemplo `2 mascara argan x 1k` o `tinte 8.1/2`) y corre
    `buscar_renglones` con esos. Los renglones que no pudo separar quedan sin buscar. El resultado entra al contexto
-   del orquestador como **nota de búsqueda**, en un bloque de datos y no como una tool call (CA-35).
+   del orquestador como **nota de búsqueda**, en un bloque de datos y no como una tool call (CA-35). La precarga no
+   cambia el estado de los renglones: anota el tono y la coincidencia, como `buscar_renglones`, y cada renglón lo
+   sigue ubicando la respuesta (RF-68).
 4. **Orquestador (LLM, RF-87).** Ve el system prompt, el índice de skills, el contexto del cliente, el estado actual
    (propuesta, renglones, opciones previas), las notas de este turno y la charla anterior. Puede:
    - resolver una consulta corta con las tools de catálogo, que siguen siendo de base: una pregunta por un producto
@@ -293,7 +295,17 @@ Dos campos opcionales nuevos en `skill.md`:
 
 Una skill `sub_loop` no puede listar tools terminales hacia el cliente (`respond_to_customer`, `armar_pedido`): el
 sub-loop recibe `entregar_nota` en su lugar. Si algo no coincide, la aplicación no arranca, como hoy con una tool
-inexistente (CA-40).
+inexistente (CA-40). Ninguna skill lista `delegar_skill` ni `entregar_nota`: las suma el backend según el modo.
+
+Quien tiene activa una skill `sub_loop` (el orquestador, o el grafo de hoy con la bandera apagada) suma
+`respond_to_customer` a sus tools. Además de `skill.md`, la carpeta de una skill `sub_loop` trae dos archivos, y sin
+alguno la aplicación no arranca:
+
+| Archivo | Lo lee | Qué dice |
+|---|---|---|
+| `skill.md` | El grafo de hoy, que usa la skill inline | Lo mismo que antes: buscar, resolver y responder |
+| `sub_loop.md` | El sub-loop, debajo del prompt base `internal/agent/sub_loop.md` | Buscar y resolver los renglones del encargo y entregar la nota |
+| `respuesta.md` | El orquestador, al leer la skill o cuando el backend la preactiva | Cómo delegar y cómo responder con la nota |
 
 ```yaml
 ---
@@ -323,12 +335,24 @@ algún renglón ya tiene una nota en este turno, el sub-loop nuevo recibe esa no
 |---|---|---|
 | `resueltos` | `[{renglon, sku, cantidad, tono?}]` | El SKU tiene que haber salido de una búsqueda de este sub-loop o de la precarga |
 | `pendientes` | `[{renglon, pregunta, opciones: [sku]}]` | Lo que hay que preguntarle al cliente. Mismas reglas para los SKU |
-| `afuera` | `[{renglon, motivo}]` | `no_se_trabaja`, `sin_stock` o `no_pide_nada` |
+| `afuera` | `[{renglon, motivo}]` | Los motivos de `respond_to_customer`: `fuera_de_catalogo`, `sin_stock`, `lo_saco_el_cliente` o `no_es_producto` |
 | `observaciones` | `str`, hasta 300 caracteres | El razonamiento corto para el orquestador. No va al cliente ni al turno siguiente |
+
+Un pedido escrito en una sola línea no se numera (RF-65): si el encargo no trae renglones, las líneas de la nota van
+sin `renglon` y no hay control de cobertura. Si el encargo trae renglones, cada línea lleva el suyo.
 
 Cada renglón del encargo tiene que quedar en un solo lugar. Si no, el backend devuelve el error al sub-loop, hasta
 2 veces; a la tercera, la nota sale con los renglones sin cuenta en `pendientes`, con la pregunta
 «¿me confirmás qué querías en este renglón?».
+
+Además de las búsquedas del sub-loop y de la precarga, valen sin buscar de nuevo los SKU que ya se le ofrecieron al
+cliente (`opciones_previas`), los de una nota anterior del turno, los de los pedidos anteriores del contexto del
+cliente y los que ya estaban resueltos o preguntados en esos renglones: «el de 900» y «lo de siempre» se resuelven
+sin volver a buscar (RF-71, BR-11).
+
+`delegar_skill` le devuelve al orquestador la nota con tres campos más: `productos`, el nombre de cada SKU para
+nombrarlo en el mensaje; `disponibles`, lo que queda de cada SKU que no alcanzó, para decirlo como pide BR-01; y
+`completa`, que es `false` si la nota la armó el backend (al tope o tras 2 rechazos).
 
 Los **intentos** no los escribe el modelo: el backend los toma de los pedidos de tool del sub-loop (nombre y
 argumentos, sin resultados, hasta 10) y los guarda junto a la nota en `notas_turno`. El orquestador no los ve.
@@ -359,9 +383,13 @@ dependen de la bandera.
 ### 4.6 Lo que ya usa los contratos que cambian
 
 - `pedidos_anteriores` sigue existiendo mientras haya skills `inline` que la listen (D-37).
-- `tomar_pedido` pierde `respond_to_customer` al pasar a `sub_loop`: responder con la propuesta pasa al orquestador,
-  y sus instrucciones de cómo responder se mudan al system prompt del orquestador o a una skill `inline`
-  `proponer_pedido` (se decide al implementar, en esta misma spec).
+- `tomar_pedido` pierde `respond_to_customer` al pasar a `sub_loop`: responder con la propuesta pasa al orquestador.
+  Sus instrucciones de cómo responder van en `internal/skills/tomar_pedido/respuesta.md`, que el orquestador ve al
+  leer la skill o cuando el backend la preactiva (§4.1). Se eligió así, y no una skill `proponer_pedido`, para que
+  el orquestador no gaste una vuelta en leerla y para que `skill.md` siga intacto mientras conviven los dos grafos.
+  Si se borra el grafo de hoy (D-36), el cuerpo de `skill.md` se reemplaza por estos dos archivos.
+- El agregado del system prompt para el orquestador está en `internal/agent/orquestador.md` y se suma solo con la
+  bandera prendida; `prompt_version` lo incluye, así las dos corridas de la evaluación se distinguen.
 - `evaluar_agente` suma columnas, sin cambiar las que hay (RF-94).
 
 ## 5. Requisitos
@@ -452,3 +480,32 @@ Una tarea, una rama, una PR, en este orden. Las dos primeras ya bajan llamadas c
    `internal/agent/system_prompt.md` y `docs/spec/agente.md` §3 y §4.5.
 5. `feature/medir-orquestador`: corridas de `evaluar_agente --set pedidos` con y sin `AGENT_ORQUESTADOR`, resultado
    en `MEJORAS.md` y decisión de D-36.
+
+### 9.1 Cómo quedó implementado
+
+Los pasos 2 a 4 están hechos y probados con el modelo guionado (CA-144 a CA-161). Falta el paso 5: medir.
+
+- **Nodos nuevos:** `armar_contexto` (el contexto del cliente; LangGraph no deja que un nodo se llame como una clave
+  del estado, por eso no es `contexto_cliente`) y `precarga_busqueda`, en `internal/agent/contexto_cliente.py` y
+  `internal/agent/precarga.py`. Los dos corren con la bandera prendida o apagada (RF-95).
+- **El sub-loop no es un subgrafo de LangGraph:** es un loop de Python que corre dentro del nodo `tools` del
+  orquestador, en `internal/agent/sub_loop.py`. No necesita checkpoints propios porque nunca espera al cliente, y así
+  su contexto queda fuera del estado: solo la nota y su uso del LLM pasan a `notas_turno`.
+- **La forma inequívoca de la precarga** (`interpretation_service.separar_renglon`): una cantidad de 1 o 2 cifras
+  adelante, que no sea una medida («500 ml shampoo» no), o un tono con punto y su cantidad al final («tinte 8.1/2»).
+  Queda para el LLM lo que depende del historial («lo de siempre»), «821/2», «7/3» sin producto y lo que no trae
+  cantidad.
+- **Métricas (RF-94):** `AgentOutcome.llamadas_sub_loop`, el log del turno y la traza suman las llamadas y los tokens
+  de los sub-loops; `evaluar_agente` reporta `llamadas_sub_loop`, `tokens_entrada_sub_loop` y los tokens de entrada
+  por llamada del orquestador y del sub-loop.
+- **Guardrails de salida:** el validador arma lo que vio el turno con sus resultados de tools. La nota de búsqueda y
+  las notas de los sub-loops no son resultados de tools del loop principal, así que se le suman aparte
+  (`guardrails.sumar_notas`): sin eso, «me queda 1» después de una precarga o de un sub-loop se rechazaba como stock
+  revelado. Los SKU que el modelo ve en su prompt sin una tool (opciones previas y pedidos anteriores del contexto)
+  también se le pasan al validador, solo para que no lleguen al cliente.
+- **Precisión de la precarga:** contra los 11 casos de `data_example/pedidos_evaluacion.json`, separó 98 de 103
+  renglones y los 87 que salieron `unico` coinciden en SKU y cantidad con lo esperado. La coloración en `tono/cantidad`
+  queda para el LLM.
+- **Riesgo a medir:** las BR de `tomar_pedido` están escritas para quien responde («respondé con `kind = aclaracion`»).
+  El sub-loop las recibe igual y `sub_loop.md` le dice dónde va cada caso en la nota. Si la evaluación muestra que el
+  sub-loop se confunde, conviene separar en cada BR qué decide y cómo se responde.
