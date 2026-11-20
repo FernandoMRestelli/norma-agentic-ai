@@ -327,3 +327,59 @@ def test_corrida_de_evaluacion_en_mlflow(mlflow_local):
     assert guardada.data.params["prompt_version"] == context.prompt_version()
     assert guardada.data.params["caso"] == "todos"
     assert guardada.data.metrics["aciertos_pct"] == 66.7
+
+
+@pytest.fixture
+def orquestador_en_mlflow(mlflow_local, monkeypatch):
+    """Un pedido de dos renglones delegado en un sub-loop, con el catálogo del orquestador y la traza prendida."""
+    from tests import test_orquestador as orq
+
+    monkeypatch.setenv("AGENT_ORQUESTADOR", "true")
+    productos = [
+        Product(sku=sku, name=nombre, brand="Marca Uno", presentation=medida, price=Decimal("1000"), stock=20)
+        for sku, nombre, medida in (
+            ("SH-KER-900", "Shampoo Keratina", "900 ml"),
+            ("SH-KER-300", "Shampoo Keratina", "300 ml"),
+            ("MAS-ARG-250", "Máscara Argan", "250 g"),
+            ("MAS-ARG-1K", "Máscara Argan", "1 kg"),
+        )
+    ]
+    monkeypatch.setattr(sheets_service, "get_catalog", lambda: productos)
+
+    def correr():
+        agent = NormaAgent(ModeloGuionado(orq._delegar(), orq._nota(), orq._responder()), InMemorySaver())
+        agent.handle("44", customer_id="telegram:secreto-77", channel=Channel.TELEGRAM, text=orq.LISTA)
+        trace = _traza(mlflow_local)
+        return trace, {span.name: span for span in trace.data.spans}
+
+    return correr
+
+
+def test_el_orquestador_deja_sus_cuentas_en_la_traza(orquestador_en_mlflow):
+    """Precarga, sub-loop y nota cuentan qué buscaron y qué resolvieron, sin texto del cliente (RNF-03)."""
+    trace, spans = orquestador_en_mlflow()
+
+    precarga = spans["precarga_busqueda"].attributes
+    assert (precarga["buscados"], precarga["sin_separar"], precarga["varias"]) == (2, 0, 2)
+    sub_loop = spans["sub_loop"].attributes
+    assert (sub_loop["resueltos"], sub_loop["pendientes"], sub_loop["afuera"]) == (1, 1, 0)
+    assert (sub_loop["tokens_entrada"], sub_loop["cerrada_por"]) == (0, "nota")  # el modelo guionado no da uso
+    nota = spans["nota"].attributes
+    assert (nota["entrega"], nota["resueltos"], nota["pendientes"]) == (1, 1, 1)
+
+    guardado = trace.to_json()
+    assert "keratina" not in guardado.lower()
+    assert "Resolvé producto" not in guardado  # el encargo lo escribe el LLM y puede traer texto del cliente
+
+
+def test_con_texto_el_orquestador_guarda_encargo_y_nota(orquestador_en_mlflow, monkeypatch):
+    """CA-57: con MLFLOW_TRACE_TEXT, el sub-loop guarda su encargo y su nota, y la precarga lo que buscó."""
+    monkeypatch.setenv("MLFLOW_TRACE_TEXT", "true")
+
+    _, spans = orquestador_en_mlflow()
+
+    assert spans["sub_loop"].inputs == {"encargo": "Resolvé producto, medida y cantidad", "renglones": [1, 2]}
+    assert spans["sub_loop"].outputs["resueltos"][0]["sku"] == "SH-KER-900"
+    assert spans["nota"].inputs["resueltos"][0]["sku"] == "SH-KER-900"
+    assert [b["texto"] for b in spans["precarga_busqueda"].inputs["buscados"]] == ["shampoo keratina", "mascara argan"]
+    assert {r["estado"] for r in spans["precarga_busqueda"].outputs["resultados"]} == {"varias"}

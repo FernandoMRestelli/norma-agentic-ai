@@ -301,7 +301,7 @@ def _drafts() -> list[tuple]:
         return [(r.draft_id, r.version, r.conversation_id, r.status, r.order_id) for r in rows]
 
 
-def _responder(vigente, *lineas):
+def _responder(vigente, *lineas, descartar=False):
     """Una llamada a respond_to_customer por el registro de tools, como en un turno del agente."""
     ctx = tool_registry.TurnContext(
         customer_id="telegram:1",
@@ -315,6 +315,7 @@ def _responder(vigente, *lineas):
         "kind": "propuesta" if lineas else "informacion",
         "message": "ok",
         "propuesta": [{"sku": sku, "quantity": q} for sku, q in lineas] or None,
+        "descartar_propuesta": descartar,
     }
     resultado = tool_registry.execute("respond_to_customer", args, ctx)
     return ctx.propuesta, resultado
@@ -323,12 +324,13 @@ def _responder(vigente, *lineas):
 def test_drafts_registra_cada_version(catalogo):
     """CA-85: cada versión queda en drafts con su conversación y su desenlace."""
 
-    def responder(vigente, *lineas):
-        return _responder(vigente, *lineas)[0]
+    def responder(vigente, *lineas, descartar=False):
+        return _responder(vigente, *lineas, descartar=descartar)[0]
 
     v1 = responder(None, (SKU_SHAMPOO, 1))
     v2 = responder(v1, (SKU_SHAMPOO, 2))
-    assert responder(v2) is None  # el agente respondió sin propuesta: la vigente se descarta
+    assert responder(v2) == v2  # una respuesta sin propuesta deja la vigente como estaba (RF-98)
+    assert responder(v2, descartar=True) is None  # el cliente la rechazó: se descarta
     otra = responder(None, (SKU_TINTURA, 1))
     order = order_service.confirm_draft(otra)
 
@@ -585,8 +587,11 @@ def test_pedido_nuevo_no_hereda_notas(catalogo):
     assert reply_tools.respond_to_customer(data, "cliente-nuevo", Channel.TELEGRAM, None).notes is None
 
 
-def test_observaciones_al_confirmar_llegan_a_notas_de_la_orden(catalogo):
+@pytest.mark.parametrize("orquestador", [False, True])
+def test_observaciones_al_confirmar_llegan_a_notas_de_la_orden(catalogo, monkeypatch, orquestador):
     """Observaciones: agregar retiro/pago requiere mostrar notas antes del OK; se persisten en la fila."""
+    monkeypatch.setenv("AGENT_ORQUESTADOR", str(orquestador).lower())
+    get_settings.cache_clear()
     notas = "Cliente solicita retiro mañana a la mañana; indica que paga como siempre. Sujeto a validación del negocio"
     lineas = [{"sku": SKU_SHAMPOO, "quantity": 2}]
     agent = NormaAgent(

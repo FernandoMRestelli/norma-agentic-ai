@@ -9,7 +9,7 @@
 | Estado | Implementado en cinco ramas, una por mejora ([§10.1](#101-estado-de-implementación)). Falta medirlo con un LLM real |
 | Responsable | Federico Picado |
 | Requisitos de la spec del MVP | RF-07, RF-11, RF-13, RF-19, RF-21, RF-28, RF-36 a RF-39, RNF-03, RNF-06, RNF-07 |
-| IDs que reserva | RF-59 a RF-79, RNF-15 y RNF-16, CA-113 a CA-134, D-21 a D-29, BR-11 |
+| IDs que reserva | RF-59 a RF-79, RF-98, RF-99, RNF-15 y RNF-16, CA-113 a CA-134, CA-162 a CA-164, D-21 a D-29, BR-11 |
 
 **Índice**
 
@@ -125,7 +125,7 @@ Tools de base, disponibles desde el inicio del turno: `leer_skill`, `leer_br`, `
 
 | Lo que dice [`agente.md`](agente.md) | Lo que hace el código |
 |---|---|
-| §2: siete estados de conversación, con vencimiento a las 24 h | Solo `abierta`, `cerrada` y `fallida`. Nada vence |
+| §2: siete estados de conversación, con vencimiento a las 24 h | abierta, cerrada, fallida y vencida tras 24 h de inactividad (RF-28) |
 | §6: derivación tras 2 fallas o 3 aclaraciones seguidas | A la segunda falla la conversación queda `fallida` y nadie se entera. Las aclaraciones no se cuentan |
 | §8: el estado actual lleva la última pregunta y las opciones ofrecidas | `_current_state` lleva el nombre del cliente y la propuesta vigente. `options` se guarda en el estado del grafo y nunca se le muestra al LLM |
 | §8: cada mensaje del historial lleva su origen (`texto`, `audio transcripto`, `imagen leída`) | No hay origen en ningún lado |
@@ -589,7 +589,7 @@ Todos están implementados en las ramas de [§10.1](#101-estado-de-implementaci�
 | RF-61 | M2 | Toda llamada al LLM obliga a elegir una tool |
 | RF-62 | M2 | Cuando la ruta del turno no admite dudas, el backend lee la skill antes de la primera llamada al LLM |
 | RF-63 | M2 | El resultado de una tool trae el texto de la BR que su señal dispara, una vez por turno |
-| RF-64 | M2 | Con propuesta vigente, un mensaje que es exactamente una aceptación de la lista registra el pedido sin llamar al LLM |
+| RF-64 | M2 | Con propuesta vigente, un mensaje que es exactamente una aceptación de la lista registra el pedido sin llamar al LLM, salvo que la respuesta anterior haya dejado una pregunta abierta (RF-99) |
 | RF-65 | M3 | El backend numera los renglones del mensaje y marca los encabezados de marca |
 | RF-66 | M3 | `buscar_renglones` busca un lote de renglones y devuelve un estado y hasta 3 candidatos por renglón |
 | RF-67 | M3 | El estado de cada renglón (`resuelto`, `pendiente`, `afuera`) se conserva entre turnos de la conversación |
@@ -605,6 +605,8 @@ Todos están implementados en las ramas de [§10.1](#101-estado-de-implementaci�
 | RF-77 | M5 | Un cambio de estado se refleja en el CSV y en Sheet 2 |
 | RF-78 | M5 | El CSV neutraliza los textos que empiezan como fórmula y actualiza un encabezado viejo; la hoja Líneas del Excel trae la nota |
 | RF-79 | M5 | El origen del mensaje (`texto`, `audio`, `imagen`) viaja del canal a la orden |
+| RF-98 | M4 | Una respuesta sin `propuesta` deja la vigente como estaba; solo `descartar_propuesta` la descarta, cuando el cliente la rechaza o saca todo |
+| RF-99 | M2 | El atajo de RF-64 corre solo si la respuesta anterior cerró con la propuesta (`kind` `propuesta` o `sin_stock`) sin opciones ofrecidas. Después de una aclaración, una consulta, un error o una pregunta con opciones, el mensaje va al LLM |
 | RNF-15 | M1 | Umbral de release sobre el set de RF-59: recall por línea ≥ 95 %, precisión ≥ 98 %, 0 registros indebidos y 0 líneas perdidas. Los números se ajustan con la primera corrida (D-28) |
 | RNF-16 | M2 | Presupuesto del turno: hasta 2 llamadas al LLM en el camino normal, tope de 50 iteraciones y 300 s en total (configurables); al agotarse, el turno cierra respondiendo con lo encontrado |
 
@@ -622,6 +624,8 @@ Todos están implementados en las ramas de [§10.1](#101-estado-de-implementaci�
 | CA-120 | Una propuesta vigente | El cliente escribe «dale» | Se registra sin llamar al LLM | `tests/test_palabras_clave.py::test_aceptaciones_exactas`, `tests/test_agent_graph.py::test_ok_exacto_registra_la_propuesta_sin_llamar_al_llm` |
 | CA-121 | Una propuesta vigente | El cliente escribe «dale, pero 2» | El mensaje va al agente y no se registra nada | `tests/test_palabras_clave.py::test_aceptacion_con_cambio_va_al_agente` |
 | CA-122 | Una lista con dos encabezados de marca y diez renglones | Se numera | Cada renglón de producto tiene su número y la marca de su encabezado | `tests/test_interpretation.py::test_numera_renglones_por_marca` |
+| CA-163 | Una propuesta vigente | El cliente pregunta por algo que no se trabaja y el agente responde sin `propuesta` | La propuesta sigue vigente y un «dale» posterior la registra. `descartar_propuesta` con `propuesta` no pasa el esquema | `tests/test_agent_graph.py::test_aclaracion_mantiene_la_propuesta_vigente`, `::test_descartar_propuesta_va_sin_propuesta`, `::test_texto_sin_tools_mantiene_la_propuesta` |
+| CA-164 | Una propuesta vigente y una respuesta anterior que preguntó algo (con opciones o sin ellas) | El cliente escribe «sí» | El mensaje va al LLM y no se registra sin él | `tests/test_agent_graph.py::test_si_que_contesta_una_pregunta_va_al_agente` |
 | CA-162 | Una lista que abre con «Buenas! Para el salón necesito:» y un catálogo con un producto que dice «salón» | Se numera | La línea de introducción no es un renglón: el primer producto es el renglón 1 | `tests/test_interpretation.py::test_la_introduccion_no_es_un_renglon` |
 | CA-123 | 30 renglones | Se llama a `buscar_renglones` | Devuelve 30 resultados con estado y, como mucho, 3 candidatos de 4 campos | `tests/test_busqueda.py::test_busqueda_por_lote` |
 | CA-124 | Un renglón de coloración con `tono` | Se busca | Encuentra la coloración de la marca y el tono no baja el puntaje | `tests/test_busqueda.py::test_tono_no_participa` |

@@ -34,5 +34,13 @@ class EstadoNorma(TypedDict, total=False):
     kind: str | None
     options: list[str]
     opciones_previas: list[str]  # las `options` de tu respuesta anterior: lo que el cliente está contestando (RF-71)
+    kind_anterior: str | None  # `kind` de la respuesta anterior: si no cerró con la propuesta, «sí» va al LLM (RF-99)
     order_id: str | None
     resultado: Resultado
+    # Lo que el backend sabe del cliente, armado sin LLM una vez por día: nombre, pedidos, comprados, desde, fecha y
+    # completo (RF-84). None: todavía no se armó, o lo invalidó un pedido registrado
+    contexto_cliente: dict[str, Any] | None
+    # La nota de búsqueda de la precarga y las de los sub-loops de este turno, con sus renglones y sus intentos.
+    # `pausa` la vacía: al mensaje siguiente pasa solo el estado estructurado (RF-92)
+    notas_turno: list[dict[str, Any]]
+    iteraciones_sub_loop: int  # llamadas al LLM de los sub-loops en este turno: cuentan para el tope (RF-93)
