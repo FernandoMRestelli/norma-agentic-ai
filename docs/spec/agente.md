@@ -280,9 +280,12 @@ Ninguna de las dos arma una ruta de archivo con lo que manda el LLM: el nombre o
 |---|---|---|
 | `query` | `str` | No vacío. Texto libre del cliente o del LLM («pantene 400») |
 | `limit` | `int` | 1 a 10, por defecto 5 |
+| `quantity` | `int \| None` | Opcional, mayor que 0. La cantidad que pide el cliente |
 
 Salida `data.matches`: lista de `{sku, name, brand, presentation, price, score, aproximado, hay_stock}`, ordenada
-por `score` descendente (0 a 1), sin el número de stock. La búsqueda es aproximada: tolera mayúsculas, tildes,
+por `score` descendente (0 a 1), sin el número de stock. Con `quantity`, cada match y cada sugerencia suman
+`alcanza` y, solo si no alcanza, `disponible`: las unidades que quedan, lo único que BR-01 deja decirle al cliente.
+Así el agente no necesita `check_stock` después de buscar, y un único match que no alcanza adjunta BR-01. La búsqueda es aproximada: tolera mayúsculas, tildes,
 plurales, errores de tipeo y de sonido, abreviaturas y medidas escritas de otra forma (RF-07, RF-36 a RF-38).
 Los números no se aproximan: `340` no trae un producto de 400 ml, y `6.1` no trae el tono 7.1 (RF-08).
 Si no hay coincidencias confiables, `data.sugerencias` trae los candidatos más parecidos, y `data.corregido` dice
@@ -312,8 +315,9 @@ Devuelve un diccionario estructurado según los parámetros provistos:
 
 #### `check_stock`
 
-Entrada `sku: str`, `quantity: int > 0`. Salida `data`: un `StockCheck` (`sku`, `requested`, `available`,
-`is_enough`). Errores: `sku_inexistente`, `catalogo_no_disponible`.
+Entrada `sku: str`, `quantity: int > 0`. Salida `data`: un `StockCheck` (`sku`, `requested`, `is_enough`). Solo si
+no alcanza suma `available`, como `falta` en `buscar_renglones`: si alcanza, el LLM no necesita el número y no se lo
+puede pasar al cliente. Errores: `sku_inexistente`, `catalogo_no_disponible`.
 
 #### `armar_pedido` (terminal)
 

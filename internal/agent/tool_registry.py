@@ -72,8 +72,13 @@ def _explorar_catalogo(data: ExplorarCatalogoInput, _: TurnContext) -> dict[str,
     return catalog_tools.explorar_catalogo(data.brand, data.category, data.limit)
 
 
-def _al_llm(product: Product) -> dict[str, Any]:
+def _al_llm(product: Product, quantity: int | None = None) -> dict[str, Any]:
     datos = {**product.model_dump(mode="json", exclude=_SOLO_INTERNOS), "hay_stock": product.stock > 0}
+    if quantity is not None:
+        datos["alcanza"] = product.stock >= quantity
+        if not datos["alcanza"]:
+            # Cuántas quedan solo importa si no alcanza: es lo único que BR-01 deja decirle al cliente
+            datos["disponible"] = product.stock
     # Solo cuando es cierto: es una pista para preguntar («¿el de 900, como la otra vez?»), no un dato de cada producto
     return {**datos, "comprado_antes": True} if getattr(product, "comprado_antes", False) else datos
 
@@ -96,8 +101,8 @@ def _pedidos_anteriores(data: PedidosAnterioresInput, ctx: TurnContext) -> dict[
 def _search_products(data: SearchProductsInput, ctx: TurnContext) -> dict[str, Any]:
     resultado = catalog_tools.buscar_productos(data.query, data.limit, _comprados(ctx))
     salida = {
-        "matches": [_al_llm(match) for match in resultado.matches],
-        "sugerencias": [_al_llm(sugerencia) for sugerencia in resultado.sugerencias],
+        "matches": [_al_llm(match, data.quantity) for match in resultado.matches],
+        "sugerencias": [_al_llm(sugerencia, data.quantity) for sugerencia in resultado.sugerencias],
         "corregido": resultado.corregido,
         "total": resultado.total,
         "difieren_en": resultado.difieren_en,
@@ -134,7 +139,9 @@ def _get_product(data: GetProductInput, _: TurnContext) -> dict[str, Any]:
 
 
 def _check_stock(data: CheckStockInput, _: TurnContext) -> dict[str, Any]:
-    return inventory_tools.check_stock(data.sku, data.quantity).model_dump(mode="json")
+    check = inventory_tools.check_stock(data.sku, data.quantity)
+    # Si alcanza, el LLM no necesita el número: así no se lo puede pasar al cliente (BR-01)
+    return check.model_dump(mode="json", exclude={"available"} if check.is_enough else None)
 
 
 def _leer_skill(data: LeerSkillInput, ctx: TurnContext) -> dict[str, Any]:
@@ -245,7 +252,8 @@ TOOLS: dict[str, ToolSpec] = {
             "search_products",
             "Busca en el catálogo por producto, marca, medida o tono, tolerando errores de tipeo y abreviaturas. "
             "`matches` son las coincidencias confiables, con precio, disponibilidad (hay_stock: bool) y `score` "
-            "(de 0 a 1); `aproximado: true` quiere decir que algo no coincidió exacto y conviene confirmarlo. "
+            "(de 0 a 1). Con `quantity`, cada uno dice si `alcanza` el stock y, si no, cuánto queda en "
+            "`disponible`. `aproximado: true` quiere decir que algo no coincidió exacto y conviene confirmarlo. "
             "Si no hay matches, `sugerencias` trae los productos más parecidos, todos aproximados. `corregido` dice "
             "qué palabras se interpretaron como otra. Los números tienen que coincidir: 400 no trae 340. "
             "Si `matches` y `sugerencias` están vacías, no hay nada parecido. `total` dice cuántos productos "
@@ -281,7 +289,8 @@ TOOLS: dict[str, ToolSpec] = {
         ),
         ToolSpec(
             "check_stock",
-            "Indica cuántas unidades hay de un SKU y si alcanzan para una cantidad.",
+            "Indica si el stock de un SKU alcanza para una cantidad (`is_enough`). Solo si no alcanza dice cuántas "
+            "unidades quedan (`available`).",
             CheckStockInput,
             _check_stock,
         ),
@@ -378,7 +387,7 @@ def _brs_que_dispara(name: str, result: dict[str, Any]) -> list[str]:
         return ["BR-04"]
     if len(matches) > 1:
         return ["BR-03"]
-    return [] if matches[0]["hay_stock"] else ["BR-01"]
+    return [] if matches[0]["hay_stock"] and matches[0].get("alcanza", True) else ["BR-01"]
 
 
 def _adjuntar_br(name: str, result: dict[str, Any], ctx: TurnContext) -> dict[str, Any]:

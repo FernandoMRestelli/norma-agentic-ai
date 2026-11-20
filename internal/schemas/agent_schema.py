@@ -57,6 +57,12 @@ class SearchProductsInput(BaseModel):
         ),
     )
     limit: int = Field(default=5, ge=1, le=10, description="Cantidad máxima de resultados")
+    quantity: int | None = Field(
+        default=None,
+        gt=0,
+        le=MAX_QUANTITY,
+        description="Cantidad que pide el cliente, si la dijo. Con ella, cada resultado indica si alcanza el stock",
+    )
 
 
 class RenglonBuscado(BaseModel):

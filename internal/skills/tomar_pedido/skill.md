@@ -4,8 +4,8 @@ funcion: Convierte lo que pide el cliente en una propuesta de pedido. Busca cada
 cuando: El cliente pide o consulta productos, o quiere cambiar una cantidad o un producto de la propuesta vigente, sumar o sacar algo
 tools: [search_products, buscar_renglones, get_product, check_stock, explorar_catalogo, pedidos_anteriores, respond_to_customer]
 ---
-1. Buscá cada producto con `search_products`, si todavía no lo hiciste. Elegí el que coincide en tipo, marca, medida y tono: un resultado parecido no alcanza, así que mirá `score` y los datos de cada producto. Si un número no coincide, buscá de nuevo solo con el tipo y la marca.
-2. Fijate si el stock alcanza para la cantidad pedida. `check_stock` hace falta solo si la búsqueda no te dio ese dato.
+1. Buscá cada producto con `search_products`, con la cantidad en `quantity`, si todavía no lo hiciste. Elegí el que coincide en tipo, marca, medida y tono: un resultado parecido no alcanza, así que mirá `score` y los datos de cada producto. Si un número no coincide, buscá de nuevo solo con el tipo y la marca.
+2. Fijate si `alcanza` el stock de cada producto; si no alcanza, `disponible` dice cuánto queda. `check_stock` hace falta solo si buscaste sin `quantity` o si la cantidad cambió después.
 3. Si identificaste todo y alcanza, respondé con `kind = propuesta` y todas las líneas en `propuesta`. Debajo de tu mensaje el sistema agrega cada línea con su precio y el total, así que tu mensaje no los repite: en una frase decí qué le armaste, avisá lo que cambió o quedó afuera y preguntale si lo confirmás o suma algo.
 
 Si no, seguí el caso que corresponda. Si el mensaje mezcla varios, leé la BR de cada uno.

@@ -206,6 +206,33 @@ def test_check_stock_ejecuta_con_argumentos_validos():
     assert result["ok"] is True
     assert result["data"]["is_enough"] is True
 
+
+def _ejecutar(name, **arguments):
+    ctx = tool_registry.TurnContext(customer_id="c", channel=Channel.WEB, disponibles=list(tool_registry.TOOLS))
+    return tool_registry.execute(name, arguments, ctx)["data"]
+
+
+def test_check_stock_solo_da_el_numero_si_no_alcanza():
+    """BR-01: la crema de enjuague Sedal tiene 4 unidades; el LLM solo ve cuántas quedan cuando no alcanzan."""
+    assert _ejecutar("check_stock", sku="CE-SED-340", quantity=4) == {
+        "sku": "CE-SED-340", "requested": 4, "is_enough": True
+    }
+    assert _ejecutar("check_stock", sku="CE-SED-340", quantity=5) == {
+        "sku": "CE-SED-340", "requested": 5, "available": 4, "is_enough": False
+    }
+
+
+def test_busqueda_con_cantidad_dice_si_alcanza_sin_revelar_el_stock():
+    """Con `quantity` no hace falta `check_stock` después de buscar, y el número solo aparece si no alcanza."""
+    alcanza = _ejecutar("search_products", query="crema de enjuague sedal", quantity=4)["matches"][0]
+    assert (alcanza["sku"], alcanza["alcanza"]) == ("CE-SED-340", True)
+    assert "disponible" not in alcanza
+    no_alcanza = _ejecutar("search_products", query="crema de enjuague sedal", quantity=5)["matches"][0]
+    assert (no_alcanza["alcanza"], no_alcanza["disponible"]) == (False, 4)
+    sin_cantidad = _ejecutar("search_products", query="crema de enjuague sedal")["matches"][0]
+    assert not {"alcanza", "disponible"} & sin_cantidad.keys()
+
+
 def test_explorar_catalogo_marcas_por_categoria():
     """RF-35: Consulta marcas disponibles en una categoría."""
     res = catalog_tools.explorar_catalogo(category="shampoo")
@@ -282,6 +309,8 @@ def test_br_junto_al_resultado():
          {"kind": "propuesta", "message": "Van las 10.", "propuesta": [{"sku": "CE-SED-340", "quantity": 10}]},
          "BR-01"),
         ("search_products", {"query": "shampoo pantene 400"}, None),  # un solo producto, con stock
+        ("search_products", {"query": "crema de enjuague sedal", "quantity": 5}, "BR-01"),  # hay 4
+        ("search_products", {"query": "crema de enjuague sedal", "quantity": 4}, None),
         ("get_product", {"sku": "SH-PAN-400"}, None),
     ],
 )
