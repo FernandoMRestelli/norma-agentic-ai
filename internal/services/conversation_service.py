@@ -28,7 +28,7 @@ from internal.schemas.order_schema import (
     IncomingMessage,
     MessageType,
 )
-from internal.services import message_service
+from internal.services import message_service, topic_filter
 from internal.services.palabras_clave import interpretar_palabra_clave
 
 logger = logging.getLogger(__name__)
@@ -167,6 +167,11 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
             len(text),
         )
         return ChannelReply(text=rechazo)
+
+    # Fuera de tema evidente: sin abrir/cerrar conversación ni modificar la propuesta vigente.
+    if topic_filter.is_off_topic(text):
+        logger.info("Filtro de tema: respuesta fija sin llamar al agente")
+        return ChannelReply(text=topic_filter.OFF_TOPIC_REPLY)
 
     # Los turnos de una conversación se procesan de a uno (RNF-05)
     with _locks[(message.customer_id, message.channel)]:
