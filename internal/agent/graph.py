@@ -34,6 +34,7 @@ from internal.services.palabras_clave import (
     interpretar_palabra_clave,
 )
 from internal.services.skill_service import get_skills
+from internal.tools import reply_tools
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ MAX_FAILURES = 2  # D-07
 MAX_PALABRAS_RESPUESTA_A_PROPUESTA = 3
 _reloj = time.time  # los tests lo reemplazan para no esperar
 FAILURE_MESSAGE = "Tuve un problema, probá de nuevo en unos minutos."
-HANDOFF_MESSAGE = "Te va a responder una persona del equipo."
+HANDOFF_MESSAGE = reply_tools.DEFAULT_HANDOFF_MESSAGE
 
 
 def max_iteraciones() -> int:
@@ -405,18 +406,16 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
         if ctx.respuesta:
             messages.append(AIMessage(content=ctx.respuesta))
 
-        # 3 aclaraciones seguidas sin borrador derivan a humano (RF-27)
-        aclaraciones = state.get("aclaraciones_seguidas", 0)
+        # 3 aclaraciones seguidas sin borrador derivan a humano (RF-27): cualquier otra respuesta corta la racha
+        aclaraciones = 0
         if ctx.kind == "aclaracion" and not ctx.propuesta:
-            aclaraciones += 1
+            aclaraciones = state.get("aclaraciones_seguidas", 0) + 1
             if aclaraciones >= 3:
                 ctx.kind = "derivada"
                 ctx.respuesta = HANDOFF_MESSAGE
                 ctx.derivation_reason = "aclaraciones_repetidas"
                 ctx.resultado = "final"
                 messages[-1] = AIMessage(content=HANDOFF_MESSAGE)
-        elif ctx.propuesta or ctx.kind in ("propuesta", "pedido"):
-            aclaraciones = 0
 
         return {
             "messages": messages,

@@ -476,6 +476,7 @@ def test_fila_de_pedido_con_columnas_nuevas():
         "",  # origen: una orden armada a mano no lo trae
         "d-1",
         "2026-11-10T12:00:00-03:00",  # sin cambios de estado, es la fecha de alta
+        "",  # sin descuento
     ]
 
 

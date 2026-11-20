@@ -544,6 +544,7 @@ varios miles de caracteres.
 | `origen` | `texto`, `audio` o `imagen` |
 | `draft_id` | Borrador del que salió la orden |
 | `actualizado` | Fecha y hora del último cambio de estado |
+| `descuento` | Porcentaje autorizado por el operador al resolver una derivación (`10`, `12.5`), o vacío. Con descuento, `total` ya lo tiene aplicado y es menor que la suma de las líneas |
 
 **Columnas de `pedidos_lineas.csv`:**
 

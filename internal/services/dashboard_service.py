@@ -28,7 +28,7 @@ from internal.schemas.dashboard_schema import (
     TimeSeriesPoint,
     TopProductItem,
 )
-from internal.schemas.order_schema import DraftStatus, OrderDraft, OrderStatus
+from internal.schemas.order_schema import DraftStatus, OrderItem, OrderStatus, descuento, items_total
 from internal.services import inventory_service, sheets_service, telegram_service, validation_service
 
 logger = logging.getLogger(__name__)
@@ -126,11 +126,8 @@ def get_orders(status: str | None = None, limit: int = 50, offset: int = 0) -> l
         discount_percentage = o.get("discount_percentage")
         if o.get("total") is not None:
             total = Decimal(str(o["total"]))
-        elif discount_percentage:
-            desc = (subtotal * Decimal(str(discount_percentage)) / Decimal("100")).quantize(Decimal("0.01"))
-            total = subtotal - desc
         else:
-            total = subtotal
+            total = subtotal - descuento(subtotal, discount_percentage)
 
         items_summary = "; ".join(f"{it.quantity} x {it.product_name} ({it.sku})" for it in line_items)
         result.append(
@@ -191,11 +188,7 @@ def _order_revenue(order: dict[str, Any], catalog_prices: dict[str, Decimal]) ->
         return Decimal(str(order["total"]))
     lineas = (_line_price(it, catalog_prices) * int(it.get("quantity", 0)) for it in order.get("items", []))
     subtotal = sum(lineas, Decimal(0))
-    discount_percentage = order.get("discount_percentage")
-    if discount_percentage:
-        desc = (subtotal * Decimal(str(discount_percentage)) / Decimal("100")).quantize(Decimal("0.01"))
-        return subtotal - desc
-    return subtotal
+    return subtotal - descuento(subtotal, order.get("discount_percentage"))
 
 
 def _in_period(dt: datetime, period: Literal["all", "today", "yesterday", "7d", "30d"], today_ar: Any) -> bool:
@@ -522,6 +515,13 @@ def get_conversation_detail(conversation_id: int) -> ConversationDetailResponse:
         )
 
 
+def _notas_con_acuerdo(notas: str | None, acuerdo: str | None) -> str | None:
+    """Las notas del pedido con el acuerdo vigente: lo agrega o reemplaza y, si ya no hay acuerdo, lo saca."""
+    if acuerdo:
+        return validation_service.merge_order_notes(notas, acuerdo)
+    return validation_service.quitar_acuerdo(notas)
+
+
 def resolve_conversation(
     conversation_id: int, request: ConversationResolveRequest
 ) -> ConversationDetailResponse:
@@ -588,19 +588,48 @@ def resolve_conversation(
                 .limit(1)
             )
             if pending_draft:
-                if has_order_notes and clean_order_notes:
-                    pending_draft.notes = validation_service.merge_order_notes(pending_draft.notes, clean_order_notes)
+                if has_order_notes:
+                    pending_draft.notes = _notas_con_acuerdo(pending_draft.notes, clean_order_notes)
                 if has_discount:
-                    draft_obj = OrderDraft.model_validate({
-                        **dict(pending_draft.__dict__),
-                        "items": pending_draft.items,
-                        "discount_percentage": request.discount_percentage,
-                    })
-                    pending_draft.total = draft_obj.total
+                    subtotal = items_total([OrderItem.model_validate(item) for item in pending_draft.items])
+                    pending_draft.total = subtotal - descuento(subtotal, request.discount_percentage)
 
         session.flush()
 
-        # 3. Enviar mensaje al cliente (si falla, el rollback evita dejar la base cambiada)
+        # 3. Estado del agente antes de enviar y de confirmar la base: si falla, el rollback deja la conversación
+        # derivada y sin mensaje enviado, y el operador puede volver a resolverla (NUNCA `operator_notes`)
+        agent = get_agent()
+        config = {"configurable": {"thread_id": str(conversation_id)}}
+        update_data: dict[str, Any] = {}
+        if has_discount:
+            update_data["descuento_autorizado"] = request.discount_percentage
+        if has_order_notes:
+            update_data["acuerdo_operativo"] = clean_order_notes
+        if request.resolution_type:
+            update_data["condicion_comercial"] = request.resolution_type
+        if request.reactivate_bot:
+            update_data["derivation_reason"] = None
+        try:
+            if condiciones_cambiaron:
+                st = agent.graph.get_state(config)
+                if st and st.values.get("propuesta"):
+                    prop = dict(st.values["propuesta"])
+                    if has_discount:
+                        prop["discount_percentage"] = request.discount_percentage
+                    if has_order_notes:
+                        prop["notes"] = _notas_con_acuerdo(prop.get("notes"), clean_order_notes)
+                    update_data["propuesta"] = prop
+                    # Exigimos mostrar el resumen actualizado y nueva confirmación antes de crear la orden
+                    update_data["propuesta_pendiente_mostrar"] = True
+            if update_data:
+                agent.graph.update_state(config, update_data)
+        except Exception as exc:
+            logger.exception("No se pudo actualizar el estado del agente para conversation_id=%s", conversation_id)
+            raise HTTPException(
+                status_code=500, detail="No se guardó la resolución: falló el estado del agente. Probá de nuevo."
+            ) from exc
+
+        # 4. Enviar mensaje al cliente (si falla, el rollback evita dejar la base cambiada)
         if msg_text and chat_id is not None:
             try:
                 telegram_service.get_client().send_message(chat_id, msg_text)
@@ -613,38 +642,16 @@ def resolve_conversation(
 
         session.commit()
 
-        # 4. Actualizar estado en checkpointer de LangGraph con la misma semántica (NUNCA `operator_notes`)
-        try:
-            agent = get_agent()
-            config = {"configurable": {"thread_id": str(conversation_id)}}
-            update_data: dict[str, Any] = {}
-            if msg_text:
-                update_data["messages"] = [AIMessage(content=f"[Operador] {msg_text}")]
-            if has_discount:
-                update_data["descuento_autorizado"] = request.discount_percentage
-            if has_order_notes:
-                update_data["acuerdo_operativo"] = clean_order_notes
-            if request.resolution_type:
-                update_data["condicion_comercial"] = request.resolution_type
-            if condiciones_cambiaron:
-                st = agent.graph.get_state(config)
-                if st and st.values.get("propuesta"):
-                    prop = dict(st.values["propuesta"])
-                    if has_discount:
-                        prop["discount_percentage"] = request.discount_percentage
-                    if has_order_notes and clean_order_notes:
-                        prop["notes"] = validation_service.merge_order_notes(prop.get("notes"), clean_order_notes)
-                    update_data["propuesta"] = prop
-                    # Exigimos mostrar el resumen actualizado y nueva confirmación antes de crear la orden
-                    update_data["propuesta_pendiente_mostrar"] = True
-            if request.reactivate_bot:
-                update_data["derivation_reason"] = None
-            if update_data:
-                agent.graph.update_state(config, update_data)
-        except Exception as exc:
-            logger.warning(
-                "No se pudo actualizar el estado de LangGraph para conversation_id=%s: %s", conversation_id, exc
-            )
+        # 5. El mensaje del operador al historial, recién cuando salió: solo lo lee el dashboard y el agente
+        if msg_text:
+            try:
+                agent.graph.update_state(config, {"messages": [AIMessage(content=f"[Operador] {msg_text}")]})
+            except Exception:
+                logger.warning(
+                    "El mensaje del operador salió pero no quedó en el historial de conversation_id=%s",
+                    conversation_id,
+                    exc_info=True,
+                )
 
     return get_conversation_detail(conversation_id)
 

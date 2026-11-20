@@ -1,12 +1,25 @@
 """Arma los textos del pedido que ve el cliente, siempre a partir de datos validados."""
 
 import re
-from decimal import Decimal
 
-from internal.schemas.order_schema import MAX_ORDER_NOTES_LENGTH, Order, OrderDraft, OrderItem, items_total
+from internal.schemas.order_schema import (
+    MAX_ORDER_NOTES_LENGTH,
+    Order,
+    OrderDraft,
+    OrderItem,
+    descuento,
+    items_total,
+)
 
 _ACUERDO_RE = re.compile(r"(?:^|\s*)Acuerdo confirmado:\s*.*$", re.IGNORECASE)
 _ACUERDO_PREFIJO_RE = re.compile(r"^Acuerdo confirmado:\s*", re.IGNORECASE)
+
+
+def quitar_acuerdo(notes: str | None) -> str | None:
+    """Las notas sin el bloque «Acuerdo confirmado: ...»: el operador lo sacó al resolver de nuevo."""
+    if not notes:
+        return notes
+    return _ACUERDO_RE.sub("", notes).strip() or None
 
 
 def merge_order_notes(existing_notes: str | None, order_notes: str | None) -> str | None:
@@ -30,6 +43,11 @@ def merge_order_notes(existing_notes: str | None, order_notes: str | None) -> st
     return f"{base}{separador}{segmento}"[:MAX_ORDER_NOTES_LENGTH]
 
 
+def porcentaje_legible(porcentaje: float) -> str:
+    """«10» en vez de «10.0»; «12.5» queda igual."""
+    return f"{porcentaje:g}"
+
+
 def _line(item: OrderItem) -> str:
     presentation = f" {item.presentation}" if item.presentation else ""
     price_info = ""
@@ -50,13 +68,10 @@ def _lines_and_total(
     subtotal = items_total(items)
     if subtotal > 0:
         if discount_percentage:
-            pct_val = int(discount_percentage) if float(discount_percentage).is_integer() else discount_percentage
-            pct_str = f"{pct_val}%"
-            discount_amount = (subtotal * Decimal(str(discount_percentage)) / Decimal("100")).quantize(Decimal("0.01"))
-            total = subtotal - discount_amount
+            monto = descuento(subtotal, discount_percentage)
             lines.append(f"Subtotal: ${subtotal:.2f}")
-            lines.append(f"Descuento ({pct_str}): -${discount_amount:.2f}")
-            lines.append(f"{total_label}: ${total:.2f}")
+            lines.append(f"Descuento ({porcentaje_legible(discount_percentage)}%): -${monto:.2f}")
+            lines.append(f"{total_label}: ${subtotal - monto:.2f}")
         else:
             lines.append(f"{total_label}: ${subtotal:.2f}")
     return lines

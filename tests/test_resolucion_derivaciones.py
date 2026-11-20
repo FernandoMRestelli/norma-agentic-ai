@@ -749,3 +749,130 @@ def test_resolve_conversation_segunda_resolucion_mantiene_consistencia_bd_y_esta
     assert st3.get("descuento_autorizado") is None
     assert st3.get("acuerdo_operativo") is None
 
+
+def _conversacion(status: str = "derivada", customer_id: str = "telegram:424242") -> int:
+    with SessionLocal() as session:
+        conv = ConversationRecord(
+            customer_id=customer_id, channel="telegram", status=status, derivation_reason="condicion_comercial"
+        )
+        session.add(conv)
+        session.commit()
+        return conv.id
+
+
+def _telegram(monkeypatch) -> list[tuple[int, str]]:
+    enviados: list[tuple[int, str]] = []
+    cliente = type("C", (), {"send_message": lambda self, chat_id, text: enviados.append((chat_id, text))})()
+    monkeypatch.setattr(telegram_service, "get_client", lambda: cliente)
+    return enviados
+
+
+def test_guardrails_rechaza_otro_descuento_sin_porcentaje():
+    """Con un 10% autorizado, prometer «otro descuento» sin porcentaje es una promesa nueva: se rechaza."""
+    otra = guardrails.validar_salida(
+        message="Te hago otro descuento si sumás una caja más.", kind="informacion", descuento_autorizado=10.0
+    )
+    assert "promesa" in [r.regla for r in otra]
+    autorizado = guardrails.validar_salida(
+        message="Ya tenés aplicado el 10% de descuento.", kind="informacion", descuento_autorizado=10.0
+    )
+    assert "promesa" not in [r.regla for r in autorizado]
+
+
+@pytest.mark.parametrize("status", ["cerrada", "vencida", "descartada", "abierta", "resuelta"])
+def test_solo_se_resuelve_una_conversacion_derivada(monkeypatch, status):
+    """Resolver una conversación que no está derivada la reabriría y saltearía el vencimiento de 24 h (RF-28)."""
+    conv_id = _conversacion(status)
+    enviados = _telegram(monkeypatch)
+    req = ConversationResolveRequest(resolution_type="mensaje_directo", message="Hola", reactivate_bot=True)
+    with pytest.raises(HTTPException) as exc_info:
+        dashboard_service.resolve_conversation(conv_id, req)
+    assert exc_info.value.status_code == 409
+    assert enviados == []
+    with SessionLocal() as session:
+        assert session.get_one(ConversationRecord, conv_id).status == status
+
+
+def test_si_falla_el_estado_del_agente_la_conversacion_sigue_derivada(monkeypatch):
+    """Si falla el estado del agente, no se guarda ni se envía nada: el operador puede volver a resolverla."""
+    conv_id = _conversacion()
+    enviados = _telegram(monkeypatch)
+
+    class GrafoRoto:
+        def get_state(self, config):
+            return type("S", (), {"values": {}})()
+
+        def update_state(self, config, values):
+            raise RuntimeError("checkpointer caído")
+
+    monkeypatch.setattr(dashboard_service, "get_agent", lambda: type("A", (), {"graph": GrafoRoto()})())
+    req = ConversationResolveRequest(
+        resolution_type="descuento_volumen", message="Te autorizamos 10%.", discount_percentage=10.0
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        dashboard_service.resolve_conversation(conv_id, req)
+    assert exc_info.value.status_code == 500
+    assert enviados == []  # el mensaje sale después de actualizar al agente: el cliente no recibe nada a medias
+    with SessionLocal() as session:
+        conv = session.get_one(ConversationRecord, conv_id)
+        assert conv.status == "derivada"
+        assert conv.discount_percentage is None
+
+
+def test_borrar_el_acuerdo_lo_saca_tambien_de_la_propuesta(monkeypatch):
+    """Borrar descuento y acuerdo los saca de la base, del agente y de la propuesta vigente, no solo de la base."""
+    conv_id = _conversacion()
+    _telegram(monkeypatch)
+    agent = norma_agent.get_agent()
+    config = {"configurable": {"thread_id": str(conv_id)}}
+    items = [OrderItem(sku="SKU-1", product_name="Aceite 1L", quantity=2, unit_price=Decimal("100.00"))]
+    propuesta = OrderDraft(
+        draft_id="d-res", customer_id="telegram:424242", channel=Channel.TELEGRAM, items=items, notes="Sin bolsa."
+    )
+    agent.graph.update_state(config, {"propuesta": propuesta.model_dump(mode="json")})
+
+    con_descuento = ConversationResolveRequest(
+        resolution_type="descuento_volumen",
+        discount_percentage=10.0,
+        order_notes="retiro de 9 a 12",
+        reactivate_bot=False,
+    )
+    dashboard_service.resolve_conversation(conv_id, con_descuento)
+    valores = agent.graph.get_state(config).values
+    assert valores["descuento_autorizado"] == 10.0
+    assert valores["propuesta"]["discount_percentage"] == 10.0
+    assert valores["propuesta"]["notes"] == "Sin bolsa. Acuerdo confirmado: retiro de 9 a 12"
+
+    sin_descuento = ConversationResolveRequest(
+        resolution_type="mensaje_directo", discount_percentage=None, order_notes=None, reactivate_bot=False
+    )
+    detail = dashboard_service.resolve_conversation(conv_id, sin_descuento)
+    assert detail.discount_percentage is None
+    assert detail.order_notes is None
+    valores = agent.graph.get_state(config).values
+    assert valores["descuento_autorizado"] is None
+    assert valores["acuerdo_operativo"] is None
+    assert valores["propuesta"]["discount_percentage"] is None
+    assert valores["propuesta"]["notes"] == "Sin bolsa."
+    assert valores["propuesta_pendiente_mostrar"] is True
+
+
+def test_sheet2_explica_el_descuento_del_total():
+    """Con descuento, `total` es menor que la suma de las líneas: la columna `descuento` dice por qué."""
+    from datetime import UTC, datetime
+
+    from internal.services import sheets_service
+
+    items = [OrderItem(sku="SKU-1", product_name="Aceite 1L", quantity=10, unit_price=Decimal("100.00"))]
+    order = Order(
+        order_id="ORD-0001",
+        draft_id="d-1",
+        created_at=datetime(2026, 11, 10, 15, 0, tzinfo=UTC),
+        customer_id="telegram:1",
+        channel=Channel.TELEGRAM,
+        items=items,
+        discount_percentage=12.5,
+    )
+    fila = dict(zip(sheets_service.ORDER_COLUMNS, sheets_service.format_order_row(order), strict=True))
+    assert fila["total"] == "875.00"
+    assert fila["descuento"] == "12.5"

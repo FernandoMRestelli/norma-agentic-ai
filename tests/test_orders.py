@@ -429,7 +429,9 @@ def test_append_order_crea_archivo_y_escribe_cabecera(monkeypatch, tmp_path):
     assert reader[0][:9] == [
         "id_orden", "fecha_hora", "cliente", "canal", "productos", "notas", "estado", "nombre_cliente", "total"
     ]
-    assert reader[0][9:] == ["lineas", "unidades", "fuera_del_pedido", "origen", "draft_id", "actualizado"]
+    assert reader[0][9:] == [
+        "lineas", "unidades", "fuera_del_pedido", "origen", "draft_id", "actualizado", "descuento",
+    ]
     assert reader[1] == [
         "ORD-0001",
         "2026-10-27T09:12:00-03:00",
@@ -446,6 +448,7 @@ def test_append_order_crea_archivo_y_escribe_cabecera(monkeypatch, tmp_path):
         "",
         "d-1",
         "2026-10-27T09:12:00-03:00",
+        "",
     ]
 
 
