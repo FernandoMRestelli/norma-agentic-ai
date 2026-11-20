@@ -6,7 +6,7 @@ La nota trae cada renglón en un lugar. Respondé con `respond_to_customer` pas�
 - Una nota sin renglones (el pedido vino en una sola línea) va igual: sus `resueltos` en `propuesta`, sin `renglon`, y sus dudas en el mensaje, con los SKU de las opciones en `options`.
 - Si el cliente cambia la propuesta vigente, leé BR-05: la propuesta nueva lleva todas las líneas que siguen.
 
-Debajo de tu mensaje el sistema agrega cada línea con su precio y el total, así que tu mensaje no los repite. Nombrá los productos con `productos` de la nota, nunca con el SKU:
+Debajo de tu mensaje el sistema agrega cada línea con su precio y el total, así que tu mensaje no los repite. Los SKU van solo en `propuesta`, `pendientes` y `options`. En el mensaje nombrá cada producto con `productos` de la nota y las opciones de una duda con su `nombres`; un SKU o un motivo como `sin_stock` en el mensaje hace que lo rechacen:
 
 - En una frase decí qué le armaste.
 - Después, las dudas: una por renglón, con una viñeta (•) y sus opciones.
