@@ -119,13 +119,14 @@ def es_solicitud_comercial(texto: str) -> bool:
     """True si pide explícitamente condiciones comerciales especiales (Issue #84).
 
     Evita palabras sueltas como «descuento» o «cuotas» para no forzar `derivar_o_cancelar`
-    en consultas de catálogo; esos casos ambiguos quedan a criterio del modelo.
+    en consultas de catálogo; esos casos ambiguos quedan a criterio del modelo. Una pregunta como «¿hacen
+    descuento si llevo 2 cajas?» también: derivarla silencia al bot 24 h por una consulta que se contesta.
     """
     normalizado = _normalizar(texto)
     return bool(
         re.search(
             r"\bdescuento(?:s)?\s+(?:por\s+(?:volumen|bulto|cantidad|mayor)|especial)\b|"
-            r"\b(?:hacen|hacer(?:me)?|haceme|pedir)\s+(?:un\s+)?(?:\d+\s*%?\s*(?:de\s+)?)?descuento\b|"
+            r"\b(?:hacer(?:me)?|haceme|pedir)\s+(?:un\s+)?(?:\d+\s*%?\s*(?:de\s+)?)?descuento\b|"
             r"\bprecio especial\b|\bcuenta corriente\b|\bpago diferido\b|"
             r"\benvio al interior\b|\bflete especial\b|\btransporte al interior\b",
             normalizado,

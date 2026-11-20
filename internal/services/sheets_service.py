@@ -50,7 +50,7 @@ FALLBACK_CATALOG_CSV = ROOT_DIR / "data_example" / "catalogo.csv"
 # Las columnas nuevas van al final: las filas de un pedidos.csv anterior siguen alineadas con el encabezado
 ORDER_COLUMNS = [
     "id_orden", "fecha_hora", "cliente", "canal", "productos", "notas", "estado", "nombre_cliente", "total",
-    "lineas", "unidades", "fuera_del_pedido", "origen", "draft_id", "actualizado",
+    "lineas", "unidades", "fuera_del_pedido", "origen", "draft_id", "actualizado", "descuento",
 ]
 # Una fila por línea de cada orden (RF-75): lo que usa quien prepara el pedido. La comparte la hoja Líneas del Excel
 LINE_COLUMNS = [
@@ -268,6 +268,8 @@ def format_order_row(order: Order) -> list[str]:
         order.source or "",
         order.draft_id,
         _fecha_hora(order.updated_at),
+        # El porcentaje que autorizó el operador: explica por qué `total` es menor que la suma de las líneas
+        f"{order.discount_percentage:g}" if order.discount_percentage else "",
     ]
 
 
@@ -544,6 +546,10 @@ def get_orders() -> list[Order]:
             except ValueError:
                 status = OrderStatus.RECEIVED
 
+            try:
+                descuento = float(row.get("descuento") or 0) or None
+            except ValueError:
+                descuento = None
             orders.append(
                 Order(
                     order_id=order_id,
@@ -555,6 +561,7 @@ def get_orders() -> list[Order]:
                     notes=row.get("notas") or None,
                     status=status,
                     sheets_synced=True,
+                    discount_percentage=descuento,
                 )
             )
     return orders

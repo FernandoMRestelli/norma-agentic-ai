@@ -31,6 +31,7 @@ from internal.schemas.order_schema import (
 )
 from internal.services import message_service
 from internal.services.palabras_clave import interpretar_palabra_clave
+from internal.tools import reply_tools
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +48,7 @@ def proposal_expired_message() -> str:
     )
 
 
-DRAFT_DISCARDED_MESSAGE = (
-    "Listo, cancelé la propuesta. Si más adelante querés pedir algo, avisame y arrancamos de nuevo."
-)
+DRAFT_DISCARDED_MESSAGE = reply_tools.DEFAULT_DISCARD_MESSAGE
 
 _locks: defaultdict[tuple[str, Channel], threading.Lock] = defaultdict(threading.Lock)
 
