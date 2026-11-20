@@ -71,9 +71,10 @@ def construir_prompt(
     ultimo_mensaje: str = "",
 ) -> str:
     """El system prompt del sub-loop: sin la charla anterior ni las notas de otras skills (RF-89, CA-153)."""
+    brs = ", ".join(f"{br['id']} ({br['titulo']})" for br in skill.titulos_br) or "ninguna"
     partes = [
         PROMPT_PATH.read_text(encoding="utf-8"),
-        f"## Skill `{skill.nombre}`\n\nBR: {', '.join(sorted(skill.br)) or 'ninguna'}\n\n{skill.sub_loop}",
+        f"## Skill `{skill.nombre}`\n\nBR: {brs}\n\n{skill.sub_loop}",
         f"## Encargo del orquestador\n\n{encargo}",
     ]
     if numeros:

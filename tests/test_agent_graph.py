@@ -560,6 +560,7 @@ def test_preactiva_tomar_pedido(catalogo):
     assert "armar_pedido" not in modelo.ofrecidas[0]
     sistema = modelo.recibidos[0][0].text
     assert "## Skill activa: `tomar_pedido`" in sistema
+    assert "BR-01 (Falta de stock)" in sistema  # el título, para elegir qué BR leer
     assert skill_service.get_skills()["tomar_pedido"].instrucciones in sistema
     estado = agent.graph.get_state({"configurable": {"thread_id": "1"}}).values
     assert estado["skills_activas"] == ["tomar_pedido"]
@@ -1114,7 +1115,7 @@ def test_pedidos_anteriores_del_cliente(catalogo):
     (resultado,) = _resultados(agent, "pedidos_anteriores")
     assert resultado["ok"]
     assert [pedido["lineas"] for pedido in resultado["data"]["pedidos"]] == [
-        [{"sku": SKU, "name": "Producto", "cantidad": 1}]
+        [{"sku": SKU, "name": "Producto", "cantidad": 1, "en_catalogo": True, "hay_stock": True}]
     ]
     texto = json.dumps(resultado)
     assert "ORD-" not in texto and "price" not in texto and "Recibido" not in texto and "1000" not in texto

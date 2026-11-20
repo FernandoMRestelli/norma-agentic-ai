@@ -1,5 +1,6 @@
 """Tools de catálogo que el agente puede invocar (solo lectura sobre Google Sheet 1)."""
 
+import re
 import unicodedata
 from collections import Counter
 from typing import Any
@@ -122,9 +123,11 @@ def buscar_renglones(
     ]
 
 def _normalizar(texto: str | None) -> str:
+    """Sin tildes ni signos: «L'Oréal» y «LOREAL» quedan iguales."""
     if not texto:
         return ""
-    return "".join(c for c in unicodedata.normalize("NFD", texto.lower().strip()) if unicodedata.category(c) != "Mn")
+    sin_tildes = "".join(c for c in unicodedata.normalize("NFD", texto.lower()) if unicodedata.category(c) != "Mn")
+    return " ".join(re.sub(r"[^\w\s]", "", sin_tildes).split())
 
 
 def _parecidas(buscado: str, opciones: set[str], tope: int = 3) -> list[str]:
@@ -150,6 +153,13 @@ def _hint_sin_resultados(que: str, buscado: str, opciones: set[str]) -> str:
             "volvé a llamar con ese nombre; si no, avisale al cliente que no la trabajás."
         )
     return f"No hay {que} «{buscado}» ni otra parecida en el catálogo: avisale al cliente que no la trabajás."
+
+
+def _marcas_con(products: list[Product], c_norm: str, tope: int = 5) -> str:
+    """Las marcas que tienen productos de una categoría, con un tope para no llenar el contexto."""
+    marcas = sorted({p.brand for p in products if p.brand and c_norm in _normalizar(p.category or "")})
+    resto = f" y {len(marcas) - tope} más" if len(marcas) > tope else ""
+    return ", ".join(marcas[:tope]) + resto
 
 
 def explorar_catalogo(
@@ -220,6 +230,10 @@ def explorar_catalogo(
                 for p in matched[:limit]
             ],
         }
+        if len(matched) > limit:
+            salida["_hint"] = (
+                f"Se muestran {limit} de {len(matched)} productos: si busca uno puntual, buscalo con search_products."
+            )
         if not matched:
             de_la_marca = {p.category for p in products if p.category and b_norm in _normalizar(p.brand or "")}
             de_esa_marca = (
@@ -228,6 +242,9 @@ def explorar_catalogo(
                 else _hint_sin_resultados("marca", brand, {p.brand for p in products if p.brand})
             )
             salida["_hint"] = f"No hay productos de «{brand}» en «{category}». {de_esa_marca}"
+            if de_la_marca and (otras := _marcas_con(products, c_norm)):
+                # Para ofrecerle otra marca sin una vuelta más (system prompt, «Proactividad comercial»)
+                salida["_hint"] += f" Tienen esa categoría: {otras}. Ofrecele alguna."
         return salida
 
     # Caso 4: General (sin filtros)

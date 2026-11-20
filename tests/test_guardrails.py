@@ -202,6 +202,19 @@ def test_sin_stock_exige_el_disponible_real():
     assert _reglas("Solo tengo 3", "informacion") == ["stock_revelado"]
 
 
+
+def test_el_disponible_de_search_products_cuenta_como_faltante():
+    """BR-01: search_products con `quantity` ya dice cuánto queda; el agente lo informa sin llamar a check_stock."""
+    resultado = {
+        "ok": True,
+        "data": {"matches": [{"sku": SKU, "hay_stock": True, "alcanza": False, "disponible": 3}]},
+    }
+    turno = guardrails.contexto_turno([ToolMessage(content=json.dumps(resultado), tool_call_id="c1")])
+    assert turno.faltantes == {SKU: 3}
+    assert _reglas("De la crema me quedan 3, ¿te sirven?", "aclaracion", turno=turno) == []
+    # Sin el dato del turno, el mismo número es stock revelado
+    assert _reglas("De la crema me quedan 3, ¿te sirven?", "aclaracion") == ["stock_revelado"]
+
 @pytest.mark.parametrize(
     "mensaje",
     [
