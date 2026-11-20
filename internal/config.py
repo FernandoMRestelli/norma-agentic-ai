@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     llm_vision_model: str | None = None
     llm_vision_api_key: str | None = None
 
+    # Módulo de Audio (Speech-to-Text). Proveedores: gemini, groq, openai, mock
+    audio_enabled: bool = False
+    audio_provider: str | None = None
+    audio_model: str | None = None
+    audio_api_key: str | None = None
+
     # Google Sheets / Catálogo local (docs/spec/planillas.md). Sin los ids, todo sale y va a los CSV
     google_credentials_file: str | None = None
     catalog_sheet_id: str | None = None

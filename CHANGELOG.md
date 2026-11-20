@@ -10,6 +10,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Agregado
 
+- Módulo de interpretación de notas de voz y audios (Speech-to-Text): permite transcribir mensajes de audio recibidos por canales soportados (Telegram) a texto normalizado y derivarlos al flujo del agente con `source="audio"`. Soporta proveedores Gemini, Groq Whisper y OpenAI Whisper vía HTTP (sin dependencias adicionales), configurable con `AUDIO_ENABLED=true` y `AUDIO_PROVIDER`. Si está apagado o falla la transcripción, responde con un mensaje cortés solicitando el pedido por escrito.
 - Un filtro previo al agente responde sin consumir tokens a desvíos evidentes (chistes, capitales, código y otras intenciones conocidas) sin señales de negocio. Conserva las propuestas vigentes y deja pasar pedidos mixtos o ambiguos. Se refuerzan las instrucciones para atender solo la parte del negocio. No hay variables nuevas.
 - Anotar una solicitud comercial y derivarla al equipo son acciones complementarias: se distinguen solicitudes pendientes y acuerdos operativos confirmados, sin copiar notas internas. Las observaciones del cliente sobre retiro, fechas y pago se anotan en la propuesta y en la columna `notas` del pedido como solicitudes sujetas a validación del negocio. Las notas vigentes se conservan si el modelo omite el campo al volver a proponer; pueden corregirse o borrarse explícitamente. No se confirman condiciones comerciales ni se registra un pedido sin aceptación.
 

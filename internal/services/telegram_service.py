@@ -69,6 +69,20 @@ class TelegramClient:
             params["offset"] = offset
         return self.call("getUpdates", http_timeout=poll_seconds + 10, **params)
 
+    def get_file(self, file_id: str) -> dict:
+        """Consulta la metadata de un archivo multimedia en Telegram (getFile)."""
+        return self.call("getFile", file_id=file_id)
+
+    def download_file(self, file_path: str, http_timeout: float = 30.0) -> bytes:
+        """Descarga los bytes de un archivo de Telegram. Nunca incluye el token en errores (RNF-14)."""
+        url = f"https://api.telegram.org/file/bot{self._token}/{file_path}"
+        try:
+            response = self.http.get(url, timeout=http_timeout)
+            response.raise_for_status()
+            return response.content
+        except (httpx.HTTPError, ValueError) as exc:
+            raise TelegramError(f"download_file: no se pudo descargar archivo ({type(exc).__name__})") from None
+
     def send_message(self, chat_id: int, text: str) -> None:
         """Manda el texto en un mensaje, o en varios si pasa el límite de Telegram, partido por renglón (RF-70)."""
         for parte in message_service.partir(text, MAX_LARGO_MENSAJE):

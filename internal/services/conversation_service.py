@@ -28,12 +28,15 @@ from internal.schemas.order_schema import (
     IncomingMessage,
     MessageType,
 )
-from internal.services import message_service, topic_filter
+from internal.services import audio_service, message_service, topic_filter
 from internal.services.palabras_clave import interpretar_palabra_clave
 
 logger = logging.getLogger(__name__)
 
 WRITE_IT_PLEASE = "Por ahora solo puedo leer pedidos escritos. ¿Me lo mandás por texto?"
+AUDIO_NOT_CLEAR_MESSAGE = "No pude escuchar el audio con claridad. ¿Me lo podrás reenviar o escribir?"
+AUDIO_TOO_LONG_MESSAGE = "El audio es muy largo. ¿Me lo podés resumir en un texto o un audio más corto?"
+AUDIO_PROCESSING_ERROR_MESSAGE = "Tuve un problema al procesar el audio, ¿me lo podés escribir?"
 
 
 def proposal_expired_message() -> str:
@@ -152,11 +155,23 @@ def _close_conversation(conversation_id: int, status: str) -> None:
 
 
 def handle_message(message: IncomingMessage) -> ChannelReply:
-    if message.type != MessageType.TEXT:
-        # RF-32: sin modelo de visión, audio e imagen no llegan al LLM
+    if message.type == MessageType.IMAGE:
         return ChannelReply(text=WRITE_IT_PLEASE)
 
-    text = message_service.prepare(message)
+    if message.type == MessageType.AUDIO:
+        if not audio_service.is_audio_enabled():
+            return ChannelReply(text=WRITE_IT_PLEASE)
+
+    try:
+        text = message_service.prepare(message)
+    except audio_service.AudioTooLongError:
+        return ChannelReply(text=AUDIO_TOO_LONG_MESSAGE)
+    except audio_service.AudioEmptyError:
+        return ChannelReply(text=AUDIO_NOT_CLEAR_MESSAGE)
+    except audio_service.AudioProcessingError as exc:
+        logger.warning("Fallo al interpretar audio de %s: %s", message.customer_id, exc)
+        return ChannelReply(text=AUDIO_PROCESSING_ERROR_MESSAGE)
+
     # Topes de entrada antes de abrir la conversación y sin llamar al LLM (spec de guardrails §3.3)
     if rechazo := guardrails.revisar_entrada((message.customer_id, message.channel), text):
         logger.warning(

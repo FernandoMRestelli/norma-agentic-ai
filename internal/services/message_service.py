@@ -1,5 +1,7 @@
 """Preprocesamiento multimodal: convierte texto, audio o imagen en texto para el agente."""
 
+from typing import Any
+
 from internal.schemas.order_schema import IncomingMessage, MessageType
 
 
@@ -8,7 +10,7 @@ def prepare(message: IncomingMessage) -> str:
         case MessageType.TEXT:
             return normalize_text(message.text)
         case MessageType.AUDIO:
-            return transcribe_audio(message.media_url)
+            return transcribe_audio(message.media_url, message.channel)
         case MessageType.IMAGE:
             return extract_text_from_image(message.media_url)
         case _:
@@ -49,9 +51,12 @@ def partir(texto: str, limite: int) -> list[str]:
     return [parte for parte in partes if parte.strip()]
 
 
-def transcribe_audio(media_url: str) -> str:
-    # TODO: speech-to-text con el proveedor elegido
-    raise NotImplementedError
+def transcribe_audio(media_url: str, channel: Any = None) -> str:
+    """Delega la descarga y transcripción en audio_service y normaliza el texto resultante."""
+    from internal.services import audio_service
+
+    raw_text = audio_service.transcribe_audio(media_url, channel)
+    return normalize_text(raw_text)
 
 
 def extract_text_from_image(media_url: str) -> str:
