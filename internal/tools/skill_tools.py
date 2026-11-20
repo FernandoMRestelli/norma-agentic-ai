@@ -28,7 +28,7 @@ def leer_skill(nombre: str, orquestador: bool = False) -> dict[str, Any]:
         "nombre": skill.nombre,
         "instrucciones": instrucciones_orquestador(nombre) if delegada else skill.instrucciones,
         "tools": skill.tools_inline,
-        "br": sorted(skill.br),
+        "br": skill.titulos_br,
     }
     if skill.datos_negocio is not None:  # null es un dato que el negocio no confirmó (RF-57)
         result["datos_negocio"] = skill.datos_negocio

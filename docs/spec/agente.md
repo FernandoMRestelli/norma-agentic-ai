@@ -271,7 +271,9 @@ Todas las tools devuelven un sobre común, para que el LLM pueda recuperarse de 
 #### `leer_skill`
 
 Entrada `nombre: str`. Busca en el índice de skills cargado al arrancar. Salida `data`: `{nombre, instrucciones,
-tools, br}`. Desde la iteración siguiente, las tools de esa skill quedan disponibles y sus BR se pueden leer.
+tools, br}`, donde `br` es la lista de `{id, titulo}`: el título sale del encabezado de cada BR
+(«# BR-01: Falta de stock»), así el agente elige cuál leer sin leerlas todas. Una BR sin ese encabezado impide
+arrancar. Desde la iteración siguiente, las tools de esa skill quedan disponibles y sus BR se pueden leer.
 Errores: `skill_inexistente`.
 
 #### `leer_br`

@@ -25,6 +25,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Cambiado
 
+- `leer_skill` y la skill que el sistema precarga muestran el título de cada BR (`BR-01 (Falta de stock)`), no solo su número, para que el agente elija cuál leer sin leerlas todas. Una BR que no empieza con `# BR-xx: <título>` impide arrancar.
 - `explorar_catalogo` encuentra la marca aunque se escriba con apóstrofo o tilde («L'Oréal» trae `LOREAL`; antes respondía que no existía), y cuando la marca no tiene la categoría pedida su `_hint` suma las marcas que sí la tienen, para ofrecerle otra sin una vuelta más.
 - `search_products` acepta `quantity` y dice en cada resultado si `alcanza` el stock (y, si no, cuánto queda), así el agente no llama a `check_stock` después de buscar. `check_stock` ya no le pasa al LLM cuántas unidades hay cuando alcanzan.
 - El agente gasta una vuelta menos en los pedidos que vienen como lista y ya no consulta el historial del cliente en cada búsqueda (RF-84 a RF-86). Con el primer mensaje del día, el sistema arma el contexto del cliente (sus últimos pedidos y lo que ya compró) sin llamar al LLM y lo reusa en los mensajes siguientes, hasta el cambio de fecha o hasta que registra un pedido. Antes de la primera llamada al LLM, busca los renglones de una lista que no admiten dudas («2 mascara argan x 1k», «tinte 8.1/2»), también con viñeta o número de orden («- 6 shampoo», «1) 2 tinte 8.1»), y le pasa el resultado al agente; los demás los sigue buscando el agente. No hay nada que migrar al desplegar.

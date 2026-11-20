@@ -133,6 +133,22 @@ def _crear_skill(base, encabezado):
     (folder / "skill.md").write_text(encabezado, encoding="utf-8")
 
 
+def test_leer_skill_trae_el_titulo_de_cada_br():
+    """El agente elige qué BR leer por su título, sin leerlas todas."""
+    br = skill_tools.leer_skill("tomar_pedido")["br"]
+    assert {"id": "BR-01", "titulo": "Falta de stock"} in br
+    assert [regla["id"] for regla in br] == sorted(skill_service.get_skills()["tomar_pedido"].br)
+
+
+@pytest.mark.parametrize("texto", ["Sin encabezado", "# BR-02: Otra BR", "# BR-01:"])
+def test_br_sin_encabezado_con_titulo_impide_arrancar(tmp_path, texto):
+    _crear_skill(tmp_path, "---\nnombre: mi_skill\nfuncion: x\ncuando: x\ntools: [leer_br]\n---\nLeé BR-01")
+    (tmp_path / "mi_skill" / "BR").mkdir()
+    (tmp_path / "mi_skill" / "BR" / "BR-01.md").write_text(texto, encoding="utf-8")
+    with pytest.raises(SkillError, match="BR-01"):
+        load_skills(tmp_path)
+
+
 def test_skill_sin_encabezado_impide_arrancar(tmp_path):
     _crear_skill(tmp_path, "sin encabezado")
     with pytest.raises(SkillError):

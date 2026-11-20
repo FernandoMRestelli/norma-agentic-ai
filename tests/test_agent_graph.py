@@ -560,6 +560,7 @@ def test_preactiva_tomar_pedido(catalogo):
     assert "armar_pedido" not in modelo.ofrecidas[0]
     sistema = modelo.recibidos[0][0].text
     assert "## Skill activa: `tomar_pedido`" in sistema
+    assert "BR-01 (Falta de stock)" in sistema  # el título, para elegir qué BR leer
     assert skill_service.get_skills()["tomar_pedido"].instrucciones in sistema
     estado = agent.graph.get_state({"configurable": {"thread_id": "1"}}).values
     assert estado["skills_activas"] == ["tomar_pedido"]
