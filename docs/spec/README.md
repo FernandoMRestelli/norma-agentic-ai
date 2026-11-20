@@ -568,7 +568,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-03 | `WHATSAPP_APP_SECRET` configurado | Llega un POST con firma válida / inválida | `200` / `403` | RF-02 | `test_api.py::test_whatsapp_post_*` |
 | CA-04 | Cualquier canal | Llega un mensaje de texto sin texto, o un audio o imagen sin `media_url` o con `media_url` insegura/privada | Se rechaza (`422` en la API) | RF-01, RNF-02 | `test_orders.py`, `test_api.py` |
 | CA-05 | Un mensaje de WhatsApp ya procesado | Meta lo reenvía con el mismo id | Se responde `200` y no se procesa de nuevo | RF-03 | pendiente |
-| CA-06 | Un audio con un pedido | Llega por cualquier canal | El agente recibe la transcripción marcada como `audio transcripto`; si está vacía, se pide escribirlo sin llamar al LLM | RF-04 | pendiente |
+| CA-06 | Un audio con un pedido | Llega por cualquier canal | El agente recibe la transcripción marcada como `audio transcripto`; si está vacía, se pide escribirlo sin llamar al LLM | RF-04 | `test_audio_service.py` |
 | CA-07 | Una imagen con un pedido | Llega por cualquier canal (hoy solo Telegram baja la foto) | Igual que CA-06, con `imagen leída`; sin texto útil, «No pude entender la imagen, ¿me lo escribís?» sin llamar al LLM | RF-05 | `test_conversation.py::test_imagen_*`, `test_vision.py` |
 | CA-26 | — | Se construyen borradores y órdenes | Un borrador sin ítems o con cantidad ≤ 0 es inválido; nace `pendiente_confirmacion`; los precios son `Decimal` | RF-08 | `test_orders.py`, `test_invariantes.py::test_un_borrador_nace_sin_confirmar` |
 

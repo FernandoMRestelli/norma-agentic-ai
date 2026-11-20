@@ -30,7 +30,7 @@ from internal.schemas.order_schema import (
     IncomingMessage,
     MessageType,
 )
-from internal.services import message_service, topic_filter
+from internal.services import audio_service, message_service, topic_filter
 from internal.services.palabras_clave import interpretar_palabra_clave
 from internal.tools import reply_tools
 
@@ -38,6 +38,9 @@ logger = logging.getLogger(__name__)
 
 WRITE_IT_PLEASE = "Por ahora solo puedo leer pedidos escritos. ¿Me lo mandás por texto?"
 COULD_NOT_READ_IMAGE = "No pude entender la imagen, ¿me lo escribís?"
+AUDIO_NOT_CLEAR_MESSAGE = "No pude escuchar el audio con claridad. ¿Me lo podrás reenviar o escribir?"
+AUDIO_TOO_LONG_MESSAGE = "El audio es muy largo. ¿Me lo podés resumir en un texto o un audio más corto?"
+AUDIO_PROCESSING_ERROR_MESSAGE = "Tuve un problema al procesar el audio, ¿me lo podés escribir?"
 
 
 def proposal_expired_message() -> str:
@@ -231,10 +234,12 @@ def _record_silenced_message(message: IncomingMessage) -> None:
 
 
 def _sin_lector(message: IncomingMessage) -> bool:
-    """RF-32: el audio todavía no se transcribe y la imagen solo se lee con LLM_VISION_PROVIDER configurado."""
+    """RF-32: audio solo si está habilitado en configuración, imagen solo con LLM_VISION_PROVIDER."""
     if message.type == MessageType.AUDIO:
-        return True
-    return message.type == MessageType.IMAGE and not get_settings().llm_vision_provider
+        return not audio_service.is_audio_enabled()
+    if message.type == MessageType.IMAGE:
+        return not get_settings().llm_vision_provider
+    return False
 
 
 def handle_message(message: IncomingMessage) -> ChannelReply:
@@ -256,6 +261,13 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
     except message_service.ImagenIlegible:
         # Spec del agente §6: sin texto útil no se llama al LLM
         return ChannelReply(text=COULD_NOT_READ_IMAGE)
+    except audio_service.AudioTooLongError:
+        return ChannelReply(text=AUDIO_TOO_LONG_MESSAGE)
+    except audio_service.AudioEmptyError:
+        return ChannelReply(text=AUDIO_NOT_CLEAR_MESSAGE)
+    except audio_service.AudioProcessingError as exc:
+        logger.warning("Fallo al interpretar audio de %s: %s", message.customer_id, exc)
+        return ChannelReply(text=AUDIO_PROCESSING_ERROR_MESSAGE)
     # Topes de entrada antes de abrir la conversación y sin llamar al LLM (spec de guardrails §3.3)
     if rechazo := guardrails.revisar_entrada((message.customer_id, message.channel), text):
         logger.warning(

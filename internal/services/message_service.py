@@ -2,8 +2,8 @@
 
 import logging
 
-from internal.schemas.order_schema import IncomingMessage, MessageType
-from internal.services import vision_service
+from internal.schemas.order_schema import Channel, IncomingMessage, MessageType
+from internal.services import audio_service, vision_service
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ def prepare(message: IncomingMessage) -> str:
         case MessageType.TEXT:
             return normalize_text(message.text)
         case MessageType.AUDIO:
-            return transcribe_audio(message.media_url)
+            return transcribe_audio(message.media_url, message.channel)
         case MessageType.IMAGE:
             return extract_text_from_image(message.media_url, message.text)
         case _:
@@ -58,9 +58,10 @@ def partir(texto: str, limite: int) -> list[str]:
     return [parte for parte in partes if parte.strip()]
 
 
-def transcribe_audio(media_url: str) -> str:
-    # TODO: speech-to-text con el proveedor elegido
-    raise NotImplementedError
+def transcribe_audio(media_url: str, channel: Channel | None = None) -> str:
+    """Delega la descarga y transcripción en audio_service y normaliza el texto resultante."""
+    raw_text = audio_service.transcribe_audio(media_url, channel)
+    return normalize_text(raw_text)
 
 
 def download_media(media_url: str) -> bytes:
