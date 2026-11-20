@@ -18,6 +18,8 @@ MAX_CANTIDAD_PRECARGA = 99  # «250 shampoo» es más probable una medida que 25
 _CANTIDAD_ADELANTE = re.compile(r"^(?P<cantidad>\d{1,2})(?![\d.,/])\s*(?:x\s+|(?P<unidad>[a-z]+)\s+)?(?P<resto>.+)$")
 # «tinte 8.1/2»: tono con punto y cantidad. «821/2» (8.21 o 82.1) y «7/3» sin producto quedan para el LLM
 _TONO_Y_CANTIDAD = re.compile(r"^(?P<resto>.*[a-z].*?)\s+(?P<tono>\d{1,2}[.,]\d{1,2})\s*/\s*(?P<cantidad>\d{1,2})$")
+# La viñeta o el número de orden de una lista («- 6 shampoo», «• 2 tinte», «1) 6 shampoo») no es parte del renglón
+_MARCA_DE_LISTA = re.compile(r"^(?:[-–—•*·]+\s*|\d{1,2}[.)]\s+)")
 # Un renglón que depende del historial o de otro mensaje no es inequívoco
 _DEPENDE_DE_OTRA_COSA = re.compile(r"\b(siempre|mismo|misma|mismos|mismas|anterior|otra vez|igual|ese|esa|eso)\b")
 
@@ -166,9 +168,10 @@ def separar_renglon(texto: str) -> dict[str, Any] | None:
     """Separa cantidad y tono de un renglón cuando la forma no admite dudas; None si no (RF-86, CA-149).
 
     `2 mascara argan x 1k` es cantidad 2; `tinte 8.1/2` es tono 8.1 y cantidad 2. Un número adelante seguido de una
-    unidad («500 ml shampoo») es una medida, no una cantidad. Lo que no tiene una de estas formas queda para el LLM.
+    unidad («500 ml shampoo») es una medida, no una cantidad. La viñeta o el número de orden de una lista no
+    cuentan. Lo que no tiene una de estas formas queda para el LLM.
     """
-    linea = _minusculas(texto)
+    linea = _MARCA_DE_LISTA.sub("", _minusculas(texto), count=1)
     if _DEPENDE_DE_OTRA_COSA.search(linea):
         return None
     if tono := _TONO_Y_CANTIDAD.match(linea):

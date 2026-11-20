@@ -65,6 +65,12 @@ def _responder(*lineas, pendientes=()):
         ("3 Jabón Glicerina", {"texto": "jabon glicerina", "cantidad": 3, "tono": None}),
         ("2 unidades de sh keratina", {"texto": "sh keratina", "cantidad": 2, "tono": None}),
         ("12 oxi 20 vol", {"texto": "oxi 20 vol", "cantidad": 12, "tono": None}),
+        # La viñeta o el número de orden de una lista no son parte del renglón
+        ("- 6 shampoo argan 900", {"texto": "shampoo argan 900", "cantidad": 6, "tono": None}),
+        ("• 2 tinte 8.1", {"texto": "tinte 8.1", "cantidad": 2, "tono": None}),
+        ("* tinte 7.0/3", {"texto": "tinte", "cantidad": 3, "tono": "7.0"}),
+        ("1) 6 shampoo", {"texto": "shampoo", "cantidad": 6, "tono": None}),
+        ("2. 3 jabon glicerina", {"texto": "jabon glicerina", "cantidad": 3, "tono": None}),
     ],
 )
 def test_separa_las_formas_inequivocas(texto, esperado):
@@ -82,6 +88,8 @@ def test_separa_las_formas_inequivocas(texto, esperado):
         "koleston 7/3",  # tono sin punto
         "2 tinte 8.1/2",  # dos cantidades
         "el mismo shampoo de antes",
+        "1) shampoo keratina",  # el 1 es el orden de la lista, no una cantidad
+        "- 500 ml shampoo",  # con viñeta, el número sigue siendo una medida
     ],
 )
 def test_lo_que_admite_dudas_no_se_separa(texto):
