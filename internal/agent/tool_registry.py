@@ -126,6 +126,10 @@ def _pedidos_anteriores(data: PedidosAnterioresInput, ctx: TurnContext) -> dict[
         linea["en_catalogo"] = product is not None
         if product is not None:
             linea["hay_stock"] = product.stock > 0
+            # Para repetirlo (BR-11): si no alcanza para lo de la otra vez, cuánto queda, como search_products
+            linea["alcanza"] = product.stock >= linea["cantidad"]
+            if not linea["alcanza"]:
+                linea["disponible"] = product.stock
         fuera = fuera or product is None
     salida: dict[str, Any] = {"pedidos": pedidos}
     if fuera:
@@ -483,6 +487,12 @@ def _tool_no_permitida(name: str, ctx: TurnContext) -> str:
     """Qué skill habilita la tool, para que el LLM lea esa y no adivine (los sub-loops arman su propio error)."""
     if name not in TOOLS:
         return f"No existe la tool {name!r}: usá solo las que tenés"
+    if ctx.disponibles and "leer_skill" not in ctx.disponibles:
+        # En el cierre solo queda la tool para responder (RNF-16): leer una skill tampoco se puede
+        return (
+            f"La tool {name!r} ya no está disponible en este turno: respondé con {' o '.join(ctx.disponibles)}, "
+            "con lo que ya averiguaste"
+        )
     skills = [skill for skill in get_skills().values() if name in skill.tools_inline]
     leibles = [skill.nombre for skill in skills if ctx.propuesta or not skill.requiere_propuesta]
     if leibles:
@@ -510,7 +520,11 @@ def _brs_que_dispara(name: str, result: dict[str, Any]) -> list[str]:
     if name == "check_stock":
         return [] if data["is_enough"] else ["BR-01"]
     if name == "pedidos_anteriores":
-        return ["BR-11"]  # es la regla de cómo usar lo que trae
+        # BR-11 es la regla de cómo usar lo que trae; lo que ya no está o no alcanza tiene la suya
+        lineas = [linea for pedido in data["pedidos"] for linea in pedido["lineas"]]
+        fuera = ["BR-04"] if any(not linea["en_catalogo"] for linea in lineas) else []
+        sin_stock = ["BR-01"] if any(linea.get("alcanza") is False for linea in lineas) else []
+        return ["BR-11", *fuera, *sin_stock]
     if name == "buscar_renglones":
         estados = {renglon["estado"] for renglon in data["renglones"]}
         return [br for estado, br in _BR_POR_ESTADO.items() if estado in estados]

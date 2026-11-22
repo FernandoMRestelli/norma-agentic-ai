@@ -219,6 +219,14 @@ def test_armar_pedido_sin_propuesta_dice_que_no_hay_nada_que_registrar():
     assert "leer_skill" not in error["message"]
 
 
+def test_en_el_cierre_no_sugiere_leer_una_skill():
+    """RNF-16: en el cierre solo queda responder; mandarlo a leer_skill le hace gastar las vueltas que le quedan."""
+    error = _error("search_products", {"query": "shampoo"}, disponibles=["respond_to_customer"])
+    assert error["code"] == "tool_no_permitida"
+    assert "leer_skill" not in error["message"]
+    assert "respond_to_customer" in error["message"]
+
+
 def test_tool_inexistente_no_sugiere_leer_una_skill():
     error = _error("borrar_todo", {}, disponibles=list(tool_registry.BASE_TOOLS))
     assert error["message"] == "No existe la tool 'borrar_todo': usá solo las que tenés"
@@ -449,10 +457,16 @@ def test_explorar_catalogo_categoria_inexistente_sugiere_la_parecida():
     assert "Shampoo" in res["_hint"]
 
 
-@pytest.mark.parametrize("escrito", ["L'Oréal", "l'oreal", "LOREAL", "  Loréal  "])
+@pytest.mark.parametrize("escrito", ["L'Oréal", "l’oreal", "LOREAL", "  Loréal  "])
 def test_explorar_catalogo_ignora_tildes_y_signos(escrito):
     """«L'Oréal», como lo nombra el system prompt, encuentra la marca cargada como LOREAL."""
     assert catalog_tools._normalizar(escrito) == "loreal"
+
+
+@pytest.mark.parametrize("escrito", ["Anti-Frizz", "anti frizz", "Anti / Frizz", "ANTI_FRIZZ"])
+def test_los_signos_entre_palabras_separan(escrito):
+    """«Anti-Frizz» no queda «antifrizz»: si no, «anti frizz» no encuentra la categoría."""
+    assert catalog_tools._normalizar(escrito) == "anti frizz"
 
 
 def test_explorar_catalogo_encuentra_la_marca_escrita_con_apostrofo(monkeypatch):
@@ -482,14 +496,27 @@ def test_pedidos_anteriores_marca_lo_que_ya_no_esta_en_el_catalogo(monkeypatch):
     nuevas = resultado["data"]["pedidos"][0]["lineas"]
     assert [(linea["en_catalogo"], linea.get("hay_stock")) for linea in nuevas] == [(True, True), (False, None)]
     assert "BR-04" in resultado["data"]["_hint"]
-    assert [regla["id"] for regla in resultado["reglas"]] == ["BR-11"]
+    assert [regla["id"] for regla in resultado["reglas"]] == ["BR-11", "BR-04"]
+
+
+def test_pedidos_anteriores_dice_si_alcanza_para_repetirlo(monkeypatch):
+    """BR-11: de la crema de enjuague Sedal quedan 4 y la otra vez llevó 10; el agente lo sabe sin check_stock."""
+    lineas = [
+        {"sku": "SH-PAN-400", "name": "Shampoo", "cantidad": 1},
+        {"sku": "CE-SED-340", "name": "Crema de enjuague", "cantidad": 10},
+    ]
+    monkeypatch.setattr(order_tools, "pedidos_anteriores", lambda *_: [{"fecha": "2026-10-01", "lineas": lineas}])
+    resultado = tool_registry.execute("pedidos_anteriores", {}, _contexto("tomar_pedido"))
+    shampoo, crema = resultado["data"]["pedidos"][0]["lineas"]
+    assert shampoo["alcanza"] and "disponible" not in shampoo
+    assert (crema["alcanza"], crema["disponible"]) == (False, 4)
+    assert [regla["id"] for regla in resultado["reglas"]] == ["BR-11", "BR-01"]
 
 
 def test_pedidos_anteriores_vacio_lleva_a_br_11(monkeypatch):
     monkeypatch.setattr(order_tools, "pedidos_anteriores", lambda *_: [])
     data = tool_registry.execute("pedidos_anteriores", {}, _contexto())["data"]
     assert data == {"pedidos": [], "_hint": "Este cliente no tiene pedidos anteriores por este chat: seguí BR-11."}
-
 
 
 def test_pedidos_anteriores_lee_el_catalogo_una_sola_vez(monkeypatch):
@@ -506,6 +533,7 @@ def test_el_prompt_del_sub_loop_trae_el_titulo_de_cada_br():
     skill = skill_service.get_skills()["tomar_pedido"]
     prompt = sub_loop.construir_prompt(skill, "Resolvé el pedido", [], [], None, "", [])
     assert "BR-01 (Falta de stock)" in prompt
+
 
 def test_explorar_catalogo_avisa_cuando_recorta_la_muestra():
     res = catalog_tools.explorar_catalogo(brand="pantene", category="shampoo", limit=1)

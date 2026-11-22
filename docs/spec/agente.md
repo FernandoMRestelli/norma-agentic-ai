@@ -311,9 +311,10 @@ Entrada `sku: str`. Salida `data.product`: `{sku, name, brand, presentation, pri
 
 Entrada `limite: int` (1 a 5, por defecto 3). Inyectado: `customer_id`. Salida `data.pedidos`: los últimos pedidos del
 cliente, cada uno con `fecha` y `lineas` (`sku`, `name`, `cantidad`, `nota`), sin precios, número de orden ni estado
-(RF-73). Cada línea suma `en_catalogo` y, si está, `hay_stock`: el catálogo cambia y lo de hace un mes puede no
-estar hoy. Sin pedidos, o con productos que ya no están, trae `_hint`. Siempre adjunta BR-11, la regla de cómo usar
-lo que trae.
+(RF-73). Cada línea suma `en_catalogo` y, si está, `hay_stock` y `alcanza` (si el stock de hoy cubre la `cantidad`
+de esa vez; si no, `disponible`, como `search_products`): el catálogo cambia y lo de hace un mes puede no estar hoy.
+Sin pedidos, o con productos que ya no están, trae `_hint`. Siempre adjunta BR-11, la regla de cómo usar lo que
+trae; con un producto que ya no está suma BR-04, y con uno que no alcanza, BR-01.
 
 #### `explorar_catalogo`
 
@@ -333,7 +334,7 @@ Devuelve un diccionario estructurado según los parámetros provistos:
 
 Si la muestra se recorta por `limit`, `_hint` lo avisa y sugiere buscar el producto puntual con `search_products`.
 La marca y la categoría se comparan sin mayúsculas, tildes ni signos: «L'Oréal» encuentra la marca cargada como
-`LOREAL`. Sin resultados, `_hint` trae las marcas o categorías más parecidas. Si la marca existe pero no tiene esa
+`LOREAL`. El apóstrofo se borra y los demás signos separan palabras: «Anti-Frizz» queda como «anti frizz». Sin resultados, `_hint` trae las marcas o categorías más parecidas. Si la marca existe pero no tiene esa
 categoría, dice qué categorías tiene la marca y hasta cinco marcas que sí tienen la categoría, para ofrecerle otra
 sin una vuelta más.
 
@@ -403,7 +404,8 @@ LangChain traduce esos esquemas al formato del proveedor elegido (D-01).
 Antes de cada iteración, el registro calcula las tools disponibles: las **tools de base** más las que permiten las
 skills activas. Al LLM solo se le ofrecen esas, y si pide otra recibe el error `tool_no_permitida` sin ejecutarla.
 El mensaje nombra la skill que la habilita, para que lea esa y no adivine. Sin propuesta vigente no sugiere las
-skills que la necesitan: `armar_pedido` responde que no hay nada que registrar.
+skills que la necesitan: `armar_pedido` responde que no hay nada que registrar. En el cierre (RNF-16), cuando solo
+queda `respond_to_customer`, no sugiere leer una skill: dice que responda con lo que ya averiguó.
 
 ### 4.5 Skills
 

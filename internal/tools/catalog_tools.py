@@ -123,11 +123,12 @@ def buscar_renglones(
     ]
 
 def _normalizar(texto: str | None) -> str:
-    """Sin tildes ni signos: «L'Oréal» y «LOREAL» quedan iguales."""
+    """Sin tildes ni signos: «L'Oréal» y «LOREAL» quedan iguales, y «Anti-Frizz» como «anti frizz»."""
     if not texto:
         return ""
     sin_tildes = "".join(c for c in unicodedata.normalize("NFD", texto.lower()) if unicodedata.category(c) != "Mn")
-    return " ".join(re.sub(r"[^\w\s]", "", sin_tildes).split())
+    # El apóstrofo es parte de la palabra; el resto de los signos separan palabras
+    return " ".join(re.sub(r"[\W_]", " ", re.sub(r"['’`´]", "", sin_tildes)).split())
 
 
 def _parecidas(buscado: str, opciones: set[str], tope: int = 3) -> list[str]:
