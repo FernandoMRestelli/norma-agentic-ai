@@ -8,13 +8,15 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.sqlite import SqliteSaver
+from pydantic import ValidationError
 from sqlalchemy import delete, func, select
 
 from internal.agent import context, graph, norma_agent, tool_registry
 from internal.agent.graph import FAILURE_MESSAGE
 from internal.agent.norma_agent import NormaAgent
 from internal.database.connection import SessionLocal, init_db
-from internal.database.models import ConversationRecord, OrderRecord
+from internal.database.models import ConversationRecord, DraftRecord, OrderRecord
+from internal.schemas.agent_schema import RespondToCustomerInput
 from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import Channel, IncomingMessage
 from internal.services import conversation_service, order_service, sheets_service, skill_service
@@ -138,7 +140,14 @@ def test_rechazo_no_crea_orden_y_descarta_la_propuesta(catalogo):
     agent, _ = _agente(
         *GUION_OFERTA,
         _ai(_call("leer_skill", nombre="confirmar_pedido")),
-        _ai(_call("respond_to_customer", kind="informacion", message="Dale, cualquier cosa me avisás")),
+        _ai(
+            _call(
+                "respond_to_customer",
+                kind="informacion",
+                message="Dale, cualquier cosa me avisás",
+                descartar_propuesta=True,
+            )
+        ),
         *GUION_ACEPTA,
         AIMessage(content="No tengo ninguna propuesta"),
     )
@@ -283,12 +292,79 @@ def test_aceptar_registra_la_ultima_version(catalogo):
     assert order_service.get_order(final.order_id).items[0].quantity == 2
 
 
-def test_texto_sin_tools_descarta_la_propuesta(catalogo):
-    """Regla 3 del loop: lo último que se le dijo al cliente ya no es la propuesta."""
+def test_aclaracion_mantiene_la_propuesta_vigente(catalogo):
+    """CA-163: una respuesta sin `propuesta` no tira la vigente, y después se puede confirmar (RF-98)."""
+    agent, modelo = _agente(
+        *GUION_OFERTA,
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _ai(_call("respond_to_customer", kind="fuera_de_catalogo", message="Shampoo no trabajamos. ¿Lo otro va?")),
+        *GUION_ACEPTA,
+    )
+    agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+    consulta = agent.handle("1", text="¿tenés shampoo?", **CLIENTE)
+    assert consulta.kind == "fuera_de_catalogo"
+    assert consulta.draft.version == 1
+    assert "Propuesta vigente: 3 x Crema Nivea 100 ml" in modelo.recibidos[-1][0].content
+    with SessionLocal() as session:
+        borrador = select(DraftRecord.status).where(DraftRecord.draft_id == consulta.draft.draft_id)
+        assert list(session.scalars(borrador)) == ["pendiente_confirmacion"]
+
+    final = agent.handle("1", text="dale", **CLIENTE)
+    assert final.kind == "pedido"
+    assert order_service.get_order(final.order_id).items[0].quantity == 3
+
+
+def test_descartar_propuesta_va_sin_propuesta():
+    """CA-163: `descartar_propuesta` es para un rechazo; una propuesta nueva ya reemplaza a la vigente."""
+    with pytest.raises(ValidationError, match="descartar_propuesta"):
+        RespondToCustomerInput(
+            kind="propuesta", message="Te armo 2", propuesta=[{"sku": SKU, "quantity": 2}], descartar_propuesta=True
+        )
+
+
+@pytest.mark.parametrize(
+    ("kind", "options", "propuesta"),
+    [
+        ("aclaracion", [SKU], None),  # «¿es la Crema Nivea de 100?»
+        ("aclaracion", [], None),  # «¿cuántas te mando?»
+        ("propuesta", [SKU], [{"sku": SKU, "quantity": 3}]),  # un pedido largo que deja una duda
+    ],
+)
+def test_si_que_contesta_una_pregunta_va_al_agente(catalogo, kind, options, propuesta):
+    """CA-164: con una propuesta vigente, «sí» después de una pregunta no registra sin el LLM (RF-99)."""
+    agent, modelo = _agente(
+        *GUION_OFERTA,
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _ai(_call("respond_to_customer", kind=kind, message="¿Es la Crema Nivea de 100?", options=options,
+                  propuesta=propuesta)),
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _ai(_propuesta("Listo, van las 3 Crema Nivea de 100. ¿Te lo confirmo?", SKU, 3)),
+    )
+    agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+    agent.handle("1", text="y una crema más", **CLIENTE)
+    llamadas = len(modelo.recibidos)
+
+    respuesta = agent.handle("1", text="sí", **CLIENTE)
+
+    assert len(modelo.recibidos) > llamadas
+    assert respuesta.kind == "propuesta"
+    assert _ordenes() == 0
+
+
+def test_pregunta_abierta_de_un_checkpoint_anterior():
+    """RF-99: un checkpoint sin `kind_anterior` decide solo por las opciones ofrecidas."""
+    assert not graph.pregunta_abierta({"propuesta": {"items": []}})
+    assert graph.pregunta_abierta({"opciones_previas": [SKU]})
+    assert not graph.pregunta_abierta({"kind_anterior": "sin_stock"})
+    assert graph.pregunta_abierta({"kind_anterior": "informacion"})
+
+
+def test_texto_sin_tools_mantiene_la_propuesta(catalogo):
+    """CA-163: el texto suelto es una respuesta sin propuesta, así que la vigente sigue (RF-98)."""
     agent, _ = _agente(*GUION_OFERTA, AIMessage(content="Dale, avisame."))
     agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
     respuesta = agent.handle("1", text="lo pienso", **CLIENTE)
-    assert respuesta.draft is None
+    assert respuesta.draft.items[0].quantity == 3
     assert _ordenes() == 0
 
 

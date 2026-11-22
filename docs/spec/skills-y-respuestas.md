@@ -141,7 +141,7 @@ Hoy los cuatro están en `null`: el negocio no confirmó ninguno ([V-06](../vali
 | ID | Requisito |
 |---|---|
 | RF-55 | El system prompt, las skills y sus BR dicen cada regla una sola vez, en positivo y sin mayúsculas enfáticas; describen la voz del mostrador y cada skill trae ejemplos por situación con cierres distintos |
-| RF-56 | Ante una coincidencia aproximada, el agente pregunta si el cliente se refería a ese producto antes de proponerlo (BR-09), y anota como observación lo que el cliente pide sobre cómo preparar el pedido, sin aceptar condiciones de envío, plazo ni pago (BR-10) |
+| RF-56 | Ante una coincidencia aproximada, el agente pregunta si el cliente se refería a ese producto antes de proponerlo (BR-09), y anota como observación lo que el cliente pide sobre preparación, retiro, fecha, envío o pago, como solicitud sujeta a validación del negocio y sin aceptar condiciones (BR-10) |
 | RF-57 | `informar` responde horarios, zona de entrega, medios de pago y mínimo de compra con los datos del negocio guardados en el repositorio; lo que el negocio no confirmó queda pendiente y el agente dice que no tiene ese dato |
 | RF-58 | La evaluación del agente corre conversaciones de varios turnos, aplica chequeos automáticos de estilo a cada respuesta y deja las conversaciones completas para revisarlas a mano |
 
@@ -165,7 +165,6 @@ Hoy los cuatro están en `null`: el negocio no confirmó ninguno ([V-06](../vali
 | Situación | Qué hace el sistema |
 |---|---|
 | `search_products` todavía no trae `sugerencias` ni `aproximado` (sin el frente A) | BR-09 no aplica; la búsqueda se interpreta como en la 0.1.1 |
-| `respond_to_customer` todavía no acepta `notes` ni `note` (sin el frente C) | El agente no los manda; la observación queda en el mensaje |
 | El cliente pide «mandámelo el lunes» | No es una observación: el agente dice que eso no lo puede coordinar por este chat (BR-06 si hay propuesta) |
 | Un dato del negocio está en `null` | El agente dice que no tiene ese dato y ofrece tomar el pedido |
 | El cliente manda una lista de tres renglones o más | `una_pregunta` no aplica a esa respuesta |

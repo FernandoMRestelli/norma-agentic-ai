@@ -162,14 +162,23 @@ class RespondToCustomerInput(BaseModel):
         default=None,
         description=(
             "Pedido completo que le proponés, solo con kind propuesta o sin_stock. Reemplaza a la propuesta vigente: "
-            "incluí todas las líneas. Si la omitís, la vigente deja de valer."
+            "incluí todas las líneas. Si la omitís, la vigente sigue igual."
+        ),
+    )
+    descartar_propuesta: bool = Field(
+        default=False,
+        description=(
+            "true solo si el cliente rechaza la propuesta vigente o saca todo: deja de valer. Va sin `propuesta`. "
+            "Una pregunta o una consulta no la descarta"
         ),
     )
     notes: str | None = Field(
         default=None,
         max_length=MAX_ORDER_NOTES_LENGTH,
         description=(
-            "Observación general del pedido que dio el cliente, solo con `propuesta`. Por ejemplo: retira el sábado"
+            "Observaciones completas del cliente, solo con `propuesta`, incluidas solicitudes de retiro y pago. "
+            "No implican aceptación del negocio. Omitir conserva las notas vigentes; null o texto vacío las borra. "
+            "Al actualizar, incluir también las notas anteriores que sigan vigentes."
         ),
     )
 
@@ -203,6 +212,10 @@ class RespondToCustomerInput(BaseModel):
             raise ValueError("`propuesta` solo se usa con kind propuesta o sin_stock")
         if self.kind == ReplyKind.PROPUESTA and not self.propuesta:
             raise ValueError("Con kind propuesta hay que indicar `propuesta`")
+        if self.descartar_propuesta and self.propuesta:
+            raise ValueError(
+                "`descartar_propuesta` va sin `propuesta`: una propuesta nueva ya reemplaza a la vigente"
+            )
         if self.notes and not self.propuesta:
             raise ValueError("`notes` es la observación de una propuesta: omitila si no estás proponiendo nada")
         return self
@@ -265,7 +278,11 @@ class EntregarNotaInput(BaseModel):
     """Cierra un sub-loop: lo que resolvió y lo que falta, para el orquestador (spec del orquestador §4.3)."""
 
     resueltos: list[NotaResuelto] = Field(
-        default_factory=list, description="Los renglones identificados y con stock, cada uno con su SKU y cantidad"
+        default_factory=list,
+        description=(
+            "Los renglones identificados y con stock, cada uno con su SKU y cantidad. Si no alcanza el stock, con la "
+            "cantidad que queda"
+        ),
     )
     pendientes: list[NotaPendiente] = Field(
         default_factory=list, description="Los renglones que hay que preguntarle al cliente, con sus opciones"

@@ -145,10 +145,10 @@ def test_mensaje_rechazado_no_registra_el_borrador():
     segundo = agent.handle("1", text="mejor 5, ¿cuántos tenés?", **CLIENTE)
 
     assert _resultados(agent, "respond_to_customer")[-2]["error"]["details"]["reglas"] == ["stock_revelado"]
-    assert segundo.draft is None
+    assert segundo.draft.version == 1  # la aclaración no tira la vigente (RF-98)
     with SessionLocal() as session:
         versiones = [(r.version, r.status) for r in session.scalars(select(DraftRecord).order_by(DraftRecord.id))]
-    assert versiones == [(1, "descartado")]  # la versión 2 se rechazó: nunca se registró
+    assert versiones == [(1, "pendiente_confirmacion")]  # la versión 2 se rechazó: nunca se registró
 
 
 TRES_VISTOS = ContextoTurno(skus={"FI-900-A", "FI-900-B", "FI-900-C"})

@@ -301,7 +301,7 @@ def _drafts() -> list[tuple]:
         return [(r.draft_id, r.version, r.conversation_id, r.status, r.order_id) for r in rows]
 
 
-def _responder(vigente, *lineas):
+def _responder(vigente, *lineas, descartar=False):
     """Una llamada a respond_to_customer por el registro de tools, como en un turno del agente."""
     ctx = tool_registry.TurnContext(
         customer_id="telegram:1",
@@ -315,6 +315,7 @@ def _responder(vigente, *lineas):
         "kind": "propuesta" if lineas else "informacion",
         "message": "ok",
         "propuesta": [{"sku": sku, "quantity": q} for sku, q in lineas] or None,
+        "descartar_propuesta": descartar,
     }
     resultado = tool_registry.execute("respond_to_customer", args, ctx)
     return ctx.propuesta, resultado
@@ -323,12 +324,13 @@ def _responder(vigente, *lineas):
 def test_drafts_registra_cada_version(catalogo):
     """CA-85: cada versión queda en drafts con su conversación y su desenlace."""
 
-    def responder(vigente, *lineas):
-        return _responder(vigente, *lineas)[0]
+    def responder(vigente, *lineas, descartar=False):
+        return _responder(vigente, *lineas, descartar=descartar)[0]
 
     v1 = responder(None, (SKU_SHAMPOO, 1))
     v2 = responder(v1, (SKU_SHAMPOO, 2))
-    assert responder(v2) is None  # el agente respondió sin propuesta: la vigente se descarta
+    assert responder(v2) == v2  # una respuesta sin propuesta deja la vigente como estaba (RF-98)
+    assert responder(v2, descartar=True) is None  # el cliente la rechazó: se descarta
     otra = responder(None, (SKU_TINTURA, 1))
     order = order_service.confirm_draft(otra)
 
@@ -556,3 +558,85 @@ def test_guarda_lo_que_quedo_afuera(catalogo):
     fila = dict(zip(sheets_service.ORDER_COLUMNS, sheets_service.format_order_row(order), strict=True))
     assert fila["fuera_del_pedido"] == "1 planchita (fuera_de_catalogo)"
     assert (fila["lineas"], fila["unidades"], fila["origen"]) == ("2", "5", "texto")
+
+@pytest.mark.parametrize("cambio", [{}, {"notes": None}, {"notes": ""}, {"notes": "Cliente solicita retiro el lunes"}])
+def test_notas_se_conservan_o_se_modifican_explicitamente(catalogo, cambio):
+    """Observaciones: omitir conserva; null/vacío borra; texto reemplaza en la misma propuesta."""
+    from internal.schemas.agent_schema import RespondToCustomerInput
+    from internal.tools import reply_tools
+
+    vigente = _draft((SKU_SHAMPOO, 2, None), notes="Cliente solicita retiro mañana; pago como siempre")
+    data = RespondToCustomerInput(
+        kind="propuesta", message="¿Lo confirmás?", propuesta=[{"sku": SKU_SHAMPOO, "quantity": 3}], **cambio
+    )
+    nueva = reply_tools.respond_to_customer(data, vigente.customer_id, vigente.channel, vigente)
+    esperado = cambio.get("notes") if "notes" in cambio else vigente.notes
+    assert nueva.notes == (esperado or None)
+    assert nueva.items[0].quantity == 3
+    assert nueva.draft_id == vigente.draft_id
+
+
+def test_pedido_nuevo_no_hereda_notas(catalogo):
+    """Observaciones: sin propuesta vigente no se arrastran notas de otra orden."""
+    from internal.schemas.agent_schema import RespondToCustomerInput
+    from internal.tools import reply_tools
+
+    data = RespondToCustomerInput(
+        kind="propuesta", message="¿Lo confirmás?", propuesta=[{"sku": SKU_SHAMPOO, "quantity": 1}]
+    )
+    assert reply_tools.respond_to_customer(data, "cliente-nuevo", Channel.TELEGRAM, None).notes is None
+
+
+@pytest.mark.parametrize("orquestador", [False, True])
+def test_observaciones_al_confirmar_llegan_a_notas_de_la_orden(catalogo, monkeypatch, orquestador):
+    """Observaciones: agregar retiro/pago requiere mostrar notas antes del OK; se persisten en la fila."""
+    monkeypatch.setenv("AGENT_ORQUESTADOR", str(orquestador).lower())
+    get_settings.cache_clear()
+    notas = "Cliente solicita retiro mañana a la mañana; indica que paga como siempre. Sujeto a validación del negocio"
+    lineas = [{"sku": SKU_SHAMPOO, "quantity": 2}]
+    agent = NormaAgent(
+        ModeloGuionado(
+            _ai(_call("leer_skill", nombre="tomar_pedido")),
+            _ai(_call("respond_to_customer", kind="propuesta", message="¿Lo confirmás?", propuesta=lineas)),
+            _ai(_call("leer_skill", nombre="tomar_pedido")),
+            _ai(_call("leer_br", id="BR-10")),
+            _ai(
+                _call(
+                    "respond_to_customer",
+                    kind="propuesta",
+                    message="Anoté tu solicitud para que la vea el equipo. ¿Lo confirmás?",
+                    propuesta=lineas,
+                    notes=notas,
+                )
+            ),
+            # Una consulta posterior omite notes: no puede borrar lo que el cliente ya pidió anotar.
+            _ai(_call("leer_skill", nombre="tomar_pedido")),
+            _ai(
+                _call(
+                    "respond_to_customer",
+                    kind="propuesta",
+                    message="Te dejo el detalle. ¿Lo confirmás?",
+                    propuesta=lineas,
+                )
+            ),
+        ),
+        InMemorySaver(),
+    )
+
+    def enviar(texto):
+        return agent.handle("321", customer_id="cliente-notas", channel=Channel.TELEGRAM, text=texto)
+
+    enviar("Quiero 2 shampoo")
+    actualizada = enviar("Sí, confirmalo. Importante anotar que paso mañana a la mañana y pago como siempre")
+    assert actualizada.draft.notes == notas
+    assert notas in actualizada.message
+    with SessionLocal() as session:
+        assert session.scalar(select(func.count()).select_from(OrderRecord)) == 0
+    consulta = enviar("¿Me mostrás el detalle?")
+    assert consulta.draft.notes == notas
+    pedido = enviar("OK")
+    order = order_service.get_order(pedido.order_id)
+    assert order.notes == notas
+    assert notas in pedido.message
+    fila = dict(zip(sheets_service.ORDER_COLUMNS, sheets_service.format_order_row(order), strict=True))
+    assert fila["notas"] == notas

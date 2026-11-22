@@ -245,11 +245,13 @@ def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict
     ctx.resultado = "pausar"
     # Recién acá la respuesta quedó aceptada: si algo antes la rechaza, `drafts` y la vigente no cambian (RF-46).
     # Todo control de la salida tiene que ir antes de este punto.
+    # Sin `propuesta`, la vigente sigue: una aclaración o una consulta no la tiran. Solo la descarta un rechazo (RF-98)
     if propuesta:
         order_service.record_draft(propuesta)
-    elif ctx.propuesta:
+        ctx.propuesta = propuesta
+    elif data.descartar_propuesta and ctx.propuesta:
         order_service.discard_draft(ctx.propuesta)
-    ctx.propuesta = propuesta
+        ctx.propuesta = None
     return {"enviado": True}
 
 
@@ -386,7 +388,7 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             "respond_to_customer",
             "Le responde al cliente y termina el turno. Con `propuesta`, ese pedido queda como propuesta vigente. "
-            "Sin ella, la vigente deja de valer.",
+            "Sin ella, la vigente sigue igual, salvo que la descartes con `descartar_propuesta`.",
             RespondToCustomerInput,
             _respond_to_customer,
         ),

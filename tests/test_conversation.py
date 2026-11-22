@@ -359,4 +359,3 @@ def test_vencimiento_no_toca_borrador_de_otra_conversacion(clean_db, monkeypatch
         borrador = session.scalar(select(DraftRecord).where(DraftRecord.draft_id == "d-de-fallida"))
         assert borrador.conversation_id == id_fallida
         assert borrador.status == DraftStatus.PENDING_CONFIRMATION.value
-

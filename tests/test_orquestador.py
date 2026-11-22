@@ -137,7 +137,8 @@ def test_el_sub_loop_tiene_contexto_propio(catalogo):
 
     (indice,) = [i for i, mensajes in enumerate(modelo.recibidos) if _es_sub_loop(mensajes)]
     sistema, cliente = modelo.recibidos[indice]
-    assert isinstance(cliente, HumanMessage) and cliente.content == LISTA  # solo el último mensaje
+    assert isinstance(cliente, HumanMessage) and cliente.content.endswith(LISTA)  # solo el último mensaje
+    assert cliente.content.startswith("Resolvé solo los renglones 1, 2 del encargo")
     assert "Qué te preparo hoy" not in sistema.content
     assert "## Nota de búsqueda" not in sistema.content  # la precarga entra como «ya buscados» de su encargo
     assert "## Ya buscados por el sistema" in sistema.content
@@ -469,3 +470,114 @@ def test_un_sku_del_contexto_no_llega_al_cliente(catalogo, monkeypatch):
     assert rechazo["error"]["code"] == "respuesta_rechazada"
     assert "dato_interno" in json.dumps(rechazo["error"], ensure_ascii=False)
     assert aceptada["ok"] and "SH-KER-900" not in resultado.message
+
+
+def _aclarar(*pendientes):
+    return _ai(
+        _call(
+            "respond_to_customer",
+            kind="aclaracion",
+            message="Me quedan unas dudas antes de armarlo. ¿Cuál te mando de cada uno?",
+            pendientes=[{"renglon": n, "opciones": list(o)} for n, o in pendientes],
+        )
+    )
+
+
+@pytest.fixture
+def busquedas_del_catalogo(monkeypatch):
+    """Cuenta cada búsqueda real en el catálogo: la de la precarga y las de las tools."""
+    from internal.tools import catalog_tools
+
+    llamadas: list[list[int]] = []
+    original = catalog_tools.buscar_renglones
+
+    def espiar(renglones, preferidos=frozenset()):
+        llamadas.append([renglon["n"] for renglon in renglones])
+        return original(renglones, preferidos)
+
+    monkeypatch.setattr(catalog_tools, "buscar_renglones", espiar)
+    return llamadas
+
+
+def test_el_sub_loop_no_repite_lo_que_busco_la_precarga(catalogo, busquedas_del_catalogo):
+    """Una búsqueda igual a la de la precarga devuelve el resultado de antes, sin volver al catálogo."""
+    repetida = _ai(
+        _call_id(
+            "buscar_renglones",
+            1,
+            renglones=[
+                {"n": 1, "texto": "Shampoo  Keratina", "cantidad": 2},
+                {"n": 2, "texto": "máscara argan", "cantidad": 3},
+            ],
+        )
+    )
+    agent, modelo = _agente(_delegar(), repetida, _nota(), _responder())
+
+    agent.handle("1", text=LISTA, **CLIENTE)
+
+    assert busquedas_del_catalogo == [[1, 2]]  # solo la precarga
+    resultado = json.loads(modelo.recibidos[2][-1].content)
+    assert [(r["n"], r["estado"], r["ya_buscado"]) for r in resultado["data"]["renglones"]] == [
+        (1, "varias", True),
+        (2, "varias", True),
+    ]
+    assert "ya estaban buscados" in resultado["data"]["_hint"]
+
+
+def test_el_sub_loop_no_busca_fuera_del_encargo(catalogo, busquedas_del_catalogo):
+    """El mensaje del cliente trae renglones que no se delegaron: el sub-loop no los busca y se le avisa."""
+    otra = _ai(
+        _call_id(
+            "buscar_renglones",
+            1,
+            renglones=[
+                {"n": 1, "texto": "shampoo keratina 900", "cantidad": 2},
+                {"n": 2, "texto": "mascara argan 1 kg", "cantidad": 3},
+            ],
+        )
+    )
+    agent, modelo = _agente(
+        _delegar(renglones=(2,)),
+        otra,
+        _nota(resueltos=((2, "MAS-ARG-1K", 3),), pendientes=()),
+        _aclarar((1, ["SH-KER-900", "SH-KER-300"])),
+        _responder(resueltos=((2, "MAS-ARG-1K", 3),), pendientes=((1, ["SH-KER-900", "SH-KER-300"]),)),
+    )
+
+    agent.handle("1", text=LISTA, **CLIENTE)
+
+    assert busquedas_del_catalogo == [[1, 2], [2]]  # la precarga y solo el renglón 2 con el texto nuevo
+    resultado = json.loads(modelo.recibidos[2][-1].content)
+    assert [r["n"] for r in resultado["data"]["renglones"]] == [2]
+    assert "renglones 1 no son de tu encargo" in resultado["data"]["_hint"]
+
+
+def test_stock_parcial_no_va_afuera(catalogo):
+    """BR-01: si de un renglón queda algo, la nota no lo puede dejar afuera como agotado."""
+    lista = "25 jabon glicerina\n2 shampoo keratina"
+    agent, modelo = _agente(
+        _delegar(),
+        _nota(1, resueltos=(), pendientes=((2, ["SH-KER-900", "SH-KER-300"]),), afuera=((1, "sin_stock"),)),
+        _nota(2, resueltos=(), pendientes=((1, ["JAB-GLI"]), (2, ["SH-KER-900", "SH-KER-300"]))),
+        _aclarar((1, ["JAB-GLI"]), (2, ["SH-KER-900", "SH-KER-300"])),
+    )
+
+    agent.handle("1", text=lista, **CLIENTE)
+
+    rechazo = json.loads(modelo.recibidos[2][-1].content)
+    assert rechazo["error"]["code"] == "stock_parcial"
+    assert rechazo["error"]["details"]["renglones"] == [1]
+    assert "del 1 quedan 20" in rechazo["error"]["message"]
+    assert _notas(agent)[0]["nota"]["afuera"] == []
+
+
+def test_las_dudas_de_la_nota_traen_el_nombre_de_sus_opciones(catalogo):
+    """Con solo los SKU de las opciones, el orquestador los copiaba en el mensaje al cliente."""
+    agent, _ = _agente(_delegar(), _nota(), _responder())
+
+    agent.handle("1", text=LISTA, **CLIENTE)
+
+    (delegacion,) = _resultados(agent, "delegar_skill")
+    (duda,) = delegacion["data"]["pendientes"]
+    assert duda["opciones"] == MASCARAS
+    assert duda["nombres"] == ["Máscara Argan 250 g", "Máscara Argan 1 kg"]

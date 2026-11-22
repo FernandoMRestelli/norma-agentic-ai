@@ -7,6 +7,7 @@ no las búsquedas (RF-89, CA-161). Nunca le habla al cliente (RF-90).
 
 import json
 import logging
+import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,12 @@ logger = logging.getLogger(__name__)
 
 PROMPT_PATH = Path(__file__).with_name("sub_loop.md")
 MAX_INTENTOS = 10  # pedidos de tool que se guardan con la nota (RF-97)
+YA_BUSCADOS = (
+    "## Ya buscados por el sistema\n\nResultados de `buscar_renglones` para estos renglones, con la cantidad y el "
+    "tono de `buscado`. No los vuelvas a buscar con el mismo texto: el resultado sería el mismo. Un `unico`, `varias` "
+    "o `sin_stock` ya alcanza para la nota. Solo un `no_encontrado` o un `aproximado` se busca otra vez, con menos "
+    "palabras o con otras (BR-04, BR-09):"
+)
 AVISO_SIN_TOOL = (
     "Tu texto no le llega a nadie: el cliente no te lee y el orquestador solo recibe tu nota. Seguí con las tools y "
     "terminá con `entregar_nota`."
@@ -80,10 +87,7 @@ def construir_prompt(
     if numeros:
         partes.append("## Renglones del encargo\n\n" + "\n".join(_renglones(numeros, renglones)))
     if filas := _precarga(numeros, notas_turno):
-        partes.append(
-            "## Ya buscados por el sistema\n\nResultados de `buscar_renglones`, con la cantidad y el tono de "
-            "`buscado`. Usalos sin volver a buscar igual:\n\n" + "\n".join(filas)
-        )
+        partes.append(f"{YA_BUSCADOS}\n\n" + "\n".join(filas))
     if bloque := contexto_cliente.bloque(contexto):
         partes.append(bloque)
     if opciones_previas:
@@ -101,6 +105,21 @@ def construir_prompt(
             f"Nota: {json.dumps(previa['nota'], ensure_ascii=False)}\n\nSus pedidos de tool:\n{intentos}"
         )
     return "\n\n".join(partes)
+
+
+def pedido(numeros: list[int], ultimo_mensaje: str) -> str:
+    """El mensaje con el que arranca el sub-loop: su trabajo, y el del cliente solo como contexto.
+
+    El mensaje del cliente puede traer renglones que el orquestador no delegó (los `unico` de la precarga o los de
+    otro encargo): con el mensaje solo, el modelo los buscaba todos de nuevo y los ponía en la nota.
+    """
+    if not numeros:
+        return f"Resolvé el pedido de este mensaje y entregá la nota.\n\nMensaje del cliente:\n{ultimo_mensaje}"
+    lista = ", ".join(str(n) for n in numeros)
+    return (
+        f"Resolvé solo los renglones {lista} del encargo y entregá la nota. El mensaje del cliente va como contexto: "
+        f"lo que trae fuera de esos renglones no es tu trabajo.\n\nMensaje del cliente:\n{ultimo_mensaje}"
+    )
 
 
 def _vistos(resultado: dict[str, Any]) -> set[str]:
@@ -183,7 +202,7 @@ def correr(
     prompt = construir_prompt(
         skill, encargo, numeros, ctx.renglones, contexto, opciones_texto, ctx.notas_turno, ultimo_mensaje
     )
-    messages: list[AnyMessage] = [SystemMessage(content=prompt), HumanMessage(content=ultimo_mensaje)]
+    messages: list[AnyMessage] = [SystemMessage(content=prompt), HumanMessage(content=pedido(numeros, ultimo_mensaje))]
     vistos = skus_validos(ctx, ctx.notas_turno, opciones_previas, contexto)
     datos = guardrails.ContextoTurno()  # los faltantes de stock que encuentre: el orquestador los puede decir
     busquedas = _busquedas_previas(numeros, ctx.notas_turno)
@@ -243,15 +262,13 @@ def correr(
                     if len(entrada["intentos"]) < MAX_INTENTOS:
                         entrada["intentos"].append({"tool": call["name"], "args": call["args"]})
                     with observabilidad.paso(call["name"], "TOOL", sub_loop=skill.nombre) as p:
-                        resultado = tool_registry.execute(call["name"], call["args"], sub_ctx)
+                        if call["name"] == "buscar_renglones":
+                            resultado = _buscar_renglones(call["args"], numeros, busquedas, sub_ctx)
+                        else:
+                            resultado = tool_registry.execute(call["name"], call["args"], sub_ctx)
                         p.resultado_tool(call["args"], resultado)
                     vistos |= _vistos(resultado)
                     guardrails.sumar_notas(datos, [resultado])
-                    if call["name"] == "buscar_renglones" and resultado["ok"]:
-                        for buscado, encontrado in zip(
-                            call["args"].get("renglones", []), resultado["data"]["renglones"], strict=False
-                        ):
-                            busquedas[encontrado["n"]] = (buscado, encontrado)
                 messages.append(
                     ToolMessage(
                         content=json.dumps(resultado, ensure_ascii=False), tool_call_id=call["id"], name=call["name"]
@@ -270,6 +287,71 @@ def correr(
     # Las tools del sub-loop leen la base de lo que el cliente compró una sola vez por turno
     ctx.comprados = sub_ctx.comprados
     return entrada
+
+
+def _clave(buscado: dict[str, Any]) -> tuple[str, Any, Any]:
+    texto = unicodedata.normalize("NFD", str(buscado.get("texto") or "").lower())
+    texto = " ".join("".join(c for c in texto if unicodedata.category(c) != "Mn").split())
+    return texto, buscado.get("cantidad"), buscado.get("tono") or None
+
+
+def _buscar_renglones(
+    args: dict[str, Any],
+    numeros: list[int],
+    busquedas: dict[int, tuple[dict, dict]],
+    ctx: tool_registry.TurnContext,
+) -> dict[str, Any]:
+    """`buscar_renglones` del sub-loop, sin repetir una búsqueda ni buscar fuera del encargo.
+
+    Una búsqueda igual a una anterior (la precarga o una vuelta previa) devuelve el resultado de antes con
+    `ya_buscado: true`, y un renglón que no es del encargo no se busca: el modelo los buscaba de nuevo aunque el
+    prompt traía los resultados, y ponía en la nota renglones que no se le encargaron. Anota cada búsqueda nueva en
+    `busquedas`, para la nota que arma el sistema si el sub-loop llega al tope.
+    """
+    pedidos = args.get("renglones")
+    if not isinstance(pedidos, list) or not all(isinstance(r, dict) for r in pedidos):
+        return tool_registry.execute("buscar_renglones", args, ctx)  # que lo rechace la validación de siempre
+    nuevos, repetidos, fuera = [], [], []
+    for renglon in pedidos:
+        n = renglon.get("n")
+        if numeros and n not in numeros:
+            fuera.append(n)
+        elif n in busquedas and _clave(busquedas[n][0]) == _clave(renglon):
+            repetidos.append({**busquedas[n][1], "ya_buscado": True})
+        else:
+            nuevos.append(renglon)
+    if nuevos:
+        resultado = tool_registry.execute("buscar_renglones", {**args, "renglones": nuevos}, ctx)
+        if not resultado["ok"]:
+            return resultado
+        for buscado, encontrado in zip(nuevos, resultado["data"]["renglones"], strict=False):
+            busquedas[encontrado["n"]] = (buscado, encontrado)
+    else:
+        resultado = {"ok": True, "data": {"renglones": []}}
+    if not (repetidos or fuera):
+        return resultado
+    data = {
+        **resultado["data"],
+        "renglones": sorted([*resultado["data"]["renglones"], *repetidos], key=lambda r: r["n"]),
+    }
+    avisos = [data["_hint"]] if data.get("_hint") else []
+    if repetidos:
+        lista = ", ".join(str(r["n"]) for r in repetidos)
+        avisos.append(f"Los renglones {lista} ya estaban buscados con ese texto: va el resultado de antes.")
+    if fuera:
+        lista = ", ".join(str(n) for n in fuera)
+        avisos.append(f"Los renglones {lista} no son de tu encargo: no se buscaron y no van en la nota.")
+    data["_hint"] = " ".join(avisos)
+    return {**resultado, "data": data}
+
+
+def _disponibles(busquedas: dict[int, tuple[dict, dict]]) -> dict[int, int]:
+    """Renglón → unidades que quedan, de las búsquedas que dieron `sin_stock` pero con algo de stock (BR-01)."""
+    return {
+        n: encontrado["falta"]["available"]
+        for n, (_, encontrado) in busquedas.items()
+        if encontrado.get("estado") == "sin_stock" and (encontrado.get("falta") or {}).get("available", 0) > 0
+    }
 
 
 def _entregar(
@@ -292,7 +374,7 @@ def _entregar(
             }
             data = None
         else:
-            error = nota.validar(data, numeros, vistos)
+            error = nota.validar(data, numeros, vistos, _disponibles(busquedas))
         paso.texto(entrada=args, salida=error)
         if error is None:
             aceptada = data.model_dump(exclude_none=True)
