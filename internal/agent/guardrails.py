@@ -22,6 +22,7 @@ from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMes
 
 from internal.schemas.agent_schema import ToolFailure
 from internal.schemas.order_schema import MAX_QUANTITY, OrderDraft
+from internal.services.order_service import _normalize_order_id_query
 
 # Reintentos por turno antes del mensaje fijo seguro (D-18)
 MAX_RECHAZOS = 2
@@ -140,7 +141,7 @@ def contexto_turno(messages: Iterable[AnyMessage]) -> ContextoTurno:
                 if call["name"] == "consultar_estado_pedido":
                     turno.consulto_estado = True
                     if isinstance(args := call.get("args"), dict) and (oid := args.get("order_id")):
-                        turno.ordenes_pedidas.add(str(oid).lower())
+                        turno.ordenes_pedidas.add(_normalize_order_id_query(str(oid)).lower())
                 for sku in call["args"].get("options", []) if isinstance(call["args"], dict) else []:
                     if isinstance(sku, str):
                         turno.skus.add(sku)
@@ -397,6 +398,32 @@ def _regla_internos(texto: str, normalizado: str, skus: set[str]) -> Rechazo | N
 
 
 _ORD_ID_RE = re.compile(r"\bord-\d+\b")
+_NO_ENCONTRADO_RE = re.compile(
+    r"\b(?:no\s+(?:encontr[ae]|aparece|figura|tengo|tenemos|veo|hay|existe|pude\s+encontrar|pudimos\s+encontrar|"
+    r"registra|corresponde)|sin\s+(?:registro|resultados?)|inexistente)\b"
+)
+_NUMERO_PEDIDO_RE = re.compile(r"\b(?:numero|nro|n°|nº|num)\.?\s+de\s+(?:pedido|orden)\b")
+_ESTADO_ORDEN_RELAJADA = re.compile(
+    r"\b(?:pedido|orden|compra)\s+(?:ya\s+)?(?:esta|quedo|fue|ha sido|se)\s+(?:ya\s+)?"
+    r"(?:registrad|confirmad|cargad|tomad|ingresad|guardad|procesad|realizad|emitid|generad)[oa]s?\b"
+)
+
+
+def _oracion_de(texto: str, pos: int) -> str:
+    """Devuelve la oración (delimitada por '.', ';' o salto de línea) que contiene la posición `pos`."""
+    inicio = max(texto.rfind(".", 0, pos), texto.rfind(";", 0, pos), texto.rfind("\n", 0, pos))
+    fines = [i for i in (texto.find(".", pos), texto.find(";", pos), texto.find("\n", pos)) if i != -1]
+    fin = min(fines) if fines else len(texto)
+    return texto[inicio + 1 : fin]
+
+
+def _relajar_oracion_encontrada(oracion: str, encontradas: set[str]) -> str:
+    """Relaja menciones de IDs encontrados y frases de estado solo en oraciones sobre esas órdenes."""
+    if not any(oid in encontradas for oid in _ORD_ID_RE.findall(oracion)):
+        return oracion
+    sin_ids = _ORD_ID_RE.sub(" ", oracion)
+    sin_num = _NUMERO_PEDIDO_RE.sub(" ", sin_ids)
+    return _ESTADO_ORDEN_RELAJADA.sub(" ", sin_num)
 
 
 def _regla_pedido_hecho(
@@ -407,23 +434,42 @@ def _regla_pedido_hecho(
     ordenes_pedidas: set[str] | None = None,
     consulto_estado: bool = False,
 ) -> Rechazo | None:
-    permitidas = (ordenes_consultadas or set()) | (ordenes_pedidas or set())
+    encontradas = ordenes_consultadas or set()
+    no_encontradas = (ordenes_pedidas or set()) - encontradas
+    permitidas = encontradas | no_encontradas
     if kind == "informacion" and consulto_estado:
-        mencionados = _ORD_ID_RE.findall(normalizado)
-        if any(oid not in permitidas for oid in mencionados):
-            return Rechazo(
-                "pedido_no_registrado",
-                "No menciones números de orden que no devolvió o consultó consultar_estado_pedido: "
-                "informá solo las órdenes del cliente",
-            )
-        texto_eval = _ORD_ID_RE.sub(" ", normalizado)
-        texto_eval = re.sub(r"\b(?:numero|nro|n°|nº|num)\.?\s+de\s+(?:pedido|orden)\b", " ", texto_eval)
-        texto_eval = re.sub(
-            r"\b(?:pedido|orden|compra)\s+(?:ya\s+)?(?:esta|quedo|fue|ha sido|se)\s+(?:ya\s+)?"
-            r"(?:registrad|confirmad|cargad|tomad|ingresad|guardad|procesad|realizad|emitid|generad)[oa]s?\b",
-            " ",
-            texto_eval,
-        )
+        for match in _ORD_ID_RE.finditer(normalizado):
+            oid = match.group(0)
+            if oid not in permitidas:
+                return Rechazo(
+                    "pedido_no_registrado",
+                    "No menciones números de orden que no devolvió o consultó consultar_estado_pedido: "
+                    "informá solo las órdenes del cliente",
+                )
+            if oid in no_encontradas:
+                oracion = _oracion_de(normalizado, match.start())
+                if not _NO_ENCONTRADO_RE.search(oracion) or _ESTADO_ORDEN_RELAJADA.search(oracion):
+                    return Rechazo(
+                        "pedido_no_registrado",
+                        f"La orden {oid.upper()} no figura en los resultados de consultar_estado_pedido: "
+                        "solo podés informar que no se encontró, nunca afirmar un estado para ella",
+                    )
+        # Relajamos frases de estado solo en oraciones que mencionan una orden devuelta por la tool;
+        # los IDs pedidos y no encontrados ya validados en frase de «no encontrado» se quitan aquí.
+        oraciones = re.split(r"([.;\n])", normalizado)
+        partes_eval: list[str] = []
+        for parte in oraciones:
+            if parte in {".", ";", "\n"}:
+                partes_eval.append(parte)
+            else:
+                relajada = _relajar_oracion_encontrada(parte, encontradas)
+                if no_encontradas:
+                    relajada = _ORD_ID_RE.sub(
+                        lambda m: " " if m.group(0) in no_encontradas else m.group(0),
+                        relajada,
+                    )
+                partes_eval.append(relajada)
+        texto_eval = "".join(partes_eval)
     else:
         texto_eval = normalizado
     if _PEDIDO_HECHO_LITERAL.search(texto.lower()) or any(p.search(texto_eval) for p in _PEDIDO_HECHO_NORMALIZADO):

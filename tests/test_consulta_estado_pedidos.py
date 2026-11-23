@@ -214,6 +214,54 @@ def test_guardrails_permite_order_id_consultado_y_rechaza_inventado():
     )
     assert [r.regla for r in rechazos_sin_consulta] == ["pedido_no_registrado"]
 
+    # Tool llamada pero sin pedidos encontrados (pedidos=[]) -> NO debe habilitar confirmaciones falsas
+    turno_sin_resultados = guardrails.ContextoTurno(consulto_estado=True)
+    for falsa_confirmacion in (
+        "Listo, tu pedido está registrado.",
+        "Tu pedido ya está confirmado, en breve lo preparamos.",
+        "Tu pedido fue procesado y cargado correctamente.",
+    ):
+        rechazos_falsa = guardrails.validar_salida(
+            falsa_confirmacion,
+            kind="informacion",
+            turno=turno_sin_resultados,
+        )
+        assert [r.regla for r in rechazos_falsa] == ["pedido_no_registrado"], falsa_confirmacion
+
+    # Orden pedida pero NO encontrada: prohíbe afirmar su estado (solo permite decir que no se encontró)
+    assert [
+        r.regla
+        for r in guardrails.validar_salida(
+            "Tu pedido ORD-0099 está confirmado y listo.",
+            kind="informacion",
+            turno=turno_no_encontrado,
+        )
+    ] == ["pedido_no_registrado"]
+    assert [
+        r.regla
+        for r in guardrails.validar_salida(
+            "No encontré la orden ORD-0099. Tu pedido ORD-0099 está confirmado.",
+            kind="informacion",
+            turno=turno_no_encontrado,
+        )
+    ] == ["pedido_no_registrado"]
+
+    # contexto_turno normaliza order_id pedido por el modelo ("99" / "ORD-99" -> "ord-0099")
+    from langchain_core.messages import AIMessage
+
+    for raw_id in ("99", "ORD-99"):
+        call = {"name": "consultar_estado_pedido", "args": {"order_id": raw_id}, "id": "c1"}
+        turno_norm = guardrails.contexto_turno([AIMessage(content="", tool_calls=[call])])
+        assert "ord-0099" in turno_norm.ordenes_pedidas
+        assert (
+            guardrails.validar_salida(
+                "No encontré la orden ORD-0099 a tu nombre.",
+                kind="informacion",
+                turno=turno_norm,
+            )
+            == []
+        )
+
 
 def test_skill_clara_preactiva_informar_en_consultas_de_estado():
     """Consultas de estado (incluso con número de orden ORD-XXXX) preactivan `informar` y no `tomar_pedido`."""
@@ -246,6 +294,16 @@ def test_skill_clara_preactiva_informar_en_consultas_de_estado():
 
     # Si hay propuesta vigente, "¿ya está listo el pedido?" no preactiva informar
     assert skill_clara("¿ya está listo el pedido?", hay_propuesta=True) != "informar"
+
+    # Pedidos comunes con cantidades o giros sueltos NO preactivan informar: van a tomar_pedido
+    for pedido_comun in (
+        "hola cómo va, te hago un pedido de 3 cremas nivea",
+        "te paso esta lista para el pedido: 3 cremas, 2 dove",
+        "cuando sale el pedido de 10 shampoo dove",
+        "ya esta, sumale 2 cremas al pedido",
+    ):
+        assert not es_consulta_estado_pedido(pedido_comun), pedido_comun
+        assert skill_clara(pedido_comun, hay_propuesta=False) == "tomar_pedido", pedido_comun
 
 
 def test_flujo_completo_agente_consulta_estado_de_pedido(_sin_sheets):
