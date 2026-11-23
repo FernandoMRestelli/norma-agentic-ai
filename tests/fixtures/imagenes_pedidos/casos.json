@@ -5,9 +5,27 @@
     "descripcion": "Lista impresa, limpia, con encabezado y saludo que no son productos",
     "legible": true,
     "renglones": [
-      {"cantidad": 5, "palabras": ["pantene", "400"]},
-      {"cantidad": 3, "palabras": ["koleston", "6.1"]},
-      {"cantidad": 2, "palabras": ["oxidante", "20"]}
+      {
+        "cantidad": 5,
+        "palabras": [
+          "pantene",
+          "400"
+        ]
+      },
+      {
+        "cantidad": 3,
+        "palabras": [
+          "koleston",
+          "6.1"
+        ]
+      },
+      {
+        "cantidad": 2,
+        "palabras": [
+          "oxidante",
+          "20"
+        ]
+      }
     ]
   },
   {
@@ -16,10 +34,32 @@
     "descripcion": "Letra imprenta a mano en hoja de cuaderno, cantidad en palabras",
     "legible": true,
     "renglones": [
-      {"cantidad": 6, "palabras": ["dove"]},
-      {"cantidad": 2, "palabras": ["sedal", "340"]},
-      {"cantidad": 1, "palabras": ["enjuague", "sedal"]},
-      {"cantidad": 4, "palabras": ["colgate"]}
+      {
+        "cantidad": 6,
+        "palabras": [
+          "dove"
+        ]
+      },
+      {
+        "cantidad": 2,
+        "palabras": [
+          "sedal",
+          "340"
+        ]
+      },
+      {
+        "cantidad": 1,
+        "palabras": [
+          "enjuague",
+          "sedal"
+        ]
+      },
+      {
+        "cantidad": 4,
+        "palabras": [
+          "colgate"
+        ]
+      }
     ]
   },
   {
@@ -28,10 +68,32 @@
     "descripcion": "Abreviaturas (sh., acond., desod.) con letra cursiva",
     "legible": true,
     "renglones": [
-      {"cantidad": 3, "palabras": ["elvive"]},
-      {"cantidad": 1, "palabras": ["pantene", "400"]},
-      {"cantidad": 10, "palabras": ["rexona"]},
-      {"cantidad": 2, "palabras": ["cepillo", "colgate"]}
+      {
+        "cantidad": 3,
+        "palabras": [
+          "elvive"
+        ]
+      },
+      {
+        "cantidad": 1,
+        "palabras": [
+          "pantene",
+          "400"
+        ]
+      },
+      {
+        "cantidad": 10,
+        "palabras": [
+          "rexona"
+        ]
+      },
+      {
+        "cantidad": 2,
+        "palabras": [
+          "cepillo",
+          "colgate"
+        ]
+      }
     ]
   },
   {
@@ -40,9 +102,26 @@
     "descripcion": "Captura de otro chat: saludos y horario mezclados con los productos",
     "legible": true,
     "renglones": [
-      {"cantidad": 6, "palabras": ["pantene", "200"]},
-      {"cantidad": 2, "palabras": ["algodon"]},
-      {"cantidad": 1, "palabras": ["koleston", "6.0"]}
+      {
+        "cantidad": 6,
+        "palabras": [
+          "pantene",
+          "200"
+        ]
+      },
+      {
+        "cantidad": 2,
+        "palabras": [
+          "algodon"
+        ]
+      },
+      {
+        "cantidad": 1,
+        "palabras": [
+          "koleston",
+          "6.0"
+        ]
+      }
     ]
   },
   {
@@ -51,9 +130,55 @@
     "descripcion": "Foto chica, desenfocada y oscura",
     "legible": true,
     "renglones": [
-      {"cantidad": 8, "palabras": ["dove"]},
-      {"cantidad": 3, "palabras": ["pantene", "400"]},
-      {"cantidad": 2, "palabras": ["koleston", "6.1"]}
+      {
+        "cantidad": 8,
+        "palabras": [
+          "dove"
+        ]
+      },
+      {
+        "cantidad": 3,
+        "palabras": [
+          "pantene",
+          "400"
+        ]
+      },
+      {
+        "cantidad": 2,
+        "palabras": [
+          "koleston",
+          "6.1"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foto-real-manuscrita",
+    "archivo": "foto-real-manuscrita.jpg",
+    "descripcion": "Foto real de una lista escrita a mano (recortada y con el dorso blanqueado): un «1» con rayita que parece «7», una palabra tachada y marca en letra cursiva. Productos del catálogo real",
+    "legible": true,
+    "renglones": [
+      {
+        "cantidad": 5,
+        "palabras": [
+          "guantes",
+          "nitrilo",
+          "m"
+        ]
+      },
+      {
+        "cantidad": 2,
+        "palabras": [
+          "capas",
+          "descartables"
+        ]
+      },
+      {
+        "cantidad": 1,
+        "palabras": [
+          "curls"
+        ]
+      }
     ]
   },
   {
