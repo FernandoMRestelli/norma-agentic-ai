@@ -1,17 +1,25 @@
 """Servicio del dashboard operativo: métricas, pedidos, stock y derivaciones (RF-22 a RF-25, RF-80 a RF-83)."""
 
+import logging
 from collections import defaultdict
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from fastapi import HTTPException
+from langchain_core.messages import AIMessage, HumanMessage
+from sqlalchemy import select, update
 
+from internal.agent.norma_agent import get_agent
 from internal.database.connection import SessionLocal
-from internal.database.models import ConversationRecord, OrderRecord
+from internal.database.models import ConversationRecord, DraftRecord, OrderRecord
 from internal.schemas.dashboard_schema import (
     BreakdownItem,
+    ConversationDetailResponse,
+    ConversationMessageItem,
+    ConversationResolveRequest,
     DashboardConversationItem,
     DashboardMetrics,
     DashboardOrderItem,
@@ -21,8 +29,10 @@ from internal.schemas.dashboard_schema import (
     TimeSeriesPoint,
     TopProductItem,
 )
-from internal.schemas.order_schema import OrderStatus
-from internal.services import inventory_service, sheets_service
+from internal.schemas.order_schema import DraftStatus, OrderItem, OrderStatus, descuento, items_total
+from internal.services import inventory_service, sheets_service, telegram_service, validation_service
+
+logger = logging.getLogger(__name__)
 
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 MESES_ES = ("", "Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic")
@@ -98,12 +108,12 @@ def get_orders(status: str | None = None, limit: int = 50, offset: int = 0) -> l
     for o in page:
         items = o.get("items", [])
         line_items: list[DashboardOrderLineItem] = []
-        total = Decimal(0)
+        subtotal = Decimal(0)
         for it in items:
             qty = int(it.get("quantity", 0))
             unit_price = _line_price(it, catalog_prices)
-            subtotal = unit_price * qty
-            total += subtotal
+            item_subtotal = unit_price * qty
+            subtotal += item_subtotal
             line_items.append(
                 DashboardOrderLineItem(
                     sku=str(it.get("sku", "")),
@@ -111,9 +121,12 @@ def get_orders(status: str | None = None, limit: int = 50, offset: int = 0) -> l
                     presentation=it.get("presentation"),
                     quantity=qty,
                     unit_price=unit_price,
-                    subtotal=subtotal,
+                    subtotal=item_subtotal,
                 )
             )
+        discount_percentage = o.get("discount_percentage")
+        total = subtotal - descuento(subtotal, discount_percentage)
+
         items_summary = "; ".join(f"{it.quantity} x {it.product_name} ({it.sku})" for it in line_items)
         result.append(
             DashboardOrderItem(
@@ -125,6 +138,8 @@ def get_orders(status: str | None = None, limit: int = 50, offset: int = 0) -> l
                 notes=o.get("notes"),
                 items_summary=items_summary,
                 items=line_items,
+                subtotal=subtotal,
+                discount_percentage=discount_percentage,
                 total=total,
                 stock_applied=o.get("stock_applied", False),
                 read_only=o.get("read_only", False),
@@ -166,9 +181,10 @@ def _line_price(item: dict[str, Any], catalog_prices: dict[str, Decimal]) -> Dec
 
 
 def _order_revenue(order: dict[str, Any], catalog_prices: dict[str, Decimal]) -> Decimal:
-    """Total de la orden con `_line_price`."""
+    """Total de la orden con `_line_price` y descuento si corresponde (RF-82, CA-140)."""
     lineas = (_line_price(it, catalog_prices) * int(it.get("quantity", 0)) for it in order.get("items", []))
-    return sum(lineas, Decimal(0))
+    subtotal = sum(lineas, Decimal(0))
+    return subtotal - descuento(subtotal, order.get("discount_percentage"))
 
 
 def _in_period(dt: datetime, period: Literal["all", "today", "yesterday", "7d", "30d"], today_ar: Any) -> bool:
@@ -438,11 +454,253 @@ def get_conversations(state: str | None = None) -> list[DashboardConversationIte
                 customer_id=r.customer_id,
                 channel=r.channel,
                 status=r.status,
+                derivation_reason=r.derivation_reason,
+                discount_percentage=r.discount_percentage,
+                operator_notes=r.operator_notes,
+                order_notes=r.order_notes,
+                resolution_type=r.resolution_type,
                 created_at=r.created_at,
                 updated_at=r.updated_at,
             )
             for r in records
         ]
+
+
+def get_conversation_detail(conversation_id: int) -> ConversationDetailResponse:
+    """Detalle de una conversación con el historial de mensajes y estado de derivación."""
+    with SessionLocal() as session:
+        conv = session.get(ConversationRecord, conversation_id)
+        if not conv:
+            raise HTTPException(status_code=404, detail="Conversación no encontrada")
+
+        messages: list[ConversationMessageItem] = []
+        try:
+            agent = get_agent()
+            config = {"configurable": {"thread_id": str(conversation_id)}}
+            state = agent.graph.get_state(config)
+            raw_messages = state.values.get("messages", [])
+            for m in raw_messages:
+                if isinstance(m, HumanMessage):
+                    messages.append(ConversationMessageItem(role="cliente", content=str(m.content)))
+                elif isinstance(m, AIMessage):
+                    content = str(m.content)
+                    if content.startswith("[Operador]"):
+                        messages.append(
+                            ConversationMessageItem(role="operador", content=content.removeprefix("[Operador]").strip())
+                        )
+                    elif content:
+                        messages.append(ConversationMessageItem(role="norma", content=content))
+        except Exception as exc:
+            logger.warning(
+                "No se pudieron cargar los mensajes del grafo para conversation_id=%s: %s", conversation_id, exc
+            )
+
+        return ConversationDetailResponse(
+            id=conv.id,
+            customer_id=conv.customer_id,
+            channel=conv.channel,
+            status=conv.status,
+            derivation_reason=conv.derivation_reason,
+            discount_percentage=conv.discount_percentage,
+            operator_notes=conv.operator_notes,
+            order_notes=conv.order_notes,
+            resolution_type=conv.resolution_type,
+            created_at=conv.created_at,
+            updated_at=conv.updated_at,
+            messages=messages,
+        )
+
+
+def _notas_con_acuerdo(notas: str | None, acuerdo: str | None) -> str | None:
+    """Las notas del pedido con el acuerdo vigente: lo agrega o reemplaza y, si ya no hay acuerdo, lo saca."""
+    if acuerdo:
+        try:
+            return validation_service.merge_order_notes(notas, acuerdo)
+        except validation_service.OrderNotesTooLongError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return validation_service.quitar_acuerdo(notas)
+
+
+def resolve_conversation(
+    conversation_id: int, request: ConversationResolveRequest
+) -> ConversationDetailResponse:
+    """Resuelve una derivación humana: actualiza condición, envía mensaje y reactiva o no al bot."""
+    msg_text = request.message.strip() if request.message and request.message.strip() else None
+    fields = request.model_fields_set
+    has_discount = "discount_percentage" in fields
+    has_operator_notes = "operator_notes" in fields
+    has_order_notes = "order_notes" in fields
+    clean_order_notes = request.order_notes.strip() if request.order_notes and request.order_notes.strip() else None
+    if has_order_notes and clean_order_notes:
+        _notas_con_acuerdo(None, clean_order_notes)
+
+    with SessionLocal() as session:
+        conv = session.get(ConversationRecord, conversation_id)
+        if not conv:
+            raise HTTPException(status_code=404, detail="Conversación no encontrada")
+        if conv.status != "derivada":
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Solo se pueden resolver conversaciones en estado 'derivada' (estado actual: '{conv.status}')."
+                ),
+            )
+
+        # 1. Validar soporte de canal antes de mutar la base o enviar
+        chat_id: int | None = None
+        if msg_text:
+            if conv.channel == "telegram" and conv.customer_id.startswith("telegram:"):
+                chat_id = int(conv.customer_id.split(":")[1])
+            else:
+                raise HTTPException(
+                    status_code=501,
+                    detail=(
+                        f"El canal '{conv.channel}' todavía no soporta envío directo de mensajes desde el dashboard."
+                    ),
+                )
+
+        # 2. Preparar actualización en base de datos y validar con flush antes de enviar a Telegram
+        # `operator_notes` es estrictamente interno; `order_notes` son los acuerdos operativos del pedido.
+        conv.resolution_type = request.resolution_type
+        if has_operator_notes:
+            conv.operator_notes = request.operator_notes
+        if has_order_notes:
+            conv.order_notes = clean_order_notes
+        if has_discount:
+            conv.discount_percentage = (
+                Decimal(str(request.discount_percentage)) if request.discount_percentage is not None else None
+            )
+        conv.updated_at = datetime.now(UTC)
+        if request.reactivate_bot:
+            # Si pasaron las 24 h de silencio y el cliente abrió otra conversación abierta más nueva,
+            # la vencemos y descartamos sus borradores para que la conversación reactivada sea la única activa.
+            otras_abiertas = session.scalars(
+                select(ConversationRecord).where(
+                    ConversationRecord.customer_id == conv.customer_id,
+                    ConversationRecord.channel == conv.channel,
+                    ConversationRecord.status == "abierta",
+                    ConversationRecord.id != conv.id,
+                )
+            ).all()
+            for otra in otras_abiertas:
+                otra.status = "vencida"
+                otra.updated_at = datetime.now(UTC)
+                session.execute(
+                    update(DraftRecord)
+                    .where(
+                        DraftRecord.conversation_id == otra.id,
+                        DraftRecord.status == DraftStatus.PENDING_CONFIRMATION.value,
+                    )
+                    .values(status=DraftStatus.DISCARDED.value)
+                )
+            conv.status = "abierta"
+        elif request.close_conversation:
+            conv.status = "resuelta"
+
+        # Si hay propuesta pendiente en la base y cambió descuento o acuerdos, actualizamos total y notas sin duplicar
+        condiciones_cambiaron = has_discount or has_order_notes
+        if condiciones_cambiaron:
+            pending_draft = session.scalar(
+                select(DraftRecord)
+                .where(
+                    DraftRecord.conversation_id == conversation_id,
+                    DraftRecord.status == DraftStatus.PENDING_CONFIRMATION.value,
+                )
+                .order_by(DraftRecord.version.desc())
+                .limit(1)
+            )
+            if pending_draft:
+                if has_order_notes:
+                    pending_draft.notes = _notas_con_acuerdo(pending_draft.notes, clean_order_notes)
+                if has_discount:
+                    subtotal = items_total([OrderItem.model_validate(item) for item in pending_draft.items])
+                    pending_draft.total = subtotal - descuento(subtotal, request.discount_percentage)
+
+        # 3. Estado del agente antes de enviar y de confirmar la base: si falla, el rollback deja la conversación
+        # derivada y sin mensaje enviado, y el operador puede volver a resolverla (NUNCA `operator_notes`).
+        # Sin session.flush() previo para no tomar el lock exclusivo de SQLite durante llamadas externas.
+        agent = get_agent()
+        config = {"configurable": {"thread_id": str(conversation_id)}}
+        update_data: dict[str, Any] = {}
+        update_data["descuento_autorizado"] = (
+            float(conv.discount_percentage) if conv.discount_percentage is not None else None
+        )
+        update_data["acuerdo_operativo"] = conv.order_notes
+        if request.resolution_type:
+            update_data["condicion_comercial"] = request.resolution_type
+        if request.reactivate_bot:
+            update_data["derivation_reason"] = None
+            update_data["aclaraciones_seguidas"] = 0
+            update_data["fallas"] = 0
+        try:
+            st = agent.graph.get_state(config)
+            previous_values = deepcopy(st.values) if st else {}
+            if st and st.values.get("propuesta"):
+                prop = dict(st.values["propuesta"])
+                prop["discount_percentage"] = update_data["descuento_autorizado"]
+                prop["notes"] = _notas_con_acuerdo(prop.get("notes"), conv.order_notes)
+                update_data["propuesta"] = prop
+                # También repara una compensación fallida: la base vuelve a ser la fuente de condiciones.
+                if condiciones_cambiaron or prop != st.values["propuesta"]:
+                    update_data["propuesta_pendiente_mostrar"] = True
+            previous_update = {key: previous_values.get(key) for key in update_data}
+            if update_data:
+                agent.graph.update_state(config, update_data)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.exception("No se pudo actualizar el estado del agente para conversation_id=%s", conversation_id)
+            raise HTTPException(
+                status_code=500, detail="No se guardó la resolución: falló el estado del agente. Probá de nuevo."
+            ) from exc
+
+        # 4. Enviar a Telegram y persistir la transacción inmediatamente sin retener locks previos de SQLite.
+        # Si Telegram o el commit fallan, revertimos las condiciones del agente además del rollback de la base.
+        telegram_enviado = False
+        try:
+            if msg_text and chat_id is not None:
+                try:
+                    telegram_service.get_client().send_message(chat_id, msg_text)
+                    telegram_enviado = True
+                except Exception as exc:
+                    logger.error("Error al enviar mensaje de operador a Telegram: %s", exc)
+                    raise HTTPException(
+                        status_code=502, detail=f"No se pudo enviar el mensaje a Telegram: {exc}"
+                    ) from exc
+            session.commit()
+        except Exception as exc:
+            session.rollback()
+            try:
+                agent.graph.update_state(config, previous_update)
+            except Exception as restore_error:
+                logger.exception("No se pudo restaurar el agente para conversation_id=%s", conversation_id)
+                raise HTTPException(
+                    status_code=503,
+                    detail="La resolución no se completó y no se pudo restaurar el agente. Reintentá la resolución.",
+                ) from restore_error
+            if telegram_enviado:
+                logger.warning(
+                    "El mensaje de resolución ya salió por Telegram a %s pero falló el commit de conversation_id=%s",
+                    chat_id,
+                    conversation_id,
+                )
+            if isinstance(exc, HTTPException):
+                raise
+            logger.exception("No se pudo guardar la resolución para conversation_id=%s", conversation_id)
+            raise HTTPException(status_code=500, detail="No se pudo guardar la resolución. Probá de nuevo.") from exc
+
+        # 5. El mensaje del operador al historial, recién cuando salió: solo lo lee el dashboard y el agente
+        if msg_text:
+            try:
+                agent.graph.update_state(config, {"messages": [AIMessage(content=f"[Operador] {msg_text}")]})
+            except Exception:
+                logger.warning(
+                    "El mensaje del operador salió pero no quedó en el historial de conversation_id=%s",
+                    conversation_id,
+                    exc_info=True,
+                )
+
+    return get_conversation_detail(conversation_id)
 
 
 def _con_zona(dt: datetime) -> datetime:
@@ -479,6 +737,8 @@ def _get_all_orders() -> list[dict[str, Any]]:
                 "notes": r.notes,
                 "status": r.status,
                 "stock_applied": r.stock_applied,
+                "total": r.total,
+                "discount_percentage": r.discount_percentage,
                 "read_only": False,
             }
             for r in records
@@ -495,6 +755,8 @@ def _get_all_orders() -> list[dict[str, Any]]:
             "notes": o.notes,
             "status": o.status.value if hasattr(o.status, "value") else str(o.status),
             "stock_applied": False,
+            "total": o.total,
+            "discount_percentage": o.discount_percentage,
             "read_only": True,
         }
         for o in sheets_service.get_orders()

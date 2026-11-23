@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from internal.config import get_settings
 from internal.database.connection import SessionLocal, init_db, make_engine
 from internal.database.migrations import LATEST
-from internal.database.models import ConversationRecord, OrderRecord
+from internal.database.models import ConversationRecord, OrderItemRecord, OrderRecord
 from internal.main import app
 from internal.schemas.order_schema import Channel, OrderDraft, OrderItem, OrderStatus
 from internal.services import google_sheets_client, inventory_service, order_service, sheets_service
@@ -31,6 +31,12 @@ DATA_EXAMPLE_DIR = Path(__file__).resolve().parent.parent / "data_example"
 @pytest.fixture(autouse=True)
 def clean_state_and_auth(monkeypatch):
     monkeypatch.setenv("OPERATOR_TOKEN", OPERATOR_TOKEN)
+    from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+
+    from internal.agent import norma_agent
+
+    monkeypatch.setattr(norma_agent, "get_chat_model", lambda: GenericFakeChatModel(messages=iter([])))
+    norma_agent.get_agent.cache_clear()
     get_settings.cache_clear()
     init_db()
     with SessionLocal() as session:
@@ -42,6 +48,7 @@ def clean_state_and_auth(monkeypatch):
         session.execute(delete(OrderRecord))
         session.execute(delete(ConversationRecord))
         session.commit()
+    norma_agent.get_agent.cache_clear()
     get_settings.cache_clear()
 
 
@@ -160,8 +167,16 @@ def test_dashboard_conversations_listing():
     """RF-24: Listado de conversaciones que requieren atención humana."""
     with SessionLocal() as session:
         session.add(ConversationRecord(customer_id="cust-1", channel="whatsapp", status="abierta"))
-        session.add(ConversationRecord(customer_id="cust-2", channel="telegram", status="derivada"))
-        session.add(ConversationRecord(customer_id="cust-3", channel="web", status="derivada"))
+        session.add(
+            ConversationRecord(
+                customer_id="cust-2", channel="telegram", status="derivada", derivation_reason="solicitud_humano"
+            )
+        )
+        session.add(
+            ConversationRecord(
+                customer_id="cust-3", channel="web", status="derivada", derivation_reason="descuento"
+            )
+        )
         session.commit()
 
     # Todas
@@ -175,6 +190,158 @@ def test_dashboard_conversations_listing():
     derivadas = resp_deriv.json()
     assert len(derivadas) == 2
     assert all(c["status"] == "derivada" for c in derivadas)
+    assert {c["derivation_reason"] for c in derivadas} == {"solicitud_humano", "descuento"}
+
+
+def test_dashboard_conversation_detail_not_found():
+    resp = client.get("/dashboard/conversations/99999", headers=AUTH_HEADERS)
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Conversación no encontrada"
+
+
+def test_dashboard_conversation_detail_with_messages(monkeypatch, tmp_path):
+    monkeypatch.setenv("CHECKPOINT_DB", str(tmp_path / "checkpoints.db"))
+    get_settings.cache_clear()
+    from internal.agent.norma_agent import get_agent
+
+    get_agent.cache_clear()
+
+    with SessionLocal() as session:
+        conv = ConversationRecord(
+            customer_id="telegram:12345",
+            channel="telegram",
+            status="derivada",
+            derivation_reason="condicion_comercial",
+        )
+        session.add(conv)
+        session.commit()
+        session.refresh(conv)
+        conv_id = conv.id
+
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    agent = get_agent()
+    config = {"configurable": {"thread_id": str(conv_id)}}
+    agent.graph.update_state(
+        config,
+        {
+            "messages": [
+                HumanMessage(content="¿Tienen descuento por 50 bultos?"),
+                AIMessage(content="Te derivo con el equipo de ventas para coordinar condiciones."),
+            ]
+        },
+    )
+
+    resp = client.get(f"/dashboard/conversations/{conv_id}", headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["id"] == conv_id
+    assert data["customer_id"] == "telegram:12345"
+    assert data["channel"] == "telegram"
+    assert data["status"] == "derivada"
+    assert data["derivation_reason"] == "condicion_comercial"
+    assert len(data["messages"]) == 2
+    assert data["messages"][0]["role"] == "cliente"
+    assert data["messages"][0]["content"] == "¿Tienen descuento por 50 bultos?"
+    assert data["messages"][1]["role"] == "norma"
+    assert "Te derivo" in data["messages"][1]["content"]
+
+
+def test_dashboard_resolve_conversation_telegram_success(monkeypatch):
+    with SessionLocal() as session:
+        conv = ConversationRecord(
+            customer_id="telegram:860907231",
+            channel="telegram",
+            status="derivada",
+            derivation_reason="condicion_comercial",
+        )
+        session.add(conv)
+        session.commit()
+        session.refresh(conv)
+        conv_id = conv.id
+
+    sent_messages = []
+
+    class FakeTelegramClient:
+        def send_message(self, chat_id: int, text: str):
+            sent_messages.append((chat_id, text))
+
+    monkeypatch.setattr("internal.services.telegram_service.get_client", lambda: FakeTelegramClient())
+
+    payload = {
+        "resolution_type": "descuento_volumen",
+        "message": "¡Hola! Te autorizamos 15% de descuento por la compra por bulto.",
+        "discount_percentage": 15.0,
+        "operator_notes": "Aprobado por ventas para cliente mayorista",
+        "reactivate_bot": True,
+    }
+
+    resp = client.post(f"/dashboard/conversations/{conv_id}/resolve", json=payload, headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["id"] == conv_id
+    assert data["status"] == "abierta"
+    assert data["resolution_type"] == "descuento_volumen"
+    assert data["discount_percentage"] == 15.0
+    assert data["operator_notes"] == "Aprobado por ventas para cliente mayorista"
+
+    # Verificamos mensaje a Telegram
+    assert len(sent_messages) == 1
+    assert sent_messages[0][0] == 860907231
+    assert "15% de descuento" in sent_messages[0][1]
+
+    # Verificamos mensajes en la respuesta
+    roles = [m["role"] for m in data["messages"]]
+    assert "operador" in roles
+
+    # Verificamos estado en base de datos
+    with SessionLocal() as session:
+        updated_conv = session.get(ConversationRecord, conv_id)
+        assert updated_conv is not None
+        assert updated_conv.status == "abierta"
+        assert updated_conv.discount_percentage == 15.0
+        assert updated_conv.operator_notes == "Aprobado por ventas para cliente mayorista"
+        assert updated_conv.resolution_type == "descuento_volumen"
+
+
+def test_dashboard_resolve_conversation_keep_silenced(monkeypatch):
+    with SessionLocal() as session:
+        conv = ConversationRecord(
+            customer_id="telegram:999888",
+            channel="telegram",
+            status="derivada",
+            derivation_reason="reclamo",
+        )
+        session.add(conv)
+        session.commit()
+        session.refresh(conv)
+        conv_id = conv.id
+
+    sent_messages = []
+
+    class FakeTelegramClient:
+        def send_message(self, chat_id: int, text: str):
+            sent_messages.append((chat_id, text))
+
+    monkeypatch.setattr("internal.services.telegram_service.get_client", lambda: FakeTelegramClient())
+
+    payload = {
+        "resolution_type": "mensaje_directo",
+        "message": "Estamos revisando tu reclamo manualmente.",
+        "discount_percentage": None,
+        "operator_notes": "Atendido manual, bot sigue silenciado",
+        "reactivate_bot": False,
+    }
+
+    resp = client.post(f"/dashboard/conversations/{conv_id}/resolve", json=payload, headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "derivada"
+
+    with SessionLocal() as session:
+        updated_conv = session.get(ConversationRecord, conv_id)
+        assert updated_conv is not None
+        assert updated_conv.status == "derivada"
 
 
 # ============================================================================
@@ -489,14 +656,62 @@ def test_migracion_3_agrega_stock_applied(tmp_path):
         conn.exec_driver_sql("UPDATE schema_version SET version = 2")
 
     db_engine = make_engine(f"sqlite:///{path}")
-    assert init_db(db_engine) == LATEST == 3
+    assert init_db(db_engine) == LATEST == 5
     with Session(db_engine) as session:
         record = session.scalar(select(OrderRecord).where(OrderRecord.order_id == "ORD-0001"))
         assert record is not None
         assert record.stock_applied is False
     with db_engine.connect() as conn:
-        assert conn.exec_driver_sql("SELECT version FROM schema_version").scalar() == 3
+        assert conn.exec_driver_sql("SELECT version FROM schema_version").scalar() == 5
         assert conn.exec_driver_sql("SELECT order_id, stock_applied FROM orders").all() == [("ORD-0001", 0)]
+
+
+def test_migracion_4_agrega_derivation_reason(tmp_path):
+    """Una base en versión 3 gana `conversations.derivation_reason` sin perder datos (RF-27, Issue #84)."""
+    path = tmp_path / "norma_v3.db"
+    engine = make_engine(f"sqlite:///{path}")
+    init_db(engine)
+    with engine.begin() as conn:
+        conn.exec_driver_sql("ALTER TABLE conversations DROP COLUMN derivation_reason")
+        conn.exec_driver_sql(
+            "INSERT INTO conversations (id, customer_id, channel, status, created_at, updated_at) "
+            "VALUES (100, 'cust-v3', 'telegram', 'abierta', '2026-01-01 00:00:00', '2026-01-01 00:00:00')"
+        )
+        conn.exec_driver_sql("UPDATE schema_version SET version = 3")
+
+    db_engine = make_engine(f"sqlite:///{path}")
+    assert init_db(db_engine) == LATEST == 5
+    with Session(db_engine) as session:
+        conv = session.get(ConversationRecord, 100)
+        assert conv is not None
+        assert conv.derivation_reason is None
+    with db_engine.connect() as conn:
+        assert conn.exec_driver_sql("SELECT version FROM schema_version").scalar() == 5
+        assert conn.exec_driver_sql("SELECT id, derivation_reason FROM conversations").all() == [(100, None)]
+
+
+def test_migracion_5_agrega_resolucion_operador(tmp_path):
+    """Una base en versión 4 gana columnas de resolución humana sin perder datos (RF-24, RF-27)."""
+    path = tmp_path / "norma_v4.db"
+    engine = make_engine(f"sqlite:///{path}")
+    init_db(engine)
+    with engine.begin() as conn:
+        conn.exec_driver_sql("ALTER TABLE conversations DROP COLUMN discount_percentage")
+        conn.exec_driver_sql(
+            "INSERT INTO conversations (id, customer_id, channel, status, created_at, updated_at) "
+            "VALUES (200, 'cust-v4', 'telegram', 'derivada', '2026-01-01 00:00:00', '2026-01-01 00:00:00')"
+        )
+        conn.exec_driver_sql("UPDATE schema_version SET version = 4")
+
+    db_engine = make_engine(f"sqlite:///{path}")
+    assert init_db(db_engine) == LATEST == 5
+    with Session(db_engine) as session:
+        conv = session.get(ConversationRecord, 200)
+        assert conv is not None
+        assert conv.discount_percentage is None
+    with db_engine.connect() as conn:
+        assert conn.exec_driver_sql("SELECT version FROM schema_version").scalar() == 5
+        assert conn.exec_driver_sql("SELECT id, discount_percentage FROM conversations").all() == [(200, None)]
 
 
 # ============================================================================
@@ -624,3 +839,52 @@ def test_dashboard_summary_period_filtering_and_metrics_yesterday(monkeypatch, t
     assert len(m_yest["time_series"]) == 1
     assert m_yest["time_series"][0]["orders_count"] == 1
     assert m_yest["time_series"][0]["units_count"] == 3
+
+
+def test_dashboard_orders_with_discount():
+    with SessionLocal() as session:
+        rec = OrderRecord(
+            order_id="ORD-TEST-DESC",
+            draft_id="d-desc",
+            customer_id="telegram:860907231",
+            channel="telegram",
+            status="Recibido",
+            total=Decimal("202980.00"),
+            discount_percentage=15.0,
+            notes="Pedido con 15% de descuento",
+        )
+        session.add(rec)
+        session.flush()
+
+        item1 = OrderItemRecord(
+            order_pk=rec.id,
+            position=1,
+            sku="SH-PAN-400",
+            product_name="Shampoo Pantene Restauración",
+            presentation="400 ml",
+            quantity=24,
+            unit_price=Decimal("7350.00"),
+        )
+        item2 = OrderItemRecord(
+            order_pk=rec.id,
+            position=2,
+            sku="SH-SED-340",
+            product_name="Shampoo Sedal Ceramidas",
+            presentation="340 ml",
+            quantity=16,
+            unit_price=Decimal("3900.00"),
+        )
+        session.add_all([item1, item2])
+        session.commit()
+
+    resp = client.get("/dashboard/orders", headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    orders = resp.json()
+    target = next((o for o in orders if o["order_id"] == "ORD-TEST-DESC"), None)
+    assert target is not None
+    # Subtotal sin descuento = 24*7350 + 16*3900 = 176400 + 62400 = 238800.00
+    assert float(target["subtotal"]) == 238800.0
+    assert target["discount_percentage"] == 15.0
+    # Total con 15% descuento = 202980.00
+    assert float(target["total"]) == 202980.0
+

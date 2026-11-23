@@ -295,6 +295,38 @@ class EntregarNotaInput(BaseModel):
     )
 
 
+class DiscardOrderDraftInput(BaseModel):
+    """Descarta el borrador de pedido pendiente cuando el cliente lo pide de forma explícita (RF-26)."""
+
+    reason: str = Field(description="Motivo del descarte, por ejemplo: el cliente canceló el pedido")
+    message: str | None = Field(default=None, description="Mensaje opcional para el cliente confirmando el descarte")
+
+
+# Motivos que puede emitir el LLM en escalate_to_human
+LlmDerivationReason = Literal["solicitud_humano", "condicion_comercial", "reclamo", "otro"]
+# Conjunto completo de motivos de derivación para agrupación en dashboard (incluye los del backend)
+DerivationReason = Literal[
+    "solicitud_humano",
+    "condicion_comercial",
+    "reclamo",
+    "otro",
+    "fallas_repetidas",
+    "aclaraciones_repetidas",
+]
+
+
+class EscalateToHumanInput(BaseModel):
+    """Deriva la conversación a una persona del equipo (RF-27, Issue #84)."""
+
+    reason: LlmDerivationReason = Field(
+        description="Motivo de la derivación: solicitud_humano, condicion_comercial, reclamo u otro"
+    )
+    message: str | None = Field(
+        default=None,
+        description="Mensaje opcional para el cliente explicando que se deriva al equipo humano",
+    )
+
+
 class AgentOutcome(BaseModel):
     """Lo que devuelve NormaAgent al orquestador (spec del agente §9.2)."""
 
@@ -306,3 +338,4 @@ class AgentOutcome(BaseModel):
     iterations: int = 0  # llamadas al LLM del loop principal (el de hoy o el orquestador)
     llamadas_sub_loop: int = 0  # llamadas al LLM de los sub-loops del turno (RF-94)
     cerrada: bool = False
+    derivation_reason: str | None = None

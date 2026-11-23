@@ -493,8 +493,8 @@ Los criterios de observabilidad (CA-56 y CA-57) prueban RNF-03 y RNF-07, y está
 
 | ID | Requisito | Etapa | Estado |
 |---|---|---|---|
-| RF-26 | El cliente puede cancelar un pedido antes de confirmarlo; el borrador queda descartado | 04 | P |
-| RF-27 | La conversación se deriva a una persona si el cliente lo pide, tras 2 fallas o tras 3 aclaraciones seguidas sin borrador | 04 | P |
+| RF-26 | El cliente puede cancelar un pedido antes de confirmarlo; el borrador queda descartado | 04 | I |
+| RF-27 | La conversación se deriva a una persona si el cliente lo pide, tras 2 fallas o tras 3 aclaraciones seguidas sin borrador | 04 | I |
 | RF-28 | Una conversación abierta vence tras 24 h sin actividad; su borrador queda descartado | 04 | I |
 | RF-100 | Una conversación nueva arranca sin estado del agente: si `CHECKPOINT_DB` ya guarda uno con su ID (por ejemplo, porque `norma.db` volvió a un backup o se recreó), se descarta. Tampoco se retoma un estado guardado de otro cliente o de otro canal | 04 | I |
 
@@ -543,7 +543,7 @@ Mismas 7 etapas que [`roadmap.md`](../roadmap.md). Cerrar una etapa es una versi
 | 01 · Base compartida | Todos pueden ejecutar el proyecto | — | La API levanta en los tres equipos y el CI está en verde | 0.1.0 | ✅ Completa (publicada en 0.1.0) |
 | 02 · Datos del negocio | Consultar catálogo, precios y stock | RF-07, RF-35, RNF-13 | Pasan CA-27, CA-29, CA-53 y CA-55 con el catálogo de ejemplo, y se consulta Sheet 1 real sin tocar código | 0.2.0 | En curso: pasan los CA; falta Sheet 1 real |
 | 03 · Agente y pedidos multimodales | Del mensaje al borrador o la pregunta | RF-01, RF-04 a RF-06, RF-08 a RF-10, RF-33, RF-34 | Pasan CA-06 a CA-12, CA-20 y CA-37 a CA-44 con un modelo falso, y los casos de `mensajes.json` con el LLM elegido | 0.3.0 | En curso: loop, tools y skills con texto; faltan audio, imagen, chat web y la evaluación (D-01) |
-| 04 · Confirmación del cliente | Ningún pedido sin confirmación | RF-11 a RF-14, RF-16, RF-26 a RF-28 | Pasan CA-13, CA-14, CA-16, CA-17 y CA-21 a CA-23, CA-28 | 0.4.0 | En curso: propuesta, corrección, aceptación y vencimiento (CA-28); faltan descarte y derivación |
+| 04 · Confirmación del cliente | Ningún pedido sin confirmación | RF-11 a RF-14, RF-16, RF-26 a RF-28 | Pasan CA-13, CA-14, CA-16, CA-17, CA-21 a CA-23, CA-28 | 0.4.0 | ✅ Completa: propuesta, corrección, aceptación, descarte (CA-23), derivación (CA-21, CA-22) y vencimiento (CA-28) |
 | 05 · Registro y seguimiento | Pedido confirmado = trabajo operativo | RF-15, RF-17 a RF-21 | Pasan CA-15, CA-19 y CA-48 a CA-52 | 0.5.0 | En curso: órdenes en SQLite y CSV local; faltan Sheet 2 real y `order_items` |
 | 06 · Dashboard | Ver qué pasa en el negocio | RF-22 a RF-25, RF-80 a RF-83 | Pasan CA-24, CA-25 y CA-135 a CA-142 | 0.6.0 | En curso: dashboard de una página (D-11), estados y KPIs de ventas |
 | 07 · WhatsApp de punta a punta | Operar desde el canal del cliente | RF-02, RF-03 | Pasan CA-05 y CA-18, y un pedido real de prueba por WhatsApp llega al dashboard | 0.7.0 | Pendiente |
@@ -610,9 +610,9 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-17 | Una propuesta vigente | El cliente escribe «dale» | Se crea una sola orden con lo propuesto. Si escribe «dale, pero 2» o «no, gracias», no se crea orden | RF-13 | `test_agent_graph.py`; interpretación real: casos de `mensajes.json` |
 | CA-18 | Una propuesta vigente | El cliente responde con una aceptación exacta (`OK`, `CONFIRMAR`, «dale», «sí», «listo», «de una» o «mandale») | Se registra sin llamar al LLM. Si el stock ya no alcanza, responde el agente. Sin propuesta vigente, o si la respuesta anterior preguntó algo (CA-164), el mensaje va al agente | RF-13 | `test_agent_graph.py` |
 | CA-19 | Una orden confirmada | Sheet 2 falla al escribir y después vuelve | La orden existe en la base con `sheets_synced = false` y el reintento agrega una sola fila con las columnas de `pedidos.csv` | RF-19, RNF-04 | `test_orders.py::test_confirm_draft_falla_sheets_resiliente_y_reintento` (I) |
-| CA-21 | Una conversación con una falla previa | Ocurre una segunda falla | La conversación pasa a `derivada` y el bot no responde a ese cliente por 24 h | RF-27 | pendiente |
-| CA-22 | Cualquier conversación abierta | El cliente pide hablar con una persona | El turno termina en `derivado` | RF-27 | pendiente |
-| CA-23 | Un borrador pendiente | El cliente dice que ya no lo quiere | El borrador queda `descartado`, la conversación `descartada` y no hay orden | RF-26 | pendiente |
+| CA-21 | Una conversación con una falla previa | Ocurre una segunda falla | La conversación pasa a `derivada` y el bot no responde a ese cliente por 24 h | RF-27 | `test_conversation.py::test_derivada_a_humano_silencia_al_bot_durante_24h`, `test_agent_graph.py::test_segunda_falla_termina_la_conversacion` |
+| CA-22 | Cualquier conversación abierta | El cliente pide hablar con una persona | El turno termina en `derivado` | RF-27 | `test_agent_graph.py::test_solicitud_humano_usa_escalate_to_human`, `test_tools.py::test_tool_escalate_to_human` |
+| CA-23 | Un borrador pendiente | El cliente dice que ya no lo quiere | El borrador queda `descartado`, la conversación `descartada` y no hay orden | RF-26 | `test_conversation.py::test_cancelacion_deterministica_descarta_borrador_y_cierra_conversacion`, `test_tools.py::test_tool_discard_order_draft` |
 | CA-28 | Una conversación abierta sin actividad | Pasan 24 h | Queda `vencida` y el siguiente mensaje abre una conversación nueva | RF-28 | `test_conversation.py::test_conversacion_abierta_vence_tras_24_horas` |
 | CA-165 | `CHECKPOINT_DB` guarda una propuesta pendiente con el ID que recibe una conversación nueva, porque `norma.db` se recreó | El cliente escribe «dale» | El agente arranca sin ese historial ni esa propuesta, no se registra ninguna orden y el log avisa con el ID de la conversación, sin el texto | RF-100 | `test_agent_graph.py::test_conversacion_nueva_no_hereda_el_estado_guardado` |
 | CA-166 | Una conversación abierta cuyo estado guardado es de otro cliente o de otro canal | El cliente escribe | El agente arranca sin ese estado y el log avisa con el ID de la conversación | RF-100 | `test_agent_graph.py::test_no_retoma_el_estado_de_otro_cliente` |

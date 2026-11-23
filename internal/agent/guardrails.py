@@ -408,6 +408,7 @@ def _regla_precios(
         lineas = [(item.unit_price, item.quantity) for item in draft.items if item.unit_price is not None]
         unitarios |= {precio for precio, _ in lineas}
         totales.add(sum((precio * cantidad for precio, cantidad in lineas), Decimal(0)))
+        totales.add(draft.total)
 
     def explicado(monto: Decimal) -> bool:
         if monto in unitarios or monto in totales:
@@ -428,12 +429,68 @@ def _regla_precios(
     return None
 
 
-def _regla_promesas(normalizado: str) -> Rechazo | None:
+_PORCENTAJE_EN_ORACION = re.compile(r"(\d+(?:[.,]\d+)?)\s*(?:%|por\s*ciento\b)")
+_PALABRAS_PORCENTAJE: dict[str, Decimal] = {
+    "un": Decimal("1"),
+    "uno": Decimal("1"),
+    "dos": Decimal("2"),
+    "tres": Decimal("3"),
+    "cuatro": Decimal("4"),
+    "cinco": Decimal("5"),
+    "seis": Decimal("6"),
+    "siete": Decimal("7"),
+    "ocho": Decimal("8"),
+    "nueve": Decimal("9"),
+    "diez": Decimal("10"),
+    "once": Decimal("11"),
+    "doce": Decimal("12"),
+    "trece": Decimal("13"),
+    "catorce": Decimal("14"),
+    "quince": Decimal("15"),
+    "veinte": Decimal("20"),
+    "veinticinco": Decimal("25"),
+    "treinta": Decimal("30"),
+    "treinta y cinco": Decimal("35"),
+    "cuarenta": Decimal("40"),
+    "cincuenta": Decimal("50"),
+    "sesenta": Decimal("60"),
+    "setenta": Decimal("70"),
+    "ochenta": Decimal("80"),
+    "noventa": Decimal("90"),
+    "cien": Decimal("100"),
+}
+_PORCENTAJE_EN_LETRAS = re.compile(
+    r"\b(" + "|".join(sorted(_PALABRAS_PORCENTAJE, key=len, reverse=True)) + r")\s+por\s*ciento\b"
+)
+_MENCION_DESCUENTO = re.compile(r"\bdescuentos?\b")
+
+
+def _porcentajes_coinciden(oracion: str, descuento_autorizado: float | Decimal) -> bool:
+    """True si la oración menciona al menos un porcentaje reconocible y todos coinciden con el autorizado."""
+    autorizado = Decimal(str(descuento_autorizado))
+    cifras = [Decimal(p.replace(",", ".")) for p in _PORCENTAJE_EN_ORACION.findall(oracion)]
+    letras = [_PALABRAS_PORCENTAJE[w] for w in _PORCENTAJE_EN_LETRAS.findall(oracion)]
+    todos = [*cifras, *letras]
+    return bool(todos) and all(val == autorizado for val in todos)
+
+
+def _regla_promesas(normalizado: str, descuento_autorizado: float | Decimal | None = None) -> Rechazo | None:
     temas = []
     for oracion in _ORACIONES.split(_SIN_CARGO.sub("gratis", normalizado)):
         if _NIEGA_O_DERIVA.search(_NO_NIEGAN.sub(" ", oracion)):
             continue
-        temas.extend(tema for tema, patron in _TEMAS.items() if patron.search(oracion) and tema not in temas)
+        for tema, patron in _TEMAS.items():
+            if tema == "descuentos" and descuento_autorizado and _porcentajes_coinciden(oracion, descuento_autorizado):
+                # La excepción solo cubre la mención del descuento autorizado con su porcentaje exacto;
+                # si en la misma oración promete otra cosa (ej. gratis, bonificación, promo), se rechaza.
+                oracion_restante = _PORCENTAJE_EN_ORACION.sub(" ", oracion)
+                oracion_restante = _PORCENTAJE_EN_LETRAS.sub(" ", oracion_restante)
+                oracion_restante = _MENCION_DESCUENTO.sub(" ", oracion_restante)
+                if patron.search(oracion_restante) and tema not in temas:
+                    temas.append(tema)
+                continue
+            if patron.search(oracion) and tema not in temas:
+                temas.append(tema)
     if temas:
         return Rechazo(
             "promesa",
@@ -472,6 +529,7 @@ def validar_salida(
     turno: ContextoTurno | None = None,
     vigente: OrderDraft | None = None,
     pendientes: list[int] | None = None,
+    descuento_autorizado: float | None = None,
 ) -> list[Rechazo]:
     """Las reglas que no cumple el mensaje del LLM. Vacía si puede llegar al cliente.
 
@@ -490,7 +548,7 @@ def validar_salida(
         _regla_internos(message, normalizado, skus | turno.skus_del_prompt),
         _regla_pedido_hecho(message, normalizado),
         _regla_precios(message, propuesta, vigente, turno),
-        _regla_promesas(normalizado),
+        _regla_promesas(normalizado, descuento_autorizado),
         _regla_formato(message),
         _regla_pregunta(message, pendientes or []),
     )

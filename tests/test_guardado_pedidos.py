@@ -476,6 +476,7 @@ def test_fila_de_pedido_con_columnas_nuevas():
         "",  # origen: una orden armada a mano no lo trae
         "d-1",
         "2026-11-10T12:00:00-03:00",  # sin cambios de estado, es la fecha de alta
+        "",  # sin descuento
     ]
 
 
@@ -506,10 +507,10 @@ def test_migra_una_base_de_la_version_1(tmp_path):
         )
 
     engine = make_engine(f"sqlite:///{path}")
-    assert init_db(engine) == LATEST == 3
+    assert init_db(engine) == LATEST == 5
 
     with sqlite3.connect(path) as conn:
-        assert conn.execute("SELECT version FROM schema_version").fetchall() == [(3,)]
+        assert conn.execute("SELECT version FROM schema_version").fetchall() == [(5,)]
         linea = conn.execute("SELECT sku, quantity, note, brand, match, source_text FROM order_items").fetchall()
         assert linea == [("SH-1", 2, "tono 7", None, None, None)]
         orden = conn.execute("SELECT order_id, status, source FROM orders").fetchall()

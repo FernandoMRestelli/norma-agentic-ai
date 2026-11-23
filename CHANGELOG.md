@@ -8,8 +8,25 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Sin publicar]
 
+### Corregido
+
+- Al reactivar una conversación derivada desde el dashboard se vence cualquier conversación abierta más nueva del cliente y se descartan sus borradores pendientes, evitando duplicados; el contador de aclaraciones y fallas se reinicia limpiamente.
+- El guardrail de promesas comerciales con descuento autorizado no permite promesas adicionales (como entrega gratis, bonificaciones o promociones) en la misma oración.
+- Los contadores de aclaraciones consecutivas y fallas se actualizan solo en turnos terminales y se reinician tras turnos exitosos (CA-21, RF-27).
+- Consultas informativas como «¿hacen envío al interior?» o «¿tienen cuenta corriente?» ya no fuerzan indebidamente la derivación ni el silencio de 24 horas.
+- Subtotales, totales y métricas de ingresos calculan de forma uniforme las líneas sin precio unitario a partir del catálogo (`_line_price`).
+- Los audios e imágenes recibidos durante el silencio de 24 horas quedan registrados con un marcador visible en el dashboard.
+- Se elimina el bloqueo de escritura de SQLite durante el envío de mensajes de operador a Telegram.
+- Resolver una derivación restaura las condiciones del agente si falla Telegram o el commit, además del rollback de la base. Las observaciones y acuerdos ya no se recortan silenciosamente: si no entran en 300 caracteres se pide resumir antes de guardarlos o enviarlos. Sin migraciones ni configuración nueva.
+
 ### Agregado
 
+- Derivaciones y descarte de pedidos (RF-26, RF-27, CA-21, CA-22, CA-23, Issue #84, Etapa 04):
+  * **Descarte de pedido (RF-26, CA-23):** cancelación determinística de propuestas por palabras clave («cancelar», «no quiero nada», etc.) con 0 tokens de LLM y tool `discard_order_draft`. Descarta el borrador pendiente (`descartado`) y cierra la conversación (`descartada`).
+  * **Derivación a atención humana (RF-27, CA-21, CA-22, Issue #84):** protocolo con la tool `escalate_to_human` ante solicitudes comerciales especiales (descuentos por volumen/bulto, envíos al interior con fletes no habituales, plazos de pago diferidos o en cuenta corriente), peticiones explícitas de hablar con una persona, tras 2 fallas técnicas o tras 3 aclaraciones seguidas sin borrador.
+  * **Silencio de 24 h tras derivación:** durante 24 horas posteriores a una derivación, el bot no responde automáticamente para evitar interrumpir la atención del operador humano (especificación del agente §7).
+  * **Skill nueva `derivar_o_cancelar` y regla `BR-08`:** protocolo de negocio y tools terminales asociadas.
+  * **Migración de base de datos 4:** agrega la columna `derivation_reason` en la tabla `conversations` y se muestra en el dashboard (`/dashboard/conversations?state=derivada` y pestaña Conversaciones de `/dashboard/ui`).
 - Un filtro previo al agente responde sin consumir tokens a desvíos evidentes (chistes, capitales, código y otras intenciones conocidas) sin señales de negocio. Conserva las propuestas vigentes y deja pasar pedidos mixtos o ambiguos. Se refuerzan las instrucciones para atender solo la parte del negocio. No hay variables nuevas.
 - Anotar una solicitud comercial y derivarla al equipo son acciones complementarias: se distinguen solicitudes pendientes y acuerdos operativos confirmados, sin copiar notas internas. Las observaciones del cliente sobre retiro, fechas y pago se anotan en la propuesta y en la columna `notas` del pedido como solicitudes sujetas a validación del negocio. Las notas vigentes se conservan si el modelo omite el campo al volver a proponer; pueden corregirse o borrarse explícitamente. No se confirman condiciones comerciales ni se registra un pedido sin aceptación.
 

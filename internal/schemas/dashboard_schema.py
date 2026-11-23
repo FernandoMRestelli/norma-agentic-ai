@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from internal.schemas.order_schema import OrderStatus
+from internal.schemas.order_schema import MAX_ORDER_NOTES_LENGTH, OrderStatus
 
 
 class DashboardSummary(BaseModel):
@@ -36,6 +36,8 @@ class DashboardOrderItem(BaseModel):
     notes: str | None = None
     items_summary: str
     items: list[DashboardOrderLineItem] = Field(default_factory=list)
+    subtotal: Decimal | None = None
+    discount_percentage: float | None = None
     total: Decimal
     stock_applied: bool = False
     read_only: bool = False  # solo está en la copia de Sheet 2: no se puede cambiar de estado (RF-82)
@@ -58,8 +60,55 @@ class DashboardConversationItem(BaseModel):
     customer_id: str
     channel: str
     status: str
+    derivation_reason: str | None = None
+    discount_percentage: float | None = None
+    operator_notes: str | None = None
+    order_notes: str | None = None
+    resolution_type: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class ConversationMessageItem(BaseModel):
+    role: Literal["cliente", "norma", "operador"]
+    content: str
+    timestamp: datetime | None = None
+
+
+class ConversationDetailResponse(BaseModel):
+    id: int
+    customer_id: str
+    channel: str
+    status: str
+    derivation_reason: str | None = None
+    discount_percentage: float | None = None
+    operator_notes: str | None = None
+    order_notes: str | None = None
+    resolution_type: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    messages: list[ConversationMessageItem] = Field(default_factory=list)
+
+
+class ConversationResolveRequest(BaseModel):
+    resolution_type: str = Field(description="Tipo de resolución comercial")
+    message: str | None = Field(default=None, description="Mensaje a enviar al cliente")
+    discount_percentage: float | None = Field(
+        default=None, ge=0, le=100, description="Porcentaje de descuento autorizado"
+    )
+    order_notes: str | None = Field(
+        default=None,
+        max_length=MAX_ORDER_NOTES_LENGTH,
+        description="Acuerdos operativos confirmados para el pedido (visibles en la propuesta, orden y planilla)",
+    )
+    operator_notes: str | None = Field(
+        default=None, description="Notas internas del operador (solo dashboard; nunca van al cliente ni al pedido)"
+    )
+    reactivate_bot: bool = Field(default=True, description="Si es True, levanta el silencio y reactiva a Norma")
+    close_conversation: bool = Field(
+        default=False,
+        description="Si es True (y reactivate_bot es False), cierra la conversación en estado 'resuelta'",
+    )
 
 
 class UpdateOrderStatusInput(BaseModel):

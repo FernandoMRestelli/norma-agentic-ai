@@ -43,6 +43,13 @@ def items_total(items: "list[OrderItem]") -> Decimal:
     return sum((item.quantity * item.unit_price for item in items if item.unit_price is not None), Decimal(0))
 
 
+def descuento(subtotal: Decimal, porcentaje: float | Decimal | None) -> Decimal:
+    """El monto que descuenta un porcentaje autorizado por el operador, redondeado al centavo (RF-27)."""
+    if not porcentaje:
+        return Decimal(0)
+    return (subtotal * Decimal(str(porcentaje)) / Decimal(100)).quantize(Decimal("0.01"))
+
+
 class Channel(StrEnum):
     WEB = "web"
     WHATSAPP = "whatsapp"
@@ -211,6 +218,7 @@ class OrderDraft(BaseModel):
     version: int = Field(default=1, ge=1)
     leftovers: list[Leftover] = Field(default_factory=list)  # lo que quedó afuera al proponer (RF-76)
     source: str = "texto"  # texto, audio o imagen (RF-79)
+    discount_percentage: float | None = Field(default=None, ge=0, le=100)
 
     @field_validator("notes")
     @classmethod
@@ -224,12 +232,17 @@ class OrderDraft(BaseModel):
 
     @property
     def total(self) -> Decimal:
+        return self.subtotal - descuento(self.subtotal, self.discount_percentage)
+
+    @property
+    def subtotal(self) -> Decimal:
         return items_total(self.items)
 
 
 class ConfirmationAction(StrEnum):
     CONFIRM = "confirmar"
     CORRECT = "corregir"
+    CANCEL = "cancelar"
 
 
 class OrderStatus(StrEnum):
@@ -268,6 +281,7 @@ class Order(BaseModel):
     status: OrderStatus = OrderStatus.RECEIVED
     sheets_synced: bool = False
     stock_applied: bool = False  # el stock ya se descontó del catálogo al despachar o retirar (Issue #61)
+    discount_percentage: float | None = None
     history: list[OrderEvent] = Field(default_factory=list)
     leftovers: list[Leftover] = Field(default_factory=list)
     source: str | None = None  # None en una orden anterior a la migración 2
@@ -280,7 +294,8 @@ class Order(BaseModel):
     @model_validator(mode="after")
     def fill_total(self) -> Self:
         if self.total is None:
-            self.total = items_total(self.items)
+            subtotal = items_total(self.items)
+            self.total = subtotal - descuento(subtotal, self.discount_percentage)
         return self
 
     @field_validator("order_id")
