@@ -6,6 +6,8 @@ transcribirlos a texto en lenguaje natural y normalizarlos para el pipeline del 
 
 import base64
 import logging
+import mimetypes
+from pathlib import Path
 
 import httpx
 
@@ -22,6 +24,36 @@ PROMPT_TRANSCRIPCION = (
     "El cliente es dueño o empleado de un salón de belleza o peluquería y está pidiendo productos a una distribuidora. "
     "Devolvé únicamente el texto transcripto de lo que dice la persona, sin comentarios adicionales ni explicaciones."
 )
+
+_EXTENSION_BY_MIME: dict[str, str] = {
+    "audio/ogg": "audio.oga",
+    "audio/opus": "audio.opus",
+    "audio/mpeg": "audio.mp3",
+    "audio/mp3": "audio.mp3",
+    "audio/mp4": "audio.m4a",
+    "audio/x-m4a": "audio.m4a",
+    "audio/wav": "audio.wav",
+    "audio/x-wav": "audio.wav",
+    "audio/webm": "audio.webm",
+}
+
+
+def _detect_mime_and_filename(file_path: str) -> tuple[str, str]:
+    """Determina el mime type y nombre de archivo a partir de la ruta o extensión."""
+    path = Path(file_path)
+    ext = path.suffix.lower()
+    if ext in (".oga", ".ogg", ".opus"):
+        mime = "audio/ogg"
+    elif ext == ".mp3":
+        mime = "audio/mpeg"
+    elif ext in (".m4a", ".mp4", ".aac"):
+        mime = "audio/mp4"
+    elif ext == ".wav":
+        mime = "audio/wav"
+    else:
+        mime = mimetypes.guess_type(file_path)[0] or "audio/ogg"
+    filename = path.name or f"audio{ext or '.oga'}"
+    return mime, filename
 
 
 class AudioProcessingError(RuntimeError):
@@ -62,16 +94,12 @@ def download_audio_bytes(media_url: str, channel: Channel | None = None) -> tupl
         file_id = media_url.removeprefix("telegram:")
         client = get_client()
         try:
-            file_info = client.get_file(file_id)
-            file_path = file_info.get("file_path")
-            if not file_path:
-                raise AudioProcessingError("Telegram no devolvió la ruta del archivo de audio")
-            raw_bytes = client.download_file(file_path, http_timeout=TIMEOUT_SECONDS)
+            raw_bytes, file_path = client.download_file_with_path(file_id)
         except TelegramError as exc:
             logger.warning("Fallo al descargar audio de Telegram: %s", exc)
             raise AudioProcessingError("No se pudo descargar el audio de Telegram") from None
 
-        mime = "audio/ogg" if file_path.endswith((".oga", ".ogg")) else "audio/mpeg"
+        mime, _ = _detect_mime_and_filename(file_path)
         return raw_bytes, mime
 
     raise NotImplementedError(f"Protocolo o canal de audio no soportado: {media_url}")
@@ -81,6 +109,7 @@ def transcribe_audio_bytes(
     audio_bytes: bytes,
     mime_type: str = "audio/ogg",
     http_client: httpx.Client | None = None,
+    filename: str | None = None,
 ) -> str:
     """Transcribe bytes de audio a texto utilizando el proveedor configurado."""
     if not audio_bytes:
@@ -91,8 +120,14 @@ def transcribe_audio_bytes(
 
     settings = get_settings()
     provider = settings.audio_provider or settings.llm_provider
-    api_key = settings.audio_api_key or settings.llm_api_key
+    api_key = settings.audio_api_key
+    # Seguridad (RNF-01): solo usar LLM_API_KEY como respaldo si coincide el proveedor
+    if not api_key:
+        if settings.audio_provider == settings.llm_provider or not settings.audio_provider:
+            api_key = settings.llm_api_key
+
     model = settings.audio_model
+    file_name = filename or _EXTENSION_BY_MIME.get(mime_type, "audio.oga")
 
     client = http_client or httpx.Client(timeout=TIMEOUT_SECONDS)
 
@@ -101,9 +136,9 @@ def transcribe_audio_bytes(
             case "gemini":
                 return _transcribe_gemini(audio_bytes, mime_type, api_key, model, client)
             case "groq":
-                return _transcribe_groq(audio_bytes, mime_type, api_key, model, client)
+                return _transcribe_groq(audio_bytes, mime_type, api_key, model, client, file_name)
             case "openai":
-                return _transcribe_openai(audio_bytes, mime_type, api_key, model, client)
+                return _transcribe_openai(audio_bytes, mime_type, api_key, model, client, file_name)
             case "mock":
                 return _transcribe_mock(audio_bytes)
             case None | "":
@@ -125,9 +160,11 @@ def _transcribe_gemini(
     client: httpx.Client,
 ) -> str:
     if not api_key:
-        raise AudioProcessingError("Falta AUDIO_API_KEY o LLM_API_KEY para transcribir con Gemini")
+        raise AudioProcessingError("Falta AUDIO_API_KEY (o LLM_API_KEY de Gemini) para transcribir con Gemini")
     model_name = model or "gemini-3.5-flash"
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+    # Seguridad (RNF-14): la clave se envía en el header x-goog-api-key, no en la URL
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+    headers = {"x-goog-api-key": api_key}
 
     b64_data = base64.b64encode(audio_bytes).decode("ascii")
     payload = {
@@ -143,7 +180,7 @@ def _transcribe_gemini(
     }
 
     try:
-        response = client.post(url, json=payload, timeout=TIMEOUT_SECONDS)
+        response = client.post(url, headers=headers, json=payload, timeout=TIMEOUT_SECONDS)
         response.raise_for_status()
         data = response.json()
         candidates = data.get("candidates", [])
@@ -159,9 +196,9 @@ def _transcribe_gemini(
         raise AudioProcessingError(
             f"Falla en el servicio de transcripción de Gemini ({exc.response.status_code})"
         ) from None
-    except httpx.HTTPError as exc:
-        logger.warning("Error de red con Gemini al transcribir audio: %s", type(exc).__name__)
-        raise AudioProcessingError(f"Error de conexión con Gemini ({type(exc).__name__})") from None
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("Error con Gemini al transcribir audio: %s", type(exc).__name__)
+        raise AudioProcessingError(f"Error de conexión o respuesta con Gemini ({type(exc).__name__})") from None
 
 
 def _transcribe_groq(
@@ -170,23 +207,25 @@ def _transcribe_groq(
     api_key: str | None,
     model: str | None,
     client: httpx.Client,
+    filename: str = "audio.oga",
 ) -> str:
     if not api_key:
-        raise AudioProcessingError("Falta AUDIO_API_KEY o LLM_API_KEY para transcribir con Groq")
+        raise AudioProcessingError("Falta AUDIO_API_KEY (o LLM_API_KEY de Groq) para transcribir con Groq")
     model_name = model or "whisper-large-v3"
     url = "https://api.groq.com/openai/v1/audio/transcriptions"
     headers = {"Authorization": f"Bearer {api_key}"}
-    files = {"file": ("audio.oga", audio_bytes, mime_type)}
+    files = {"file": (filename, audio_bytes, mime_type)}
     data = {"model": model_name, "language": "es"}
 
     try:
         response = client.post(url, headers=headers, files=files, data=data, timeout=TIMEOUT_SECONDS)
         response.raise_for_status()
-        text = response.json().get("text", "").strip()
+        data_resp = response.json()
+        text = data_resp.get("text", "").strip() if isinstance(data_resp, dict) else ""
         if not text:
             raise AudioEmptyError("Groq devolvió transcripción vacía")
         return text
-    except httpx.HTTPError as exc:
+    except (httpx.HTTPError, ValueError) as exc:
         logger.warning("Error en transcripción con Groq: %s", type(exc).__name__)
         raise AudioProcessingError(f"Falla en transcripción con Groq ({type(exc).__name__})") from None
 
@@ -197,23 +236,25 @@ def _transcribe_openai(
     api_key: str | None,
     model: str | None,
     client: httpx.Client,
+    filename: str = "audio.oga",
 ) -> str:
     if not api_key:
         raise AudioProcessingError("Falta AUDIO_API_KEY para transcribir con OpenAI")
     model_name = model or "whisper-1"
     url = "https://api.openai.com/v1/audio/transcriptions"
     headers = {"Authorization": f"Bearer {api_key}"}
-    files = {"file": ("audio.oga", audio_bytes, mime_type)}
+    files = {"file": (filename, audio_bytes, mime_type)}
     data = {"model": model_name, "language": "es"}
 
     try:
         response = client.post(url, headers=headers, files=files, data=data, timeout=TIMEOUT_SECONDS)
         response.raise_for_status()
-        text = response.json().get("text", "").strip()
+        data_resp = response.json()
+        text = data_resp.get("text", "").strip() if isinstance(data_resp, dict) else ""
         if not text:
             raise AudioEmptyError("OpenAI devolvió transcripción vacía")
         return text
-    except httpx.HTTPError as exc:
+    except (httpx.HTTPError, ValueError) as exc:
         logger.warning("Error en transcripción con OpenAI: %s", type(exc).__name__)
         raise AudioProcessingError(f"Falla en transcripción con OpenAI ({type(exc).__name__})") from None
 

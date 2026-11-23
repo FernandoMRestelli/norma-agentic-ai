@@ -65,8 +65,11 @@ class TelegramClient:
     def delete_webhook(self) -> None:
         self.call("deleteWebhook")
 
-    def download_file(self, file_id: str) -> bytes:
-        """Baja un archivo (foto, audio) por su file_id: getFile da la ruta y se descarga con el token."""
+    def download_file_with_path(self, file_id: str) -> tuple[bytes, str]:
+        """Baja un archivo (foto, audio) por su file_id y devuelve (bytes, file_path).
+
+        Valida el tamaño antes (vía getFile) y después de descargar. Nunca incluye el token en errores (RNF-14).
+        """
         info = self.call("getFile", file_id=file_id)
         if info.get("file_size", 0) > MAX_FILE_BYTES or "file_path" not in info:
             raise TelegramError("getFile: el archivo es muy grande o no se puede bajar")
@@ -74,12 +77,17 @@ class TelegramClient:
         try:
             response = self.http.get(url, timeout=TIMEOUT_SECONDS * 3)
             response.raise_for_status()
-        except httpx.HTTPError as exc:
+        except (httpx.HTTPError, ValueError) as exc:
             # El error de httpx incluye la URL, que tiene el token: no se encadena (RNF-14)
             raise TelegramError(f"download_file: no se pudo bajar el archivo ({type(exc).__name__})") from None
         if len(response.content) > MAX_FILE_BYTES:
             raise TelegramError("download_file: el archivo es muy grande")
-        return response.content
+        return response.content, info["file_path"]
+
+    def download_file(self, file_id: str) -> bytes:
+        """Baja un archivo (foto, audio) por su file_id: getFile da la ruta y se descarga con el token."""
+        content, _ = self.download_file_with_path(file_id)
+        return content
 
     def get_updates(self, offset: int | None, poll_seconds: int) -> list[dict]:
         params: dict[str, Any] = {"timeout": poll_seconds, "allowed_updates": ["message"]}
@@ -90,16 +98,6 @@ class TelegramClient:
     def get_file(self, file_id: str) -> dict:
         """Consulta la metadata de un archivo multimedia en Telegram (getFile)."""
         return self.call("getFile", file_id=file_id)
-
-    def download_file(self, file_path: str, http_timeout: float = 30.0) -> bytes:
-        """Descarga los bytes de un archivo de Telegram. Nunca incluye el token en errores (RNF-14)."""
-        url = f"https://api.telegram.org/file/bot{self._token}/{file_path}"
-        try:
-            response = self.http.get(url, timeout=http_timeout)
-            response.raise_for_status()
-            return response.content
-        except (httpx.HTTPError, ValueError) as exc:
-            raise TelegramError(f"download_file: no se pudo descargar archivo ({type(exc).__name__})") from None
 
     def send_message(self, chat_id: int, text: str) -> None:
         """Manda el texto en un mensaje, o en varios si pasa el límite de Telegram, partido por renglón (RF-70)."""

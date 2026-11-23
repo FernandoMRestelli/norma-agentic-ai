@@ -9,9 +9,16 @@ from internal.schemas.order_schema import Channel, IncomingMessage, MessageType
 from internal.services import audio_service, conversation_service, message_service
 
 
-def test_audio_deshabilitado_por_defecto(monkeypatch):
-    """Por defecto AUDIO_ENABLED=false y el bot responde con WRITE_IT_PLEASE."""
+@pytest.fixture(autouse=True)
+def _limpiar_cache_settings():
+    """Limpia el cache de settings antes y después de cada test para no contaminar la suite."""
     get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+def test_audio_deshabilitado_por_defecto():
+    """Por defecto AUDIO_ENABLED=false y el bot responde con WRITE_IT_PLEASE."""
     msg = IncomingMessage(
         customer_id="telegram:test", channel=Channel.TELEGRAM, type=MessageType.AUDIO, media_url="telegram:aud1"
     )
@@ -38,19 +45,30 @@ def test_download_audio_bytes_mock():
 
 
 def test_download_audio_telegram(monkeypatch):
-    """Descarga de nota de voz desde Telegram usando get_file y download_file."""
+    """Descarga de nota de voz desde Telegram usando download_file_with_path."""
     from internal.services import telegram_service
 
     mock_client = Mock()
-    mock_client.get_file.return_value = {"file_id": "aud123", "file_path": "voice/file_1.oga"}
-    mock_client.download_file.return_value = b"TELEGRAM_AUDIO_BYTES"
+    mock_client.download_file_with_path.return_value = (b"TELEGRAM_AUDIO_BYTES", "voice/file_1.oga")
     monkeypatch.setattr(telegram_service, "get_client", lambda: mock_client)
 
     data, mime = audio_service.download_audio_bytes("telegram:aud123", Channel.TELEGRAM)
     assert data == b"TELEGRAM_AUDIO_BYTES"
     assert mime == "audio/ogg"
-    mock_client.get_file.assert_called_once_with("aud123")
-    mock_client.download_file.assert_called_once_with("voice/file_1.oga", http_timeout=30.0)
+    mock_client.download_file_with_path.assert_called_once_with("aud123")
+
+
+def test_download_audio_telegram_mp3(monkeypatch):
+    """Descarga de audio mp3 desde Telegram detecta el mime correcto."""
+    from internal.services import telegram_service
+
+    mock_client = Mock()
+    mock_client.download_file_with_path.return_value = (b"MP3_BYTES", "music/audio_pedido.mp3")
+    monkeypatch.setattr(telegram_service, "get_client", lambda: mock_client)
+
+    data, mime = audio_service.download_audio_bytes("telegram:aud456", Channel.TELEGRAM)
+    assert data == b"MP3_BYTES"
+    assert mime == "audio/mpeg"
 
 
 def test_transcribe_audio_vacio_falla():
@@ -79,7 +97,7 @@ def test_transcribe_mock_provider(monkeypatch):
 
 
 def test_transcribe_gemini_exitoso(monkeypatch):
-    """Llamada exitosa a la API de Gemini."""
+    """Llamada exitosa a la API de Gemini (enviando API key por header, no en la URL)."""
     monkeypatch.setenv("AUDIO_PROVIDER", "gemini")
     monkeypatch.setenv("AUDIO_API_KEY", "test-key-gemini")
     monkeypatch.setenv("AUDIO_MODEL", "gemini-3.5-flash")
@@ -102,9 +120,24 @@ def test_transcribe_gemini_exitoso(monkeypatch):
     res = audio_service.transcribe_audio_bytes(b"RAW_AUDIO", "audio/ogg", http_client=mock_http)
     assert res == "Hola Norma, anotame dos oxidantes de 20 y tres tinturas 7.1"
     assert mock_http.post.call_count == 1
-    call_kwargs = mock_http.post.call_args.kwargs
-    assert "gemini-3.5-flash" in mock_http.post.call_args[0][0]
+    call_args, call_kwargs = mock_http.post.call_args
+    # RNF-14: La key va por header, nunca en la URL
+    assert "key=" not in call_args[0]
+    assert call_kwargs["headers"]["x-goog-api-key"] == "test-key-gemini"
+    assert "gemini-3.5-flash" in call_args[0]
     assert call_kwargs["json"]["contents"][0]["parts"][0]["inlineData"]["mimeType"] == "audio/ogg"
+
+
+def test_transcribe_gemini_no_filtra_llm_api_key_de_otro_proveedor(monkeypatch):
+    """Si AUDIO_PROVIDER=gemini y falta AUDIO_API_KEY, no usa LLM_API_KEY de OpenRouter (RNF-01)."""
+    monkeypatch.setenv("AUDIO_PROVIDER", "gemini")
+    monkeypatch.delenv("AUDIO_API_KEY", raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+    monkeypatch.setenv("LLM_API_KEY", "sk-openrouter-secret")
+    get_settings.cache_clear()
+
+    with pytest.raises(audio_service.AudioProcessingError, match="Falta AUDIO_API_KEY"):
+        audio_service.transcribe_audio_bytes(b"RAW_AUDIO", "audio/ogg")
 
 
 def test_transcribe_groq_exitoso(monkeypatch):
@@ -120,11 +153,13 @@ def test_transcribe_groq_exitoso(monkeypatch):
     mock_response.json.return_value = {"text": "Quiero 2 shampoo de litro"}
     mock_http.post.return_value = mock_response
 
-    res = audio_service.transcribe_audio_bytes(b"RAW_AUDIO", "audio/ogg", http_client=mock_http)
+    res = audio_service.transcribe_audio_bytes(b"RAW_AUDIO", "audio/mpeg", http_client=mock_http)
     assert res == "Quiero 2 shampoo de litro"
     assert mock_http.post.call_count == 1
     call_kwargs = mock_http.post.call_args.kwargs
     assert call_kwargs["data"]["model"] == "whisper-large-v3"
+    # El archivo para audio/mpeg debe tener extensión adecuada
+    assert call_kwargs["files"]["file"][0] == "audio.mp3"
 
 
 def test_transcribe_openai_exitoso(monkeypatch):
@@ -143,13 +178,31 @@ def test_transcribe_openai_exitoso(monkeypatch):
     assert res == "Anotame 1 baño de crema"
 
 
+def test_transcribe_error_json_no_corta_excepcion_cruda(monkeypatch):
+    """Si el proveedor devuelve respuesta no JSON (ValueError), se mapea a AudioProcessingError."""
+    monkeypatch.setenv("AUDIO_PROVIDER", "groq")
+    monkeypatch.setenv("AUDIO_API_KEY", "test-key-groq")
+    get_settings.cache_clear()
+
+    mock_http = Mock(spec=httpx.Client)
+    mock_response = Mock()
+    mock_response.status_code = 200
+    mock_response.json.side_effect = ValueError("No JSON")
+    mock_http.post.return_value = mock_response
+
+    with pytest.raises(audio_service.AudioProcessingError):
+        audio_service.transcribe_audio_bytes(b"RAW_AUDIO", "audio/ogg", http_client=mock_http)
+
+
 def test_handle_message_audio_habilitado_invoca_agente_con_origen_audio(monkeypatch, base_de_datos_inicializada):
     """Con AUDIO_ENABLED=true, transcribe e invoca al agente pasando origen='audio'."""
     from internal.services import telegram_service
 
     mock_client = Mock()
-    mock_client.get_file.return_value = {"file_id": "aud1", "file_path": "voice/test.oga"}
-    mock_client.download_file.return_value = b"mock_text:dos shampoo neutro de litro"
+    mock_client.download_file_with_path.return_value = (
+        b"mock_text:dos shampoo neutro de litro",
+        "voice/test.oga",
+    )
     monkeypatch.setattr(telegram_service, "get_client", lambda: mock_client)
 
     monkeypatch.setenv("AUDIO_ENABLED", "true")
@@ -162,6 +215,7 @@ def test_handle_message_audio_habilitado_invoca_agente_con_origen_audio(monkeypa
         def handle(self, **kwargs):
             llamadas_agente.append(kwargs)
             from types import SimpleNamespace
+
             return SimpleNamespace(cerrada=False, kind="propuesta", message="Te armé la propuesta con 2 shampoo.")
 
     monkeypatch.setattr(conversation_service, "get_agent", lambda: MockAgent())
