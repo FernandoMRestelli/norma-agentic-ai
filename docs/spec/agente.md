@@ -214,6 +214,9 @@ flowchart TD
 - **Persistencia:** el estado del grafo se guarda con `SqliteSaver` en `CHECKPOINT_DB`, un archivo propio dentro de
   `data/`, con `LANGGRAPH_STRICT_MSGPACK=true`. El `thread_id` es el ID de la conversación, y una conversación
   sigue aunque el proceso se reinicie entre dos mensajes.
+  Como el ID sale de `norma.db` y el estado vive en otro archivo, una conversación nueva descarta cualquier estado
+  que ya tuviera ese ID, y ninguna retoma uno guardado para otro cliente o canal (RF-100): pasa si `norma.db` vuelve
+  a un backup o se recrea y `CHECKPOINT_DB` no.
 - **Un solo worker:** el lock por conversación vive en el proceso, así que la API corre con un solo worker mientras
   los checkpoints estén en SQLite. La conexión espera hasta 15 s si otro proceso, como el bot, está escribiendo.
 - **Salidas por `END`:** un pedido registrado cierra la conversación. Una segunda falla la marca `fallida`, y el

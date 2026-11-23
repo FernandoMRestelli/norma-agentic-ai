@@ -124,7 +124,7 @@ def test_conversacion_abierta_vence_tras_24_horas(clean_db, monkeypatch):
     monkeypatch.setattr(conversation_service, "_clock", lambda: reloj[0])
 
     # Primer mensaje: abre conversación 1
-    id1, tenia_propuesta = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    id1, _, tenia_propuesta = conversation_service._abrir_conversacion("telegram:10", Channel.TELEGRAM)
     assert not tenia_propuesta
 
     with SessionLocal() as session:
@@ -136,7 +136,7 @@ def test_conversacion_abierta_vence_tras_24_horas(clean_db, monkeypatch):
     reloj[0] = t0 + timedelta(hours=24, minutes=1)
 
     # Siguiente mensaje del mismo cliente: vence la anterior y abre una nueva (CA-28)
-    id2, tenia_propuesta = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    id2, _, tenia_propuesta = conversation_service._abrir_conversacion("telegram:10", Channel.TELEGRAM)
     assert not tenia_propuesta
     assert id2 != id1
 
@@ -153,7 +153,7 @@ def test_vencimiento_descarta_borradores_pendientes(clean_db, monkeypatch):
     reloj = [t0]
     monkeypatch.setattr(conversation_service, "_clock", lambda: reloj[0])
 
-    id1, _ = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    id1 = conversation_service._abrir_conversacion("telegram:10", Channel.TELEGRAM).id
 
     # Creamos un borrador pendiente asociado a la conversación
     with SessionLocal() as session:
@@ -173,7 +173,7 @@ def test_vencimiento_descarta_borradores_pendientes(clean_db, monkeypatch):
     reloj[0] = t0 + timedelta(hours=25)
 
     # Llega un mensaje nuevo: la conversación vence
-    id2, tenia_propuesta = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    id2, _, tenia_propuesta = conversation_service._abrir_conversacion("telegram:10", Channel.TELEGRAM)
     assert tenia_propuesta
 
     with SessionLocal() as session:
@@ -188,7 +188,7 @@ def test_intento_de_confirmar_propuesta_vencida_avisa_al_cliente(clean_db, monke
     monkeypatch.setattr(conversation_service, "_clock", lambda: reloj[0])
 
     # El cliente abrió conversación con una propuesta hace 30 horas
-    id1, _ = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    id1 = conversation_service._abrir_conversacion("telegram:10", Channel.TELEGRAM).id
     with SessionLocal() as session:
         draft = DraftRecord(
             draft_id="d-test-exp",
@@ -228,7 +228,7 @@ def test_confirmacion_tras_vencimiento_sin_borrador_no_muestra_aviso(clean_db, m
     reloj = [t0]
     monkeypatch.setattr(conversation_service, "_clock", lambda: reloj[0])
 
-    id1, _ = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    conversation_service._abrir_conversacion("telegram:10", Channel.TELEGRAM)
     # No se crea ningún borrador (el agente sólo había hecho una pregunta)
     reloj[0] = t0 + timedelta(hours=25)
 
@@ -257,7 +257,7 @@ def test_ok_tras_vencer_con_propuesta_ya_descartada_por_el_agente(clean_db, monk
     reloj = [t0]
     monkeypatch.setattr(conversation_service, "_clock", lambda: reloj[0])
 
-    id1, _ = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    id1 = conversation_service._abrir_conversacion("telegram:10", Channel.TELEGRAM).id
     with SessionLocal() as session:
         session.add(
             DraftRecord(
@@ -309,7 +309,7 @@ def test_actividad_renueva_plazo_de_vencimiento(clean_db, monkeypatch):
     reloj = [t0]
     monkeypatch.setattr(conversation_service, "_clock", lambda: reloj[0])
 
-    id1, _ = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    id1 = conversation_service._abrir_conversacion("telegram:10", Channel.TELEGRAM).id
 
     # Actividad a las 20 h: renueva
     reloj[0] = t0 + timedelta(hours=20)
@@ -317,7 +317,7 @@ def test_actividad_renueva_plazo_de_vencimiento(clean_db, monkeypatch):
 
     # Mensaje a las 30 h (a 10 h de la última actividad): sigue abierta
     reloj[0] = t0 + timedelta(hours=30)
-    id_actual, vencio = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    id_actual, _, vencio = conversation_service._abrir_conversacion("telegram:10", Channel.TELEGRAM)
     assert not vencio
     assert id_actual == id1
 
@@ -329,11 +329,11 @@ def test_vencimiento_no_toca_borrador_de_otra_conversacion(clean_db, monkeypatch
     monkeypatch.setattr(conversation_service, "_clock", lambda: reloj[0])
 
     # Conversación previa fallida que dejó un borrador pendiente asociado a ella
-    id_fallida, _ = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    id_fallida = conversation_service._abrir_conversacion("telegram:10", Channel.TELEGRAM).id
     conversation_service._close_conversation(id_fallida, "fallida")
 
     # Nueva conversación abierta sin borrador propio
-    id_abierta, _ = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    id_abierta = conversation_service._abrir_conversacion("telegram:10", Channel.TELEGRAM).id
 
     with SessionLocal() as session:
         session.add(
@@ -351,7 +351,7 @@ def test_vencimiento_no_toca_borrador_de_otra_conversacion(clean_db, monkeypatch
 
     # Pasan 25 h y vence id_abierta
     reloj[0] = t0 + timedelta(hours=25)
-    id_nueva, tenia_propuesta = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    id_nueva, _, tenia_propuesta = conversation_service._abrir_conversacion("telegram:10", Channel.TELEGRAM)
     assert id_nueva != id_abierta
     assert not tenia_propuesta
 

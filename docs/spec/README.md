@@ -496,6 +496,7 @@ Los criterios de observabilidad (CA-56 y CA-57) prueban RNF-03 y RNF-07, y está
 | RF-26 | El cliente puede cancelar un pedido antes de confirmarlo; el borrador queda descartado | 04 | P |
 | RF-27 | La conversación se deriva a una persona si el cliente lo pide, tras 2 fallas o tras 3 aclaraciones seguidas sin borrador | 04 | P |
 | RF-28 | Una conversación abierta vence tras 24 h sin actividad; su borrador queda descartado | 04 | I |
+| RF-100 | Una conversación nueva arranca sin estado del agente: si `CHECKPOINT_DB` ya guarda uno con su ID (por ejemplo, porque `norma.db` volvió a un backup o se recreó), se descarta. Tampoco se retoma un estado guardado de otro cliente o de otro canal | 04 | I |
 
 ### Canal de prueba: Telegram
 
@@ -613,6 +614,8 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-22 | Cualquier conversación abierta | El cliente pide hablar con una persona | El turno termina en `derivado` | RF-27 | pendiente |
 | CA-23 | Un borrador pendiente | El cliente dice que ya no lo quiere | El borrador queda `descartado`, la conversación `descartada` y no hay orden | RF-26 | pendiente |
 | CA-28 | Una conversación abierta sin actividad | Pasan 24 h | Queda `vencida` y el siguiente mensaje abre una conversación nueva | RF-28 | `test_conversation.py::test_conversacion_abierta_vence_tras_24_horas` |
+| CA-165 | `CHECKPOINT_DB` guarda una propuesta pendiente con el ID que recibe una conversación nueva, porque `norma.db` se recreó | El cliente escribe «dale» | El agente arranca sin ese historial ni esa propuesta, no se registra ninguna orden y el log avisa con el ID de la conversación, sin el texto | RF-100 | `test_agent_graph.py::test_conversacion_nueva_no_hereda_el_estado_guardado` |
+| CA-166 | Una conversación abierta cuyo estado guardado es de otro cliente o de otro canal | El cliente escribe | El agente arranca sin ese estado y el log avisa con el ID de la conversación | RF-100 | `test_agent_graph.py::test_no_retoma_el_estado_de_otro_cliente` |
 | CA-48 | Un request a `/orders/*` | Llega sin credencial o con token inválido | Se rechaza con `401 Unauthorized` | RF-20, RNF-01 | `test_api_orders.py::test_orders_endpoints_requieren_autenticacion` |
 | CA-49 | Una orden registrada | Se consulta por `GET /orders/{order_id}` con token de operador | Devuelve `200` con los datos de la orden; si no existe, `404` | RF-20 | `test_api_orders.py::test_get_order_*` |
 | CA-50 | Una orden activa | Se cancela por `POST /orders/{order_id}/cancel` con token de operador | Pasa a `Cancelado`, devuelve `200` y libera sus unidades comprometidas del stock disponible | RF-20 | `test_api_orders.py::test_cancel_order_api_success_and_frees_stock` |

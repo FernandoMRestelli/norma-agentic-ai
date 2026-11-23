@@ -63,7 +63,7 @@ def test_desvios_no_invocan_agente(monkeypatch, text, channel):
     abrir = Mock(side_effect=AssertionError("No debe abrirse una conversación"))
     cerrar = Mock(side_effect=AssertionError("No debe cerrarse una conversación"))
     monkeypatch.setattr(conversation_service, "get_agent", agent)
-    monkeypatch.setattr(conversation_service, "_open_conversation_id", abrir)
+    monkeypatch.setattr(conversation_service, "_abrir_conversacion", abrir)
     monkeypatch.setattr(conversation_service, "_close_conversation", cerrar)
     assert conversation_service.handle_message(mensaje(text, channel)).text == topic_filter.OFF_TOPIC_REPLY
     agent.assert_not_called()
@@ -77,7 +77,8 @@ def test_mensajes_validos_llegan_al_agente(monkeypatch, text):
     agent = Mock()
     agent.handle.return_value = SimpleNamespace(cerrada=False, message="Respuesta sintética")
     monkeypatch.setattr(conversation_service, "get_agent", lambda: agent)
-    monkeypatch.setattr(conversation_service, "_open_conversation_id", lambda *_: (123, False))
+    abierta = conversation_service.ConversacionAbierta(123, nueva=False, tenia_propuesta_vencida=False)
+    monkeypatch.setattr(conversation_service, "_abrir_conversacion", lambda *_: abierta)
     assert conversation_service.handle_message(mensaje(text)).text == "Respuesta sintética"
     assert agent.handle.call_args.kwargs["text"] == text
     assert agent.handle.call_args.kwargs["origen"] == "texto"

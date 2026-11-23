@@ -740,6 +740,65 @@ def test_orquestador_abre_y_cierra_conversaciones(catalogo, monkeypatch):
         estados = session.scalars(select(ConversationRecord.status).order_by(ConversationRecord.id)).all()
     assert estados == ["cerrada", "abierta"]
 
+def test_conversacion_nueva_no_hereda_el_estado_guardado(catalogo, monkeypatch, caplog):
+    """CA-165: si norma.db se recrea y CHECKPOINT_DB no, el ID nuevo no retoma la propuesta que quedó guardada."""
+    saludo = "¡Hola! ¿Qué necesitás?"
+    agent, modelo = _agente(*GUION_OFERTA, AIMessage(content=saludo))
+    monkeypatch.setattr(conversation_service, "get_agent", lambda: agent)
+
+    def enviar(texto):
+        return conversation_service.handle_message(IncomingMessage(customer_name="Pedro", text=texto, **CLIENTE))
+
+    enviar("5 cremas")  # queda una propuesta pendiente en el checkpoint de la conversación 1
+    with SessionLocal() as session:
+        primera = session.scalar(select(ConversationRecord.id))
+        session.execute(delete(ConversationRecord))  # norma.db recreada: los IDs vuelven a empezar
+        session.commit()
+
+    respuesta = enviar("dale")
+
+    with SessionLocal() as session:
+        assert session.scalar(select(ConversationRecord.id)) == primera  # el mismo ID que tiene el checkpoint
+    assert respuesta.text == saludo  # fue al LLM: no retomó la pausa ni registró la propuesta vieja
+    assert _ordenes() == 0
+    mensajes = agent.graph.get_state({"configurable": {"thread_id": str(primera)}}).values["messages"]
+    assert [m.text for m in mensajes if isinstance(m, HumanMessage)] == ["dale"]
+    assert "5 cremas" not in str(modelo.recibidos[-1])
+    error = next(r for r in caplog.records if "no es suyo" in r.getMessage())
+    assert "conversación nueva" in error.getMessage() and "5 cremas" not in error.getMessage()
+
+
+@pytest.mark.parametrize(
+    ("cliente", "motivo"),
+    [
+        ({"customer_id": "telegram:2", "channel": Channel.TELEGRAM}, "otro cliente"),
+        ({"customer_id": "telegram:1", "channel": Channel.WHATSAPP}, "otro canal"),
+    ],
+)
+def test_no_retoma_el_estado_de_otro_cliente(catalogo, caplog, cliente, motivo):
+    """CA-166: una conversación abierta cuyo estado guardado es de otro cliente o canal arranca sin ese estado."""
+    saludo = "¡Hola! ¿Qué necesitás?"
+    agent, _ = _agente(*GUION_OFERTA, AIMessage(content=saludo))
+    agent.handle("1", text="5 cremas", **CLIENTE)
+
+    resultado = agent.handle("1", text="dale", **cliente)
+
+    assert resultado.message == saludo
+    assert _ordenes() == 0
+    estado = agent.graph.get_state({"configurable": {"thread_id": "1"}}).values
+    assert estado["customer_id"] == cliente["customer_id"] and estado["channel"] == cliente["channel"].value
+    assert estado.get("propuesta") is None
+    assert any(motivo in r.getMessage() for r in caplog.records if r.levelname == "ERROR")
+
+
+def test_la_misma_conversacion_conserva_su_estado(catalogo, caplog):
+    """RF-100: el mismo cliente, por el mismo canal y sin abrir otra conversación, sigue con su propuesta."""
+    agent, _ = _agente(*GUION_OFERTA, *GUION_ACEPTA)
+    agent.handle("1", text="5 cremas", **CLIENTE)
+    assert agent.handle("1", text="dale", **CLIENTE).kind == "pedido"
+    assert not [r for r in caplog.records if "no es suyo" in r.getMessage()]
+
+
 def test_agente_explorar_catalogo_marcas_de_shampoo(catalogo):
     """CA-55: el agente puede explorar marcas de una categoría con explorar_catalogo y responder con informacion."""
     agent, modelo = _agente(

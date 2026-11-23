@@ -9,6 +9,7 @@ import threading
 from collections import defaultdict
 from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import NamedTuple
 
 from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
@@ -95,13 +96,19 @@ def startup() -> None:
     init_db()
 
 
-def _open_conversation_id(customer_id: str, channel: Channel, now: datetime | None = None) -> tuple[int, bool]:
-    """Devuelve (conversation_id, tenia_propuesta_vencida).
+class ConversacionAbierta(NamedTuple):
+    id: int
+    nueva: bool  # recién creada: el agente no puede tener estado guardado con este ID (RF-100)
+    tenia_propuesta_vencida: bool
+
+
+def _abrir_conversacion(customer_id: str, channel: Channel, now: datetime | None = None) -> ConversacionAbierta:
+    """La conversación abierta del cliente en ese canal, o una nueva.
 
     Si había una conversación abierta pero pasaron más de conversation_timeout_hours sin actividad,
     la marca como vencida y descarta sus borradores pendientes (RF-28, CA-28), abriendo una conversación nueva.
-    Devuelve True en el segundo elemento si y solo si la conversación previa vencida tenía una propuesta
-    pendiente que quedó descartada.
+    `nueva` es True si la creó recién, y `tenia_propuesta_vencida` si y solo si la conversación previa vencida tenía
+    una propuesta pendiente que quedó descartada.
     """
     momento = now or _clock()
     with SessionLocal() as session:
@@ -121,7 +128,7 @@ def _open_conversation_id(customer_id: str, channel: Channel, now: datetime | No
             else:
                 conversation.updated_at = momento
                 session.commit()
-                return conversation.id, False
+                return ConversacionAbierta(conversation.id, nueva=False, tenia_propuesta_vencida=False)
 
         nueva = ConversationRecord(
             customer_id=customer_id,
@@ -132,7 +139,7 @@ def _open_conversation_id(customer_id: str, channel: Channel, now: datetime | No
         )
         session.add(nueva)
         session.commit()
-        return nueva.id, tenia_propuesta_vencida
+        return ConversacionAbierta(nueva.id, nueva=True, tenia_propuesta_vencida=tenia_propuesta_vencida)
 
 
 def _touch_conversation(conversation_id: int, now: datetime | None = None) -> None:
@@ -175,7 +182,7 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
 
     # Los turnos de una conversación se procesan de a uno (RNF-05)
     with _locks[(message.customer_id, message.channel)]:
-        conversation_id, tenia_propuesta_vencida = _open_conversation_id(message.customer_id, message.channel)
+        conversation_id, nueva, tenia_propuesta_vencida = _abrir_conversacion(message.customer_id, message.channel)
         if tenia_propuesta_vencida and interpretar_palabra_clave(text) == ConfirmationAction.CONFIRM:
             return ChannelReply(text=proposal_expired_message())
         outcome = get_agent().handle(
@@ -185,6 +192,7 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
             text=text,
             customer_name=message.customer_name,
             origen=ORIGEN_POR_TIPO[message.type.value],
+            nueva=nueva,
         )
         if outcome.cerrada:
             _close_conversation(conversation_id, "cerrada" if outcome.kind == "pedido" else "fallida")
