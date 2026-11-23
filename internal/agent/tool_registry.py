@@ -279,10 +279,22 @@ def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict
         ctx.turno.rechazos += 1
         if ctx.turno.rechazos <= guardrails.MAX_RECHAZOS:
             raise guardrails.rechazar(rechazos)
-        logger.warning(
-            "Guardrail: intentos agotados, sale el mensaje fijo (reglas=%s)", ",".join(r.regla for r in rechazos)
-        )
-        message = guardrails.mensaje_seguro(propuesta)
+        if (
+            data.kind.value == "aclaracion"
+            and options
+            and not propuesta
+            and [r.regla for r in rechazos] == ["pregunta_faltante"]
+            and (opciones_texto := validation_service.build_options_list(options))
+        ):
+            logger.warning("Guardrail: intentos agotados por pregunta_faltante, se anexan opciones del catálogo")
+            cierre = "" if "?" in message else "\n¿Cuál preferís?"
+            message = f"{message.rstrip()}\n{opciones_texto}{cierre}"
+        else:
+            logger.warning(
+                "Guardrail: intentos agotados, sale el mensaje fijo (reglas=%s)",
+                ",".join(r.regla for r in rechazos),
+            )
+            message = guardrails.mensaje_seguro(propuesta)
     respuesta = message
     if propuesta:
         # El detalle sale del catálogo, no del LLM: así entra un pedido de muchas líneas y los precios son exactos

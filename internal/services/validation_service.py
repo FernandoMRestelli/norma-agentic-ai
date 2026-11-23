@@ -90,6 +90,25 @@ def _lines_and_total(
     return lines
 
 
+def build_options_list(skus: list[str]) -> str:
+    """Lista legible de opciones comerciales a partir de sus SKU validados en el catálogo (Issue #107)."""
+    from internal.tools.catalog_tools import get_product
+
+    lines: list[str] = []
+    for sku in dict.fromkeys(skus):
+        product = get_product(sku)
+        if product is None:
+            continue
+        presentation = (
+            f" {product.presentation}"
+            if product.presentation and product.presentation.lower() not in product.name.lower()
+            else ""
+        )
+        price_info = f" (${product.price:.2f})" if product.price > 0 else ""
+        lines.append(f"• {product.name}{presentation}{price_info}")
+    return "\n".join(lines)
+
+
 def build_proposal_detail(draft: OrderDraft) -> str:
     """Líneas, precios y total de una propuesta: el LLM no los escribe, así no se equivoca ni se pasa del largo."""
     lines = _lines_and_total(draft.items, "Total estimado", draft.discount_percentage)
