@@ -15,6 +15,7 @@ from internal.schemas.agent_schema import (
     ArmarPedidoInput,
     BuscarRenglonesInput,
     CheckStockInput,
+    ConsultarEstadoPedidoInput,
     DelegarSkillInput,
     DiscardOrderDraftInput,
     EntregarNotaInput,
@@ -145,6 +146,31 @@ def _pedidos_anteriores(data: PedidosAnterioresInput, ctx: TurnContext) -> dict[
             "quedan afuera (BR-04)."
         )
     return salida
+
+
+def _consultar_estado_pedido(data: ConsultarEstadoPedidoInput, ctx: TurnContext) -> dict[str, Any]:
+    pedidos = order_tools.consultar_estado_pedido(ctx.customer_id, order_id=data.order_id, limite=data.limite)
+    if not pedidos:
+        if data.order_id:
+            return {
+                "pedidos": [],
+                "_hint": (
+                    f"No se encontró la orden {data.order_id} para este cliente. "
+                    "Avisale que no tenés registrada esa orden a su nombre y ofrecele revisar sus últimos pedidos "
+                    "o armar uno nuevo."
+                ),
+            }
+        return {
+            "pedidos": [],
+            "_hint": "Este cliente no tiene pedidos registrados por este chat. Avisale y ofrecele armar uno.",
+        }
+    return {
+        "pedidos": pedidos,
+        "_hint": (
+            "Informá el número de orden, la fecha, el estado actual y un resumen de los productos con "
+            "`kind='informacion'`. No prometas fechas ni horarios de entrega que no figuren en los datos."
+        ),
+    }
 
 
 def _search_products(data: SearchProductsInput, ctx: TurnContext) -> dict[str, Any]:
@@ -491,6 +517,13 @@ TOOLS: dict[str, ToolSpec] = {
             "lugar: `resueltos`, `pendientes` o `afuera`. Los SKU tienen que haber salido de una búsqueda.",
             EntregarNotaInput,
             _entregar_nota,
+        ),
+        ToolSpec(
+            "consultar_estado_pedido",
+            "Consulta el estado actual de los últimos pedidos del cliente del turno (o de una orden puntual si dio el "
+            "número). Solo lectura: nunca muestra pedidos de otros clientes.",
+            ConsultarEstadoPedidoInput,
+            _consultar_estado_pedido,
         ),
         ToolSpec(
             "armar_pedido",

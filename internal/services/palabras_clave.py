@@ -145,3 +145,27 @@ def es_solicitud_comercial(texto: str) -> bool:
             normalizado,
         )
     )
+
+
+_CONSULTA_ESTADO_PEDIDO = re.compile(
+    r"\b(?:como\s+(?:viene|va|esta|sigue)|estado\s+(?:de\s+(?:mi|el|la)|del)|"
+    r"ya\s+(?:esta|salio|despacharon|prepararon|listo)|esta\s+list[oa]|"
+    r"donde\s+esta|por\s+donde\s+(?:va|viene)|que\s+paso\s+con|puedo\s+retirar|"
+    r"cuando\s+(?:llega|sale|retiro|puedo\s+retirar))\b[^?\n]{0,30}\b(?:pedido|orden|compra|ord-\d+|lo\s+mio)\b|"
+    r"\b(?:mi|el)\s+(?:pedido|orden)\b[^?\n]{0,20}\b(?:como\s+(?:viene|va|esta)|ya\s+(?:esta|salio)|esta\s+list[oa]|"
+    r"donde\s+esta)\b|"
+    r"\b(?:consulta|consultar|averiguar|saber)\s+(?:el\s+)?(?:estado|por\s+el\s+estado)\b|"
+    r"\b(?:seguimiento|estado)\s+(?:de\s+)?(?:mi\s+)?ord-\d+\b"
+)
+
+
+def es_consulta_estado_pedido(texto: str) -> bool:
+    """True si el cliente consulta por el estado de un pedido propio ya registrado (Issue #26).
+
+    Exige giros o verbos explícitos de consulta (ej. «¿cómo viene el ORD-0005?», «¿ya está listo mi pedido?»).
+    No preactiva ante números de orden aislados para no interceptar pedidos («repetime el ORD-0005»).
+    """
+    if len(texto.splitlines()) > 1:
+        return False
+    normalizado = _normalizar(texto)
+    return bool(_CONSULTA_ESTADO_PEDIDO.search(normalizado))

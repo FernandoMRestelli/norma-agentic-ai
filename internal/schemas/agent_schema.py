@@ -108,6 +108,21 @@ class PedidosAnterioresInput(BaseModel):
     limite: int = Field(default=3, ge=1, le=5, description="Cuántos pedidos anteriores del cliente traer")
 
 
+class ConsultarEstadoPedidoInput(BaseModel):
+    """Entrada de `consultar_estado_pedido`: nunca recibe `customer_id`, que lo inyecta el backend (RNF-02)."""
+
+    order_id: str | None = Field(
+        default=None,
+        description="Número de orden si el cliente lo mencionó (por ejemplo 'ORD-0005'). Opcional.",
+    )
+    limite: int = Field(
+        default=3,
+        ge=1,
+        le=5,
+        description="Cantidad máxima de pedidos recientes a consultar si no se indicó un número de orden.",
+    )
+
+
 class GetProductInput(BaseModel):
     sku: str = Field(min_length=1, description="SKU exacto, tal como lo devolvió una tool")
 

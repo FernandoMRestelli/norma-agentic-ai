@@ -56,7 +56,7 @@ def test_cada_regla_vive_en_un_solo_lugar(regla):
 
 def test_instrucciones_sin_mayusculas_enfaticas_ni_cierre_fijo():
     """CA-104: sin palabras en mayúsculas sostenidas ni el cierre que se repetía en la 0.1.1."""
-    permitidas = {"SKU", "OK", "CONFIRMAR"}
+    permitidas = {"SKU", "OK", "CONFIRMAR", "ORD"}
     for nombre, texto in _instrucciones().items():
         enfaticas = set(re.findall(r"\b[A-ZÁÉÍÓÚÑ]{3,}\b", texto)) - permitidas
         assert not enfaticas, (nombre, enfaticas)

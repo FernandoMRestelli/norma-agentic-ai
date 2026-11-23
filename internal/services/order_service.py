@@ -386,6 +386,37 @@ def actualizar_precios(draft: OrderDraft) -> OrderDraft:
     return draft.model_copy(update={"items": items, "version": draft.version + 1})
 
 
+def _normalize_order_id_query(order_id: str) -> str:
+    """Normaliza variantes como 'ord-5', 'ORD5' o '5' al formato canónico 'ORD-0005'."""
+    limpio = order_id.strip().upper()
+    if limpio.isdigit() and int(limpio) > 0:
+        return format_order_id(int(limpio))
+    match = re.fullmatch(r"ORD-?(\d+)", limpio)
+    if match and int(match.group(1)) > 0:
+        return format_order_id(int(match.group(1)))
+    return limpio
+
+
+def list_customer_orders(
+    customer_id: str,
+    limit: int = 3,
+    order_id: str | None = None,
+) -> list[Order]:
+    """Las últimas órdenes del cliente (en cualquier estado) para consultar su estado (Issue #26).
+
+    Siempre filtra por `customer_id`: un cliente nunca puede ver órdenes ajenas (RNF-02).
+    """
+    with SessionLocal() as session:
+        stmt = select(OrderRecord).where(
+            OrderRecord.customer_id == customer_id,
+            OrderRecord.order_id.is_not(None),
+        )
+        if order_id is not None and order_id.strip():
+            stmt = stmt.where(OrderRecord.order_id == _normalize_order_id_query(order_id))
+        records = session.scalars(stmt.order_by(OrderRecord.id.desc()).limit(limit)).all()
+        return [_to_order(record) for record in records]
+
+
 def customer_history(customer_id: str, limit: int = 3) -> list[Order]:
     """Las últimas órdenes de un cliente que no se cancelaron, de la más nueva a la más vieja (RF-73)."""
     with SessionLocal() as session:

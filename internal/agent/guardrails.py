@@ -66,6 +66,12 @@ class ContextoTurno:
     # SKU que el LLM ve en su prompt sin que una tool los devuelva (opciones previas, pedidos anteriores): solo para
     # que no lleguen al cliente; no cuentan como productos vistos en el turno
     skus_del_prompt: set[str] = field(default_factory=set)
+    # Números de orden reales devueltos por `consultar_estado_pedido` en este turno (en minúsculas)
+    ordenes_consultadas: set[str] = field(default_factory=set)
+    # Números de orden pedidos en este turno a `consultar_estado_pedido` (en minúsculas)
+    ordenes_pedidas: set[str] = field(default_factory=set)
+    # True si en este turno se llamó a `consultar_estado_pedido`
+    consulto_estado: bool = False
     rechazos: int = 0  # mensajes ya rechazados en este turno
 
 
@@ -120,11 +126,21 @@ def contexto_turno(messages: Iterable[AnyMessage]) -> ContextoTurno:
             except (TypeError, ValueError):
                 continue
             _recorrer(result, turno)
+            if message.name == "consultar_estado_pedido":
+                turno.consulto_estado = True
+                if result.get("ok"):
+                    for pedido in (result.get("data") or {}).get("pedidos") or []:
+                        if isinstance(oid := pedido.get("order_id"), str):
+                            turno.ordenes_consultadas.add(oid.lower())
             if not result.get("ok") and result.get("error", {}).get("code") == CODIGO_RECHAZO:
                 turno.rechazos += 1
         elif isinstance(message, AIMessage):
             for call in message.tool_calls:
                 _recorrer(call["args"], turno)
+                if call["name"] == "consultar_estado_pedido":
+                    turno.consulto_estado = True
+                    if isinstance(args := call.get("args"), dict) and (oid := args.get("order_id")):
+                        turno.ordenes_pedidas.add(str(oid).lower())
                 for sku in call["args"].get("options", []) if isinstance(call["args"], dict) else []:
                     if isinstance(sku, str):
                         turno.skus.add(sku)
@@ -380,8 +396,37 @@ def _regla_internos(texto: str, normalizado: str, skus: set[str]) -> Rechazo | N
     return None
 
 
-def _regla_pedido_hecho(texto: str, normalizado: str) -> Rechazo | None:
-    if _PEDIDO_HECHO_LITERAL.search(texto.lower()) or any(p.search(normalizado) for p in _PEDIDO_HECHO_NORMALIZADO):
+_ORD_ID_RE = re.compile(r"\bord-\d+\b")
+
+
+def _regla_pedido_hecho(
+    texto: str,
+    normalizado: str,
+    kind: str = "",
+    ordenes_consultadas: set[str] | None = None,
+    ordenes_pedidas: set[str] | None = None,
+    consulto_estado: bool = False,
+) -> Rechazo | None:
+    permitidas = (ordenes_consultadas or set()) | (ordenes_pedidas or set())
+    if kind == "informacion" and consulto_estado:
+        mencionados = _ORD_ID_RE.findall(normalizado)
+        if any(oid not in permitidas for oid in mencionados):
+            return Rechazo(
+                "pedido_no_registrado",
+                "No menciones números de orden que no devolvió o consultó consultar_estado_pedido: "
+                "informá solo las órdenes del cliente",
+            )
+        texto_eval = _ORD_ID_RE.sub(" ", normalizado)
+        texto_eval = re.sub(r"\b(?:numero|nro|n°|nº|num)\.?\s+de\s+(?:pedido|orden)\b", " ", texto_eval)
+        texto_eval = re.sub(
+            r"\b(?:pedido|orden|compra)\s+(?:ya\s+)?(?:esta|quedo|fue|ha sido|se)\s+(?:ya\s+)?"
+            r"(?:registrad|confirmad|cargad|tomad|ingresad|guardad|procesad|realizad|emitid|generad)[oa]s?\b",
+            " ",
+            texto_eval,
+        )
+    else:
+        texto_eval = normalizado
+    if _PEDIDO_HECHO_LITERAL.search(texto.lower()) or any(p.search(texto_eval) for p in _PEDIDO_HECHO_NORMALIZADO):
         return Rechazo(
             "pedido_no_registrado",
             "No digas que el pedido está hecho o registrado ni des un número de pedido: eso lo dice el sistema cuando "
@@ -546,7 +591,14 @@ def validar_salida(
     reglas = (
         _regla_stock(normalizado, kind, propuesta, options, turno, len(skus)),
         _regla_internos(message, normalizado, skus | turno.skus_del_prompt),
-        _regla_pedido_hecho(message, normalizado),
+        _regla_pedido_hecho(
+            message,
+            normalizado,
+            kind,
+            turno.ordenes_consultadas,
+            turno.ordenes_pedidas,
+            turno.consulto_estado,
+        ),
         _regla_precios(message, propuesta, vigente, turno),
         _regla_promesas(normalizado, descuento_autorizado),
         _regla_formato(message),

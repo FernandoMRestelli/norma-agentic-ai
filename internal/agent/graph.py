@@ -28,6 +28,7 @@ from internal.schemas.order_schema import Channel, ConfirmationAction, OrderDraf
 from internal.services import interpretation_service, inventory_service, validation_service
 from internal.services.palabras_clave import (
     es_cancelacion,
+    es_consulta_estado_pedido,
     es_pedido_humano,
     es_saludo,
     es_solicitud_comercial,
@@ -120,6 +121,8 @@ def skill_clara(texto: str, hay_propuesta: bool) -> str | None:
         return "derivar_o_cancelar"
     tiene_numero = any(caracter.isdigit() for caracter in texto)
     renglones = sum(bool(linea.strip()) for linea in texto.splitlines())
+    if not hay_propuesta and es_consulta_estado_pedido(texto):
+        return "informar"
     if hay_propuesta:
         corto = len(texto.split()) <= MAX_PALABRAS_RESPUESTA_A_PROPUESTA
         if corto and not tiene_numero:
