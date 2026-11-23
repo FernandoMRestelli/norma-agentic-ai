@@ -1,0 +1,8 @@
+# Modelo de visión local de Hugging Face (internal/services/vision_local.py), solo para experimentar y comparar
+# contra la API con `python -m internal.comparar_vision`. No va en la imagen de producción.
+-r requirements-dev.txt
+
+torch>=2.6
+torchvision  # el procesador de imágenes de Qwen3-VL la necesita
+transformers>=4.57,<6  # Qwen3-VL llega en la 4.57
+accelerate>=1.0

@@ -8,7 +8,7 @@ import logging
 import time
 
 from internal.config import get_settings
-from internal.services import conversation_service, telegram_service
+from internal.services import conversation_service, telegram_service, vision_service
 
 logger = logging.getLogger("internal.telegram_polling")
 
@@ -21,6 +21,7 @@ def main() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)  # loguea cada URL, y la URL tiene el token
 
     conversation_service.startup()
+    vision_service.precargar()  # con el modelo local, que la primera foto no espere la carga
     client = telegram_service.get_client()
     bot = client.get_me()
     client.delete_webhook()  # con un webhook configurado, getUpdates no entrega nada

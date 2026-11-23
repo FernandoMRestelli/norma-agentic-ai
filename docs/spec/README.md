@@ -507,7 +507,7 @@ Detalle en la [spec del canal](canal-telegram.md).
 | RF-29 | El sistema recibe mensajes de texto, audio y foto por un bot de Telegram, por polling o por webhook con secret token, y solo atiende a los usuarios de la lista blanca | Beta | I |
 | ~~RF-30~~ | ~~En Telegram, una respuesta con borrador lleva los botones Confirmar / Corregir~~ Eliminado: el cliente confirma escribiendo, en todos los canales | Beta | — |
 | RF-31 | Un update de Telegram repetido (mismo `update_id`) se procesa una sola vez | Beta | I |
-| RF-32 | Mientras no haya modelo de visión, un audio o una imagen reciben el pedido de escribirlo, sin llamar al LLM | Beta | I |
+| RF-32 | Un audio, o una imagen sin modelo de visión configurado (`LLM_VISION_PROVIDER`), reciben el pedido de escribirlo, sin llamar al LLM | Beta | I |
 
 ---
 
@@ -569,7 +569,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-04 | Cualquier canal | Llega un mensaje de texto sin texto, o un audio o imagen sin `media_url` o con `media_url` insegura/privada | Se rechaza (`422` en la API) | RF-01, RNF-02 | `test_orders.py`, `test_api.py` |
 | CA-05 | Un mensaje de WhatsApp ya procesado | Meta lo reenvía con el mismo id | Se responde `200` y no se procesa de nuevo | RF-03 | pendiente |
 | CA-06 | Un audio con un pedido | Llega por cualquier canal | El agente recibe la transcripción marcada como `audio transcripto`; si está vacía, se pide escribirlo sin llamar al LLM | RF-04 | pendiente |
-| CA-07 | Una imagen con un pedido | Llega por cualquier canal | Igual que CA-06, con `imagen leída` | RF-05 | pendiente |
+| CA-07 | Una imagen con un pedido | Llega por cualquier canal (hoy solo Telegram baja la foto) | Igual que CA-06, con `imagen leída`; sin texto útil, «No pude entender la imagen, ¿me lo escribís?» sin llamar al LLM | RF-05 | `test_conversation.py::test_imagen_*`, `test_vision.py` |
 | CA-26 | — | Se construyen borradores y órdenes | Un borrador sin ítems o con cantidad ≤ 0 es inválido; nace `pendiente_confirmacion`; los precios son `Decimal` | RF-08 | `test_orders.py`, `test_invariantes.py::test_un_borrador_nace_sin_confirmar` |
 
 ### Interpretación (casos de `data_example/mensajes.json`)
@@ -630,10 +630,10 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-30 | `TELEGRAM_WEBHOOK_SECRET` configurado / sin configurar | Llega un POST con el secret correcto, incorrecto o sin header | `200` / `403` / `403`; sin secret configurado, siempre `403` | RF-29 | `test_telegram.py::test_webhook_*` |
 | CA-31 | Un usuario fuera de la lista blanca | Escribe al bot | Recibe un texto fijo con su id y el mensaje no llega al orquestador | RF-29 | `test_telegram.py::test_usuario_fuera_de_la_lista_blanca` |
 | CA-32 | Un update ya procesado | Llega otra vez con el mismo `update_id` | No se procesa ni se responde de nuevo | RF-31 | `test_telegram.py::test_update_repetido_se_procesa_una_vez` |
-| CA-33 | Un integrante de la lista blanca | Manda texto, un audio o una foto | Llega como `IncomingMessage` `text`, `audio` o `image` con `media_url = telegram:<file_id>`; audio y foto reciben el pedido de escribirlo | RF-29, RF-32 | `test_telegram.py::test_traduce_*`, `test_conversation.py`, `test_orders.py::test_incoming_message_*telegram*` |
+| CA-33 | Un integrante de la lista blanca | Manda texto, un audio o una foto | Llega como `IncomingMessage` `text`, `audio` o `image` con `media_url = telegram:<file_id>`; el audio, y la foto sin `LLM_VISION_PROVIDER`, reciben el pedido de escribirlo; con él, la foto se baja con `getFile` y se lee (CA-07) | RF-29, RF-32 | `test_telegram.py::test_traduce_*`, `test_conversation.py`, `test_orders.py::test_incoming_message_*telegram*` |
 | ~~CA-34~~ | ~~Botones Confirmar / Corregir en Telegram~~ Eliminado: el cliente confirma escribiendo, en todos los canales | — | — | ~~RF-30~~ | — |
 | CA-35 | Un `AIMessage` de Gemini con tool calls | Vuelve al modelo dentro del mismo turno | Se reenvía completo, sin reconstruirlo, para conservar las firmas | RNF-09 | `test_agent_graph.py` |
-| CA-36 | `LLM_PROVIDER` = `gemini`, `groq` u `openrouter` / vacío / otro | Se pide el modelo | `ChatGoogleGenerativeAI`, `ChatGroq` o `ChatOpenAI` apuntado a OpenRouter / error que dice qué variable falta / error de proveedor no soportado | RNF-09 | `test_llm.py` |
+| CA-36 | `LLM_PROVIDER` = `gemini`, `groq`, `openrouter` u `openai` / vacío / otro | Se pide el modelo | `ChatGoogleGenerativeAI`, `ChatGroq`, `ChatOpenAI` apuntado a OpenRouter o `ChatOpenAI` de OpenAI / error que dice qué variable falta / error de proveedor no soportado | RNF-09 | `test_llm.py` |
 
 ### Observabilidad
 
@@ -665,7 +665,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 
 | ID | Tema | Estado | Detalle |
 |---|---|---|---|
-| D-01 | Proveedor de LLM | **Tomada en parte**: LangGraph y LangChain para el loop, con un modelo free tier para texto en la beta: Gemini, Groq u OpenRouter según `LLM_PROVIDER`; `.env.example` trae OpenRouter y deja Gemini como alternativa ([canal Telegram §7](canal-telegram.md#7-decisiones-y-riesgos)). Audio, imagen y producción siguen abiertos | Tiene que soportar tool calling con JSON Schema, buen español, y transcripción de audio y lectura de imágenes (o usar otro servicio para eso). Criterios: aciertos en `mensajes.json`, latencia (RNF-06) y costo por pedido |
+| D-01 | Proveedor de LLM | **Tomada en parte**: LangGraph y LangChain para el loop, con un modelo free tier para texto en la beta: Gemini, Groq u OpenRouter según `LLM_PROVIDER`; `.env.example` trae OpenRouter y deja Gemini como alternativa ([canal Telegram §7](canal-telegram.md#7-decisiones-y-riesgos)). Para texto también está la API paga de OpenAI (`LLM_PROVIDER=openai`, ej. `gpt-6-luna`), sin el límite diario de los free tier. Imagen, en prueba: un modelo local de Hugging Face (Qwen3-VL 2B) o una API, comparados con `internal.comparar_vision`. Audio y producción siguen abiertos | Tiene que soportar tool calling con JSON Schema, buen español, y transcripción de audio y lectura de imágenes (o usar otro servicio para eso). Criterios: aciertos en `mensajes.json`, latencia (RNF-06) y costo por pedido |
 | D-02 | Tecnología del frontend | **Abierta** para el chat web; el dashboard de la beta se resolvió sin framework (D-11) | Chat web y dashboard en `frontend/src/` |
 | D-03 | Servidor de producción | **Tomada en parte**: por ahora cada integrante corre producción en el Docker de su máquina (`~/norma-prod`), con su propio bot de Telegram y su propia API | Sigue abierto un servidor siempre prendido para el bot beta compartido (ver `MEJORAS.md`, próximos pasos) |
 | D-04 | ¿El resumen muestra precios y total? | **Tomada** | Sí: el resumen del borrador (`build_summary`), el detalle debajo de cada propuesta (`build_proposal_detail`) y el mensaje de la orden registrada (`build_order_message`) incluyen precio unitario, subtotal y total cuando están en el catálogo. Los arma `validation_service`, no el LLM ([§5.3](#53-borrador-orderdraft-orderitem)) |

@@ -3,10 +3,40 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import delete, select
 
+from internal.config import get_settings
 from internal.database.connection import SessionLocal, init_db
 from internal.database.models import ConversationRecord, DraftRecord
 from internal.schemas.order_schema import Channel, DraftStatus, IncomingMessage, MessageType
-from internal.services import conversation_service
+from internal.schemas.vision_schema import ImagenLeida, RenglonLeido
+from internal.services import conversation_service, message_service
+from internal.services.vision_service import Lectura
+
+
+@pytest.fixture
+def vision(monkeypatch):
+    """Configura LLM_VISION_PROVIDER y reemplaza la descarga y la lectura de la imagen."""
+
+    def configurar(resultado: ImagenLeida | None, falla: Exception | None = None):
+        monkeypatch.setenv("LLM_VISION_PROVIDER", "huggingface")
+        get_settings.cache_clear()
+        monkeypatch.setattr(message_service, "download_media", lambda url: b"bytes-de-la-foto")
+
+        def leer(imagen):
+            if falla:
+                raise falla
+            return Lectura("huggingface", "modelo-de-prueba", resultado, "", 1.0)
+
+        monkeypatch.setattr(message_service.vision_service, "leer_imagen", leer)
+
+    yield configurar
+    get_settings.cache_clear()
+
+
+def foto(caption: str | None = None) -> IncomingMessage:
+    return IncomingMessage(
+        customer_id="telegram:1", channel=Channel.TELEGRAM, type=MessageType.IMAGE, media_url="telegram:X",
+        text=caption,
+    )
 
 
 @pytest.mark.parametrize("tipo", [MessageType.AUDIO, MessageType.IMAGE])
@@ -487,3 +517,54 @@ def test_derivada_a_humano_silencia_al_bot_durante_24h(clean_db, monkeypatch):
     assert id2 != id1
     with SessionLocal() as session:
         assert session.get(ConversationRecord, id2).status == "abierta"
+
+
+def test_audio_sigue_pidiendo_el_pedido_escrito_con_vision(vision):
+    """RF-32: el audio todavía no se transcribe, aunque haya modelo de visión."""
+    vision(None)
+    message = IncomingMessage(customer_id="telegram:1", channel=Channel.TELEGRAM, type=MessageType.AUDIO,
+                              media_url="telegram:X")
+    assert conversation_service.handle_message(message).text == conversation_service.WRITE_IT_PLEASE
+
+
+def test_imagen_leida_llega_al_agente_con_el_epigrafe(vision, monkeypatch):
+    """CA-07: el texto de la imagen entra al agente marcado como `imagen leída`, con el epígrafe adelante."""
+    vision(ImagenLeida(legible=True, tipo="lista_pedido", texto="5 shampoo pantene 400",
+                       renglones=[RenglonLeido(texto="5 shampoo pantene 400", cantidad=5)]))
+    recibido = {}
+
+    class _Agente:
+        def handle(self, **kwargs):
+            recibido.update(kwargs)
+
+            class _Outcome:
+                message, cerrada, kind = "Te propongo…", False, "borrador"
+
+            return _Outcome()
+
+    monkeypatch.setattr(conversation_service, "get_agent", lambda: _Agente())
+    reply = conversation_service.handle_message(foto("esto   para el lunes"))
+
+    assert reply.text == "Te propongo…"
+    assert recibido["text"] == "esto para el lunes\n[imagen leída]\n5 shampoo pantene 400"
+
+
+@pytest.mark.parametrize(
+    ("resultado", "falla"),
+    [
+        (ImagenLeida(legible=False, tipo="otro", texto=""), None),  # sin texto
+        (None, None),  # el modelo no devolvió un JSON válido
+        (None, RuntimeError("se cortó")),  # la descarga o el modelo fallaron
+    ],
+)
+def test_imagen_sin_texto_util_no_llama_al_agente(vision, monkeypatch, resultado, falla):
+    """Spec del agente §6: sin texto útil se le pide que lo escriba, sin llamar al LLM."""
+    vision(resultado, falla)
+    monkeypatch.setattr(conversation_service, "get_agent", lambda: pytest.fail("no tenía que llamar al agente"))
+    assert conversation_service.handle_message(foto()).text == conversation_service.COULD_NOT_READ_IMAGE
+
+
+def test_imagen_de_un_canal_sin_descarga(monkeypatch):
+    """Hoy solo se bajan las fotos de Telegram: de otro canal se pide que lo escriba."""
+    with pytest.raises(message_service.ImagenIlegible):
+        message_service.download_media("https://example.com/foto.jpg")

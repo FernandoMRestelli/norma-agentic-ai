@@ -307,3 +307,42 @@ def test_webhook_sin_secret_configurado(monkeypatch):
     get_settings.cache_clear()
     response = api.post("/webhook/telegram", json=mensaje(), headers={"X-Telegram-Bot-Api-Secret-Token": ""})
     assert response.status_code == 403
+
+
+def test_cliente_de_telegram_baja_una_foto():
+    """getFile da la ruta y el archivo se baja de /file/bot<token>/<ruta>."""
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        if request.url.path.endswith("/getFile"):
+            return httpx.Response(200, json={"ok": True, "result": {"file_path": "photos/f1.jpg", "file_size": 3}})
+        return httpx.Response(200, content=b"JPG")
+
+    client = TelegramClient("123:token-de-prueba", http=httpx.Client(transport=httpx.MockTransport(handler)))
+    assert client.download_file("GRANDE") == b"JPG"
+    assert b'"file_id":"GRANDE"' in requests[0].content.replace(b" ", b"")
+    assert requests[1].url.path == "/file/bot123:token-de-prueba/photos/f1.jpg"
+
+
+def test_cliente_de_telegram_no_baja_archivos_grandes():
+    def handler(request):
+        return httpx.Response(200, json={"ok": True, "result": {"file_path": "x.jpg", "file_size": 30 * 1024 * 1024}})
+
+    client = TelegramClient("123:token-de-prueba", http=httpx.Client(transport=httpx.MockTransport(handler)))
+    with pytest.raises(TelegramError, match="grande"):
+        client.download_file("X")
+
+
+def test_error_al_bajar_no_filtra_el_token():
+    """RNF-14: igual que en call, el error de la descarga no lleva la URL con el token."""
+
+    def handler(request):
+        if request.url.path.endswith("/getFile"):
+            return httpx.Response(200, json={"ok": True, "result": {"file_path": "x.jpg"}})
+        raise httpx.ConnectError(f"no se pudo conectar a {request.url}")
+
+    client = TelegramClient("123:token-de-prueba", http=httpx.Client(transport=httpx.MockTransport(handler)))
+    with pytest.raises(TelegramError) as error:
+        client.download_file("X")
+    assert "token-de-prueba" not in str(error.value) and error.value.__cause__ is None

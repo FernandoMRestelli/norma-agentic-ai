@@ -138,6 +138,36 @@ python -m internal.evaluar_agente --mlflow --pausa 30
 
 En MLflow, el experimento → **Runs** → seleccionar dos corridas → **Compare**.
 
+## Lectura de imágenes a JSON (experimental)
+
+`internal/services/vision_service.py` lee una foto o captura de un pedido y devuelve un JSON (`ImagenLeida` en
+`internal/schemas/vision_schema.py`): el texto completo, un renglón por producto con su cantidad, marca y
+presentación, y las partes dudosas. Con `LLM_VISION_PROVIDER` configurado, el bot de Telegram baja cada foto, la lee
+y le pasa el texto al agente; sin configurar, le pide al cliente que lo escriba (RF-32).
+
+Hay dos caminos, con la misma salida:
+
+| | Proveedor | Necesita |
+|---|---|---|
+| **API de frontera** | `openai` (ej. `gpt-6-luna`), `openrouter` o `gemini` | `LLM_VISION_API_KEY`. Salida estructurada con JSON Schema |
+| **Modelo local de Hugging Face** | `huggingface` (por defecto `Qwen/Qwen3-VL-2B-Instruct`) | `pip install -r requirements-vision-local.txt` y ~5 GB de disco; sin key ni costo por imagen. Corre con Python local (en Docker para Mac no hay GPU y va lento) |
+
+```bash
+# Una imagen (usa LLM_VISION_* de .env, o los flags)
+python -m internal.leer_imagen tests/fixtures/imagenes_pedidos/captura-chat.png --proveedor openai --modelo gpt-6-luna
+
+# Comparar modelos con las imágenes ficticias de tests/fixtures/imagenes_pedidos/
+python -m internal.comparar_vision --modelo openai:gpt-6-luna --modelo huggingface:Qwen/Qwen3-VL-2B-Instruct \
+  --precio 0.10,0.50 --salida data/comparacion-vision.json
+```
+
+Primera prueba de Qwen3-VL 2B en una Mac M5 (16 GB): leyó los 17 productos de las 6 imágenes, con JSON válido
+en todas, en 16 s por imagen en promedio (3 a 28 s) y 9 s de carga al arrancar. Suma saludos y encabezados como
+renglones sin cantidad; al agente no le afecta porque recibe el texto completo.
+
+`--precio` es USD por millón de tokens de entrada y de salida, para estimar el costo por imagen de los modelos por
+API. Lo que se manda a una API puede quedar guardado del lado del proveedor: **solo imágenes de prueba** (RNF-03).
+
 ## Cómo funciona
 
 1. El mensaje del cliente entra por `api/` (chat web, webhook de WhatsApp con la firma de Meta validada, o el bot de Telegram de la beta).

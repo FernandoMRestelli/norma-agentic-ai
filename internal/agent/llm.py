@@ -38,6 +38,18 @@ def get_chat_model() -> BaseChatModel:
                 timeout=TIMEOUT_SECONDS,
                 max_retries=MAX_RETRIES,
             )
+        case "openai":
+            # API paga de OpenAI (por ejemplo gpt-6-luna): sin el límite diario de los free tier
+            from langchain_openai import ChatOpenAI
+
+            if not settings.llm_model or not settings.llm_api_key:
+                raise ValueError("Para usar OpenAI hacen falta LLM_MODEL y LLM_API_KEY en .env")
+            return ChatOpenAI(
+                model=settings.llm_model,
+                api_key=settings.llm_api_key,
+                timeout=TIMEOUT_SECONDS,
+                max_retries=MAX_RETRIES,
+            )
         case "openrouter":
             from langchain_openai import ChatOpenAI
 
@@ -51,6 +63,6 @@ def get_chat_model() -> BaseChatModel:
                 max_retries=MAX_RETRIES,
             )
         case None | "":
-            raise ValueError("Falta LLM_PROVIDER en .env (opciones: gemini, groq, openrouter)")
+            raise ValueError("Falta LLM_PROVIDER en .env (opciones: openai, gemini, groq, openrouter)")
         case other:
             raise ValueError(f"Proveedor de LLM no soportado: {other}")

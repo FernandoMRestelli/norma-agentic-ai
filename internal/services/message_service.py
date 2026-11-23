@@ -1,6 +1,15 @@
 """Preprocesamiento multimodal: convierte texto, audio o imagen en texto para el agente."""
 
+import logging
+
 from internal.schemas.order_schema import IncomingMessage, MessageType
+from internal.services import vision_service
+
+logger = logging.getLogger(__name__)
+
+
+class ImagenIlegible(ValueError):
+    """La imagen no se pudo bajar o leer, o no tiene texto útil: se le pide al cliente que lo escriba (spec §6)."""
 
 
 def prepare(message: IncomingMessage) -> str:
@@ -10,7 +19,7 @@ def prepare(message: IncomingMessage) -> str:
         case MessageType.AUDIO:
             return transcribe_audio(message.media_url)
         case MessageType.IMAGE:
-            return extract_text_from_image(message.media_url)
+            return extract_text_from_image(message.media_url, message.text)
         case _:
             raise ValueError(f"Tipo de mensaje no soportado: {message.type}")
 
@@ -54,6 +63,45 @@ def transcribe_audio(media_url: str) -> str:
     raise NotImplementedError
 
 
-def extract_text_from_image(media_url: str) -> str:
-    # TODO: OCR / visión con el proveedor elegido
-    raise NotImplementedError
+def download_media(media_url: str) -> bytes:
+    """Baja el archivo de un mensaje. Hoy solo Telegram (`telegram:<file_id>`); WhatsApp y la web, más adelante."""
+    if media_url.startswith("telegram:"):
+        from internal.services import telegram_service  # import local: telegram_service importa este módulo
+
+        return telegram_service.get_client().download_file(media_url.removeprefix("telegram:"))
+    raise ImagenIlegible("Todavía no se pueden bajar imágenes de este canal")
+
+
+def extract_text_from_image(media_url: str, caption: str | None = None) -> str:
+    """Lee la imagen con el modelo de LLM_VISION_PROVIDER y devuelve el texto para el agente, con el epígrafe
+    (si lo hay) adelante. Lanza ImagenIlegible si no hay nada que leer."""
+    try:
+        imagen = download_media(media_url)
+        lectura = vision_service.leer_imagen(imagen)
+    except ImagenIlegible:
+        raise
+    except Exception as exc:  # bajar o leer puede fallar de muchas formas; para el cliente es lo mismo
+        logger.warning("Imagen: no se pudo leer (%s)", type(exc).__name__)
+        raise ImagenIlegible(str(exc)) from exc
+
+    leida = lectura.resultado
+    # Solo números: sin el texto de la imagen (RNF-03)
+    logger.info(
+        "Imagen: proveedor=%s modelo=%s segundos=%.1f legible=%s renglones=%d tokens_entrada=%s tokens_salida=%s "
+        "error=%s",
+        lectura.proveedor,
+        lectura.modelo,
+        lectura.segundos,
+        leida.legible if leida else "-",
+        len(leida.renglones) if leida else 0,
+        lectura.tokens_entrada,
+        lectura.tokens_salida,
+        "json_invalido" if lectura.error else "-",
+    )
+    if leida is None or not leida.legible or not leida.texto.strip():
+        raise ImagenIlegible(lectura.error or "La imagen no tiene texto legible")
+
+    texto = leida.como_texto_para_el_agente()
+    if caption and caption.strip():
+        texto = f"{normalize_text(caption)}\n{texto}"
+    return texto

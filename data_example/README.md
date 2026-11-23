@@ -84,7 +84,9 @@ hacer en `esperado.resultado`:
 Los casos con `previo` tienen dos turnos: primero ese mensaje, que recibe una propuesta, y después `mensaje`.
 Se corren con el LLM real con `python -m internal.evaluar_agente`.
 
-Por ahora solo hay mensajes de texto; faltan ejemplos de audio e imagen.
+Por ahora solo hay mensajes de texto; faltan ejemplos de audio. Las imágenes de pedidos ficticias, para comparar
+modelos de visión, están en `tests/fixtures/imagenes_pedidos/`: el hook de pre-commit solo acepta multimedia dentro
+de `tests/`.
 
 ## `catalogo_evaluacion.csv` y `pedidos_evaluacion.json`
 
