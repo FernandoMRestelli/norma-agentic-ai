@@ -3,10 +3,40 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import delete, select
 
+from internal.config import get_settings
 from internal.database.connection import SessionLocal, init_db
 from internal.database.models import ConversationRecord, DraftRecord
 from internal.schemas.order_schema import Channel, DraftStatus, IncomingMessage, MessageType
-from internal.services import conversation_service
+from internal.schemas.vision_schema import ImagenLeida, RenglonLeido
+from internal.services import conversation_service, message_service
+from internal.services.vision_service import Lectura
+
+
+@pytest.fixture
+def vision(monkeypatch):
+    """Configura LLM_VISION_PROVIDER y reemplaza la descarga y la lectura de la imagen."""
+
+    def configurar(resultado: ImagenLeida | None, falla: Exception | None = None):
+        monkeypatch.setenv("LLM_VISION_PROVIDER", "huggingface")
+        get_settings.cache_clear()
+        monkeypatch.setattr(message_service, "download_media", lambda url: b"bytes-de-la-foto")
+
+        def leer(imagen):
+            if falla:
+                raise falla
+            return Lectura("huggingface", "modelo-de-prueba", resultado, "", 1.0)
+
+        monkeypatch.setattr(message_service.vision_service, "leer_imagen", leer)
+
+    yield configurar
+    get_settings.cache_clear()
+
+
+def foto(caption: str | None = None) -> IncomingMessage:
+    return IncomingMessage(
+        customer_id="telegram:1", channel=Channel.TELEGRAM, type=MessageType.IMAGE, media_url="telegram:X",
+        text=caption,
+    )
 
 
 @pytest.mark.parametrize("tipo", [MessageType.AUDIO, MessageType.IMAGE])
@@ -124,7 +154,7 @@ def test_conversacion_abierta_vence_tras_24_horas(clean_db, monkeypatch):
     monkeypatch.setattr(conversation_service, "_clock", lambda: reloj[0])
 
     # Primer mensaje: abre conversación 1
-    id1, tenia_propuesta = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    id1, _, tenia_propuesta = conversation_service._abrir_conversacion("telegram:10", Channel.TELEGRAM)
     assert not tenia_propuesta
 
     with SessionLocal() as session:
@@ -136,7 +166,7 @@ def test_conversacion_abierta_vence_tras_24_horas(clean_db, monkeypatch):
     reloj[0] = t0 + timedelta(hours=24, minutes=1)
 
     # Siguiente mensaje del mismo cliente: vence la anterior y abre una nueva (CA-28)
-    id2, tenia_propuesta = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    id2, _, tenia_propuesta = conversation_service._abrir_conversacion("telegram:10", Channel.TELEGRAM)
     assert not tenia_propuesta
     assert id2 != id1
 
@@ -153,7 +183,7 @@ def test_vencimiento_descarta_borradores_pendientes(clean_db, monkeypatch):
     reloj = [t0]
     monkeypatch.setattr(conversation_service, "_clock", lambda: reloj[0])
 
-    id1, _ = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    id1 = conversation_service._abrir_conversacion("telegram:10", Channel.TELEGRAM).id
 
     # Creamos un borrador pendiente asociado a la conversación
     with SessionLocal() as session:
@@ -173,7 +203,7 @@ def test_vencimiento_descarta_borradores_pendientes(clean_db, monkeypatch):
     reloj[0] = t0 + timedelta(hours=25)
 
     # Llega un mensaje nuevo: la conversación vence
-    id2, tenia_propuesta = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    id2, _, tenia_propuesta = conversation_service._abrir_conversacion("telegram:10", Channel.TELEGRAM)
     assert tenia_propuesta
 
     with SessionLocal() as session:
@@ -188,7 +218,7 @@ def test_intento_de_confirmar_propuesta_vencida_avisa_al_cliente(clean_db, monke
     monkeypatch.setattr(conversation_service, "_clock", lambda: reloj[0])
 
     # El cliente abrió conversación con una propuesta hace 30 horas
-    id1, _ = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    id1 = conversation_service._abrir_conversacion("telegram:10", Channel.TELEGRAM).id
     with SessionLocal() as session:
         draft = DraftRecord(
             draft_id="d-test-exp",
@@ -228,7 +258,7 @@ def test_confirmacion_tras_vencimiento_sin_borrador_no_muestra_aviso(clean_db, m
     reloj = [t0]
     monkeypatch.setattr(conversation_service, "_clock", lambda: reloj[0])
 
-    id1, _ = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    conversation_service._abrir_conversacion("telegram:10", Channel.TELEGRAM)
     # No se crea ningún borrador (el agente sólo había hecho una pregunta)
     reloj[0] = t0 + timedelta(hours=25)
 
@@ -257,7 +287,7 @@ def test_ok_tras_vencer_con_propuesta_ya_descartada_por_el_agente(clean_db, monk
     reloj = [t0]
     monkeypatch.setattr(conversation_service, "_clock", lambda: reloj[0])
 
-    id1, _ = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    id1 = conversation_service._abrir_conversacion("telegram:10", Channel.TELEGRAM).id
     with SessionLocal() as session:
         session.add(
             DraftRecord(
@@ -309,7 +339,7 @@ def test_actividad_renueva_plazo_de_vencimiento(clean_db, monkeypatch):
     reloj = [t0]
     monkeypatch.setattr(conversation_service, "_clock", lambda: reloj[0])
 
-    id1, _ = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    id1 = conversation_service._abrir_conversacion("telegram:10", Channel.TELEGRAM).id
 
     # Actividad a las 20 h: renueva
     reloj[0] = t0 + timedelta(hours=20)
@@ -317,7 +347,7 @@ def test_actividad_renueva_plazo_de_vencimiento(clean_db, monkeypatch):
 
     # Mensaje a las 30 h (a 10 h de la última actividad): sigue abierta
     reloj[0] = t0 + timedelta(hours=30)
-    id_actual, vencio = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    id_actual, _, vencio = conversation_service._abrir_conversacion("telegram:10", Channel.TELEGRAM)
     assert not vencio
     assert id_actual == id1
 
@@ -329,11 +359,11 @@ def test_vencimiento_no_toca_borrador_de_otra_conversacion(clean_db, monkeypatch
     monkeypatch.setattr(conversation_service, "_clock", lambda: reloj[0])
 
     # Conversación previa fallida que dejó un borrador pendiente asociado a ella
-    id_fallida, _ = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    id_fallida = conversation_service._abrir_conversacion("telegram:10", Channel.TELEGRAM).id
     conversation_service._close_conversation(id_fallida, "fallida")
 
     # Nueva conversación abierta sin borrador propio
-    id_abierta, _ = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    id_abierta = conversation_service._abrir_conversacion("telegram:10", Channel.TELEGRAM).id
 
     with SessionLocal() as session:
         session.add(
@@ -351,7 +381,7 @@ def test_vencimiento_no_toca_borrador_de_otra_conversacion(clean_db, monkeypatch
 
     # Pasan 25 h y vence id_abierta
     reloj[0] = t0 + timedelta(hours=25)
-    id_nueva, tenia_propuesta = conversation_service._open_conversation_id("telegram:10", Channel.TELEGRAM)
+    id_nueva, _, tenia_propuesta = conversation_service._abrir_conversacion("telegram:10", Channel.TELEGRAM)
     assert id_nueva != id_abierta
     assert not tenia_propuesta
 
@@ -363,7 +393,7 @@ def test_vencimiento_no_toca_borrador_de_otra_conversacion(clean_db, monkeypatch
 
 def test_cancelacion_deterministica_descarta_borrador_y_cierra_conversacion(clean_db):
     """RF-26 / CA-23: 'cancelar' descarta el borrador y pasa la conversación a 'descartada' sin tokens."""
-    id1, _ = conversation_service._open_conversation_id("telegram:cancel-1", Channel.TELEGRAM)
+    id1 = conversation_service._abrir_conversacion("telegram:cancel-1", Channel.TELEGRAM).id
 
     # Creamos un borrador pendiente
     with SessionLocal() as session:
@@ -393,7 +423,7 @@ def test_cancelacion_deterministica_descarta_borrador_y_cierra_conversacion(clea
         assert draft_bd.status == DraftStatus.DISCARDED.value
 
     # Siguiente mensaje abre una conversación nueva
-    id2, _ = conversation_service._open_conversation_id("telegram:cancel-1", Channel.TELEGRAM)
+    id2 = conversation_service._abrir_conversacion("telegram:cancel-1", Channel.TELEGRAM).id
     assert id2 != id1
     with SessionLocal() as session:
         assert session.get(ConversationRecord, id2).status == "abierta"
@@ -401,7 +431,7 @@ def test_cancelacion_deterministica_descarta_borrador_y_cierra_conversacion(clea
 
 def test_no_gracias_no_cancela_propuesta(clean_db, monkeypatch):
     """«no gracias» no dispara la cancelación determinística (evita cancelar ante «¿sumás algo más?»)."""
-    id1, _ = conversation_service._open_conversation_id("telegram:nogracias", Channel.TELEGRAM)
+    id1 = conversation_service._abrir_conversacion("telegram:nogracias", Channel.TELEGRAM).id
     with SessionLocal() as session:
         session.add(
             DraftRecord(
@@ -439,7 +469,7 @@ def test_no_gracias_no_cancela_propuesta(clean_db, monkeypatch):
 
 def test_cancelar_sin_borrador_pendiente_no_cierra_conversacion(clean_db, monkeypatch):
     """«cancelar» sin propuesta pendiente no cierra la conversación como descartada ni miente que canceló."""
-    id1, _ = conversation_service._open_conversation_id("telegram:cancel-vacio", Channel.TELEGRAM)
+    id1 = conversation_service._abrir_conversacion("telegram:cancel-vacio", Channel.TELEGRAM).id
 
     llamado = []
 
@@ -467,7 +497,7 @@ def test_derivada_a_humano_silencia_al_bot_durante_24h(clean_db, monkeypatch):
     reloj = [t0]
     monkeypatch.setattr(conversation_service, "_clock", lambda: reloj[0])
 
-    id1, _ = conversation_service._open_conversation_id("telegram:deriv-1", Channel.TELEGRAM)
+    id1 = conversation_service._abrir_conversacion("telegram:deriv-1", Channel.TELEGRAM).id
     conversation_service._close_conversation(id1, "derivada", reason="solicitud_humano")
 
     with SessionLocal() as session:
@@ -483,7 +513,58 @@ def test_derivada_a_humano_silencia_al_bot_durante_24h(clean_db, monkeypatch):
 
     # Pasan 24 horas y 1 minuto: expira el silencio y se abre una nueva conversación
     reloj[0] = t0 + timedelta(hours=24, minutes=1)
-    id2, _ = conversation_service._open_conversation_id("telegram:deriv-1", Channel.TELEGRAM)
+    id2 = conversation_service._abrir_conversacion("telegram:deriv-1", Channel.TELEGRAM).id
     assert id2 != id1
     with SessionLocal() as session:
         assert session.get(ConversationRecord, id2).status == "abierta"
+
+
+def test_audio_sigue_pidiendo_el_pedido_escrito_con_vision(vision):
+    """RF-32: el audio todavía no se transcribe, aunque haya modelo de visión."""
+    vision(None)
+    message = IncomingMessage(customer_id="telegram:1", channel=Channel.TELEGRAM, type=MessageType.AUDIO,
+                              media_url="telegram:X")
+    assert conversation_service.handle_message(message).text == conversation_service.WRITE_IT_PLEASE
+
+
+def test_imagen_leida_llega_al_agente_con_el_epigrafe(vision, monkeypatch):
+    """CA-07: el texto de la imagen entra al agente marcado como `imagen leída`, con el epígrafe adelante."""
+    vision(ImagenLeida(legible=True, tipo="lista_pedido", texto="5 shampoo pantene 400",
+                       renglones=[RenglonLeido(texto="5 shampoo pantene 400", cantidad=5)]))
+    recibido = {}
+
+    class _Agente:
+        def handle(self, **kwargs):
+            recibido.update(kwargs)
+
+            class _Outcome:
+                message, cerrada, kind = "Te propongo…", False, "borrador"
+
+            return _Outcome()
+
+    monkeypatch.setattr(conversation_service, "get_agent", lambda: _Agente())
+    reply = conversation_service.handle_message(foto("esto   para el lunes"))
+
+    assert reply.text == "Te propongo…"
+    assert recibido["text"] == "esto para el lunes\n[imagen leída]\n5 shampoo pantene 400"
+
+
+@pytest.mark.parametrize(
+    ("resultado", "falla"),
+    [
+        (ImagenLeida(legible=False, tipo="otro", texto=""), None),  # sin texto
+        (None, None),  # el modelo no devolvió un JSON válido
+        (None, RuntimeError("se cortó")),  # la descarga o el modelo fallaron
+    ],
+)
+def test_imagen_sin_texto_util_no_llama_al_agente(vision, monkeypatch, resultado, falla):
+    """Spec del agente §6: sin texto útil se le pide que lo escriba, sin llamar al LLM."""
+    vision(resultado, falla)
+    monkeypatch.setattr(conversation_service, "get_agent", lambda: pytest.fail("no tenía que llamar al agente"))
+    assert conversation_service.handle_message(foto()).text == conversation_service.COULD_NOT_READ_IMAGE
+
+
+def test_imagen_de_un_canal_sin_descarga(monkeypatch):
+    """Hoy solo se bajan las fotos de Telegram: de otro canal se pide que lo escriba."""
+    with pytest.raises(message_service.ImagenIlegible):
+        message_service.download_media("https://example.com/foto.jpg")

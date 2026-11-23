@@ -28,6 +28,9 @@ pyyaml>=6.0,<7
 # Trazas del agente (internal/agent/observabilidad.py): SDK liviano, sin el servidor. Solo se importa con MLFLOW_ENABLED
 mlflow-tracing>=3.18,<4
 
+# Lectura de imágenes (internal/services/vision_service.py): achicar y normalizar la foto antes de mandarla
+pillow>=10,<13
+
 # Google Sheets (internal/services/google_sheets_client.py)
 gspread>=6.0,<7
 google-auth>=2.29,<3

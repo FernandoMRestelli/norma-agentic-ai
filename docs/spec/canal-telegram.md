@@ -76,12 +76,17 @@ flowchart LR
 
 ### 3.3 Audio e imagen
 
-Mientras no esté el modelo de visión pago (§4.3), un audio o una foto reciben **sin llamar al LLM** el mensaje fijo
-«Por ahora solo puedo leer pedidos escritos. ¿Me lo mandás por texto?» (RF-32). Es el mismo camino que la spec del
-agente prevé para un audio o una imagen sin texto útil (§6 de la spec del agente).
+Un audio, o una foto sin `LLM_VISION_PROVIDER`, reciben **sin llamar al LLM** el mensaje fijo «Por ahora solo puedo
+leer pedidos escritos. ¿Me lo mandás por texto?» (RF-32).
+
+Con `LLM_VISION_PROVIDER` configurado, `message_service` baja la foto con `getFile` (hasta 20 MB, el límite de la Bot
+API), `vision_service` la lee a JSON (`ImagenLeida`) y al agente le llega el texto marcado con `[imagen leída]`, con el
+epígrafe adelante. Si no se pudo bajar o leer, o no tiene texto útil, responde «No pude entender la imagen, ¿me lo
+escribís?» sin llamar al LLM (§6 de la spec del agente). Con `huggingface` el modelo corre en la máquina del bot y se
+carga al arrancar; las imágenes se leen de a una.
 
 El `media_url` guarda una referencia (`telegram:<file_id>`) y **no** la URL de descarga, porque esa URL contiene el
-token del bot (RNF-14). Cuando se sume el modelo de visión, `message_service` resuelve la referencia con `getFile`.
+token del bot (RNF-14). Los logs de la lectura llevan solo proveedor, modelo, tiempos y cantidades, nunca el texto.
 
 Es la única excepción a la regla de `media_url` solo `https://` (§5.1 de la spec del MVP) y vale únicamente con
 `channel = telegram`: en otro canal, `telegram:<file_id>` se rechaza. No abre una puerta a SSRF porque un `file_id`
@@ -118,10 +123,10 @@ Se suma `telegram` (`web | whatsapp | telegram`) en `IncomingMessage`, `OrderDra
 | `TELEGRAM_BOT_TOKEN` | Sí, para el bot | Token que da @BotFather. Nunca en el repo ni en logs |
 | `TELEGRAM_ALLOWED_USER_IDS` | Sí, para que responda | Ids numéricos separados por coma |
 | `TELEGRAM_WEBHOOK_SECRET` | Solo con webhook | Valor de `X-Telegram-Bot-Api-Secret-Token` (1 a 256 caracteres: letras, números, `_` y `-`) |
-| `LLM_PROVIDER` | Sí, para el agente | `gemini`, `groq` u `openrouter` (`.env.example` trae `openrouter`) |
-| `LLM_MODEL` | Sí, para el agente | Un modelo del free tier, p. ej. `nvidia/nemotron-3.5-lightning:free` en OpenRouter o `gemini-3.8-flash` |
-| `LLM_API_KEY` | Sí, para el agente | API key del proveedor (OpenRouter, Groq o Google AI Studio) |
-| `LLM_VISION_PROVIDER`, `LLM_VISION_MODEL`, `LLM_VISION_API_KEY` | No | Modelo pago para audio e imagen; se leen pero todavía no se usan |
+| `LLM_PROVIDER` | Sí, para el agente | `gemini`, `groq` u `openrouter` (free tier; `.env.example` trae `openrouter`), u `openai` (pago, ej. `gpt-6-luna`) |
+| `LLM_MODEL` | Sí, para el agente | P. ej. `nvidia/nemotron-3.5-lightning:free` en OpenRouter, `gemini-3.8-flash` o `gpt-6-luna` |
+| `LLM_API_KEY` | Sí, para el agente | API key del proveedor (OpenRouter, Groq, Google AI Studio u OpenAI) |
+| `LLM_VISION_PROVIDER`, `LLM_VISION_MODEL`, `LLM_VISION_API_KEY` | No, para leer fotos | `huggingface` (local, sin key), `openai`, `openrouter` o `gemini`. Vacío: la foto recibe el pedido de escribirla |
 
 ### 4.3 Modelo con LangChain
 
@@ -145,7 +150,7 @@ los tres:
 | RF-29 | El sistema recibe mensajes de texto, audio y foto por un bot de Telegram, por polling o por webhook con secret token, y solo atiende a los usuarios de la lista blanca |
 | ~~RF-30~~ | ~~En Telegram, una respuesta con borrador lleva los botones Confirmar / Corregir~~ Eliminado: el cliente confirma escribiendo, en todos los canales |
 | RF-31 | Un update de Telegram repetido (mismo `update_id`) se procesa una sola vez |
-| RF-32 | Mientras no haya modelo de visión, un audio o una imagen reciben el pedido de escribirlo, sin llamar al LLM |
+| RF-32 | Un audio, o una imagen sin modelo de visión configurado (`LLM_VISION_PROVIDER`), reciben el pedido de escribirlo, sin llamar al LLM |
 | RNF-14 | El token del bot y las API keys no aparecen en logs, URLs guardadas ni datos persistidos |
 
 ## 6. Criterios de aceptación
@@ -155,16 +160,16 @@ los tres:
 | CA-30 | `TELEGRAM_WEBHOOK_SECRET` configurado / sin configurar | Llega un POST con el secret correcto, incorrecto o sin header | `200` / `403` / `403`; sin secret configurado, siempre `403` | RF-29 | `test_telegram.py::test_webhook_*` |
 | CA-31 | Un usuario fuera de la lista blanca | Escribe al bot | Recibe un texto fijo con su id y el mensaje no llega al orquestador | RF-29 | `test_telegram.py::test_usuario_fuera_de_la_lista_blanca` |
 | CA-32 | Un update ya procesado | Llega otra vez con el mismo `update_id` | No se procesa ni se responde de nuevo | RF-31 | `test_telegram.py::test_update_repetido_se_procesa_una_vez` |
-| CA-33 | Un integrante de la lista blanca | Manda texto, un audio o una foto | Llega como `IncomingMessage` `text`, `audio` o `image` con `media_url = telegram:<file_id>`; audio y foto reciben el pedido de escribirlo | RF-29, RF-32, RNF-14 | `test_telegram.py::test_traduce_*`, `test_conversation.py`, `test_orders.py::test_incoming_message_*telegram*` |
+| CA-33 | Un integrante de la lista blanca | Manda texto, un audio o una foto | Llega como `IncomingMessage` `text`, `audio` o `image` con `media_url = telegram:<file_id>`; el audio, y la foto sin `LLM_VISION_PROVIDER`, reciben el pedido de escribirlo; con él, la foto se baja con `getFile` y se lee (CA-07) | RF-29, RF-32, RNF-14 | `test_telegram.py::test_traduce_*`, `test_conversation.py`, `test_orders.py::test_incoming_message_*telegram*` |
 | ~~CA-34~~ | ~~Botones Confirmar / Corregir en Telegram~~ Eliminado: el cliente confirma escribiendo, en todos los canales | — | — | ~~RF-30~~ | — |
 | CA-35 | Un `AIMessage` de Gemini con tool calls | Vuelve al modelo dentro del mismo turno | Se reenvía completo, sin reconstruirlo, para conservar las firmas | RNF-09 | `test_agent_graph.py` |
-| CA-36 | `LLM_PROVIDER` = `gemini`, `groq` u `openrouter` / vacío / otro | Se pide el modelo | `ChatGoogleGenerativeAI`, `ChatGroq` o `ChatOpenAI` apuntado a OpenRouter / error que dice qué variable falta / error de proveedor no soportado | RNF-09 | `test_llm.py` |
+| CA-36 | `LLM_PROVIDER` = `gemini`, `groq`, `openrouter` u `openai` / vacío / otro | Se pide el modelo | `ChatGoogleGenerativeAI`, `ChatGroq`, `ChatOpenAI` apuntado a OpenRouter o `ChatOpenAI` de OpenAI / error que dice qué variable falta / error de proveedor no soportado | RNF-09 | `test_llm.py` |
 
 ## 7. Decisiones y riesgos
 
 | Tema | Decisión |
 |---|---|
-| D-01 (parcial) | Para la beta, **un modelo free tier para texto** (Gemini, Groq u OpenRouter; `.env.example` trae OpenRouter). Audio, imagen y el LLM de producción siguen abiertos |
+| D-01 (parcial) | Para la beta, **un modelo free tier para texto** (Gemini, Groq u OpenRouter; `.env.example` trae OpenRouter), u OpenAI (`gpt-6-luna`, pago) cuando el free tier no alcanza. Imagen en prueba con un modelo local de Hugging Face (Qwen3-VL 2B). Audio y el LLM de producción siguen abiertos |
 | Un bot por integrante para desarrollar y uno compartido para la beta | Evita el `409 Conflict` del polling al desarrollar en paralelo, y en la beta concentra los pedidos en una sola base, como en la operación real |
 | Deduplicación en memoria | Alcanza con una instancia y polling (el `offset` ya evita repetidos); se mueve a la base con `processed_messages` |
 | Riesgo: límites del free tier | Un turno sin errores hace unas 4 llamadas y puede llegar a 15 (RNF-12), así que hay que medir el consumo con tres personas probando. Si no alcanza, se pasa a un modelo `flash-lite` o a pago |

@@ -29,6 +29,7 @@ CHECKPOINT_BUSY_TIMEOUT = 15.0
 
 class NormaAgent:
     def __init__(self, model: BaseChatModel, checkpointer: BaseCheckpointSaver):
+        self.checkpointer = checkpointer
         self.graph = build_graph(model, checkpointer)
         self.system_prompt = context.load_system_prompt()
         self.prompt_version = context.prompt_version()
@@ -41,13 +42,16 @@ class NormaAgent:
         text: str,
         customer_name: str | None = None,
         origen: str = "texto",
+        nueva: bool = False,
     ) -> AgentOutcome:
         """Procesa un mensaje ya preparado por message_service. `thread_id` identifica la conversación.
 
         `origen` dice de dónde salió el texto (`texto`, `audio` o `imagen`) y queda en la orden (RF-79).
+        `nueva` dice que el orquestador acaba de abrir la conversación: no puede tener estado guardado (RF-100).
         """
         inicio = time.perf_counter()
         with observabilidad.turno(thread_id, channel.value, text) as turno:
+            self._descartar_estado_ajeno(thread_id, customer_id, channel, nueva)
             outcome, state = self._run(thread_id, customer_id, channel, text, customer_name, origen)
             resumen = observabilidad.resumir(state)
             latencia_ms = round((time.perf_counter() - inicio) * 1000)
@@ -76,6 +80,32 @@ class NormaAgent:
             self.prompt_version,
         )
         return outcome
+
+    def _descartar_estado_ajeno(self, thread_id: str, customer_id: str, channel: Channel, nueva: bool) -> None:
+        """Borra el estado guardado con este `thread_id` si no es de esta conversación (RF-100, CA-165, CA-166).
+
+        El ID sale de `norma.db` y el estado vive en `CHECKPOINT_DB`: si la base vuelve a un backup o se recrea, un
+        ID nuevo puede ya tener la historia y la propuesta de otra conversación, incluso de otro cliente.
+        """
+        guardado = self.graph.get_state({"configurable": {"thread_id": thread_id}}).values
+        if not guardado:
+            return
+        if nueva:
+            motivo = "conversación nueva"
+        elif guardado.get("customer_id", customer_id) != customer_id:
+            motivo = "otro cliente"
+        elif guardado.get("channel", channel.value) != channel.value:
+            motivo = "otro canal"
+        else:
+            return
+        # Solo el ID y el motivo: el estado guardado tiene texto de clientes (RNF-03)
+        logger.error(
+            "Agente: la conversación %s tenía un estado guardado que no es suyo (%s); se descarta. "
+            "¿norma.db volvió a un backup o se recreó sin CHECKPOINT_DB?",
+            thread_id,
+            motivo,
+        )
+        self.checkpointer.delete_thread(thread_id)
 
     def _run(
         self, thread_id: str, customer_id: str, channel: Channel, text: str, customer_name: str | None, origen: str

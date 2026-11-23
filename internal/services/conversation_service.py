@@ -9,6 +9,7 @@ import threading
 from collections import defaultdict
 from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import NamedTuple
 
 from langchain_core.messages import HumanMessage
 from sqlalchemy import or_, select, update
@@ -36,6 +37,7 @@ from internal.tools import reply_tools
 logger = logging.getLogger(__name__)
 
 WRITE_IT_PLEASE = "Por ahora solo puedo leer pedidos escritos. ¿Me lo mandás por texto?"
+COULD_NOT_READ_IMAGE = "No pude entender la imagen, ¿me lo escribís?"
 
 
 def proposal_expired_message() -> str:
@@ -124,13 +126,19 @@ def startup() -> None:
     init_db()
 
 
-def _open_conversation_id(customer_id: str, channel: Channel, now: datetime | None = None) -> tuple[int, bool]:
-    """Devuelve (conversation_id, tenia_propuesta_vencida).
+class ConversacionAbierta(NamedTuple):
+    id: int
+    nueva: bool  # recién creada: el agente no puede tener estado guardado con este ID (RF-100)
+    tenia_propuesta_vencida: bool
+
+
+def _abrir_conversacion(customer_id: str, channel: Channel, now: datetime | None = None) -> ConversacionAbierta:
+    """La conversación abierta del cliente en ese canal, o una nueva.
 
     Si había una conversación abierta pero pasaron más de conversation_timeout_hours sin actividad,
     la marca como vencida y descarta sus borradores pendientes (RF-28, CA-28), abriendo una conversación nueva.
-    Devuelve True en el segundo elemento si y solo si la conversación previa vencida tenía una propuesta
-    pendiente que quedó descartada.
+    `nueva` es True si la creó recién, y `tenia_propuesta_vencida` si y solo si la conversación previa vencida tenía
+    una propuesta pendiente que quedó descartada.
     """
     momento = now or _clock()
     with SessionLocal() as session:
@@ -152,7 +160,7 @@ def _open_conversation_id(customer_id: str, channel: Channel, now: datetime | No
             else:
                 conversation.updated_at = momento
                 session.commit()
-                return conversation.id, False
+                return ConversacionAbierta(conversation.id, nueva=False, tenia_propuesta_vencida=False)
 
         nueva = ConversationRecord(
             customer_id=customer_id,
@@ -163,7 +171,7 @@ def _open_conversation_id(customer_id: str, channel: Channel, now: datetime | No
         )
         session.add(nueva)
         session.commit()
-        return nueva.id, tenia_propuesta_vencida
+        return ConversacionAbierta(nueva.id, nueva=True, tenia_propuesta_vencida=tenia_propuesta_vencida)
 
 
 def _touch_conversation(conversation_id: int, now: datetime | None = None) -> None:
@@ -222,6 +230,13 @@ def _record_silenced_message(message: IncomingMessage) -> None:
                 logger.warning("No se pudo registrar mensaje silenciado en el checkpointer", exc_info=True)
 
 
+def _sin_lector(message: IncomingMessage) -> bool:
+    """RF-32: el audio todavía no se transcribe y la imagen solo se lee con LLM_VISION_PROVIDER configurado."""
+    if message.type == MessageType.AUDIO:
+        return True
+    return message.type == MessageType.IMAGE and not get_settings().llm_vision_provider
+
+
 def handle_message(message: IncomingMessage) -> ChannelReply:
     # RF-27, CA-21: si el cliente fue derivado hace menos de 24 h, el bot no responde automáticamente
     if _is_silenced_by_derivation(message.customer_id, message.channel):
@@ -233,11 +248,14 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
         _record_silenced_message(message)
         return ChannelReply(text="")
 
-    if message.type != MessageType.TEXT:
-        # RF-32: sin modelo de visión, audio e imagen no llegan al LLM
+    if _sin_lector(message):
         return ChannelReply(text=WRITE_IT_PLEASE)
 
-    text = message_service.prepare(message)
+    try:
+        text = message_service.prepare(message)
+    except message_service.ImagenIlegible:
+        # Spec del agente §6: sin texto útil no se llama al LLM
+        return ChannelReply(text=COULD_NOT_READ_IMAGE)
     # Topes de entrada antes de abrir la conversación y sin llamar al LLM (spec de guardrails §3.3)
     if rechazo := guardrails.revisar_entrada((message.customer_id, message.channel), text):
         logger.warning(
@@ -256,7 +274,7 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
 
     # Los turnos de una conversación se procesan de a uno (RNF-05)
     with _locks[(message.customer_id, message.channel)]:
-        conversation_id, tenia_propuesta_vencida = _open_conversation_id(message.customer_id, message.channel)
+        conversation_id, nueva, tenia_propuesta_vencida = _abrir_conversacion(message.customer_id, message.channel)
         clave = interpretar_palabra_clave(text)
         if tenia_propuesta_vencida and clave == ConfirmationAction.CONFIRM:
             return ChannelReply(text=proposal_expired_message())
@@ -277,6 +295,7 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
             text=text,
             customer_name=message.customer_name,
             origen=ORIGEN_POR_TIPO[message.type.value],
+            nueva=nueva,
         )
         if outcome.cerrada:
             if outcome.kind == "pedido":

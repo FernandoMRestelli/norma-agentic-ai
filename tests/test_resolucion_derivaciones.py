@@ -1176,8 +1176,8 @@ def test_reactivar_vence_otra_abierta_y_descarta_borradores(monkeypatch):
         assert b.status == "vencida"
         assert draft.status == "descartado"
 
-    # Verificar que _open_conversation_id devuelve la conversación reactivada
-    active_id, _ = conversation_service._open_conversation_id(customer_id, Channel.TELEGRAM)
+    # Verificar que _abrir_conversacion devuelve la conversación reactivada
+    active_id = conversation_service._abrir_conversacion(customer_id, Channel.TELEGRAM).id
     assert active_id == conv_a_id
 
 

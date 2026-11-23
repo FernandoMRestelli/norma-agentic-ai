@@ -12,12 +12,13 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_version: str = "dev"  # la imagen de cada release la fija con el número del tag
 
-    # LLM de texto (ver internal/agent/llm.py). Proveedores free tier: gemini, groq, openrouter
+    # LLM de texto (ver internal/agent/llm.py): openai (pago) o los free tier gemini, groq, openrouter
     llm_provider: str | None = None
     llm_model: str | None = None
     llm_api_key: str | None = None
 
-    # LLM para audio e imagen (modelo pago, a definir): se lee pero todavía no se usa
+    # Lectura de imágenes (internal/services/vision_service.py): openai, openrouter, gemini o huggingface (local).
+    # Vacío: las fotos reciben el pedido de escribirlo (RF-32)
     llm_vision_provider: str | None = None
     llm_vision_model: str | None = None
     llm_vision_api_key: str | None = None

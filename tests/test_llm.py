@@ -42,6 +42,19 @@ def test_groq_sin_clave_dice_que_falta(settings):
         get_chat_model()
 
 
+def test_openai_crea_el_modelo_de_langchain(settings):
+    settings(LLM_PROVIDER="openai", LLM_MODEL="gpt-de-prueba", LLM_API_KEY="clave-de-prueba")
+    modelo = get_chat_model()
+    assert isinstance(modelo, ChatOpenAI) and modelo.model_name == "gpt-de-prueba"
+    assert modelo.openai_api_base is None  # la API de OpenAI, no OpenRouter
+
+
+def test_openai_sin_clave_dice_que_falta(settings):
+    settings(LLM_PROVIDER="openai", LLM_MODEL="gpt-de-prueba")
+    with pytest.raises(ValueError, match="LLM_API_KEY"):
+        get_chat_model()
+
+
 def test_openrouter_crea_el_modelo_de_langchain(settings):
     settings(LLM_PROVIDER="openrouter", LLM_MODEL="modelo-de-prueba", LLM_API_KEY="clave-de-prueba")
     assert isinstance(get_chat_model(), ChatOpenAI)

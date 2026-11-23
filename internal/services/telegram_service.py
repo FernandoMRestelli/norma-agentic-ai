@@ -24,8 +24,10 @@ from internal.services.agrupador import Agrupador
 logger = logging.getLogger(__name__)
 
 API_URL = "https://api.telegram.org/bot{token}/{method}"
+FILE_URL = "https://api.telegram.org/file/bot{token}/{file_path}"
 TIMEOUT_SECONDS = 10
 MAX_LARGO_MENSAJE = 4096  # límite de `sendMessage`: un mensaje más largo se manda en partes (RF-70)
+MAX_FILE_BYTES = 20 * 1024 * 1024  # la Bot API no deja bajar archivos más grandes
 
 NOT_ALLOWED = (
     "Hola 👋 Este bot es de prueba y solo atiende a integrantes del equipo de Norma.\n"
@@ -62,6 +64,22 @@ class TelegramClient:
 
     def delete_webhook(self) -> None:
         self.call("deleteWebhook")
+
+    def download_file(self, file_id: str) -> bytes:
+        """Baja un archivo (foto, audio) por su file_id: getFile da la ruta y se descarga con el token."""
+        info = self.call("getFile", file_id=file_id)
+        if info.get("file_size", 0) > MAX_FILE_BYTES or "file_path" not in info:
+            raise TelegramError("getFile: el archivo es muy grande o no se puede bajar")
+        url = FILE_URL.format(token=self._token, file_path=info["file_path"])
+        try:
+            response = self.http.get(url, timeout=TIMEOUT_SECONDS * 3)
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            # El error de httpx incluye la URL, que tiene el token: no se encadena (RNF-14)
+            raise TelegramError(f"download_file: no se pudo bajar el archivo ({type(exc).__name__})") from None
+        if len(response.content) > MAX_FILE_BYTES:
+            raise TelegramError("download_file: el archivo es muy grande")
+        return response.content
 
     def get_updates(self, offset: int | None, poll_seconds: int) -> list[dict]:
         params: dict[str, Any] = {"timeout": poll_seconds, "allowed_updates": ["message"]}
