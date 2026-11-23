@@ -78,9 +78,10 @@ def construir_prompt(
     ultimo_mensaje: str = "",
 ) -> str:
     """El system prompt del sub-loop: sin la charla anterior ni las notas de otras skills (RF-89, CA-153)."""
+    brs = ", ".join(f"{br['id']} ({br['titulo']})" for br in skill.titulos_br) or "ninguna"
     partes = [
         PROMPT_PATH.read_text(encoding="utf-8"),
-        f"## Skill `{skill.nombre}`\n\nBR: {', '.join(sorted(skill.br)) or 'ninguna'}\n\n{skill.sub_loop}",
+        f"## Skill `{skill.nombre}`\n\nBR: {brs}\n\n{skill.sub_loop}",
         f"## Encargo del orquestador\n\n{encargo}",
     ]
     if numeros:
@@ -217,6 +218,7 @@ def correr(
         "tokens_salida": 0,
     }
     rechazos = 0
+    avisados: set[str] = set()  # los SKU con stock parcial que ya se le marcaron en una nota
     entregada: dict[str, Any] | None = None
     with observabilidad.paso("sub_loop", "AGENT", skill=skill.nombre, renglones=len(numeros)) as span:
         span.texto(entrada={"encargo": encargo, "renglones": numeros})
@@ -248,7 +250,9 @@ def correr(
                 if entregada is not None:
                     resultado = {"ok": False, "error": {"code": "nota_entregada", "message": "Ya entregaste la nota"}}
                 elif call["name"] == tool_registry.TERMINAL_SUB_LOOP:
-                    resultado, entregada, rechazos = _entregar(call["args"], numeros, vistos, rechazos, busquedas)
+                    resultado, entregada, rechazos = _entregar(
+                        call["args"], numeros, vistos, rechazos, busquedas, datos.faltantes, avisados
+                    )
                     if entregada is not None:
                         cerrada_por = "nota" if rechazos <= nota.MAX_RECHAZOS else "forzada"
                         entrada.update(nota=entregada, cerrada_por=cerrada_por)
@@ -353,12 +357,55 @@ def _disponibles(busquedas: dict[int, tuple[dict, dict]]) -> dict[int, int]:
     }
 
 
+def _stock_sin_renglon(
+    data: EntregarNotaInput,
+    busquedas: dict[int, tuple[dict, dict]],
+    faltantes: dict[str, int],
+    avisados: set[str],
+) -> dict[str, Any] | None:
+    """BR-01 para lo que no se buscó por renglón: `search_products` con `quantity` o `check_stock`.
+
+    Esas búsquedas no dicen de qué renglón son, así que `stock_parcial` no las ve. Si la nota manda algo a `afuera`
+    por `sin_stock` y de un producto buscado así quedan unidades que la nota no usa, se le avisa una sola vez:
+    puede ser otro producto, y la misma nota entregada de nuevo se acepta.
+    """
+    if not any(item.motivo == "sin_stock" for item in data.afuera):
+        return None
+    por_renglon = {
+        sku
+        for _, encontrado in busquedas.values()
+        for sku in [
+            *(candidato["sku"] for candidato in encontrado.get("candidatos") or []),
+            (encontrado.get("falta") or {}).get("sku"),
+        ]
+        if sku
+    }
+    usados = {r.sku for r in data.resueltos} | {sku for p in data.pendientes for sku in p.opciones}
+    quedan = {
+        sku: n
+        for sku, n in faltantes.items()
+        if n > 0 and sku not in usados and sku not in por_renglon and sku not in avisados
+    }
+    if not quedan:
+        return None
+    avisados.update(quedan)
+    lista = ", ".join(f"de {sku} quedan {n}" for sku, n in sorted(quedan.items()))
+    return nota._error(
+        "stock_parcial",
+        f"Dejaste en `afuera` algo agotado, pero de lo que buscaste quedan unidades ({lista}). Si es ese producto, va "
+        "en `pendientes` con la pregunta de si quiere lo que hay (BR-01); si es otro, entregá la nota igual",
+        skus=sorted(quedan),
+    )
+
+
 def _entregar(
     args: dict[str, Any],
     numeros: list[int],
     vistos: set[str],
     rechazos: int,
     busquedas: dict[int, tuple[dict, dict]],
+    faltantes: dict[str, int] | None = None,
+    avisados: set[str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None, int]:
     """Valida una nota. Devuelve el resultado para el sub-loop, la nota aceptada (o None) y los rechazos."""
     with observabilidad.paso("nota", "PARSER", renglones=len(numeros), entrega=rechazos + 1) as paso:
@@ -373,7 +420,9 @@ def _entregar(
             }
             data = None
         else:
-            error = nota.validar(data, numeros, vistos, _disponibles(busquedas))
+            error = nota.validar(data, numeros, vistos, _disponibles(busquedas)) or _stock_sin_renglon(
+                data, busquedas, faltantes or {}, avisados if avisados is not None else set()
+            )
         paso.texto(entrada=args, salida=error)
         if error is None:
             aceptada = data.model_dump(exclude_none=True)

@@ -4,12 +4,13 @@ import re
 
 import pytest
 
-from internal.agent import tool_registry
+from internal.agent import sub_loop, tool_registry
 from internal.schemas.agent_schema import ToolFailure
+from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import Channel
-from internal.services import sheets_service, skill_service
+from internal.services import inventory_service, sheets_service, skill_service
 from internal.services.skill_service import SkillError, load_skills
-from internal.tools import catalog_tools, inventory_tools, skill_tools
+from internal.tools import catalog_tools, inventory_tools, order_tools, skill_tools
 
 
 @pytest.mark.parametrize("query", ["shampoo pantene 400", "Shampoo Pantene 400ML", "shampo pantne 400"])
@@ -132,6 +133,22 @@ def _crear_skill(base, encabezado):
     (folder / "skill.md").write_text(encabezado, encoding="utf-8")
 
 
+def test_leer_skill_trae_el_titulo_de_cada_br():
+    """El agente elige qué BR leer por su título, sin leerlas todas."""
+    br = skill_tools.leer_skill("tomar_pedido")["br"]
+    assert {"id": "BR-01", "titulo": "Falta de stock"} in br
+    assert [regla["id"] for regla in br] == sorted(skill_service.get_skills()["tomar_pedido"].br)
+
+
+@pytest.mark.parametrize("texto", ["Sin encabezado", "# BR-02: Otra BR", "# BR-01:"])
+def test_br_sin_encabezado_con_titulo_impide_arrancar(tmp_path, texto):
+    _crear_skill(tmp_path, "---\nnombre: mi_skill\nfuncion: x\ncuando: x\ntools: [leer_br]\n---\nLeé BR-01")
+    (tmp_path / "mi_skill" / "BR").mkdir()
+    (tmp_path / "mi_skill" / "BR" / "BR-01.md").write_text(texto, encoding="utf-8")
+    with pytest.raises(SkillError, match="BR-01"):
+        load_skills(tmp_path)
+
+
 def test_skill_sin_encabezado_impide_arrancar(tmp_path):
     _crear_skill(tmp_path, "sin encabezado")
     with pytest.raises(SkillError):
@@ -181,6 +198,59 @@ def test_tool_no_disponible_no_se_ejecuta():
     assert result["error"]["code"] == "tool_no_permitida"
 
 
+def _error(name, arguments, **contexto):
+    ctx = tool_registry.TurnContext(customer_id="c", channel=Channel.WEB, **contexto)
+    return tool_registry.execute(name, arguments, ctx)["error"]
+
+
+def test_tool_no_permitida_nombra_la_skill_que_la_habilita():
+    """El LLM lee la skill que corresponde en vez de adivinar; sin propuesta, no le sugiere confirmar_pedido."""
+    error = _error("respond_to_customer", {}, disponibles=list(tool_registry.BASE_TOOLS))
+    assert error["code"] == "tool_no_permitida"
+    assert "informar" in error["message"]
+    assert "tomar_pedido" in error["message"]
+    assert "confirmar_pedido" not in error["message"]
+
+
+def test_armar_pedido_sin_propuesta_dice_que_no_hay_nada_que_registrar():
+    error = _error("armar_pedido", {}, disponibles=list(tool_registry.BASE_TOOLS))
+    assert error["code"] == "tool_no_permitida"
+    assert "propuesta vigente" in error["message"]
+    assert "leer_skill" not in error["message"]
+
+
+def test_en_el_cierre_no_sugiere_leer_una_skill():
+    """RNF-16: en el cierre solo queda responder; mandarlo a leer_skill le hace gastar las vueltas que le quedan."""
+    error = _error("search_products", {"query": "shampoo"}, disponibles=["respond_to_customer"])
+    assert error["code"] == "tool_no_permitida"
+    assert "leer_skill" not in error["message"]
+    assert "respond_to_customer" in error["message"]
+
+
+def test_tool_inexistente_no_sugiere_leer_una_skill():
+    error = _error("borrar_todo", {}, disponibles=list(tool_registry.BASE_TOOLS))
+    assert error["message"] == "No existe la tool 'borrar_todo': usá solo las que tenés"
+
+
+def test_skill_inexistente_lista_las_del_indice():
+    error = _error("leer_skill", {"nombre": "vender"}, disponibles=list(tool_registry.BASE_TOOLS))
+    assert error["code"] == "skill_inexistente"
+    assert "informar" in error["message"]
+    assert "tomar_pedido" in error["message"]
+    assert "confirmar_pedido" not in error["message"]  # sin propuesta, el índice no la muestra
+
+
+def test_errores_de_br_dicen_cual_leer():
+    no_permitida = _error("leer_br", {"id": "BR-01"}, disponibles=list(tool_registry.BASE_TOOLS))
+    assert no_permitida["code"] == "br_no_permitida"
+    assert "tomar_pedido" in no_permitida["message"]
+    inexistente = _error(
+        "leer_br", {"id": "BR-99"}, disponibles=list(tool_registry.BASE_TOOLS), skills_activas=["tomar_pedido"]
+    )
+    assert inexistente["code"] == "br_inexistente"
+    assert "BR-01 (Falta de stock)" in inexistente["message"]
+
+
 def test_argumentos_invalidos_vuelven_al_llm():
     ctx = tool_registry.TurnContext(customer_id="c", channel=Channel.WEB, disponibles=["check_stock"])
     result = tool_registry.execute("check_stock", {"sku": "SH-PAN-400", "quantity": 0}, ctx)
@@ -205,6 +275,33 @@ def test_check_stock_ejecuta_con_argumentos_validos():
     result = tool_registry.execute("check_stock", {"sku": "SH-PAN-400", "quantity": 2}, ctx)
     assert result["ok"] is True
     assert result["data"]["is_enough"] is True
+
+
+def _ejecutar(name, **arguments):
+    ctx = tool_registry.TurnContext(customer_id="c", channel=Channel.WEB, disponibles=list(tool_registry.TOOLS))
+    return tool_registry.execute(name, arguments, ctx)["data"]
+
+
+def test_check_stock_solo_da_el_numero_si_no_alcanza():
+    """BR-01: la crema de enjuague Sedal tiene 4 unidades; el LLM solo ve cuántas quedan cuando no alcanzan."""
+    assert _ejecutar("check_stock", sku="CE-SED-340", quantity=4) == {
+        "sku": "CE-SED-340", "requested": 4, "is_enough": True
+    }
+    assert _ejecutar("check_stock", sku="CE-SED-340", quantity=5) == {
+        "sku": "CE-SED-340", "requested": 5, "available": 4, "is_enough": False
+    }
+
+
+def test_busqueda_con_cantidad_dice_si_alcanza_sin_revelar_el_stock():
+    """Con `quantity` no hace falta `check_stock` después de buscar, y el número solo aparece si no alcanza."""
+    alcanza = _ejecutar("search_products", query="crema de enjuague sedal", quantity=4)["matches"][0]
+    assert (alcanza["sku"], alcanza["alcanza"]) == ("CE-SED-340", True)
+    assert "disponible" not in alcanza
+    no_alcanza = _ejecutar("search_products", query="crema de enjuague sedal", quantity=5)["matches"][0]
+    assert (no_alcanza["alcanza"], no_alcanza["disponible"]) == (False, 4)
+    sin_cantidad = _ejecutar("search_products", query="crema de enjuague sedal")["matches"][0]
+    assert not {"alcanza", "disponible"} & sin_cantidad.keys()
+
 
 def test_explorar_catalogo_marcas_por_categoria():
     """RF-35: Consulta marcas disponibles en una categoría."""
@@ -282,6 +379,8 @@ def test_br_junto_al_resultado():
          {"kind": "propuesta", "message": "Van las 10.", "propuesta": [{"sku": "CE-SED-340", "quantity": 10}]},
          "BR-01"),
         ("search_products", {"query": "shampoo pantene 400"}, None),  # un solo producto, con stock
+        ("search_products", {"query": "crema de enjuague sedal", "quantity": 5}, "BR-01"),  # hay 4
+        ("search_products", {"query": "crema de enjuague sedal", "quantity": 4}, None),
         ("get_product", {"sku": "SH-PAN-400"}, None),
     ],
 )
@@ -356,6 +455,91 @@ def test_explorar_catalogo_categoria_inexistente_sugiere_la_parecida():
     res = catalog_tools.explorar_catalogo(category="champu")
     assert res["total_productos"] == 0
     assert "Shampoo" in res["_hint"]
+
+
+@pytest.mark.parametrize("escrito", ["L'Oréal", "l’oreal", "LOREAL", "  Loréal  "])
+def test_explorar_catalogo_ignora_tildes_y_signos(escrito):
+    """«L'Oréal», como lo nombra el system prompt, encuentra la marca cargada como LOREAL."""
+    assert catalog_tools._normalizar(escrito) == "loreal"
+
+
+@pytest.mark.parametrize("escrito", ["Anti-Frizz", "anti frizz", "Anti / Frizz", "ANTI_FRIZZ"])
+def test_los_signos_entre_palabras_separan(escrito):
+    """«Anti-Frizz» no queda «antifrizz»: si no, «anti frizz» no encuentra la categoría."""
+    assert catalog_tools._normalizar(escrito) == "anti frizz"
+
+
+def test_explorar_catalogo_encuentra_la_marca_escrita_con_apostrofo(monkeypatch):
+    loreal = Product(sku="LO-SH-1", name="Shampoo Loreal", brand="LOREAL", category="Shampoo", price=1, stock=3)
+    monkeypatch.setattr(sheets_service, "get_catalog", lambda: [loreal])
+    res = catalog_tools.explorar_catalogo(brand="L'Oréal")
+    assert res["tipo_consulta"] == "categorias_por_marca"
+    assert res["categorias"] == {"Shampoo": 1}
+
+
+def test_explorar_catalogo_marca_sin_esa_categoria_ofrece_otras_marcas():
+    """Elvive solo tiene shampoo: el hint dice qué tiene la marca y qué marcas tienen acondicionador."""
+    res = catalog_tools.explorar_catalogo(brand="elvive", category="acondicionador")
+    assert res["total_productos"] == 0
+    assert "De esa marca hay: Shampoo." in res["_hint"]
+    assert "Tienen esa categoría: Pantene, Sedal." in res["_hint"]
+
+
+def test_pedidos_anteriores_marca_lo_que_ya_no_esta_en_el_catalogo(monkeypatch):
+    """Lo que compró hace un mes puede no estar hoy: el agente no lo propone y llega BR-11 (cómo usar la tool)."""
+    lineas = [
+        {"sku": "SH-PAN-400", "name": "Shampoo", "cantidad": 2},
+        {"sku": "XX-VIEJO", "name": "Otro", "cantidad": 1},
+    ]
+    monkeypatch.setattr(order_tools, "pedidos_anteriores", lambda *_: [{"fecha": "2026-10-01", "lineas": lineas}])
+    resultado = tool_registry.execute("pedidos_anteriores", {}, _contexto("tomar_pedido"))
+    nuevas = resultado["data"]["pedidos"][0]["lineas"]
+    assert [(linea["en_catalogo"], linea.get("hay_stock")) for linea in nuevas] == [(True, True), (False, None)]
+    assert "BR-04" in resultado["data"]["_hint"]
+    assert [regla["id"] for regla in resultado["reglas"]] == ["BR-11", "BR-04"]
+
+
+def test_pedidos_anteriores_dice_si_alcanza_para_repetirlo(monkeypatch):
+    """BR-11: de la crema de enjuague Sedal quedan 4 y la otra vez llevó 10; el agente lo sabe sin check_stock."""
+    lineas = [
+        {"sku": "SH-PAN-400", "name": "Shampoo", "cantidad": 1},
+        {"sku": "CE-SED-340", "name": "Crema de enjuague", "cantidad": 10},
+    ]
+    monkeypatch.setattr(order_tools, "pedidos_anteriores", lambda *_: [{"fecha": "2026-10-01", "lineas": lineas}])
+    resultado = tool_registry.execute("pedidos_anteriores", {}, _contexto("tomar_pedido"))
+    shampoo, crema = resultado["data"]["pedidos"][0]["lineas"]
+    assert shampoo["alcanza"] and "disponible" not in shampoo
+    assert (crema["alcanza"], crema["disponible"]) == (False, 4)
+    assert [regla["id"] for regla in resultado["reglas"]] == ["BR-11", "BR-01"]
+
+
+def test_pedidos_anteriores_vacio_lleva_a_br_11(monkeypatch):
+    monkeypatch.setattr(order_tools, "pedidos_anteriores", lambda *_: [])
+    data = tool_registry.execute("pedidos_anteriores", {}, _contexto())["data"]
+    assert data == {"pedidos": [], "_hint": "Este cliente no tiene pedidos anteriores por este chat: seguí BR-11."}
+
+
+def test_pedidos_anteriores_lee_el_catalogo_una_sola_vez(monkeypatch):
+    lineas = [{"sku": "SH-PAN-400", "name": "Shampoo", "cantidad": 1}] * 5
+    monkeypatch.setattr(order_tools, "pedidos_anteriores", lambda *_: [{"fecha": "2026-10-01", "lineas": lineas}] * 3)
+    lecturas = []
+    original = inventory_service.get_catalog
+    monkeypatch.setattr(inventory_service, "get_catalog", lambda *a, **k: lecturas.append(1) or original(*a, **k))
+    tool_registry.execute("pedidos_anteriores", {}, _contexto("tomar_pedido"))
+    assert len(lecturas) == 1
+
+
+def test_el_prompt_del_sub_loop_trae_el_titulo_de_cada_br():
+    skill = skill_service.get_skills()["tomar_pedido"]
+    prompt = sub_loop.construir_prompt(skill, "Resolvé el pedido", [], [], None, "", [])
+    assert "BR-01 (Falta de stock)" in prompt
+
+
+def test_explorar_catalogo_avisa_cuando_recorta_la_muestra():
+    res = catalog_tools.explorar_catalogo(brand="pantene", category="shampoo", limit=1)
+    assert len(res["muestra_productos"]) == 1
+    assert "Se muestran 1 de 2 productos" in res["_hint"]
+    assert "_hint" not in catalog_tools.explorar_catalogo(brand="pantene", category="shampoo", limit=2)
 
 
 def test_get_product_inexistente_explica_como_seguir():

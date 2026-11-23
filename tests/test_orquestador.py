@@ -6,7 +6,7 @@ from decimal import Decimal
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from internal.agent import nota
+from internal.agent import nota, sub_loop
 from internal.config import get_settings
 from internal.schemas import agent_schema
 from internal.schemas.catalog_schema import Product
@@ -569,6 +569,39 @@ def test_stock_parcial_no_va_afuera(catalogo):
     assert rechazo["error"]["details"]["renglones"] == [1]
     assert "del 1 quedan 20" in rechazo["error"]["message"]
     assert _notas(agent)[0]["nota"]["afuera"] == []
+
+
+def test_stock_parcial_de_search_products_no_va_afuera(catalogo):
+    """BR-01: con `quantity`, search_products dice cuánto queda aunque la búsqueda no sea de un renglón."""
+    agent, modelo = _agente(
+        _ai(_call_id("delegar_skill", 1, skill="tomar_pedido", encargo="Resolvé el pedido", renglones=[])),
+        _ai(_call_id("search_products", 1, query="jabon glicerina", quantity=25)),
+        _ai(_call_id("entregar_nota", 1, afuera=[{"motivo": "sin_stock"}])),
+        _ai(_call_id("entregar_nota", 2, pendientes=[{"pregunta": "¿te mando las que hay?", "opciones": ["JAB-GLI"]}])),
+        _ai(_call("respond_to_customer", kind="aclaracion", message="Del jabón de glicerina me quedan 20, no llego a "
+                  "los 25. ¿Te mando esas 20?", pendientes=[{"opciones": ["JAB-GLI"]}])),
+    )  # fmt: skip
+
+    agent.handle("1", text="quiero 25 jabones de glicerina", **CLIENTE)
+
+    rechazo = json.loads(modelo.recibidos[3][-1].content)
+    assert rechazo["error"]["code"] == "stock_parcial"
+    assert rechazo["error"]["details"]["skus"] == ["JAB-GLI"]
+    assert "de JAB-GLI quedan 20" in rechazo["error"]["message"]
+    assert _notas(agent)[0]["nota"]["afuera"] == []
+
+
+def test_el_aviso_de_stock_parcial_sin_renglon_va_una_vez():
+    """Puede ser otro producto el agotado: la misma nota entregada de nuevo se acepta."""
+    agotado = agent_schema.EntregarNotaInput.model_validate({"afuera": [{"motivo": "sin_stock"}]})
+    avisados: set[str] = set()
+    assert sub_loop._stock_sin_renglon(agotado, {}, {"JAB-GLI": 20}, avisados)["code"] == "stock_parcial"
+    assert sub_loop._stock_sin_renglon(agotado, {}, {"JAB-GLI": 20}, avisados) is None
+    # Lo que se buscó por renglón ya lo controla `stock_parcial` de la nota, con el número del renglón
+    busqueda = {1: ({"texto": "jabon"}, {"estado": "sin_stock", "candidatos": [{"sku": "JAB-GLI"}]})}
+    assert sub_loop._stock_sin_renglon(agotado, busqueda, {"JAB-GLI": 20}, set()) is None
+    # Agotado del todo no es parcial
+    assert sub_loop._stock_sin_renglon(agotado, {}, {"JAB-GLI": 0}, set()) is None
 
 
 def test_las_dudas_de_la_nota_traen_el_nombre_de_sus_opciones(catalogo):

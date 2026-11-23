@@ -19,16 +19,19 @@ def instrucciones_orquestador(nombre: str) -> str:
     return f"{DELEGAR}\n\n{skill.respuesta}"
 
 
-def leer_skill(nombre: str, orquestador: bool = False) -> dict[str, Any]:
-    skill = get_skills().get(nombre)
+def leer_skill(nombre: str, orquestador: bool = False, hay_propuesta: bool = True) -> dict[str, Any]:
+    skills = get_skills()
+    skill = skills.get(nombre)
     if skill is None:
-        raise ToolFailure("skill_inexistente", f"No existe la skill {nombre!r}: elegí una del índice")
+        # Las mismas que muestra el índice: sin propuesta vigente, no las que la necesitan
+        indice = ", ".join(s.nombre for s in skills.values() if hay_propuesta or not s.requiere_propuesta)
+        raise ToolFailure("skill_inexistente", f"No existe la skill {nombre!r}. Las del índice: {indice}")
     delegada = orquestador and skill.modo == "sub_loop"
     result = {
         "nombre": skill.nombre,
         "instrucciones": instrucciones_orquestador(nombre) if delegada else skill.instrucciones,
         "tools": skill.tools_inline,
-        "br": sorted(skill.br),
+        "br": skill.titulos_br,
     }
     if skill.datos_negocio is not None:  # null es un dato que el negocio no confirmó (RF-57)
         result["datos_negocio"] = skill.datos_negocio
@@ -41,8 +44,13 @@ def leer_br(id: str, skills_activas: list[str]) -> dict[str, Any]:
     for nombre in skills_activas:
         if id in skills[nombre].br:
             return {"id": id, "texto": skills[nombre].br[id]}
-    if any(id in skill.br for skill in skills.values()):
+    if duenas := [skill.nombre for skill in skills.values() if id in skill.br]:
         raise ToolFailure(
-            "br_no_permitida", f"Ninguna skill leída en este turno permite {id!r}: leé primero la skill que la nombra"
+            "br_no_permitida",
+            f"{id!r} es de la skill {' o '.join(duenas)}, que no leíste en este turno: si corresponde a este caso, "
+            "leela primero con leer_skill",
         )
-    raise ToolFailure("br_inexistente", f"No existe la BR {id!r}: leé solo las BR que nombra la skill")
+    leibles = [f"{br['id']} ({br['titulo']})" for nombre in skills_activas for br in skills[nombre].titulos_br]
+    if not leibles:
+        raise ToolFailure("br_inexistente", f"No existe la BR {id!r}: leé primero una skill del índice")
+    raise ToolFailure("br_inexistente", f"No existe la BR {id!r}. Las de las skills leídas: {', '.join(leibles)}")
