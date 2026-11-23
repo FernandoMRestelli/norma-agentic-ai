@@ -145,3 +145,31 @@ def es_solicitud_comercial(texto: str) -> bool:
             normalizado,
         )
     )
+
+
+_CONSULTA_ESTADO_PEDIDO = re.compile(
+    r"\b(?:como\s+(?:viene|va|esta|sigue)|estado\s+(?:de\s+(?:mi|el|la)|del)|"
+    r"ya\s+(?:esta\s+list[oa]|salio|despacharon|prepararon)|esta\s+list[oa]|"
+    r"donde\s+esta|por\s+donde\s+(?:va|viene)|que\s+paso\s+con|puedo\s+retirar|"
+    r"cuando\s+(?:llega|sale|retiro|puedo\s+retirar))\s+"
+    r"(?:(?:mi|el|la|ese|esa|tu)\s+)?(?:pedido|orden|compra|ord-\d+|lo\s+mio)\b|"
+    r"\b(?:mi|el)\s+(?:pedido|orden)\s+(?:como\s+(?:viene|va|esta)|ya\s+(?:esta|salio)|esta\s+list[oa]|"
+    r"donde\s+esta)\b|"
+    r"\b(?:consulta|consultar|averiguar|saber)\s+(?:el\s+)?(?:estado|por\s+el\s+estado)\b|"
+    r"\b(?:seguimiento|estado)\s+(?:de\s+)?(?:mi\s+|el\s+)?ord-\d+\b"
+)
+
+
+def es_consulta_estado_pedido(texto: str) -> bool:
+    """True si el cliente consulta por el estado de un pedido propio ya registrado (Issue #26).
+
+    Exige giros o verbos explícitos pegados al pedido o número de orden (ej. «¿cómo viene mi pedido?»,
+    «¿cómo está el ORD-0005?»). No preactiva si el mensaje contiene números fuera de `ORD-XXXX` (cantidades).
+    """
+    if len(texto.splitlines()) > 1:
+        return False
+    normalizado = _normalizar(texto)
+    # Si hay dígitos fuera de ORD-XXXX (cantidades, medidas), puede ser un pedido nuevo: que decida tomar_pedido/LLM
+    if any(caracter.isdigit() for caracter in re.sub(r"\bord-\d+\b", "", normalizado)):
+        return False
+    return bool(_CONSULTA_ESTADO_PEDIDO.search(normalizado))

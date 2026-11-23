@@ -249,6 +249,7 @@ Las tools reciben dos tipos de parámetros:
 | `search_products` | Lectura | `tools/catalog_tools.py` | Buscar candidatos por nombre, marca o presentación |
 | `buscar_renglones` | Lectura | `tools/catalog_tools.py` | Buscar todos los renglones de una lista en una llamada: por cada uno, un estado y hasta 3 candidatos (RF-66) |
 | `pedidos_anteriores` | Lectura | `tools/order_tools.py` | Los últimos pedidos del cliente del turno, sin precios, para «lo de siempre» (RF-73) |
+| `consultar_estado_pedido` | Lectura | `tools/order_tools.py` | El estado actual de los últimos pedidos del cliente del turno, o de una orden puntual (Issue #26) |
 | `get_product` | Lectura | `tools/catalog_tools.py` | Ver un producto por SKU |
 | `explorar_catalogo` | Lectura | `tools/catalog_tools.py` | Explorar marcas o categorías del catálogo de forma agregada sin recorrer todo el catálogo |
 | `check_stock` | Lectura | `tools/inventory_tools.py` | Saber si alcanza el stock para una cantidad |
@@ -318,6 +319,15 @@ cliente, cada uno con `fecha` y `lineas` (`sku`, `name`, `cantidad`, `nota`), si
 de esa vez; si no, `disponible`, como `search_products`): el catálogo cambia y lo de hace un mes puede no estar hoy.
 Sin pedidos, o con productos que ya no están, trae `_hint`. Siempre adjunta BR-11, la regla de cómo usar lo que
 trae; con un producto que ya no está suma BR-04, y con uno que no alcanza, BR-01.
+
+#### `consultar_estado_pedido`
+
+Entrada opcional: `order_id: str | None` (si el cliente indicó un número de orden) y `limite: int` (1 a 5, por defecto 3).
+Inyectado: `customer_id` (RNF-02: un cliente nunca puede consultar órdenes de otro). Habilitada por la skill `informar`.
+Salida `data.pedidos`: lista de órdenes del cliente (de la más nueva a la más vieja, en cualquier estado) con `order_id`,
+`fecha` (en zona horaria Argentina), `estado`, `estado_detalle`, `lineas` (`name`, `cantidad`, `presentacion`, sin SKU) y
+`notas` si existen. El guardrail permite mencionar únicamente los `order_id` reales devueltos por esta tool en el mismo
+turno cuando se responde con `kind = informacion`.
 
 #### `explorar_catalogo`
 
