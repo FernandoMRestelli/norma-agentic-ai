@@ -10,6 +10,13 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Corregido
 
+- Al reactivar una conversación derivada desde el dashboard se vence cualquier conversación abierta más nueva del cliente y se descartan sus borradores pendientes, evitando duplicados; el contador de aclaraciones y fallas se reinicia limpiamente.
+- El guardrail de promesas comerciales con descuento autorizado no permite promesas adicionales (como entrega gratis, bonificaciones o promociones) en la misma oración.
+- Los contadores de aclaraciones consecutivas y fallas se actualizan solo en turnos terminales y se reinician tras turnos exitosos (CA-21, RF-27).
+- Consultas informativas como «¿hacen envío al interior?» o «¿tienen cuenta corriente?» ya no fuerzan indebidamente la derivación ni el silencio de 24 horas.
+- Subtotales, totales y métricas de ingresos calculan de forma uniforme las líneas sin precio unitario a partir del catálogo (`_line_price`).
+- Los audios e imágenes recibidos durante el silencio de 24 horas quedan registrados con un marcador visible en el dashboard.
+- Se elimina el bloqueo de escritura de SQLite durante el envío de mensajes de operador a Telegram.
 - Resolver una derivación restaura las condiciones del agente si falla Telegram o el commit, además del rollback de la base. Las observaciones y acuerdos ya no se recortan silenciosamente: si no entran en 300 caracteres se pide resumir antes de guardarlos o enviarlos. Sin migraciones ni configuración nueva.
 
 ### Agregado

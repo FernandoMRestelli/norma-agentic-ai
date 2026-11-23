@@ -1334,4 +1334,65 @@ def test_preguntar_por_descuentos_no_deriva():
     from internal.agent.graph import skill_clara
 
     assert skill_clara("¿hacen descuento si llevo 2 cajas?", hay_propuesta=False) != "derivar_o_cancelar"
+    assert skill_clara("¿hacen envío al interior?", hay_propuesta=False) != "derivar_o_cancelar"
+    assert skill_clara("¿tienen cuenta corriente?", hay_propuesta=False) != "derivar_o_cancelar"
     assert skill_clara("quiero pedir un descuento por 50 cajas", hay_propuesta=False) == "derivar_o_cancelar"
+    assert skill_clara("quiero envío al interior", hay_propuesta=False) == "derivar_o_cancelar"
+    assert skill_clara("abrir cuenta corriente", hay_propuesta=False) == "derivar_o_cancelar"
+
+
+def test_tres_aclaraciones_con_tools_intermedias_derivan_a_humano(catalogo):
+    """RF-27: si cada turno llama a tools intermedias (ej. leer_skill) y termina en aclaración, deriva a la 3ra."""
+    agent, _ = _agente(
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _ai(_call("respond_to_customer", kind="aclaracion", message="¿Qué marca buscás?")),
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _ai(_call("respond_to_customer", kind="aclaracion", message="¿Qué medida buscás?")),
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _ai(_call("respond_to_customer", kind="aclaracion", message="¿Qué variedad buscás?")),
+    )
+    r1 = agent.handle("1", text="1 algo para el pelo", **CLIENTE)
+    assert r1.kind == "aclaracion"
+    assert not r1.cerrada
+
+    r2 = agent.handle("1", text="1 para peinar", **CLIENTE)
+    assert r2.kind == "aclaracion"
+    assert not r2.cerrada
+
+    r3 = agent.handle("1", text="1 cualquiera", **CLIENTE)
+    assert r3.kind == "derivada"
+    assert r3.cerrada
+    assert r3.message == HANDOFF_MESSAGE
+    assert r3.derivation_reason == "aclaraciones_repetidas"
+
+
+def test_fallas_aisladas_se_reinician_en_turnos_exitosos():
+    """CA-21: las 2 fallas deben ser consecutivas; un turno exitoso en el medio reinicia la cuenta de fallas."""
+    agent, _ = _agente(
+        # Turno 1: timeout o falla del LLM
+        RuntimeError("falla 1"),
+        # Turno 2: exitoso
+        _ai(_call("respond_to_customer", kind="aclaracion", message="¿Qué marca buscás?")),
+        # Turno 3: otra falla aislada
+        RuntimeError("falla 2"),
+        # Turno 4: segunda falla consecutiva -> deriva a humano
+        RuntimeError("falla 3"),
+    )
+    r1 = agent.handle("1", text="1 algo", **CLIENTE)
+    assert r1.kind == "error"
+    assert not r1.cerrada
+
+    r2 = agent.handle("1", text="1 algo para el pelo", **CLIENTE)
+    assert r2.kind == "aclaracion"
+    assert not r2.cerrada
+
+    # Turno 3: como el turno 2 fue exitoso, esta falla es la primera de una nueva racha (no deriva)
+    r3 = agent.handle("1", text="1 shampoo", **CLIENTE)
+    assert r3.kind == "error"
+    assert not r3.cerrada
+
+    # Turno 4: segunda falla consecutiva -> deriva a humano con HANDOFF_MESSAGE
+    r4 = agent.handle("1", text="1 acondicionador", **CLIENTE)
+    assert r4.kind == "derivada"
+    assert r4.cerrada
+    assert r4.derivation_reason == "fallas_repetidas"

@@ -406,16 +406,22 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
         if ctx.respuesta:
             messages.append(AIMessage(content=ctx.respuesta))
 
-        # 3 aclaraciones seguidas sin borrador derivan a humano (RF-27): cualquier otra respuesta corta la racha
-        aclaraciones = 0
-        if ctx.kind == "aclaracion" and not ctx.propuesta:
-            aclaraciones = state.get("aclaraciones_seguidas", 0) + 1
-            if aclaraciones >= 3:
-                ctx.kind = "derivada"
-                ctx.respuesta = HANDOFF_MESSAGE
-                ctx.derivation_reason = "aclaraciones_repetidas"
-                ctx.resultado = "final"
-                messages[-1] = AIMessage(content=HANDOFF_MESSAGE)
+        # 3 aclaraciones seguidas sin borrador derivan a humano (RF-27):
+        # Solo se evalúa cuando el turno cierra con una tool terminal (ctx.respuesta presente).
+        # En rondas intermedias (ej. leer_skill, search_products) se conserva el contador previo.
+        if ctx.respuesta is not None:
+            if ctx.kind == "aclaracion" and not ctx.propuesta:
+                aclaraciones = state.get("aclaraciones_seguidas", 0) + 1
+                if aclaraciones >= 3:
+                    ctx.kind = "derivada"
+                    ctx.respuesta = HANDOFF_MESSAGE
+                    ctx.derivation_reason = "aclaraciones_repetidas"
+                    ctx.resultado = "final"
+                    messages[-1] = AIMessage(content=HANDOFF_MESSAGE)
+            else:
+                aclaraciones = 0
+        else:
+            aclaraciones = state.get("aclaraciones_seguidas", 0)
 
         return {
             "messages": messages,
@@ -455,6 +461,7 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             "iteraciones_sub_loop": 0,
             "notas_turno": [],
             "cierre_desde": None,
+            "fallas": state.get("fallas", 0) if state.get("falla_turno") else 0,
             "falla_turno": False,
             "respuesta": None,
             "kind": None,

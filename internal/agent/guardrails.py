@@ -462,6 +462,7 @@ _PALABRAS_PORCENTAJE: dict[str, Decimal] = {
 _PORCENTAJE_EN_LETRAS = re.compile(
     r"\b(" + "|".join(sorted(_PALABRAS_PORCENTAJE, key=len, reverse=True)) + r")\s+por\s*ciento\b"
 )
+_MENCION_DESCUENTO = re.compile(r"\bdescuentos?\b")
 
 
 def _porcentajes_coinciden(oracion: str, descuento_autorizado: float | Decimal) -> bool:
@@ -480,6 +481,13 @@ def _regla_promesas(normalizado: str, descuento_autorizado: float | Decimal | No
             continue
         for tema, patron in _TEMAS.items():
             if tema == "descuentos" and descuento_autorizado and _porcentajes_coinciden(oracion, descuento_autorizado):
+                # La excepción solo cubre la mención del descuento autorizado con su porcentaje exacto;
+                # si en la misma oración promete otra cosa (ej. gratis, bonificación, promo), se rechaza.
+                oracion_restante = _PORCENTAJE_EN_ORACION.sub(" ", oracion)
+                oracion_restante = _PORCENTAJE_EN_LETRAS.sub(" ", oracion_restante)
+                oracion_restante = _MENCION_DESCUENTO.sub(" ", oracion_restante)
+                if patron.search(oracion_restante) and tema not in temas:
+                    temas.append(tema)
                 continue
             if patron.search(oracion) and tema not in temas:
                 temas.append(tema)

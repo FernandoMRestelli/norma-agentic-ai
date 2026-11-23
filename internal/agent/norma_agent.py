@@ -96,6 +96,7 @@ class NormaAgent:
                 "iteraciones": 0,
                 "fallas": 0,
                 "falla_turno": False,
+                "aclaraciones_seguidas": 0,
                 "propuesta": prev_state.get("propuesta"),
                 "renglones": prev_state.get("renglones", []),
                 "descuento_autorizado": prev_state.get("descuento_autorizado"),

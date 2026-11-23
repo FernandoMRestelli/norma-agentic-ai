@@ -9,12 +9,14 @@ Cubre:
 6. Manejo de errores de conexión con Telegram API (502 Bad Gateway).
 """
 
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
 from fastapi import HTTPException
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
-from sqlalchemy import delete
+from langchain_core.messages import HumanMessage
+from sqlalchemy import delete, select
 
 from internal.agent import guardrails, norma_agent
 from internal.database.connection import SessionLocal, init_db
@@ -174,6 +176,16 @@ def test_guardrails_discount_authorization():
     )
     reglas_distinto = [r.regla for r in rechazos_distinto]
     assert "promesa" in reglas_distinto
+
+    # Con descuento autorizado (10%), pero prometiendo además algo gratis: guardrail lo rechaza
+    rechazos_gratis = guardrails.validar_salida(
+        message="Te hago un 10% de descuento en el total y el envío te queda gratis.",
+        kind="propuesta",
+        propuesta=draft,
+        descuento_autorizado=10.0,
+    )
+    reglas_gratis = [r.regla for r in rechazos_gratis]
+    assert "promesa" in reglas_gratis
 
 
 def test_full_derivation_resolution_and_reactivation_flow(monkeypatch):
@@ -1105,3 +1117,164 @@ def test_reintento_repara_propuesta_residual_desde_base(monkeypatch):
     assert estado["propuesta"]["discount_percentage"] is None
     assert estado["propuesta"]["notes"] == "Sin bolsa."
     assert estado["propuesta_pendiente_mostrar"] is True
+
+
+def test_reactivar_vence_otra_abierta_y_descarta_borradores(monkeypatch):
+    """Reactivar una conversación derivada vence cualquier otra conversación abierta y descarta sus borradores."""
+    monkeypatch.setattr(telegram_service, "get_client", lambda: type("C", (), {"send_message": lambda *a: None})())
+    customer_id = "telegram:123999"
+
+    with SessionLocal() as session:
+        # Conversación A (derivada hace unas horas)
+        conv_a = ConversationRecord(
+            customer_id=customer_id,
+            channel="telegram",
+            status="derivada",
+            derivation_reason="solicitud_humano",
+        )
+        session.add(conv_a)
+        session.flush()
+        conv_a_id = conv_a.id
+
+        # Conversación B (abierta más recientemente porque pasaron 24h, con un borrador pendiente)
+        conv_b = ConversationRecord(
+            customer_id=customer_id,
+            channel="telegram",
+            status="abierta",
+        )
+        session.add(conv_b)
+        session.flush()
+        conv_b_id = conv_b.id
+
+        draft_b = DraftRecord(
+            draft_id="draft-b-test",
+            conversation_id=conv_b_id,
+            customer_id=customer_id,
+            channel="telegram",
+            version=1,
+            status="pendiente_confirmacion",
+            items=[{"sku": "SKU-1", "product_name": "Prod", "quantity": 1}],
+        )
+        session.add(draft_b)
+        session.commit()
+
+    # Operador resuelve y reactiva la conversación A
+    dashboard_service.resolve_conversation(
+        conv_a_id,
+        ConversationResolveRequest(
+            resolution_type="mensaje_directo",
+            reactivate_bot=True,
+        ),
+    )
+
+    with SessionLocal() as session:
+        a = session.get_one(ConversationRecord, conv_a_id)
+        b = session.get_one(ConversationRecord, conv_b_id)
+        draft = session.scalar(select(DraftRecord).where(DraftRecord.draft_id == "draft-b-test"))
+
+        assert a.status == "abierta"
+        assert b.status == "vencida"
+        assert draft.status == "descartado"
+
+    # Verificar que _open_conversation_id devuelve la conversación reactivada
+    active_id, _ = conversation_service._open_conversation_id(customer_id, Channel.TELEGRAM)
+    assert active_id == conv_a_id
+
+
+def test_reactivar_reinicia_aclaraciones_seguidas_y_fallas(monkeypatch):
+    """Reactivar desde el dashboard pone en 0 aclaraciones_seguidas y fallas en el agente."""
+    monkeypatch.setattr(telegram_service, "get_client", lambda: type("C", (), {"send_message": lambda *a: None})())
+    conv_id = _conversacion(status="derivada")
+
+    agent = norma_agent.get_agent()
+    config = {"configurable": {"thread_id": str(conv_id)}}
+    agent.graph.update_state(config, {"aclaraciones_seguidas": 3, "fallas": 2})
+
+    dashboard_service.resolve_conversation(
+        conv_id,
+        ConversationResolveRequest(
+            resolution_type="mensaje_directo",
+            reactivate_bot=True,
+        ),
+    )
+
+    valores = agent.graph.get_state(config).values
+    assert valores.get("aclaraciones_seguidas") == 0
+    assert valores.get("fallas") == 0
+
+
+def test_subtotal_y_total_consistentes_con_line_price(monkeypatch):
+    """En get_orders y _order_revenue, líneas sin unit_price usan precio de catálogo de forma consistente."""
+    from internal.schemas.catalog_schema import Product
+    from internal.services import inventory_service
+
+    monkeypatch.setattr(
+        inventory_service,
+        "get_catalog",
+        lambda *a, **k: [
+            Product(sku="SKU-CAT-1", name="Vaso Vidrio", price=Decimal("1000.00"), stock=10)
+        ],
+    )
+    monkeypatch.setattr(
+        dashboard_service,
+        "_get_all_orders",
+        lambda: [
+            {
+                "order_id": "ORD-TEST-PRICE",
+                "customer_id": "c-price-1",
+                "channel": "web",
+                "status": "CONFIRMED",
+                "created_at": datetime.now(UTC),
+                "items": [{"sku": "SKU-CAT-1", "product_name": "Vaso Vidrio", "quantity": 2, "unit_price": None}],
+                "total": Decimal("0"),  # Si se calculó con items_total valdría 0
+                "discount_percentage": Decimal("10"),
+            }
+        ],
+    )
+
+    orders = dashboard_service.get_orders()
+    matching = [o for o in orders if o.order_id == "ORD-TEST-PRICE"]
+    assert len(matching) == 1
+    item = matching[0]
+    # 2 * $1000 = $2000 subtotal, con 10% de descuento = $1800 total
+    assert item.subtotal == Decimal("2000")
+    assert item.total == Decimal("1800.00")
+
+    # Y en _order_revenue
+    rev = dashboard_service._order_revenue(
+        {"items": [{"sku": "SKU-CAT-1", "quantity": 2}], "discount_percentage": Decimal("10")},
+        {"SKU-CAT-1": Decimal("1000")},
+    )
+    assert rev == Decimal("1800.00")
+
+
+def test_silenced_message_con_audio_e_imagen(monkeypatch):
+    """Si el cliente envía audio o foto durante el silencio de 24h, queda registrado en el historial."""
+    from internal.schemas.order_schema import MessageType
+
+    conv_id = _conversacion(status="derivada", customer_id="telegram:888999")
+    agent = norma_agent.get_agent()
+    config = {"configurable": {"thread_id": str(conv_id)}}
+
+    msg_audio = IncomingMessage(
+        customer_id="telegram:888999",
+        channel=Channel.TELEGRAM,
+        type=MessageType.AUDIO,
+        text=None,
+        media_url="telegram:audio_123",
+    )
+    conversation_service.handle_message(msg_audio)
+
+    msg_image = IncomingMessage(
+        customer_id="telegram:888999",
+        channel=Channel.TELEGRAM,
+        type=MessageType.IMAGE,
+        text=None,
+        media_url="telegram:image_123",
+    )
+    conversation_service.handle_message(msg_image)
+
+    messages = agent.graph.get_state(config).values.get("messages", [])
+    textos = [m.content for m in messages if isinstance(m, HumanMessage)]
+    assert "[audio]" in textos
+    assert "[imagen]" in textos

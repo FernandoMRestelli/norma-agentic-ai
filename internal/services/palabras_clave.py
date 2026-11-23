@@ -118,17 +118,30 @@ def es_cancelacion(texto: str) -> bool:
 def es_solicitud_comercial(texto: str) -> bool:
     """True si pide explícitamente condiciones comerciales especiales (Issue #84).
 
-    Evita palabras sueltas como «descuento» o «cuotas» para no forzar `derivar_o_cancelar`
-    en consultas de catálogo; esos casos ambiguos quedan a criterio del modelo. Una pregunta como «¿hacen
-    descuento si llevo 2 cajas?» también: derivarla silencia al bot 24 h por una consulta que se contesta.
+    Evita palabras sueltas como «descuento» o «cuotas» y preguntas generales como
+    «¿hacen envío al interior?» o «¿hacen descuento si llevo 2 cajas?» para no forzar
+    `derivar_o_cancelar` en consultas que `informar` puede responder con datos del negocio.
+    Exige verbos o expresiones explícitas de pedido/negociación.
     """
+    if "?" in texto or "¿" in texto:
+        return False
     normalizado = _normalizar(texto)
+    if re.search(
+        r"\b(?:hacen|tienen|hay|haces|tenes|se puede)\s+(?:envio|envios|flete|descuento|precio|cuenta)\b",
+        normalizado,
+    ):
+        return False
+
     return bool(
         re.search(
-            r"\bdescuento(?:s)?\s+(?:por\s+(?:volumen|bulto|cantidad|mayor)|especial)\b|"
-            r"\b(?:hacer(?:me)?|haceme|pedir)\s+(?:un\s+)?(?:\d+\s*%?\s*(?:de\s+)?)?descuento\b|"
-            r"\bprecio especial\b|\bcuenta corriente\b|\bpago diferido\b|"
-            r"\benvio al interior\b|\bflete especial\b|\btransporte al interior\b",
+            r"\bdescuento(?:s)?\s+(?:por\s+(?:volumen|bulto|cantidad|mayor))\b|"
+            r"\b(?:hacer(?:me)?|haceme|pedir|solicitar|dame)\s+(?:un\s+)?(?:\d+\s*%?\s*(?:de\s+)?)?descuento\b|"
+            r"\b(?:hacer(?:me)?|haceme|pedir|solicitar|quiero|necesito|dame)\s+(?:un\s+)?precio especial\b|"
+            r"\b(?:abrir|pagar\s+(?:con|en)|dejar\s+en|usar|quiero|necesito|anotar\s+en)\s+cuenta corriente\b|"
+            r"\b(?:pagar\s+con|hacer|pedir|solicitar|quiero|necesito)\s+pago diferido\b|"
+            r"\b(?:quiero|necesito|mandar|mandame|mandalo|hacer(?:me)?|haceme|pedir|solicitar)\s+(?:un\s+)?"
+            r"(?:envio\s+al\s+interior|flete\s+especial|transporte\s+al\s+interior)\b|"
+            r"\b(?:mandar?(?:me)?(?:lo)?|enviar?(?:me)?(?:lo)?)\s+al\s+interior\b",
             normalizado,
         )
     )

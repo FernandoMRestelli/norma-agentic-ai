@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 from langchain_core.messages import AIMessage, HumanMessage
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from internal.agent.norma_agent import get_agent
 from internal.database.connection import SessionLocal
@@ -125,10 +125,7 @@ def get_orders(status: str | None = None, limit: int = 50, offset: int = 0) -> l
                 )
             )
         discount_percentage = o.get("discount_percentage")
-        if o.get("total") is not None:
-            total = Decimal(str(o["total"]))
-        else:
-            total = subtotal - descuento(subtotal, discount_percentage)
+        total = subtotal - descuento(subtotal, discount_percentage)
 
         items_summary = "; ".join(f"{it.quantity} x {it.product_name} ({it.sku})" for it in line_items)
         result.append(
@@ -184,9 +181,7 @@ def _line_price(item: dict[str, Any], catalog_prices: dict[str, Decimal]) -> Dec
 
 
 def _order_revenue(order: dict[str, Any], catalog_prices: dict[str, Decimal]) -> Decimal:
-    """Total de la orden con `_line_price` y descuento si corresponde."""
-    if order.get("total") is not None:
-        return Decimal(str(order["total"]))
+    """Total de la orden con `_line_price` y descuento si corresponde (RF-82, CA-140)."""
     lineas = (_line_price(it, catalog_prices) * int(it.get("quantity", 0)) for it in order.get("items", []))
     subtotal = sum(lineas, Decimal(0))
     return subtotal - descuento(subtotal, order.get("discount_percentage"))
@@ -577,6 +572,27 @@ def resolve_conversation(
             )
         conv.updated_at = datetime.now(UTC)
         if request.reactivate_bot:
+            # Si pasaron las 24 h de silencio y el cliente abrió otra conversación abierta más nueva,
+            # la vencemos y descartamos sus borradores para que la conversación reactivada sea la única activa.
+            otras_abiertas = session.scalars(
+                select(ConversationRecord).where(
+                    ConversationRecord.customer_id == conv.customer_id,
+                    ConversationRecord.channel == conv.channel,
+                    ConversationRecord.status == "abierta",
+                    ConversationRecord.id != conv.id,
+                )
+            ).all()
+            for otra in otras_abiertas:
+                otra.status = "vencida"
+                otra.updated_at = datetime.now(UTC)
+                session.execute(
+                    update(DraftRecord)
+                    .where(
+                        DraftRecord.conversation_id == otra.id,
+                        DraftRecord.status == DraftStatus.PENDING_CONFIRMATION.value,
+                    )
+                    .values(status=DraftStatus.DISCARDED.value)
+                )
             conv.status = "abierta"
         elif request.close_conversation:
             conv.status = "resuelta"
@@ -600,10 +616,9 @@ def resolve_conversation(
                     subtotal = items_total([OrderItem.model_validate(item) for item in pending_draft.items])
                     pending_draft.total = subtotal - descuento(subtotal, request.discount_percentage)
 
-        session.flush()
-
         # 3. Estado del agente antes de enviar y de confirmar la base: si falla, el rollback deja la conversación
-        # derivada y sin mensaje enviado, y el operador puede volver a resolverla (NUNCA `operator_notes`)
+        # derivada y sin mensaje enviado, y el operador puede volver a resolverla (NUNCA `operator_notes`).
+        # Sin session.flush() previo para no tomar el lock exclusivo de SQLite durante llamadas externas.
         agent = get_agent()
         config = {"configurable": {"thread_id": str(conversation_id)}}
         update_data: dict[str, Any] = {}
@@ -615,6 +630,8 @@ def resolve_conversation(
             update_data["condicion_comercial"] = request.resolution_type
         if request.reactivate_bot:
             update_data["derivation_reason"] = None
+            update_data["aclaraciones_seguidas"] = 0
+            update_data["fallas"] = 0
         try:
             st = agent.graph.get_state(config)
             previous_values = deepcopy(st.values) if st else {}
@@ -637,12 +654,14 @@ def resolve_conversation(
                 status_code=500, detail="No se guardó la resolución: falló el estado del agente. Probá de nuevo."
             ) from exc
 
-        # La base y el checkpointer son transacciones distintas. Si Telegram o el commit fallan,
-        # revertimos las condiciones del agente además del rollback de la base, sin tocar los mensajes.
+        # 4. Enviar a Telegram y persistir la transacción inmediatamente sin retener locks previos de SQLite.
+        # Si Telegram o el commit fallan, revertimos las condiciones del agente además del rollback de la base.
+        telegram_enviado = False
         try:
             if msg_text and chat_id is not None:
                 try:
                     telegram_service.get_client().send_message(chat_id, msg_text)
+                    telegram_enviado = True
                 except Exception as exc:
                     logger.error("Error al enviar mensaje de operador a Telegram: %s", exc)
                     raise HTTPException(
@@ -659,6 +678,12 @@ def resolve_conversation(
                     status_code=503,
                     detail="La resolución no se completó y no se pudo restaurar el agente. Reintentá la resolución.",
                 ) from restore_error
+            if telegram_enviado:
+                logger.warning(
+                    "El mensaje de resolución ya salió por Telegram a %s pero falló el commit de conversation_id=%s",
+                    chat_id,
+                    conversation_id,
+                )
             if isinstance(exc, HTTPException):
                 raise
             logger.exception("No se pudo guardar la resolución para conversation_id=%s", conversation_id)

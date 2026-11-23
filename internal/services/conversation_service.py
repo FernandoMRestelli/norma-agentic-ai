@@ -135,11 +135,13 @@ def _open_conversation_id(customer_id: str, channel: Channel, now: datetime | No
     momento = now or _clock()
     with SessionLocal() as session:
         conversation = session.scalar(
-            select(ConversationRecord).where(
+            select(ConversationRecord)
+            .where(
                 ConversationRecord.customer_id == customer_id,
                 ConversationRecord.channel == channel.value,
                 ConversationRecord.status == "abierta",
             )
+            .order_by(ConversationRecord.updated_at.desc())
         )
         tenia_propuesta_vencida = False
         if conversation is not None:
@@ -191,9 +193,16 @@ def _record_silenced_message(message: IncomingMessage) -> None:
     """Registra en el historial el mensaje que envió el cliente mientras la conversación está derivada (RF-27).
 
     El bot no contesta automáticamente, pero el operador puede leer lo que el cliente escribió desde el Dashboard.
+    Si el cliente mandó audio o foto durante el silencio, se registra un marcador legible.
     """
-    if not message.text:
-        return
+    contenido = message.text
+    if not contenido:
+        if message.type == MessageType.AUDIO:
+            contenido = "[audio]"
+        elif message.type == MessageType.IMAGE:
+            contenido = "[imagen]"
+        else:
+            return
     with SessionLocal() as session:
         derivada = session.scalar(
             select(ConversationRecord)
@@ -208,7 +217,7 @@ def _record_silenced_message(message: IncomingMessage) -> None:
             try:
                 agent = get_agent()
                 config = {"configurable": {"thread_id": str(derivada.id)}}
-                agent.graph.update_state(config, {"messages": [HumanMessage(content=message.text)]})
+                agent.graph.update_state(config, {"messages": [HumanMessage(content=contenido)]})
             except Exception:
                 logger.warning("No se pudo registrar mensaje silenciado en el checkpointer", exc_info=True)
 
