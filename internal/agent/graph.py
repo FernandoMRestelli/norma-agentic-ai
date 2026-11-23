@@ -25,9 +25,16 @@ from internal.agent import (
 from internal.agent.state import EstadoNorma
 from internal.config import get_settings
 from internal.schemas.order_schema import Channel, ConfirmationAction, OrderDraft
-from internal.services import interpretation_service, inventory_service
-from internal.services.palabras_clave import es_saludo, interpretar_palabra_clave
+from internal.services import interpretation_service, inventory_service, validation_service
+from internal.services.palabras_clave import (
+    es_cancelacion,
+    es_pedido_humano,
+    es_saludo,
+    es_solicitud_comercial,
+    interpretar_palabra_clave,
+)
 from internal.services.skill_service import get_skills
+from internal.tools import reply_tools
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +47,7 @@ MAX_FAILURES = 2  # D-07
 MAX_PALABRAS_RESPUESTA_A_PROPUESTA = 3
 _reloj = time.time  # los tests lo reemplazan para no esperar
 FAILURE_MESSAGE = "Tuve un problema, probá de nuevo en unos minutos."
+HANDOFF_MESSAGE = reply_tools.DEFAULT_HANDOFF_MESSAGE
 
 
 def max_iteraciones() -> int:
@@ -56,13 +64,18 @@ def recursion_limit() -> int:
 
 
 def _failure(state: EstadoNorma) -> dict[str, Any]:
-    """Registra una falla. La propuesta sigue vigente: el cliente puede volver a responder."""
+    """Registra una falla. Con 2 o más fallas deriva a una persona (RF-27, CA-21)."""
+    fallas = state.get("fallas", 0) + 1
+    es_handoff = fallas >= MAX_FAILURES
+    msg = HANDOFF_MESSAGE if es_handoff else FAILURE_MESSAGE
     return {
-        "fallas": state.get("fallas", 0) + 1,
+        "fallas": fallas,
         "falla_turno": True,
-        "respuesta": FAILURE_MESSAGE,
-        "kind": "error",
-        "messages": [AIMessage(content=FAILURE_MESSAGE)],
+        "respuesta": msg,
+        "kind": "derivada" if es_handoff else "error",
+        "derivation_reason": "fallas_repetidas" if es_handoff else None,
+        "resultado": "final" if es_handoff else "pausar",
+        "messages": [AIMessage(content=msg)],
     }
 
 
@@ -103,6 +116,8 @@ def pregunta_abierta(state: EstadoNorma) -> bool:
 
 def skill_clara(texto: str, hay_propuesta: bool) -> str | None:
     """La skill del turno cuando el mensaje no admite dudas; None si tiene que elegir el modelo (RF-62)."""
+    if es_pedido_humano(texto) or es_solicitud_comercial(texto) or (hay_propuesta and es_cancelacion(texto)):
+        return "derivar_o_cancelar"
     tiene_numero = any(caracter.isdigit() for caracter in texto)
     renglones = sum(bool(linea.strip()) for linea in texto.splitlines())
     if hay_propuesta:
@@ -238,6 +253,12 @@ def _turn_context(state: EstadoNorma, config: RunnableConfig, disponibles: list[
         propuesta = propuesta.model_copy(update={"conversation_id": conversation_id})
     if propuesta and propuesta.customer_name is None and customer_name:
         propuesta = OrderDraft.model_validate({**propuesta.model_dump(), "customer_name": customer_name})
+    if propuesta and state.get("descuento_autorizado") and not propuesta.discount_percentage:
+        propuesta = propuesta.model_copy(update={"discount_percentage": state.get("descuento_autorizado")})
+    if propuesta and state.get("acuerdo_operativo"):
+        merged = validation_service.merge_order_notes(propuesta.notes, state.get("acuerdo_operativo"))
+        if merged != propuesta.notes:
+            propuesta = propuesta.model_copy(update={"notes": merged})
     return tool_registry.TurnContext(
         customer_id=state["customer_id"],
         channel=Channel(state["channel"]),
@@ -250,6 +271,10 @@ def _turn_context(state: EstadoNorma, config: RunnableConfig, disponibles: list[
         origen=state.get("origen") or "texto",
         comprados=contexto_cliente.comprados(state.get("contexto_cliente")),
         propuesta=propuesta,
+        descuento_autorizado=state.get("descuento_autorizado"),
+        condicion_comercial=state.get("condicion_comercial"),
+        acuerdo_operativo=state.get("acuerdo_operativo"),
+        propuesta_pendiente_mostrar=bool(state.get("propuesta_pendiente_mostrar", False)),
     )
 
 
@@ -380,6 +405,24 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             )
         if ctx.respuesta:
             messages.append(AIMessage(content=ctx.respuesta))
+
+        # 3 aclaraciones seguidas sin borrador derivan a humano (RF-27):
+        # Solo se evalúa cuando el turno cierra con una tool terminal (ctx.respuesta presente).
+        # En rondas intermedias (ej. leer_skill, search_products) se conserva el contador previo.
+        if ctx.respuesta is not None:
+            if ctx.kind == "aclaracion" and not ctx.propuesta:
+                aclaraciones = state.get("aclaraciones_seguidas", 0) + 1
+                if aclaraciones >= 3:
+                    ctx.kind = "derivada"
+                    ctx.respuesta = HANDOFF_MESSAGE
+                    ctx.derivation_reason = "aclaraciones_repetidas"
+                    ctx.resultado = "final"
+                    messages[-1] = AIMessage(content=HANDOFF_MESSAGE)
+            else:
+                aclaraciones = 0
+        else:
+            aclaraciones = state.get("aclaraciones_seguidas", 0)
+
         return {
             "messages": messages,
             "skills_activas": ctx.skills_activas,
@@ -390,6 +433,12 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             "kind": ctx.kind,
             "options": ctx.options,
             "order_id": ctx.order_id,
+            "derivation_reason": ctx.derivation_reason,
+            "descuento_autorizado": ctx.descuento_autorizado,
+            "condicion_comercial": ctx.condicion_comercial,
+            "acuerdo_operativo": ctx.acuerdo_operativo,
+            "propuesta_pendiente_mostrar": ctx.propuesta_pendiente_mostrar,
+            "aclaraciones_seguidas": aclaraciones,
             "resultado": ctx.resultado,
             "notas_turno": ctx.notas_turno,
             "iteraciones_sub_loop": ctx.iteraciones_sub_loop,
@@ -412,11 +461,13 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             "iteraciones_sub_loop": 0,
             "notas_turno": [],
             "cierre_desde": None,
+            "fallas": state.get("fallas", 0) if state.get("falla_turno") else 0,
             "falla_turno": False,
             "respuesta": None,
             "kind": None,
             "options": [],
             "resultado": "continuar",
+            "derivation_reason": None,
         }
 
     def confirmar(state: EstadoNorma, config: RunnableConfig) -> dict[str, Any]:
@@ -434,8 +485,9 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             return {"resultado": "continuar"}
         return {
             "messages": [AIMessage(content=ctx.respuesta)],
-            # Queda una propuesta solo si cambió un precio: sale de nuevo con los de hoy y espera otra confirmación
+            # Queda una propuesta solo si cambió un precio o condiciones: sale de nuevo y espera otra confirmación
             "propuesta": ctx.propuesta.model_dump(mode="json") if ctx.propuesta else None,
+            "propuesta_pendiente_mostrar": ctx.propuesta_pendiente_mostrar,
             "respuesta": ctx.respuesta,
             "kind": ctx.kind,
             "order_id": ctx.order_id,

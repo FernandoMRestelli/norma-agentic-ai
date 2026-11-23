@@ -23,11 +23,11 @@ class DecimalText(TypeDecorator):
     impl = String
     cache_ok = True
 
-    def process_bind_param(self, value: Decimal | None, dialect: Dialect) -> str | None:
-        return None if value is None else str(Decimal(value))
+    def process_bind_param(self, value: Decimal | float | int | str | None, dialect: Dialect) -> str | None:
+        return None if value is None else str(Decimal(str(value)))
 
-    def process_result_value(self, value: str | None, dialect: Dialect) -> Decimal | None:
-        return None if value is None else Decimal(value)
+    def process_result_value(self, value: str | float | int | None, dialect: Dialect) -> Decimal | None:
+        return None if value is None else Decimal(str(value))
 
 
 class Base(DeclarativeBase):
@@ -42,7 +42,13 @@ class ConversationRecord(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     customer_id: Mapped[str] = mapped_column(String, index=True)
     channel: Mapped[str] = mapped_column(String)
-    status: Mapped[str] = mapped_column(String, default="abierta")  # abierta, cerrada, fallida o vencida
+    # Estados posibles: abierta, cerrada, fallida, vencida, descartada, derivada, resuelta
+    status: Mapped[str] = mapped_column(String, default="abierta")
+    derivation_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    discount_percentage: Mapped[Decimal | None] = mapped_column(DecimalText, nullable=True)
+    operator_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    order_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolution_type: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 
@@ -69,6 +75,7 @@ class OrderRecord(Base):
     source: Mapped[str | None] = mapped_column(String)  # texto, audio o imagen (migración 2, RF-79)
     # Agregada en la migración 3: el stock ya se descontó del catálogo al despachar o retirar (Issue #61)
     stock_applied: Mapped[bool] = mapped_column(default=False, server_default="0")
+    discount_percentage: Mapped[Decimal | None] = mapped_column(DecimalText, nullable=True)
 
     leftovers: Mapped[list["OrderLeftoverRecord"]] = relationship(
         back_populates="order",

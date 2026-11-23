@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, Query
 
 from internal.api.orders import require_operator
 from internal.schemas.dashboard_schema import (
+    ConversationDetailResponse,
+    ConversationResolveRequest,
     DashboardConversationItem,
     DashboardMetrics,
     DashboardOrderItem,
@@ -48,6 +50,27 @@ def get_stock(low: bool = Query(default=False)) -> list[DashboardStockItem]:
 def get_conversations(state: str | None = Query(default=None)) -> list[DashboardConversationItem]:
     """Conversaciones que requieren atención humana (ej. estado 'derivada') (RF-24)."""
     return dashboard_service.get_conversations(state=state)
+
+
+@router.get(
+    "/conversations/{conversation_id}",
+    response_model=ConversationDetailResponse,
+)
+def get_conversation_detail(conversation_id: int) -> ConversationDetailResponse:
+    """Detalle de una conversación con su historial de mensajes (RF-24)."""
+    return dashboard_service.get_conversation_detail(conversation_id=conversation_id)
+
+
+@router.post(
+    "/conversations/{conversation_id}/resolve",
+    response_model=ConversationDetailResponse,
+)
+def resolve_conversation(
+    conversation_id: int,
+    request: ConversationResolveRequest,
+) -> ConversationDetailResponse:
+    """Resuelve la derivación: autoriza condición comercial, responde al cliente y reactiva o no al bot."""
+    return dashboard_service.resolve_conversation(conversation_id=conversation_id, request=request)
 
 
 @router.get("/metrics", response_model=DashboardMetrics)

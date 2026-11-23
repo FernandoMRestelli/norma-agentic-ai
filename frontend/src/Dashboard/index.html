@@ -661,12 +661,14 @@
                 <th class="px-4 py-3">Cliente</th>
                 <th class="px-4 py-3">Canal</th>
                 <th class="px-4 py-3">Estado</th>
+                <th class="px-4 py-3">Motivo / Condición</th>
                 <th class="px-4 py-3">Última Actividad</th>
+                <th class="px-4 py-3 text-right">Acción</th>
               </tr>
             </thead>
             <tbody id="conversationsTableBody" class="divide-y divide-zinc-100 dark:divide-zinc-900 text-zinc-700 dark:text-zinc-300">
               <tr>
-                <td colspan="5" class="px-4 py-8 text-center text-zinc-400">Cargando conversaciones...</td>
+                <td colspan="7" class="px-4 py-8 text-center text-zinc-400">Cargando conversaciones...</td>
               </tr>
             </tbody>
           </table>
@@ -711,7 +713,7 @@
             </tr>
           </thead>
           <tbody id="detailItemsBody" class="divide-y divide-zinc-100 dark:divide-zinc-900 text-zinc-700 dark:text-zinc-300"></tbody>
-          <tfoot class="bg-zinc-50 dark:bg-zinc-900 font-semibold text-zinc-950 dark:text-white">
+          <tfoot id="detailTfoot" class="bg-zinc-50 dark:bg-zinc-900 font-semibold text-zinc-950 dark:text-white">
             <tr>
               <td colspan="4" class="px-3 py-2.5 text-right text-xs uppercase text-zinc-500 dark:text-zinc-400">Total Pedido</td>
               <td id="detailTotalCell" class="px-3 py-2.5 text-right tabular-nums">$0,00</td>
@@ -723,6 +725,109 @@
       <div class="flex items-center justify-between pt-2 border-t border-zinc-100 dark:border-zinc-800">
         <div id="detailActionButtons" class="flex flex-wrap gap-2"></div>
         <button id="btnCloseDetailFooter" class="px-4 py-2 text-sm text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded-lg">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Conversation Attention & Resolution Modal -->
+  <div id="conversationDetailModal" class="fixed inset-0 bg-black/50 backdrop-blur-xs z-40 flex items-center justify-center p-4 hidden">
+    <div class="bg-white dark:bg-zinc-950 rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-zinc-200 dark:border-zinc-800 space-y-4 max-h-[92vh] overflow-y-auto">
+      <div class="flex items-start justify-between border-b border-zinc-100 dark:border-zinc-800 pb-4">
+        <div>
+          <div class="flex flex-wrap items-center gap-2">
+            <h3 class="font-mono font-semibold text-zinc-950 dark:text-white text-xl">Hilo #<span id="convModalId">--</span></h3>
+            <span id="convStatusBadge" class="px-2.5 py-0.5 rounded-full text-xs font-medium">--</span>
+            <span id="convReasonBadge" class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hidden">--</span>
+          </div>
+          <p class="text-xs text-zinc-500 dark:text-zinc-400 mt-1.5">
+            Cliente: <span id="convCustomer" class="font-mono font-medium text-zinc-700 dark:text-zinc-300">--</span> •
+            Canal: <span id="convChannel" class="font-semibold uppercase">--</span> •
+            Última act.: <span id="convDate" class="tabular-nums">--</span>
+          </p>
+        </div>
+        <button id="btnCloseConvModal" class="p-1.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-900">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Messages History -->
+      <div>
+        <label class="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-2">Historial de Conversación</label>
+        <div id="convMessagesContainer" class="bg-zinc-50 dark:bg-zinc-900/60 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 max-h-56 overflow-y-auto space-y-3">
+          <p class="text-xs text-zinc-400 italic text-center py-4">Cargando mensajes...</p>
+        </div>
+      </div>
+
+      <!-- Commercial Resolution / Action Form -->
+      <div class="bg-zinc-50 dark:bg-zinc-900/40 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 space-y-3">
+        <h4 class="text-xs font-semibold text-zinc-900 dark:text-white uppercase tracking-wider">Acción y Resolución Comercial</h4>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">Escenario a resolver</label>
+            <select id="convScenario" class="w-full text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white px-2.5 py-1.5 focus:ring-1 focus:ring-brand-5">
+              <option value="descuento_volumen">Descuento por volumen / bulto</option>
+              <option value="excepcion_compra_minima">Excepción de compra mínima</option>
+              <option value="logistica_envio">Condición especial de logística / envío</option>
+              <option value="forma_pago">Acuerdo de plazo o medio de pago</option>
+              <option value="sustitucion_stock">Sustitución de producto sin stock</option>
+              <option value="mensaje_directo">Respuesta directa sin descuento</option>
+            </select>
+          </div>
+
+          <div id="convDiscountBox">
+            <label class="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">Porcentaje de descuento (%)</label>
+            <div class="flex items-center space-x-1.5">
+              <button type="button" class="discount-quick-btn px-2 py-1 text-xs font-medium rounded bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200" data-pct="5">5%</button>
+              <button type="button" class="discount-quick-btn px-2 py-1 text-xs font-medium rounded bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200" data-pct="10">10%</button>
+              <button type="button" class="discount-quick-btn px-2 py-1 text-xs font-medium rounded bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200" data-pct="15">15%</button>
+              <button type="button" class="discount-quick-btn px-2 py-1 text-xs font-medium rounded bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200" data-pct="20">20%</button>
+              <input type="number" id="convDiscountPct" min="0" max="100" step="1" value="10" class="w-16 text-xs text-right rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white px-2 py-1" />
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">Acuerdo operativo para el pedido (visible en propuesta, orden y planilla)</label>
+          <input type="text" id="convOrderNotes" placeholder="Ej. Retiro mañana de 9 a 12 / Envío por expreso a Rosario" class="w-full text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white px-2.5 py-1.5 focus:ring-1 focus:ring-brand-5" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">Notas internas de auditoría (solo dashboard; nunca sale al cliente ni al pedido)</label>
+          <input type="text" id="convOperatorNotes" placeholder="Ej. Aprobado por Gerencia Comercial para pedido mayorista" class="w-full text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white px-2.5 py-1.5 focus:ring-1 focus:ring-brand-5" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">Mensaje para enviar al cliente (Telegram)</label>
+          <textarea id="convMessageText" rows="3" class="w-full text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white p-2.5 focus:ring-1 focus:ring-brand-5"></textarea>
+        </div>
+
+        <div class="space-y-1.5 pt-1">
+          <div class="flex items-center space-x-2">
+            <input type="checkbox" id="convReactivateBot" checked class="rounded border-zinc-300 text-brand-5 focus:ring-brand-5" />
+            <label for="convReactivateBot" class="text-xs text-zinc-700 dark:text-zinc-300">
+              Reactivar bot (levantar silencio para que Norma continúe atendiendo con esta condición autorizada)
+            </label>
+          </div>
+          <div class="flex items-center space-x-2">
+            <input type="checkbox" id="convCloseConversation" class="rounded border-zinc-300 text-brand-5 focus:ring-brand-5" />
+            <label for="convCloseConversation" class="text-xs text-zinc-500 dark:text-zinc-400">
+              Cerrar conversación definitivamente como «resuelta» (solo si el bot no se reactiva)
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+        <p id="convActionStatus" class="text-xs"></p>
+        <div class="flex items-center space-x-2 self-end sm:self-auto">
+          <button id="btnCloseConvFooter" class="px-4 py-2 text-sm text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded-lg">Cerrar</button>
+          <button id="btnSubmitResolution" class="px-4 py-2 text-sm font-medium rounded-lg bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 shadow-xs transition">
+            Enviar al cliente y Resolver
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -1078,7 +1183,10 @@
             <td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 max-w-xs truncate" title="${escapeHtml(o.items_summary)}">
               ${escapeHtml(o.items_summary)}
             </td>
-            <td class="px-4 py-3 font-semibold text-zinc-950 dark:text-white tabular-nums">${formatARS(o.total)}</td>
+            <td class="px-4 py-3 font-semibold text-zinc-950 dark:text-white tabular-nums">
+              ${formatARS(o.total)}
+              ${o.discount_percentage ? `<span class="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-semibold whitespace-nowrap">-${o.discount_percentage}%</span>` : ''}
+            </td>
             <td class="px-4 py-3">
               <span class="px-2.5 py-0.5 rounded-full text-xs font-medium ${badgeClass}">${escapeHtml(o.status)}</span>
             </td>
@@ -1137,7 +1245,42 @@
           `).join('')
         : `<tr><td colspan="5" class="px-3 py-4 text-center text-zinc-400 text-xs">${escapeHtml(order.items_summary)}</td></tr>`;
 
-      document.getElementById('detailTotalCell').textContent = formatARS(order.total);
+      const subtotal = (order.subtotal !== null && order.subtotal !== undefined)
+        ? order.subtotal
+        : items.reduce((sum, it) => sum + (Number(it.subtotal) || 0), 0);
+      const discountPct = order.discount_percentage;
+      const total = order.total;
+      const discountAmount = (discountPct && discountPct > 0)
+        ? (Number(subtotal) * discountPct / 100)
+        : (Number(subtotal) - Number(total));
+
+      let tfootHtml = '';
+      if (discountPct && discountPct > 0) {
+        tfootHtml = `
+          <tr class="text-zinc-500 dark:text-zinc-400 border-t border-zinc-200 dark:border-zinc-800">
+            <td colspan="4" class="px-3 py-2 text-right text-xs uppercase font-medium">Subtotal</td>
+            <td class="px-3 py-2 text-right tabular-nums font-medium text-zinc-700 dark:text-zinc-300">${formatARS(subtotal)}</td>
+          </tr>
+          <tr class="text-emerald-600 dark:text-emerald-400">
+            <td colspan="4" class="px-3 py-1.5 text-right text-xs uppercase font-medium">Descuento (${discountPct}%)</td>
+            <td class="px-3 py-1.5 text-right tabular-nums font-medium">-${formatARS(discountAmount)}</td>
+          </tr>
+          <tr class="font-semibold text-zinc-950 dark:text-white border-t border-zinc-200 dark:border-zinc-800 bg-zinc-100/60 dark:bg-zinc-900">
+            <td colspan="4" class="px-3 py-2.5 text-right text-xs uppercase">Total Pedido</td>
+            <td id="detailTotalCell" class="px-3 py-2.5 text-right tabular-nums text-base">${formatARS(total)}</td>
+          </tr>
+        `;
+      } else {
+        tfootHtml = `
+          <tr class="font-semibold text-zinc-950 dark:text-white">
+            <td colspan="4" class="px-3 py-2.5 text-right text-xs uppercase text-zinc-500 dark:text-zinc-400">Total Pedido</td>
+            <td id="detailTotalCell" class="px-3 py-2.5 text-right tabular-nums">${formatARS(total)}</td>
+          </tr>
+        `;
+      }
+      const tfootEl = document.getElementById('detailTfoot');
+      if (tfootEl) tfootEl.innerHTML = tfootHtml;
+
       document.getElementById('detailActionButtons').innerHTML = buildActionButtons(order, true);
       orderDetailModal.classList.remove('hidden');
     };
@@ -1690,7 +1833,7 @@
         tabBadgeConversations.textContent = list.length;
 
         if (!list.length) {
-          conversationsTableBody.innerHTML = `<tr><td colspan="5" class="px-4 py-8 text-center text-zinc-400">No hay conversaciones pendientes de atención.</td></tr>`;
+          conversationsTableBody.innerHTML = `<tr><td colspan="7" class="px-4 py-8 text-center text-zinc-400">No hay conversaciones pendientes de atención.</td></tr>`;
           return;
         }
 
@@ -1707,9 +1850,18 @@
               <td class="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">${escapeHtml(c.customer_id)}</td>
               <td class="px-4 py-3 text-xs uppercase font-semibold text-zinc-500 dark:text-zinc-400">${escapeHtml(c.channel)}</td>
               <td class="px-4 py-3">
-                <span class="px-2.5 py-0.5 rounded-full text-xs font-medium ${c.status === 'derivada' ? 'bg-brand-3/15 text-brand-3 border border-brand-3/30' : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400'}">${escapeHtml(c.status)}</span>
+                <span class="px-2.5 py-0.5 rounded-full text-xs font-medium ${c.status === 'derivada' ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700' : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400'}">${escapeHtml(c.status)}</span>
+              </td>
+              <td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-300 font-medium">
+                ${c.derivation_reason ? escapeHtml(c.derivation_reason) : '-'}
+                ${c.discount_percentage ? `<span class="ml-1 inline-block px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 rounded font-semibold text-[10px] border border-emerald-300 dark:border-emerald-700">${c.discount_percentage}% desc</span>` : ''}
               </td>
               <td class="px-4 py-3 text-xs text-zinc-500 dark:text-zinc-400 whitespace-nowrap tabular-nums">${escapeHtml(dateStr)}</td>
+              <td class="px-4 py-3 text-right">
+                <button onclick="openConversationModal(${c.id})" class="px-2.5 py-1 text-xs font-medium rounded-lg bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 transition">
+                  ${c.status === 'derivada' ? 'Atender' : 'Ver'}
+                </button>
+              </td>
             </tr>
           `;
         }).join('');
@@ -1717,6 +1869,198 @@
         console.error('Error al cargar conversaciones', err);
       }
     }
+
+    const convModal = document.getElementById('conversationDetailModal');
+    let currentConvId = null;
+
+    const SCENARIO_TEMPLATES = {
+      descuento_volumen: (pct) => `¡Hola! Hablamos con el equipo de ventas y te autorizamos un ${pct}% de descuento en tu pedido por la cantidad solicitada. Si te parece bien, confirmame y te lo dejamos registrado.`,
+      excepcion_compra_minima: () => `¡Hola! Por esta vez te autorizamos a realizar el pedido sin alcanzar el monto mínimo habitual. ¿Querés que te preparemos el pedido?`,
+      logistica_envio: () => `¡Hola! Coordinamos con logística y podemos coordinar la entrega en las condiciones solicitadas. ¿Te confirmamos el pedido?`,
+      forma_pago: () => `¡Hola! Ventas autorizó la modalidad de pago que consultaste. Avisanos si querés avanzar y te tomamos el pedido.`,
+      sustitucion_stock: () => `¡Hola! Te confirmamos que podemos sustituir el producto solicitado por una alternativa disponible con la misma calidad. ¿Avanzamos con esta opción?`,
+      mensaje_directo: () => `¡Hola! Te escribe el equipo de atención de Norma para responder a tu consulta. `
+    };
+
+    function updateScenarioUI() {
+      const scenario = document.getElementById('convScenario').value;
+      const discountBox = document.getElementById('convDiscountBox');
+      const discountPct = parseFloat(document.getElementById('convDiscountPct').value) || 10;
+      if (scenario === 'descuento_volumen') {
+        discountBox.classList.remove('hidden');
+        document.getElementById('convMessageText').value = SCENARIO_TEMPLATES.descuento_volumen(discountPct);
+      } else {
+        discountBox.classList.add('hidden');
+        const tmplFn = SCENARIO_TEMPLATES[scenario] || SCENARIO_TEMPLATES.mensaje_directo;
+        document.getElementById('convMessageText').value = tmplFn();
+      }
+    }
+
+    async function openConversationModal(id) {
+      currentConvId = id;
+      convModal.classList.remove('hidden');
+      document.getElementById('convModalId').textContent = id;
+      document.getElementById('convActionStatus').textContent = '';
+      document.getElementById('convActionStatus').className = 'text-xs';
+      document.getElementById('convMessagesContainer').innerHTML = '<p class="text-xs text-zinc-400 italic text-center py-4">Cargando mensajes...</p>';
+
+      try {
+        const resp = await apiFetch(`/dashboard/conversations/${id}`);
+        if (!resp.ok) {
+          throw new Error(`HTTP ${resp.status}`);
+        }
+        const data = await resp.json();
+        document.getElementById('convCustomer').textContent = data.customer_id;
+        document.getElementById('convChannel').textContent = data.channel;
+        document.getElementById('convDate').textContent = new Date(data.updated_at).toLocaleString('es-AR', {
+          timeZone: 'America/Argentina/Buenos_Aires',
+          dateStyle: 'short',
+          timeStyle: 'short'
+        });
+
+        const statusBadge = document.getElementById('convStatusBadge');
+        statusBadge.textContent = data.status;
+        statusBadge.className = `px-2.5 py-0.5 rounded-full text-xs font-medium ${data.status === 'derivada' ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300'}`;
+
+        const reasonBadge = document.getElementById('convReasonBadge');
+        if (data.derivation_reason) {
+          reasonBadge.textContent = data.derivation_reason;
+          reasonBadge.classList.remove('hidden');
+        } else {
+          reasonBadge.classList.add('hidden');
+        }
+
+        // Render messages
+        const msgs = data.messages || [];
+        if (!msgs.length) {
+          document.getElementById('convMessagesContainer').innerHTML = '<p class="text-xs text-zinc-400 italic text-center py-4">No hay mensajes previos registrados para este hilo.</p>';
+        } else {
+          document.getElementById('convMessagesContainer').innerHTML = msgs.map(m => {
+            const isClient = m.role === 'cliente';
+            const isOp = m.role === 'operador';
+            const alignClass = isClient ? 'justify-start' : 'justify-end';
+            const bubbleBg = isClient
+              ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 border border-zinc-200 dark:border-zinc-700'
+              : (isOp ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-900 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800' : 'bg-brand-5/10 dark:bg-brand-3/15 text-zinc-900 dark:text-zinc-100 border border-brand-5/30 dark:border-brand-3/30');
+            const label = isClient ? 'Cliente' : (isOp ? 'Operador Ventas' : 'Norma');
+
+            return `
+              <div class="flex ${alignClass}">
+                <div class="max-w-[85%] rounded-xl px-3 py-2 text-xs ${bubbleBg} space-y-1 shadow-2xs">
+                  <span class="block font-semibold opacity-70 text-[10px] uppercase tracking-wider">${label}</span>
+                  <p class="whitespace-pre-wrap">${escapeHtml(m.content)}</p>
+                </div>
+              </div>
+            `;
+          }).join('');
+          const container = document.getElementById('convMessagesContainer');
+          container.scrollTop = container.scrollHeight;
+        }
+
+        // Setup scenario
+        const scenarioSelect = document.getElementById('convScenario');
+        if (data.resolution_type) {
+          scenarioSelect.value = data.resolution_type;
+        } else {
+          scenarioSelect.value = 'descuento_volumen';
+        }
+        if (data.discount_percentage) {
+          document.getElementById('convDiscountPct').value = data.discount_percentage;
+        } else {
+          document.getElementById('convDiscountPct').value = 10;
+        }
+        if (data.order_notes) {
+          document.getElementById('convOrderNotes').value = data.order_notes;
+        } else {
+          document.getElementById('convOrderNotes').value = '';
+        }
+        if (data.operator_notes) {
+          document.getElementById('convOperatorNotes').value = data.operator_notes;
+        } else {
+          document.getElementById('convOperatorNotes').value = '';
+        }
+        document.getElementById('convCloseConversation').checked = data.status === 'resuelta';
+
+        updateScenarioUI();
+      } catch (err) {
+        console.error('Error cargando detalle de conversación:', err);
+        document.getElementById('convMessagesContainer').innerHTML = `<p class="text-xs text-rose-500">Error al cargar la conversación: ${escapeHtml(err.message)}</p>`;
+      }
+    }
+
+    window.openConversationModal = openConversationModal;
+
+    document.getElementById('btnCloseConvModal').onclick = () => convModal.classList.add('hidden');
+    document.getElementById('btnCloseConvFooter').onclick = () => convModal.classList.add('hidden');
+
+    document.getElementById('convScenario').onchange = updateScenarioUI;
+    document.getElementById('convDiscountPct').oninput = () => {
+      if (document.getElementById('convScenario').value === 'descuento_volumen') {
+        const pct = parseFloat(document.getElementById('convDiscountPct').value) || 0;
+        document.getElementById('convMessageText').value = SCENARIO_TEMPLATES.descuento_volumen(pct);
+      }
+    };
+
+    document.querySelectorAll('.discount-quick-btn').forEach(btn => {
+      btn.onclick = () => {
+        const pct = btn.dataset.pct;
+        document.getElementById('convDiscountPct').value = pct;
+        if (document.getElementById('convScenario').value === 'descuento_volumen') {
+          document.getElementById('convMessageText').value = SCENARIO_TEMPLATES.descuento_volumen(pct);
+        }
+      };
+    });
+
+    document.getElementById('btnSubmitResolution').onclick = async () => {
+      if (!currentConvId) return;
+      const btn = document.getElementById('btnSubmitResolution');
+      const statusEl = document.getElementById('convActionStatus');
+      btn.disabled = true;
+      btn.textContent = 'Enviando...';
+      statusEl.textContent = '';
+
+      const scenario = document.getElementById('convScenario').value;
+      const discountPct = scenario === 'descuento_volumen' ? (parseFloat(document.getElementById('convDiscountPct').value) || null) : null;
+      const message = document.getElementById('convMessageText').value.trim() || null;
+      const orderNotes = document.getElementById('convOrderNotes').value.trim() || null;
+      const operatorNotes = document.getElementById('convOperatorNotes').value.trim() || null;
+      const reactivateBot = document.getElementById('convReactivateBot').checked;
+      const closeConversation = document.getElementById('convCloseConversation').checked;
+
+      try {
+        const resp = await apiFetch(`/dashboard/conversations/${currentConvId}/resolve`, {
+          method: 'POST',
+          body: JSON.stringify({
+            resolution_type: scenario,
+            message: message,
+            discount_percentage: discountPct,
+            order_notes: orderNotes,
+            operator_notes: operatorNotes,
+            reactivate_bot: reactivateBot,
+            close_conversation: closeConversation
+          })
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.detail || `HTTP ${resp.status}`);
+        }
+
+        statusEl.className = 'text-xs text-emerald-600 dark:text-emerald-400 font-medium';
+        statusEl.textContent = '¡Resolución enviada con éxito!';
+        await loadConversations();
+        setTimeout(() => {
+          convModal.classList.add('hidden');
+        }, 800);
+      } catch (err) {
+        console.error('Error al resolver conversación:', err);
+        statusEl.className = 'text-xs text-rose-600 dark:text-rose-400 font-medium';
+        statusEl.textContent = `Error: ${err.message}`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Enviar al cliente y Resolver';
+      }
+    };
 
     function selectTab(tab) {
       currentTab = tab;

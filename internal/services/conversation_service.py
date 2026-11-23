@@ -10,6 +10,7 @@ from collections import defaultdict
 from collections.abc import Callable
 from datetime import UTC, datetime
 
+from langchain_core.messages import HumanMessage
 from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
@@ -30,6 +31,7 @@ from internal.schemas.order_schema import (
 )
 from internal.services import message_service, topic_filter
 from internal.services.palabras_clave import interpretar_palabra_clave
+from internal.tools import reply_tools
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,8 @@ def proposal_expired_message() -> str:
         "y te armo el pedido en el momento."
     )
 
+
+DRAFT_DISCARDED_MESSAGE = reply_tools.DEFAULT_DISCARD_MESSAGE
 
 _locks: defaultdict[tuple[str, Channel], threading.Lock] = defaultdict(threading.Lock)
 
@@ -67,26 +71,51 @@ def _is_expired(conversation: ConversationRecord, now: datetime) -> bool:
     return (now - updated_at).total_seconds() > max_seconds
 
 
-def _expire_conversation(session: Session, conversation: ConversationRecord) -> int:
-    """Marca la conversación como vencida y descarta sus borradores pendientes (RF-28). Devuelve cuántos descartó."""
-    conversation.status = "vencida"
+def _discard_pending_drafts(session: Session, conversation_id: int | None, customer_id: str, channel: str) -> int:
     result = session.execute(
         update(DraftRecord)
         .where(
             or_(
-                DraftRecord.conversation_id == conversation.id,
+                DraftRecord.conversation_id == conversation_id,
                 DraftRecord.conversation_id.is_(None)
-                & (DraftRecord.customer_id == conversation.customer_id)
-                & (DraftRecord.channel == conversation.channel),
+                & (DraftRecord.customer_id == customer_id)
+                & (DraftRecord.channel == channel),
             ),
             DraftRecord.status == DraftStatus.PENDING_CONFIRMATION.value,
         )
         .values(
             status=DraftStatus.DISCARDED.value,
-            conversation_id=conversation.id,
+            conversation_id=conversation_id,
         )
     )
     return result.rowcount
+
+
+def _expire_conversation(session: Session, conversation: ConversationRecord) -> int:
+    """Marca la conversación como vencida y descarta sus borradores pendientes (RF-28). Devuelve cuántos descartó."""
+    conversation.status = "vencida"
+    return _discard_pending_drafts(session, conversation.id, conversation.customer_id, conversation.channel)
+
+
+def _is_silenced_by_derivation(customer_id: str, channel: Channel, now: datetime | None = None) -> bool:
+    """Durante 24 h tras una derivación a humano, el bot no responde automáticamente (RF-27, CA-21, spec §7)."""
+    momento = now or _clock()
+    max_seconds = get_settings().conversation_timeout_hours * 3600
+    with SessionLocal() as session:
+        derivada = session.scalar(
+            select(ConversationRecord)
+            .where(
+                ConversationRecord.customer_id == customer_id,
+                ConversationRecord.channel == channel.value,
+                ConversationRecord.status == "derivada",
+            )
+            .order_by(ConversationRecord.updated_at.desc())
+        )
+        if derivada is not None:
+            updated_at = _con_zona(derivada.updated_at)
+            if (momento - updated_at).total_seconds() <= max_seconds:
+                return True
+    return False
 
 
 def startup() -> None:
@@ -106,11 +135,13 @@ def _open_conversation_id(customer_id: str, channel: Channel, now: datetime | No
     momento = now or _clock()
     with SessionLocal() as session:
         conversation = session.scalar(
-            select(ConversationRecord).where(
+            select(ConversationRecord)
+            .where(
                 ConversationRecord.customer_id == customer_id,
                 ConversationRecord.channel == channel.value,
                 ConversationRecord.status == "abierta",
             )
+            .order_by(ConversationRecord.updated_at.desc())
         )
         tenia_propuesta_vencida = False
         if conversation is not None:
@@ -145,13 +176,63 @@ def _touch_conversation(conversation_id: int, now: datetime | None = None) -> No
             session.commit()
 
 
-def _close_conversation(conversation_id: int, status: str) -> None:
+def _close_conversation(
+    conversation_id: int, status: str, reason: str | None = None, now: datetime | None = None
+) -> None:
+    momento = now or _clock()
     with SessionLocal() as session:
-        session.get_one(ConversationRecord, conversation_id).status = status
+        conv = session.get_one(ConversationRecord, conversation_id)
+        conv.status = status
+        conv.updated_at = momento
+        if reason is not None:
+            conv.derivation_reason = reason
         session.commit()
 
 
+def _record_silenced_message(message: IncomingMessage) -> None:
+    """Registra en el historial el mensaje que envió el cliente mientras la conversación está derivada (RF-27).
+
+    El bot no contesta automáticamente, pero el operador puede leer lo que el cliente escribió desde el Dashboard.
+    Si el cliente mandó audio o foto durante el silencio, se registra un marcador legible.
+    """
+    contenido = message.text
+    if not contenido:
+        if message.type == MessageType.AUDIO:
+            contenido = "[audio]"
+        elif message.type == MessageType.IMAGE:
+            contenido = "[imagen]"
+        else:
+            return
+    with SessionLocal() as session:
+        derivada = session.scalar(
+            select(ConversationRecord)
+            .where(
+                ConversationRecord.customer_id == message.customer_id,
+                ConversationRecord.channel == message.channel.value,
+                ConversationRecord.status == "derivada",
+            )
+            .order_by(ConversationRecord.updated_at.desc())
+        )
+        if derivada is not None:
+            try:
+                agent = get_agent()
+                config = {"configurable": {"thread_id": str(derivada.id)}}
+                agent.graph.update_state(config, {"messages": [HumanMessage(content=contenido)]})
+            except Exception:
+                logger.warning("No se pudo registrar mensaje silenciado en el checkpointer", exc_info=True)
+
+
 def handle_message(message: IncomingMessage) -> ChannelReply:
+    # RF-27, CA-21: si el cliente fue derivado hace menos de 24 h, el bot no responde automáticamente
+    if _is_silenced_by_derivation(message.customer_id, message.channel):
+        logger.info(
+            "Conversación silenciada: cliente %s por %s derivado a humano hace menos de 24 h (RF-27)",
+            message.customer_id,
+            message.channel.value,
+        )
+        _record_silenced_message(message)
+        return ChannelReply(text="")
+
     if message.type != MessageType.TEXT:
         # RF-32: sin modelo de visión, audio e imagen no llegan al LLM
         return ChannelReply(text=WRITE_IT_PLEASE)
@@ -176,8 +257,19 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
     # Los turnos de una conversación se procesan de a uno (RNF-05)
     with _locks[(message.customer_id, message.channel)]:
         conversation_id, tenia_propuesta_vencida = _open_conversation_id(message.customer_id, message.channel)
-        if tenia_propuesta_vencida and interpretar_palabra_clave(text) == ConfirmationAction.CONFIRM:
+        clave = interpretar_palabra_clave(text)
+        if tenia_propuesta_vencida and clave == ConfirmationAction.CONFIRM:
             return ChannelReply(text=proposal_expired_message())
+        if clave == ConfirmationAction.CANCEL:
+            # RF-26, CA-23: cancelación determinística solo si hay un borrador pendiente en la conversación
+            with SessionLocal() as session:
+                descartados = _discard_pending_drafts(
+                    session, conversation_id, message.customer_id, message.channel.value
+                )
+                session.commit()
+            if descartados > 0:
+                _close_conversation(conversation_id, "descartada", reason="cliente_cancelo")
+                return ChannelReply(text=DRAFT_DISCARDED_MESSAGE)
         outcome = get_agent().handle(
             thread_id=str(conversation_id),
             customer_id=message.customer_id,
@@ -187,7 +279,15 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
             origen=ORIGEN_POR_TIPO[message.type.value],
         )
         if outcome.cerrada:
-            _close_conversation(conversation_id, "cerrada" if outcome.kind == "pedido" else "fallida")
+            if outcome.kind == "pedido":
+                nuevo_estado = "cerrada"
+            elif outcome.kind == "descartado":
+                nuevo_estado = "descartada"
+            elif outcome.kind == "derivada":
+                nuevo_estado = "derivada"
+            else:
+                nuevo_estado = "fallida"
+            _close_conversation(conversation_id, nuevo_estado, reason=outcome.derivation_reason)
         else:
             _touch_conversation(conversation_id)
     return ChannelReply(text=outcome.message)

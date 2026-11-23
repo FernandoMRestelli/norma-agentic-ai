@@ -724,3 +724,23 @@ Con `MLFLOW_ENABLED=true` (D-10), `observabilidad.py` manda además cada turno a
 - **Evaluación**: `evaluar_agente --mlflow` abre un run con `proveedor`, `modelo` y `prompt_version` como parámetros,
   las métricas `aciertos_pct`, `evaluados`, `sin_evaluar`, `iteraciones_promedio`, tokens y latencia p50/p95, y la
   tabla `casos.json` con un caso por fila. Las trazas de los casos quedan vinculadas al run.
+
+### Resolución humana: fallas y límite de notas
+
+La base de negocio y el checkpointer del agente son persistencias distintas. Al resolver desde el
+dashboard se conserva una copia de los campos del agente que se cambian (sin mensajes). Si falla
+el envío por Telegram o el commit de negocio, se hace rollback y se restauran esos campos.
+La resolución no devuelve éxito si falla la restauración: responde 503 y la conversación permanece
+derivada en la base. En cada reintento se vuelven a cargar el descuento y acuerdo de la base,
+respetando que omitir un campo conserva su valor y `null` lo borra.
+
+Las notas del cliente y el acuerdo operativo deben entrar completos en el límite existente de
+300 caracteres de `OrderDraft.notes`. No se recortan. Si exceden el límite, el dashboard responde
+422 antes de enviar el mensaje o modificar el agente; el operador debe resumirlas. Una propuesta
+del LLM que no entre recibe `notas_demasiado_largas`, sin guardar ni enviar el texto recortado.
+El límite incluye el prefijo «Acuerdo confirmado:» y se valida incluso si todavía no hay borrador.
+
+Pruebas: `tests/test_resolucion_derivaciones.py` cubre falla de Telegram/reintento, falla de commit,
+falla de restauración, límite exacto de notas, rechazo sin efectos y error corregible de la tool.
+Esto no constituye una transacción distribuida con Telegram: si el mensaje ya se envió y luego
+falla el commit, no puede retirarse ni garantizarse que un reintento no duplique ese envío.

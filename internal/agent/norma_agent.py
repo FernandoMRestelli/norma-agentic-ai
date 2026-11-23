@@ -84,19 +84,25 @@ class NormaAgent:
         if self.graph.get_state(config).next == ("pausa",):
             entry: Command | EstadoNorma = Command(resume={"texto": text, "origen": origen})
         else:
+            prev_state = self.graph.get_state(config).values
             entry = {
                 "messages": [HumanMessage(content=text)],
                 "customer_id": customer_id,
                 "customer_name": customer_name,
                 "channel": channel.value,
                 "origen": origen,
-                "inicio_turno": 0,
+                "inicio_turno": len(prev_state.get("messages", [])) if prev_state else 0,
                 "skills_activas": [],
                 "iteraciones": 0,
                 "fallas": 0,
                 "falla_turno": False,
-                "propuesta": None,
-                "renglones": [],
+                "aclaraciones_seguidas": 0,
+                "propuesta": prev_state.get("propuesta"),
+                "renglones": prev_state.get("renglones", []),
+                "descuento_autorizado": prev_state.get("descuento_autorizado"),
+                "condicion_comercial": prev_state.get("condicion_comercial"),
+                "acuerdo_operativo": prev_state.get("acuerdo_operativo"),
+                "propuesta_pendiente_mostrar": bool(prev_state.get("propuesta_pendiente_mostrar", False)),
             }
         try:
             state = self.graph.invoke(entry, config)
@@ -115,6 +121,7 @@ class NormaAgent:
             iterations=state.get("iteraciones", 0),
             llamadas_sub_loop=state.get("iteraciones_sub_loop", 0),
             cerrada="__interrupt__" not in state,
+            derivation_reason=state.get("derivation_reason"),
         )
         return outcome, state
 
