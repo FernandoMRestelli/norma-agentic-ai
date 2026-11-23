@@ -231,7 +231,50 @@ def test_handle_message_audio_habilitado_invoca_agente_con_origen_audio(monkeypa
     assert reply.text == "Te armé la propuesta con 2 shampoo."
     assert len(llamadas_agente) == 1
     assert llamadas_agente[0]["origen"] == "audio"
-    assert "dos shampoo neutro" in llamadas_agente[0]["text"]
+    assert llamadas_agente[0]["text"] == "[audio transcripto]\ndos shampoo neutro de litro"
+
+
+def test_telegram_archivo_muy_grande_devuelve_audio_too_long(monkeypatch):
+    """Un audio > 20 MB rechazado por Telegram se mapea a AudioTooLongError y responde AUDIO_TOO_LONG_MESSAGE."""
+    from internal.services import telegram_service
+
+    mock_client = Mock()
+    mock_client.download_file_with_path.side_effect = telegram_service.TelegramError(
+        "getFile: el archivo es muy grande o no se puede bajar"
+    )
+    monkeypatch.setattr(telegram_service, "get_client", lambda: mock_client)
+    monkeypatch.setenv("AUDIO_ENABLED", "true")
+    get_settings.cache_clear()
+
+    msg = IncomingMessage(
+        customer_id="telegram:1", channel=Channel.TELEGRAM, type=MessageType.AUDIO, media_url="telegram:grande"
+    )
+    assert conversation_service.handle_message(msg).text == conversation_service.AUDIO_TOO_LONG_MESSAGE
+
+
+def test_gemini_rechaza_audio_que_excede_limite_base64(monkeypatch):
+    """Con Gemini, audios > MAX_GEMINI_INLINE_BYTES (14 MB) fallan con AudioTooLongError antes de enviar base64."""
+    monkeypatch.setenv("AUDIO_PROVIDER", "gemini")
+    monkeypatch.setenv("AUDIO_API_KEY", "test-key-gemini")
+    monkeypatch.setattr(audio_service, "MAX_GEMINI_INLINE_BYTES", 10)
+    get_settings.cache_clear()
+
+    with pytest.raises(audio_service.AudioTooLongError):
+        audio_service.transcribe_audio_bytes(b"123456789012345", "audio/ogg")
+
+
+def test_canal_o_protocolo_no_soportado_devuelve_audio_processing_error(monkeypatch):
+    """Una media_url de un protocolo aún no soportado (ej. https) lanza AudioProcessingError y no corta el turno."""
+    monkeypatch.setenv("AUDIO_ENABLED", "true")
+    get_settings.cache_clear()
+
+    msg = IncomingMessage(
+        customer_id="whatsapp:1",
+        channel=Channel.WHATSAPP,
+        type=MessageType.AUDIO,
+        media_url="https://example.com/audio.ogg",
+    )
+    assert conversation_service.handle_message(msg).text == conversation_service.AUDIO_PROCESSING_ERROR_MESSAGE
 
 
 def test_handle_message_errores_audio_devuelven_mensajes_amigables(monkeypatch):

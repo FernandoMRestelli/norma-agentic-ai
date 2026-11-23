@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 TIMEOUT_SECONDS = 30.0
 MAX_AUDIO_BYTES = 20 * 1024 * 1024  # 20 MB límite máximo de audio
+# Gemini limita el request completo a 20 MB y base64 suma ~33 %: 14 MB crudos entran holgados en JSON
+MAX_GEMINI_INLINE_BYTES = 14 * 1024 * 1024
 
 PROMPT_TRANSCRIPCION = (
     "Transcribí fielmente este audio en español. "
@@ -61,7 +63,7 @@ class AudioProcessingError(RuntimeError):
 
 
 class AudioTooLongError(AudioProcessingError):
-    """El audio supera el tamaño o duración máxima permitida."""
+    """El audio supera el tamaño máximo permitido."""
 
 
 class AudioEmptyError(AudioProcessingError):
@@ -97,12 +99,14 @@ def download_audio_bytes(media_url: str, channel: Channel | None = None) -> tupl
             raw_bytes, file_path = client.download_file_with_path(file_id)
         except TelegramError as exc:
             logger.warning("Fallo al descargar audio de Telegram: %s", exc)
+            if "muy grande" in str(exc):
+                raise AudioTooLongError("El audio supera el límite de tamaño de Telegram") from None
             raise AudioProcessingError("No se pudo descargar el audio de Telegram") from None
 
         mime, _ = _detect_mime_and_filename(file_path)
         return raw_bytes, mime
 
-    raise NotImplementedError(f"Protocolo o canal de audio no soportado: {media_url}")
+    raise AudioProcessingError(f"Protocolo o canal de audio no soportado: {media_url}")
 
 
 def transcribe_audio_bytes(
@@ -161,6 +165,10 @@ def _transcribe_gemini(
 ) -> str:
     if not api_key:
         raise AudioProcessingError("Falta AUDIO_API_KEY (o LLM_API_KEY de Gemini) para transcribir con Gemini")
+    if len(audio_bytes) > MAX_GEMINI_INLINE_BYTES:
+        raise AudioTooLongError(
+            f"El audio excede el límite admitido por Gemini inlineData ({MAX_GEMINI_INLINE_BYTES} bytes)"
+        )
     model_name = model or "gemini-3.5-flash"
     # Seguridad (RNF-14): la clave se envía en el header x-goog-api-key, no en la URL
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"

@@ -59,9 +59,12 @@ def partir(texto: str, limite: int) -> list[str]:
 
 
 def transcribe_audio(media_url: str, channel: Channel | None = None) -> str:
-    """Delega la descarga y transcripción en audio_service y normaliza el texto resultante."""
+    """Delega la descarga y transcripción en audio_service, normaliza el texto y lo marca para el agente (CA-06)."""
     raw_text = audio_service.transcribe_audio(media_url, channel)
-    return normalize_text(raw_text)
+    texto = normalize_text(raw_text)
+    if not texto:
+        raise audio_service.AudioEmptyError("La transcripción del audio está vacía")
+    return f"[audio transcripto]\n{texto}"
 
 
 def download_media(media_url: str) -> bytes:
