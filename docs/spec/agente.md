@@ -271,13 +271,16 @@ Todas las tools devuelven un sobre común, para que el LLM pueda recuperarse de 
 #### `leer_skill`
 
 Entrada `nombre: str`. Busca en el índice de skills cargado al arrancar. Salida `data`: `{nombre, instrucciones,
-tools, br}`. Desde la iteración siguiente, las tools de esa skill quedan disponibles y sus BR se pueden leer.
-Errores: `skill_inexistente`.
+tools, br}`, donde `br` es la lista de `{id, titulo}`: el título sale del encabezado de cada BR
+(«# BR-01: Falta de stock»), así el agente elige cuál leer sin leerlas todas. Una BR sin ese encabezado impide
+arrancar. Desde la iteración siguiente, las tools de esa skill quedan disponibles y sus BR se pueden leer.
+Errores: `skill_inexistente`, que lista las skills del índice (sin propuesta vigente, no las que la necesitan).
 
 #### `leer_br`
 
 Entrada `id: str`. Inyectado: `skills_activas`. Busca en el índice de BR cargado al arrancar. Salida `data`:
-`{id, texto}`. Errores: `br_inexistente`, `br_no_permitida` (ninguna skill leída en este turno la permite).
+`{id, texto}`. Errores: `br_inexistente`, que lista las BR de las skills leídas con su título, y `br_no_permitida`
+(ninguna skill leída en este turno la permite), que nombra la skill de esa BR.
 
 Ninguna de las dos arma una ruta de archivo con lo que manda el LLM: el nombre o el ID solo se comparan contra el
 índice. Así, un mensaje malicioso no puede hacer que el agente lea otro archivo del sistema, como `.env`.
@@ -288,9 +291,12 @@ Ninguna de las dos arma una ruta de archivo con lo que manda el LLM: el nombre o
 |---|---|---|
 | `query` | `str` | No vacío. Texto libre del cliente o del LLM («pantene 400») |
 | `limit` | `int` | 1 a 10, por defecto 5 |
+| `quantity` | `int \| None` | Opcional, mayor que 0. La cantidad que pide el cliente |
 
 Salida `data.matches`: lista de `{sku, name, brand, presentation, price, score, aproximado, hay_stock}`, ordenada
-por `score` descendente (0 a 1), sin el número de stock. La búsqueda es aproximada: tolera mayúsculas, tildes,
+por `score` descendente (0 a 1), sin el número de stock. Con `quantity`, cada match y cada sugerencia suman
+`alcanza` y, solo si no alcanza, `disponible`: las unidades que quedan, lo único que BR-01 deja decirle al cliente.
+Así el agente no necesita `check_stock` después de buscar, y un único match que no alcanza adjunta BR-01. La búsqueda es aproximada: tolera mayúsculas, tildes,
 plurales, errores de tipeo y de sonido, abreviaturas y medidas escritas de otra forma (RF-07, RF-36 a RF-38).
 Los números no se aproximan: `340` no trae un producto de 400 ml, y `6.1` no trae el tono 7.1 (RF-08).
 Si no hay coincidencias confiables, `data.sugerencias` trae los candidatos más parecidos, y `data.corregido` dice
@@ -300,6 +306,15 @@ Errores: `catalogo_no_disponible`.
 #### `get_product`
 
 Entrada `sku: str`. Salida `data.product`: `{sku, name, brand, presentation, price, stock}` o `null`. Errores: `catalogo_no_disponible`.
+
+#### `pedidos_anteriores`
+
+Entrada `limite: int` (1 a 5, por defecto 3). Inyectado: `customer_id`. Salida `data.pedidos`: los últimos pedidos del
+cliente, cada uno con `fecha` y `lineas` (`sku`, `name`, `cantidad`, `nota`), sin precios, número de orden ni estado
+(RF-73). Cada línea suma `en_catalogo` y, si está, `hay_stock` y `alcanza` (si el stock de hoy cubre la `cantidad`
+de esa vez; si no, `disponible`, como `search_products`): el catálogo cambia y lo de hace un mes puede no estar hoy.
+Sin pedidos, o con productos que ya no están, trae `_hint`. Siempre adjunta BR-11, la regla de cómo usar lo que
+trae; con un producto que ya no está suma BR-04, y con uno que no alcanza, BR-01.
 
 #### `explorar_catalogo`
 
@@ -317,11 +332,18 @@ Devuelve un diccionario estructurado según los parámetros provistos:
 - Si se indican ambos (`brand` y `category`): muestra acotada de nombres y presentaciones de productos (`tipo_consulta: productos_por_marca_y_categoria`).
 - Si no se indican parámetros: listado general de categorías con su total de productos (`tipo_consulta: categorias_generales`).
 
+Si la muestra se recorta por `limit`, `_hint` lo avisa y sugiere buscar el producto puntual con `search_products`.
+La marca y la categoría se comparan sin mayúsculas, tildes ni signos: «L'Oréal» encuentra la marca cargada como
+`LOREAL`. El apóstrofo se borra y los demás signos separan palabras: «Anti-Frizz» queda como «anti frizz». Sin resultados, `_hint` trae las marcas o categorías más parecidas. Si la marca existe pero no tiene esa
+categoría, dice qué categorías tiene la marca y hasta cinco marcas que sí tienen la categoría, para ofrecerle otra
+sin una vuelta más.
+
 
 #### `check_stock`
 
-Entrada `sku: str`, `quantity: int > 0`. Salida `data`: un `StockCheck` (`sku`, `requested`, `available`,
-`is_enough`). Errores: `sku_inexistente`, `catalogo_no_disponible`.
+Entrada `sku: str`, `quantity: int > 0`. Salida `data`: un `StockCheck` (`sku`, `requested`, `is_enough`). Solo si
+no alcanza suma `available`, como `falta` en `buscar_renglones`: si alcanza, el LLM no necesita el número y no se lo
+puede pasar al cliente. Errores: `sku_inexistente`, `catalogo_no_disponible`.
 
 #### `armar_pedido` (terminal)
 
@@ -381,6 +403,9 @@ LangChain traduce esos esquemas al formato del proveedor elegido (D-01).
 
 Antes de cada iteración, el registro calcula las tools disponibles: las **tools de base** más las que permiten las
 skills activas. Al LLM solo se le ofrecen esas, y si pide otra recibe el error `tool_no_permitida` sin ejecutarla.
+El mensaje nombra la skill que la habilita, para que lea esa y no adivine. Sin propuesta vigente no sugiere las
+skills que la necesitan: `armar_pedido` responde que no hay nada que registrar. En el cierre (RNF-16), cuando solo
+queda `respond_to_customer`, no sugiere leer una skill: dice que responda con lo que ya averiguó.
 
 ### 4.5 Skills
 

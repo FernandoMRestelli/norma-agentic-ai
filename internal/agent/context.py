@@ -63,7 +63,7 @@ def _skill_activa(state: EstadoNorma, orquestador: bool = False) -> str | None:
         "`leer_skill`. Si el mensaje pide otra cosa, leé la skill del índice que corresponda.",
         "",
         f"Tools: {', '.join(skill.tools_inline)}",
-        f"BR: {', '.join(sorted(skill.br)) or 'ninguna'}",
+        f"BR: {', '.join(f'{br['id']} ({br['titulo']})' for br in skill.titulos_br) or 'ninguna'}",
         "",
         skill_tools.instrucciones_orquestador(skill.nombre) if delegada else skill.instrucciones,
     ]

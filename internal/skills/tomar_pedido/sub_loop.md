@@ -2,7 +2,7 @@ Tu encargo es convertir los renglones en líneas del pedido: identificar cada pr
 
 1. Buscá solo los renglones del encargo que no están en «Ya buscados por el sistema», todos juntos con `buscar_renglones`: en cada uno poné el producto y la medida en `texto`, la `cantidad` aparte y, si es una coloración, el `tono` aparte. Para un producto suelto, usá `search_products`.
 2. Elegí el que coincide en tipo, marca, medida y tono: un resultado parecido no alcanza, así que mirá `score` y los datos de cada producto. Si un número no coincide, buscá de nuevo solo con el tipo y la marca.
-3. Fijate si el stock alcanza para la cantidad pedida. `check_stock` hace falta solo si la búsqueda no te dio ese dato.
+3. Fijate si el stock alcanza para la cantidad pedida: `buscar_renglones` ya lo dice en el estado, y `search_products` con la cantidad en `quantity` dice si `alcanza` y, si no, cuánto queda en `disponible`. `check_stock` hace falta solo si la búsqueda no te dio ese dato.
 4. Entregá la nota: lo identificado y con stock en `resueltos`; las dudas en `pendientes`; lo que no se trabaja, lo agotado o una línea que no pide nada en `afuera`.
 
 Cada caso tiene su BR. Si el renglón mezcla varios, seguí la de cada uno:

@@ -30,7 +30,7 @@ from internal.schemas.agent_schema import (
 )
 from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import Channel, OrderDraft
-from internal.services import order_service, validation_service
+from internal.services import inventory_service, order_service, validation_service
 from internal.services.skill_service import TOOL_RESPUESTA, Skill, SkillError, get_skills
 from internal.tools import catalog_tools, inventory_tools, order_tools, reply_tools, skill_tools
 
@@ -99,8 +99,13 @@ def _explorar_catalogo(data: ExplorarCatalogoInput, _: TurnContext) -> dict[str,
     return catalog_tools.explorar_catalogo(data.brand, data.category, data.limit)
 
 
-def _al_llm(product: Product) -> dict[str, Any]:
+def _al_llm(product: Product, quantity: int | None = None) -> dict[str, Any]:
     datos = {**product.model_dump(mode="json", exclude=_SOLO_INTERNOS), "hay_stock": product.stock > 0}
+    if quantity is not None:
+        datos["alcanza"] = product.stock >= quantity
+        if not datos["alcanza"]:
+            # Cuántas quedan solo importa si no alcanza: es lo único que BR-01 deja decirle al cliente
+            datos["disponible"] = product.stock
     # Solo cuando es cierto: es una pista para preguntar («¿el de 900, como la otra vez?»), no un dato de cada producto
     return {**datos, "comprado_antes": True} if getattr(product, "comprado_antes", False) else datos
 
@@ -117,14 +122,36 @@ def _comprados(ctx: TurnContext) -> frozenset[str]:
 
 
 def _pedidos_anteriores(data: PedidosAnterioresInput, ctx: TurnContext) -> dict[str, Any]:
-    return {"pedidos": order_tools.pedidos_anteriores(ctx.customer_id, data.limite)}
+    pedidos = order_tools.pedidos_anteriores(ctx.customer_id, data.limite)
+    if not pedidos:
+        return {"pedidos": [], "_hint": "Este cliente no tiene pedidos anteriores por este chat: seguí BR-11."}
+    fuera = False
+    catalogo = {product.sku: product for product in inventory_service.get_catalog()}  # una lectura para todas
+    for linea in (linea for pedido in pedidos for linea in pedido["lineas"]):
+        # El catálogo cambia: lo que compró hace un mes puede no estar o estar agotado hoy
+        product = catalogo.get(linea["sku"])
+        linea["en_catalogo"] = product is not None
+        if product is not None:
+            linea["hay_stock"] = product.stock > 0
+            # Para repetirlo (BR-11): si no alcanza para lo de la otra vez, cuánto queda, como search_products
+            linea["alcanza"] = product.stock >= linea["cantidad"]
+            if not linea["alcanza"]:
+                linea["disponible"] = product.stock
+        fuera = fuera or product is None
+    salida: dict[str, Any] = {"pedidos": pedidos}
+    if fuera:
+        salida["_hint"] = (
+            "Algunos productos ya no están en el catálogo (`en_catalogo: false`): no los propongas y avisale cuáles "
+            "quedan afuera (BR-04)."
+        )
+    return salida
 
 
 def _search_products(data: SearchProductsInput, ctx: TurnContext) -> dict[str, Any]:
     resultado = catalog_tools.buscar_productos(data.query, data.limit, _comprados(ctx))
     salida = {
-        "matches": [_al_llm(match) for match in resultado.matches],
-        "sugerencias": [_al_llm(sugerencia) for sugerencia in resultado.sugerencias],
+        "matches": [_al_llm(match, data.quantity) for match in resultado.matches],
+        "sugerencias": [_al_llm(sugerencia, data.quantity) for sugerencia in resultado.sugerencias],
         "corregido": resultado.corregido,
         "total": resultado.total,
         "difieren_en": resultado.difieren_en,
@@ -167,11 +194,13 @@ def _get_product(data: GetProductInput, _: TurnContext) -> dict[str, Any]:
 
 
 def _check_stock(data: CheckStockInput, _: TurnContext) -> dict[str, Any]:
-    return inventory_tools.check_stock(data.sku, data.quantity).model_dump(mode="json")
+    check = inventory_tools.check_stock(data.sku, data.quantity)
+    # Si alcanza, el LLM no necesita el número: así no se lo puede pasar al cliente (BR-01)
+    return check.model_dump(mode="json", exclude={"available"} if check.is_enough else None)
 
 
 def _leer_skill(data: LeerSkillInput, ctx: TurnContext) -> dict[str, Any]:
-    skill = skill_tools.leer_skill(data.nombre, ctx.orquestador)
+    skill = skill_tools.leer_skill(data.nombre, ctx.orquestador, hay_propuesta=ctx.propuesta is not None)
     if data.nombre not in ctx.skills_activas:
         ctx.skills_activas.append(data.nombre)
     return skill
@@ -255,7 +284,8 @@ def _delegar_skill(data: DelegarSkillInput, ctx: TurnContext) -> dict[str, Any]:
     """Corre el sub-loop de la skill y devuelve su nota validada, sin los intentos (§4.2, RF-89 a RF-91)."""
     skill = get_skills().get(data.skill)
     if skill is None:
-        raise ToolFailure("skill_inexistente", f"No existe la skill {data.skill!r}: elegí una del índice")
+        delegables = ", ".join(s.nombre for s in get_skills().values() if s.modo == "sub_loop") or "ninguna"
+        raise ToolFailure("skill_inexistente", f"No existe la skill {data.skill!r}. Las que se delegan: {delegables}")
     if skill.modo != "sub_loop":
         raise ToolFailure(
             "skill_no_delegable",
@@ -390,7 +420,8 @@ TOOLS: dict[str, ToolSpec] = {
             "search_products",
             "Busca en el catálogo por producto, marca, medida o tono, tolerando errores de tipeo y abreviaturas. "
             "`matches` son las coincidencias confiables, con precio, disponibilidad (hay_stock: bool) y `score` "
-            "(de 0 a 1); `aproximado: true` quiere decir que algo no coincidió exacto y conviene confirmarlo. "
+            "(de 0 a 1). Con `quantity`, cada uno dice si `alcanza` el stock y, si no, cuánto queda en "
+            "`disponible`. `aproximado: true` quiere decir que algo no coincidió exacto y conviene confirmarlo. "
             "Si no hay matches, `sugerencias` trae los productos más parecidos, todos aproximados. `corregido` dice "
             "qué palabras se interpretaron como otra. Los números tienen que coincidir: 400 no trae 340. "
             "Si `matches` y `sugerencias` están vacías, no hay nada parecido. `total` dice cuántos productos "
@@ -426,7 +457,8 @@ TOOLS: dict[str, ToolSpec] = {
         ),
         ToolSpec(
             "check_stock",
-            "Indica cuántas unidades hay de un SKU y si alcanzan para una cantidad.",
+            "Indica si el stock de un SKU alcanza para una cantidad (`is_enough`). Solo si no alcanza dice cuántas "
+            "unidades quedan (`available`).",
             CheckStockInput,
             _check_stock,
         ),
@@ -546,6 +578,28 @@ _ERROR_INTERNO = (
 )
 
 
+def _tool_no_permitida(name: str, ctx: TurnContext) -> str:
+    """Qué skill habilita la tool, para que el LLM lea esa y no adivine (los sub-loops arman su propio error)."""
+    if name not in TOOLS:
+        return f"No existe la tool {name!r}: usá solo las que tenés"
+    if ctx.disponibles and "leer_skill" not in ctx.disponibles:
+        # En el cierre solo queda la tool para responder (RNF-16): leer una skill tampoco se puede
+        return (
+            f"La tool {name!r} ya no está disponible en este turno: respondé con {' o '.join(ctx.disponibles)}, "
+            "con lo que ya averiguaste"
+        )
+    skills = [skill for skill in get_skills().values() if name in skill.tools_inline]
+    leibles = [skill.nombre for skill in skills if ctx.propuesta or not skill.requiere_propuesta]
+    if leibles:
+        return (
+            f"La tool {name!r} la habilita la skill {' o '.join(leibles)}: si es la que corresponde a este caso, "
+            "leela con leer_skill y volvé a llamarla en la próxima iteración"
+        )
+    if skills:
+        return f"La tool {name!r} solo se usa con una propuesta vigente, y no hay ninguna: no hay nada que registrar"
+    return f"La tool {name!r} no está disponible en este turno: usá las que tenés"
+
+
 def _failure(code: str, message: str, **details: Any) -> dict[str, Any]:
     return {"ok": False, "error": {"code": code, "message": message, "details": details}}
 
@@ -560,6 +614,12 @@ def _brs_que_dispara(name: str, result: dict[str, Any]) -> list[str]:
     data = result["data"]
     if name == "check_stock":
         return [] if data["is_enough"] else ["BR-01"]
+    if name == "pedidos_anteriores":
+        # BR-11 es la regla de cómo usar lo que trae; lo que ya no está o no alcanza tiene la suya
+        lineas = [linea for pedido in data["pedidos"] for linea in pedido["lineas"]]
+        fuera = ["BR-04"] if any(not linea["en_catalogo"] for linea in lineas) else []
+        sin_stock = ["BR-01"] if any(linea.get("alcanza") is False for linea in lineas) else []
+        return ["BR-11", *fuera, *sin_stock]
     if name == "buscar_renglones":
         estados = {renglon["estado"] for renglon in data["renglones"]}
         return [br for estado, br in _BR_POR_ESTADO.items() if estado in estados]
@@ -572,7 +632,7 @@ def _brs_que_dispara(name: str, result: dict[str, Any]) -> list[str]:
         return ["BR-04"]
     if len(matches) > 1:
         return ["BR-03"]
-    return [] if matches[0]["hay_stock"] else ["BR-01"]
+    return [] if matches[0]["hay_stock"] and matches[0].get("alcanza", True) else ["BR-01"]
 
 
 def _adjuntar_br(name: str, result: dict[str, Any], ctx: TurnContext) -> dict[str, Any]:
@@ -608,9 +668,7 @@ def execute(name: str, arguments: dict[str, Any], ctx: TurnContext) -> dict[str,
 def _run(name: str, arguments: dict[str, Any], ctx: TurnContext) -> dict[str, Any]:
     """Ejecuta una tool y devuelve el sobre común. Un error vuelve al LLM para que lo corrija."""
     if name not in ctx.disponibles or name not in TOOLS:
-        return _failure(
-            "tool_no_permitida", f"La tool {name!r} no está disponible: leé con leer_skill la skill que la permite"
-        )
+        return _failure("tool_no_permitida", _tool_no_permitida(name, ctx))
     spec = TOOLS[name]
     try:
         data = spec.input_model.model_validate(arguments)

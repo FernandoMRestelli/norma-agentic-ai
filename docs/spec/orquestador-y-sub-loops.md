@@ -514,7 +514,10 @@ Los pasos 2 a 4 están hechos y probados con el modelo guionado (CA-144 a CA-161
     solo los renglones 2, 3…») y el mensaje va como contexto. Además, su `buscar_renglones` devuelve el resultado
     anterior con `ya_buscado: true` en lugar de repetir una búsqueda igual, y no busca fuera del encargo.
   - La nota dejaba en `afuera` como `sin_stock` un renglón del que quedaban unidades. La validación lo rechaza con
-    `stock_parcial`: va en `pendientes`, para ofrecerle lo que hay (BR-01).
+    `stock_parcial`: va en `pendientes`, para ofrecerle lo que hay (BR-01). Lo que se buscó con `search_products` y
+    `quantity` o con `check_stock` no dice de qué renglón es: si la nota deja algo agotado en `afuera` y de uno de
+    esos productos quedan unidades que la nota no usa, se rechaza una sola vez con `stock_parcial` y sus `skus`,
+    porque puede ser otro producto; la misma nota entregada de nuevo se acepta.
   - El orquestador copiaba en el mensaje los SKU de las opciones de una duda. Cada pendiente de la nota trae ahora
     `nombres` al lado de `opciones`, y `respuesta.md` dice qué campo va al cliente.
   - La traza cuenta lo que buscó la precarga y lo que resolvió cada sub-loop; con `MLFLOW_TRACE_TEXT` suma el

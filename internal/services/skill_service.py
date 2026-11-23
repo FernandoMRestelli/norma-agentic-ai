@@ -3,6 +3,7 @@
 Las tools consultan un índice en memoria: nunca arman una ruta con lo que manda el LLM.
 """
 
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -23,6 +24,11 @@ TOOL_RESPUESTA = "respond_to_customer"
 
 # Un dato es un texto corto o null, si el negocio todavía no lo confirmó
 _DATOS = TypeAdapter(dict[str, str | None])
+_ENCABEZADO_BR = re.compile(r"# (?P<id>BR-\d+): (?P<titulo>\S.*)")
+
+
+def _titulo_br(texto: str) -> str:
+    return _ENCABEZADO_BR.match(texto)["titulo"].strip()
 
 
 class SkillError(ValueError):
@@ -50,6 +56,11 @@ class Skill(SkillHeader):
     datos_negocio: dict[str, str | None] | None = None
     sub_loop: str | None = None  # instrucciones de su sub-loop
     respuesta: str | None = None  # cómo responde el orquestador con su nota
+
+    @property
+    def titulos_br(self) -> list[dict[str, str]]:
+        """Cada BR con el título de su encabezado, para elegir cuál leer sin leerlas todas."""
+        return [{"id": id_br, "titulo": _titulo_br(self.br[id_br])} for id_br in sorted(self.br)]
 
     @property
     def tools_inline(self) -> list[str]:
@@ -93,6 +104,9 @@ def _parse_skill(folder: Path) -> Skill:
     if header.nombre != folder.name:
         raise SkillError(f"La skill de la carpeta {folder.name} se llama {header.nombre}")
     br = {file.stem: file.read_text(encoding="utf-8") for file in sorted((folder / BR_DIR).glob("*.md"))}
+    for id_br, texto in br.items():
+        if (match := _ENCABEZADO_BR.match(texto)) is None or match["id"] != id_br:
+            raise SkillError(f"{folder.name}/{BR_DIR}/{id_br}.md tiene que empezar con «# {id_br}: <título>»")
     datos = _parse_datos(folder / DATOS_FILE)
     extras = {}
     if header.modo == "sub_loop":
