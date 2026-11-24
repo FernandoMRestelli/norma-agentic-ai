@@ -384,6 +384,81 @@ def test_renglones_pendientes_sin_pregunta_se_reintenta():
     assert resultado.message == bueno
 
 
+def test_aclaracion_con_options_sin_listar_opciones():
+    """Issue #107: en aclaración con `options`, un mensaje cortado o sin pregunta/viñetas se rechaza."""
+    opciones = [SKU_SHAMPOO, SKU]
+    cortado = "Elegí el shampoo que querés. Tenés estas opciones para 2 unidades:"
+    assert _reglas(cortado, "aclaracion", options=opciones) == ["pregunta_faltante"]
+    assert _reglas("¿Cuál shampoo querés? Tenés estas opciones:", "aclaracion", options=opciones) == [
+        "pregunta_faltante"
+    ]
+    assert _reglas("Elegí el shampoo que querés.", "aclaracion", options=opciones) == ["pregunta_faltante"]
+
+    # Con viñetas o pregunta completa en prosa -> pasa
+    con_vinetas = "Elegí el shampoo que querés:\n• Shampoo Pantene 400 ml\n• Crema Nivea 100 ml"
+    assert _reglas(con_vinetas, "aclaracion", options=opciones) == []
+    assert _reglas("¿Querés el Shampoo Pantene 400 ml o la Crema Nivea 100 ml?", "aclaracion", options=opciones) == []
+    assert _reglas(cortado, "informacion", options=opciones) == []
+
+
+def test_aclaracion_con_options_se_reintenta():
+    """Issue #107: si el LLM corta el mensaje de aclaración con `options`, el guardrail pide reescribirlo."""
+    opciones = [SKU_SHAMPOO, SKU]
+    malo = "Elegí el shampoo que querés. Tenés estas opciones para 2 unidades:"
+    bueno = "Tenés estas opciones:\n• Shampoo Pantene 400 ml\n• Crema Nivea 100 ml\n¿Cuál preferís?"
+    agent, _ = _agente(
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _responder(malo, kind="aclaracion", options=opciones),
+        _responder(bueno, kind="aclaracion", options=opciones),
+    )
+
+    resultado = agent.handle("1", text="dos shampoo", **CLIENTE)
+
+    rechazo = _resultados(agent, "respond_to_customer")[0]
+    assert rechazo["error"]["details"]["reglas"] == ["pregunta_faltante"]
+    assert "`options`" in rechazo["error"]["message"]
+    assert resultado.message == bueno
+
+
+def test_aclaracion_con_options_intentos_agotados_inyecta_catalogo():
+    """Issue #107: si el LLM agota intentos por `pregunta_faltante`, el backend anexa las opciones del catálogo."""
+    opciones = [SKU_SHAMPOO, SKU]
+    cortado = "Elegí el shampoo que querés. Tenés estas opciones para 2 unidades:"
+    malos = [_responder(cortado, kind="aclaracion", options=opciones) for _ in range(3)]
+    agent, _ = _agente(_ai(_call("leer_skill", nombre="tomar_pedido")), *malos)
+
+    resultado = agent.handle("1", text="dos shampoo", **CLIENTE)
+
+    assert [r["ok"] for r in _resultados(agent, "respond_to_customer")] == [False, False, True]
+    assert resultado.kind == "aclaracion"
+    assert resultado.message.startswith(cortado + "\n• ")
+    assert "Shampoo Pantene 400 ml" in resultado.message
+    assert "Crema Nivea 100 ml" in resultado.message
+    assert "¿Cuál preferís?" in resultado.message
+    assert SKU_SHAMPOO not in resultado.message
+    assert SKU not in resultado.message
+
+
+def test_aclaracion_con_pendientes_intentos_agotados_usa_mensaje_seguro():
+    """Con `pendientes` (varios renglones), al agotar intentos por `pregunta_faltante` sale `MENSAJE_SEGURO`."""
+    pendientes = [
+        {"renglon": 1, "opciones": [SKU_SHAMPOO]},
+        {"renglon": 2, "opciones": [SKU]},
+    ]
+    malos = [
+        _responder("Te paso las dudas que encontré:", kind="aclaracion", pendientes=pendientes)
+        for _ in range(3)
+    ]
+    agent, _ = _agente(_ai(_call("leer_skill", nombre="tomar_pedido")), *malos)
+
+    resultado = agent.handle("1", text="2 shampoo\n1 crema", **CLIENTE)
+
+    assert [r["ok"] for r in _resultados(agent, "respond_to_customer")] == [False, False, True]
+    assert resultado.kind == "aclaracion"
+    assert resultado.message == guardrails.MENSAJE_SEGURO
+    assert "¿Cuál preferís?" not in resultado.message
+
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Intentos agotados y texto suelto
 # ---------------------------------------------------------------------------------------------------------------------

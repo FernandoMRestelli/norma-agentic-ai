@@ -616,8 +616,20 @@ def _regla_numero_de_renglon(texto: str) -> Rechazo | None:
     return None
 
 
-def _regla_pregunta(texto: str, pendientes: list[int]) -> Rechazo | None:
-    """Con renglones pendientes, el mensaje tiene que preguntar: el cliente no ve `pendientes`."""
+_TIENE_VINETA = re.compile(r"(?m)^\s*(?:[•\-*]|\d+[.)])\s+\S")
+
+
+def _regla_pregunta(
+    texto: str,
+    pendientes: list[int],
+    kind: str = "",
+    options: list[str] | None = None,
+) -> Rechazo | None:
+    """Con renglones pendientes o aclaración con opciones, el mensaje tiene que mostrar las opciones/pregunta.
+
+    El cliente no ve los campos `pendientes` ni `options`: si el modelo anuncia opciones («Tenés estas opciones:»)
+    sin escribirlas, le llega un mensaje cortado (Issue #107).
+    """
     if pendientes and "?" not in texto:
         numeros = ", ".join(str(n) for n in pendientes)
         return Rechazo(
@@ -625,6 +637,14 @@ def _regla_pregunta(texto: str, pendientes: list[int]) -> Rechazo | None:
             f"El cliente no ve `pendientes`: escribí en el mensaje la pregunta de cada renglón pendiente ({numeros}), "
             "con sus opciones, una por renglón con una viñeta (•)",
         )
+    if kind == "aclaracion" and options and not pendientes:
+        tiene_vinetas = bool(_TIENE_VINETA.search(texto))
+        if (texto.rstrip().endswith(":") and not tiene_vinetas) or ("?" not in texto and not tiene_vinetas):
+            return Rechazo(
+                "pregunta_faltante",
+                "El cliente no ve el campo `options`: escribí en el mensaje las opciones comerciales con su nombre y "
+                "medida (una por renglón con viñeta •) y preguntale cuál prefiere",
+            )
     return None
 
 
@@ -664,7 +684,7 @@ def validar_salida(
         _regla_precios(message, propuesta, vigente, turno),
         _regla_promesas(normalizado, descuento_autorizado),
         _regla_formato(message),
-        _regla_pregunta(message, pendientes or []),
+        _regla_pregunta(message, pendientes or [], kind, options),
         _regla_numero_de_renglon(message),
     )
     return [rechazo for rechazo in reglas if rechazo is not None]

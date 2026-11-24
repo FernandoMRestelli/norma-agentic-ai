@@ -10,6 +10,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Corregido
 
+- En respuestas de aclaración (`kind="aclaracion"`) con `options`, el guardrail `pregunta_faltante` ahora rechaza mensajes cortados (p. ej. terminados en «:» sin viñetas o sin pregunta) para que el modelo liste las opciones; si agota los reintentos por esta regla, el backend anexa automáticamente la lista legible desde el catálogo (Issue #107).
 - Al reactivar una conversación derivada desde el dashboard se vence cualquier conversación abierta más nueva del cliente y se descartan sus borradores pendientes, evitando duplicados; el contador de aclaraciones y fallas se reinicia limpiamente.
 - El guardrail de promesas comerciales con descuento autorizado no permite promesas adicionales (como entrega gratis, bonificaciones o promociones) en la misma oración.
 - Los contadores de aclaraciones consecutivas y fallas se actualizan solo en turnos terminales y se reinician tras turnos exitosos (CA-21, RF-27).
