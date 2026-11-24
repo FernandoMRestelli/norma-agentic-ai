@@ -9,7 +9,7 @@
 | | |
 |---|---|
 | Versión | 0.1, borrador para revisión |
-| Fecha | 2026-10-29 |
+| Fecha | 2026-10-29, revisada contra el código de la 0.1.1 el 2026-11-10 |
 | Base | Plan de Fernando ([`docs/Flujo completo de Norma Agentic AI.png`](../Flujo%20completo%20de%20Norma%20Agentic%20AI.png)), [`architecture.md`](../architecture.md), [`roadmap.md`](../roadmap.md) y el código de `develop` |
 | Partes | Esta spec maestra, la [spec del agente](agente.md) (loop, estados, tools, errores, memoria y código) y la del [canal Telegram para la beta](canal-telegram.md) |
 | Cómo se cambia | Por PR, como cualquier cambio (ver [§1](#1-cómo-trabajamos-con-sdd)) |
@@ -108,7 +108,7 @@ orden clara para que el equipo la prepare.
 
 | Actor | Qué hace |
 |---|---|
-| **Cliente** | Pide por WhatsApp o chat web; confirma o corrige el borrador |
+| **Cliente** | Pide por WhatsApp o chat web (en la beta, por Telegram); confirma o corrige el borrador |
 | **Equipo de Norma** | Prepara los pedidos, actualiza su estado y mira el dashboard; atiende las conversaciones derivadas |
 | **Sistema** (backend) | Orquesta la conversación, valida, confirma y registra |
 | **Agente** (LLM + tools) | Interpreta el pedido y arma el borrador o pregunta |
@@ -162,7 +162,7 @@ La base es el plan de Fernando, con sus 8 pasos. Lo que cambia respecto de la im
 | Paso | Qué pasa | Componente |
 |---|---|---|
 | 1 · Cliente | Envía texto, audio o imagen | WhatsApp / chat web |
-| 2 · Recepción | Recibe y autentica el mensaje | `api/whatsapp_webhook.py`, `api/chat.py` |
+| 2 · Recepción | Recibe y autentica el mensaje | `api/whatsapp_webhook.py`, `api/chat.py`; en la beta, `api/telegram_webhook.py` y `telegram_polling.py` |
 | 2½ · Orquestación | Carga la conversación y decide qué hacer con el evento (**nuevo**, C-05) | `services/conversation_service.py` |
 | 3 · Procesamiento de entrada | Audio → texto, imagen → texto, normalización | `services/message_service.py` |
 | 4 · Agente Norma | Interpreta y arma el borrador o pregunta, con tools | `agent/`, `tools/`, `services/interpretation_service.py` |
@@ -200,17 +200,20 @@ El diseño detallado del agente, el orquestador y la organización del código e
 
 | Componente | Archivos | Responsabilidad | No hace |
 |---|---|---|---|
-| Entradas | `api/chat.py`, `api/whatsapp_webhook.py` | HTTP, firma de Meta, deduplicación, respuesta rápida | Lógica de negocio |
-| Orquestador | `services/conversation_service.py` | Estados de la conversación, lock, persistencia del turno | Interpretar lenguaje |
+| Entradas | `api/chat.py`, `api/whatsapp_webhook.py`, `api/telegram_webhook.py` | HTTP, firma de Meta, secret de Telegram, deduplicación, respuesta rápida | Lógica de negocio |
+| Gestión de órdenes | `api/orders.py` | Consultar y cancelar órdenes con token de operador (RF-20) | Crear órdenes |
+| Orquestador | `services/conversation_service.py`, `services/palabras_clave.py` | Estados de la conversación, lock, persistencia del turno; reconoce `OK` y `CONFIRMAR` exactos | Interpretar lenguaje |
 | Preprocesamiento | `services/message_service.py` | Normalizar texto, transcribir audio, leer imágenes | Decidir productos |
 | Agente | `agent/` | Loop LLM ↔ tools de un turno | Registrar algo distinto de la propuesta vigente |
 | Tools | `tools/` | Acciones controladas con contratos ([agente §4](agente.md#4-tools)) | Llamar al LLM |
-| Skills y BR | `skills/`, `services/skill_service.py` (nuevo) | Recetas y reglas que el agente lee, y permisos por skill | Reemplazar los controles del backend |
+| Skills y BR | `skills/`, `services/skill_service.py` | Recetas y reglas que el agente lee, y permisos por skill | Reemplazar los controles del backend |
 | Interpretación | `services/interpretation_service.py` | Completar y validar líneas contra el catálogo | Elegir productos |
-| Confirmación | `services/validation_service.py` | Resumen del borrador | Crear órdenes |
-| Negocio | `services/order_service.py` | Confirmar: revalidar stock y crear la orden una sola vez | — |
+| Confirmación | `services/validation_service.py` | Detalle de la propuesta, resumen del borrador y mensaje de la orden registrada | Crear órdenes |
+| Negocio | `services/order_service.py` | Confirmar: revalidar stock y crear la orden una sola vez; cancelar | — |
+| Inventario | `services/inventory_service.py` | Stock neto: descuenta las unidades de las órdenes activas (RF-14) | Escribir en Sheet 1 |
 | Google Sheets | `services/sheets_service.py` | Leer Sheet 1 (con caché), escribir Sheet 2 | — |
 | WhatsApp | `services/whatsapp_service.py` (nuevo) | Enviar mensajes, descargar multimedia | — |
+| Telegram (beta) | `services/telegram_service.py`, `telegram_polling.py` | Traducir updates, lista blanca, deduplicar y responder ([spec del canal](canal-telegram.md)) | — |
 | Dashboard | `api/dashboard.py`, `services/dashboard_service.py` (nuevos) | Indicadores y listados con autenticación | Escribir datos |
 | Contratos | `schemas/` | Modelos compartidos ([§5](#5-contratos-de-datos)) | — |
 | Persistencia | `database/` | Base interna SQLite | — |
@@ -225,9 +228,9 @@ La imagen de Fernando es la base. Estos son los puntos en los que la spec la cam
 | C-01 | Base de datos local **opcional** | **Obligatoria** (SQLite en `data/`) | Sin base no hay forma de garantizar una sola orden por confirmación (`draft_id` único), ni de guardar el estado de la conversación entre mensajes |
 | C-02 | Estados del dashboard: Confirmado / En proceso / Pendiente | `Recibido` / `Preparado` / `Retirado` / `Cancelado` (`OrderStatus`) | Ya están en el código, el roadmap y `pedidos.csv`; «Pendiente» y «Confirmado» se confunden con los estados del borrador |
 | C-03 | Sheet 2: Cliente, Fecha/Hora, Productos, Cantidades, Descripción, Estado | Columnas de [`pedidos.csv`](../../data_example/pedidos.csv): `id_orden`, `fecha_hora`, `cliente`, `canal`, `productos`, `notas`, `estado` | Hace falta el ID para seguir y deduplicar, y el canal para responder; cantidades van dentro de `productos` (una fila por pedido) |
-| C-04 | Logo de OpenAI en «LLM» | Proveedor detrás de LangChain (`agent/llm.py`): **Gemini free tier para texto en la beta**; el de producción, sin definir (D-01) | La spec fija qué tiene que soportar; para probar la beta alcanza un modelo gratuito ([canal Telegram §4.3](canal-telegram.md#43-llmclient-y-formato-neutral)) |
+| C-04 | Logo de OpenAI en «LLM» | Proveedor detrás de LangChain (`agent/llm.py`): **un modelo free tier para texto en la beta** (`gemini`, `groq` u `openrouter`, según `LLM_PROVIDER`; `.env.example` trae OpenRouter); el de producción, sin definir (D-01) | La spec fija qué tiene que soportar; para probar la beta alcanza un modelo gratuito ([canal Telegram §4.3](canal-telegram.md#43-llmclient-y-formato-neutral)) |
 | C-05 | El mensaje va de la recepción directo al procesamiento y al agente | Un **orquestador** (`conversation_service.py`) con máquina de estados entre la API y el agente | El loop «si el cliente corrige, vuelve a interpretación» necesita estado: qué borrador está pendiente, qué se preguntó, cuándo vence |
-| C-06 | «OK / Confirmar» dentro del flujo del agente | El cliente confirma escribiendo, sin botones. `OK` o `CONFIRMAR` exactos no pasan por el LLM; cualquier otra respuesta la interpreta el agente | Se confirma igual en todos los canales, y el LLM solo puede registrar la propuesta vigente |
+| C-06 | «OK / Confirmar» dentro del flujo del agente | El cliente confirma escribiendo, sin botones. Una aceptación exacta (`OK`, `CONFIRMAR`, «dale», «sí», «listo», «de una» o «mandale») no pasa por el LLM; cualquier otra respuesta la interpreta el agente | Se confirma igual en todos los canales, y el LLM solo puede registrar la propuesta vigente |
 | C-07 | Tools: catálogo, inventario, órdenes | Se suman `reply_tools.py` (`respond_to_customer`, `escalate_to_human`) y `discard_order_draft` | Cada turno termina en una tool que define el resultado; así los casos de `mensajes.json` son verificables |
 | C-08 | — | Las tools reciben `customer_id`, `channel` y `draft_id` **inyectados** por el backend | Que el LLM no pueda actuar a nombre de otro cliente ni sobre otro borrador |
 | C-09 | Sin derivación | Derivación **mínima** a una persona (estado `derivada`, visible en el dashboard) | Un asistente que no puede resolver algo necesita una salida; los avisos al equipo siguen en v2 |
@@ -274,8 +277,8 @@ El cliente escribe la corrección («mejor que sean 3»). El agente hace una pro
 ### F6 · Confirmación y registro
 
 El cliente acepta la propuesta conversando («dale»). El agente llama a `armar_pedido`, y `order_service` revalida
-stock, crea la orden en una transacción, responde con el número de orden y agrega la fila en Sheet 2
-([agente §5](agente.md#5-confirmación), RF-13 a RF-19).
+stock, crea la orden en una transacción, responde con el número de orden y agrega la fila en Sheet 2 (hoy, en el
+CSV local de `ORDERS_FILE`, [§5.4](#54-orden-order--google-sheet-2)) ([agente §5](agente.md#5-confirmación), RF-13 a RF-19).
 
 ### F7 · WhatsApp de punta a punta
 
@@ -303,6 +306,7 @@ con la etapa que los usa ([§8](#8-roadmap-por-fases)).
 | Campo | Tipo | Reglas |
 |---|---|---|
 | `customer_id` | `str` | Obligatorio, no vacío (`min_length=1`), sin espacios en extremos. En WhatsApp, el número del cliente; en Telegram, `telegram:<id del usuario>`; en web, ver D-05 |
+| `customer_name` | `str \| None` | Nombre del perfil, si el canal lo da; máximo 64 caracteres |
 | `channel` | `web \| whatsapp \| telegram` | `telegram` es el canal de prueba de la beta (C-14) |
 | `type` | `text \| audio \| image` | Por defecto `text` |
 | `text` | `str \| None` | Obligatorio y no vacío si `type = text` |
@@ -342,8 +346,8 @@ La ruta del catálogo local se configura mediante la variable de entorno `CATALO
 | `status` | `pendiente_confirmacion \| confirmado \| descartado` | Nace `pendiente_confirmacion` |
 | `version` | `int` **(nuevo)** | Empieza en 1, sube con cada corrección (C-13) |
 
-`OrderItem`: `sku` (existente en el catálogo, no vacío), `product_name` (no vacío), `presentation`, `quantity` (1 ≤ quantity ≤ 999),
-`unit_price: Decimal ≥ 0` (precio del catálogo al armar el borrador). Todos los campos de texto recortan espacios automáticamente.
+`OrderItem`: `sku` (existente en el catálogo, no vacío), `product_name` (no vacío), `presentation` (opcional), `quantity` (1 ≤ quantity ≤ 999),
+`unit_price: Decimal ≥ 0 | None` (precio del catálogo al armar el borrador; sin precio, la línea y el total no lo muestran). Todos los campos de texto recortan espacios automáticamente.
 
 > **Precios de la propuesta y de la orden:** las líneas, precios unitarios, subtotales y total que ve el cliente los arma `validation_service` a partir del catálogo, no el LLM: `build_proposal_detail` en cada propuesta (se agrega debajo del mensaje del agente) y `build_order_message` en la orden registrada. El agente escribe solo la introducción, los cambios y las dudas (D-04, RF-11, CA-58).
 
@@ -367,16 +371,27 @@ La ruta del archivo de órdenes local se configura mediante la variable de entor
 
 ### 5.5 Resultado del agente: `AgentOutcome` (cambia: reemplaza a `AgentReply`)
 
-Definido en la [spec del agente](agente.md#92-agentoutcome). Sus valores de `kind` coinciden con
-`esperado.resultado` de [`mensajes.json`](../../data_example/mensajes.json): `borrador`, `aclaracion`,
-`sin_stock`, `fuera_de_catalogo`, más `informacion`, `descartado`, `derivado` y `error`.
+Definido en la [spec del agente](agente.md#92-agentoutcome). Sus valores de `kind` son `propuesta`, `pedido`,
+`aclaracion`, `sin_stock`, `fuera_de_catalogo`, `informacion`, `descartado`, `derivado` y `error`. Se comparan con
+`esperado.resultado` de [`mensajes.json`](../../data_example/mensajes.json), que usa los mismos nombres salvo
+`borrador` (equivale a `propuesta`) y `sin_pedido` (cualquier `kind` que no registra una orden), como hace
+`evaluar_agente`.
 
 ### 5.6 Conversación (nuevo)
 
 `ConversationState`: `esperando_pedido`, `aclarando`, `borrador_pendiente`, `confirmada`, `descartada`, `vencida`,
 `derivada` ([agente §2](agente.md#2-estados-de-la-conversación)).
 
+> **Primer corte:** hoy la conversación solo se guarda como `abierta`, `cerrada` o `fallida` (en `conversations.status`),
+> y la propuesta vigente, el historial y la pausa viven en el estado del grafo del agente (`CHECKPOINT_DB`). Los
+> estados de esta sección llegan con la etapa 04.
+
 ### 5.7 Base interna
+
+> **Primer corte:** hoy existen `conversations` (`id`, `customer_id`, `channel`, `status`, `created_at`,
+> `updated_at`) y `orders`, con las líneas en una columna JSON `items`. Los borradores y los mensajes están en el
+> checkpoint del grafo, y la deduplicación de Telegram es en memoria. La tabla de abajo es el diseño del MVP: las
+> columnas y tablas que faltan entran con la etapa que las usa.
 
 | Tabla | Campos principales | Para qué |
 |---|---|---|
@@ -394,13 +409,17 @@ Definido en la [spec del agente](agente.md#92-agentoutcome). Sus valores de `kin
 | `GET /health` | — | `{"status": "ok"}` | Hecho |
 | `GET /webhook/whatsapp` | `hub.mode`, `hub.verify_token`, `hub.challenge` | `challenge` o `403` | Hecho |
 | `POST /webhook/whatsapp` | Payload de Meta + `X-Hub-Signature-256` | `200` o `403` | Firma hecha; procesamiento pendiente |
+| `POST /webhook/telegram` | Update de Telegram + `X-Telegram-Bot-Api-Secret-Token` | `200` o `403` | Hecho (beta, [spec del canal](canal-telegram.md)) |
 | `POST /chat/messages` | `IncomingMessage` | `{state, outcome: AgentOutcome}` | `501` |
 | `GET /orders/{order_id}` | `order_id`, credencial de operador | `Order` o `404` (`401` sin autenticación) | Hecho |
 | `POST /orders/{order_id}/cancel` | `order_id`, credencial de operador | `Order` o `400`/`404` (`401` sin autenticación) | Hecho |
-| `GET /dashboard/summary` | — | Indicadores de RF-22 | Nuevo |
-| `GET /dashboard/orders?status=&limit=` | — | Últimos pedidos | Nuevo |
-| `GET /dashboard/stock?low=true` | — | Productos y stock | Nuevo |
-| `GET /dashboard/conversations?state=derivada` | — | Conversaciones que requieren atención | Nuevo |
+| `POST /orders/{order_id}/status` | `order_id`, nuevo estado (`Preparado`, `Despachado`, `Retirado`, `Entregado`, `Cancelado`), credencial de operador | `Order` o `400`/`404`/`422` (`401` sin autenticación) | Hecho |
+| `GET /dashboard/summary?period=` | `period`: `all`, `today`, `yesterday`, `7d`, `30d` | Indicadores de RF-22 | Hecho |
+| `GET /dashboard/orders?status=&limit=` | — | Últimos pedidos | Hecho |
+| `GET /dashboard/stock?low=true` | — | Productos y stock | Hecho |
+| `GET /dashboard/conversations?state=derivada` | — | Conversaciones que requieren atención | Hecho |
+| `GET /dashboard/metrics` | `granularity`, `breakdown_by`, `period`, `channel` | KPIs de ventas de RF-83 | Hecho |
+| `GET /dashboard/ui` | — | La página del dashboard (sin token: lo pide la página) | Hecho |
 
 Todos los `/dashboard/*` y `/orders/*` requieren autenticación (RNF-01) mediante token de operador (`OPERATOR_TOKEN`). Sin token configurado responden siempre `401 Unauthorized` (falla cerrado).
 
@@ -438,46 +457,46 @@ Esta versión de la spec está en revisión: todo lo que no está implementado f
 
 | ID | Requisito | Etapa | Estado |
 |---|---|---|---|
-| RF-11 | Con el pedido claro, el agente le propone al cliente lo que entendió y el backend lo guarda validado; al registrarlo, el backend responde con el detalle de producto, presentación, cantidad, precios y total de cada línea (D-04) | 04 | P (resumen y precios: I) |
-| RF-12 | Una corrección actualiza el mismo borrador, sube su versión y muestra un resumen nuevo | 04 | P |
-| RF-13 | Se registra un pedido solo si el cliente acepta la propuesta vigente, aunque sea conversando («dale»); el agente interpreta la aceptación, pero `armar_pedido` solo puede crear lo que el backend guardó como propuesta. `OK` o `CONFIRMAR` exactos se registran sin llamar al LLM | 04 | I |
+| RF-11 | Con el pedido claro, el agente le propone al cliente lo que entendió y el backend lo guarda validado; al registrarlo, el backend responde con el detalle de producto, presentación, cantidad, precios y total de cada línea (D-04) | 04 | I |
+| RF-12 | Una corrección actualiza el mismo borrador, sube su versión y muestra un resumen nuevo | 04 | I |
+| RF-13 | Se registra un pedido solo si el cliente acepta la propuesta vigente, aunque sea conversando («dale»); el agente interpreta la aceptación, pero `armar_pedido` solo puede crear lo que el backend guardó como propuesta. Una aceptación exacta (`OK`, `CONFIRMAR`, «dale», «sí», «listo», «de una» o «mandale») se registra sin llamar al LLM (RF-64), salvo que la respuesta anterior haya dejado una pregunta abierta (RF-99) | 04 | I |
 | RF-14 | Al confirmar se revalida el stock neto de cada línea descontando órdenes activas; si no alcanza, no se crea la orden | 04 | I |
-| RF-15 | Un borrador produce como máximo una orden, aunque la confirmación llegue repetida | 05 | P |
+| RF-15 | Un borrador produce como máximo una orden, aunque la confirmación llegue repetida | 05 | I |
 | RF-16 | Solo se puede registrar la última versión de la propuesta | 04 | I |
-| RF-17 | Cada orden tiene un `order_id` único y correlativo (`ORD-0001`) | 05 | P (formato y validación: I) |
-| RF-18 | Al confirmar, el cliente recibe el número de orden | 05 | P |
+| RF-17 | Cada orden tiene un `order_id` único y correlativo (`ORD-0001`) | 05 | I |
+| RF-18 | Al confirmar, el cliente recibe el número de orden | 05 | I |
 
 ### Registro y seguimiento
 
 | ID | Requisito | Etapa | Estado |
 |---|---|---|---|
 | RF-19 | Cada orden se agrega como una fila en Sheet 2 con el formato de [§5.4](#54-orden-order--google-sheet-2) | 05 | I |
-| RF-20 | Las órdenes siguen `Recibido → Preparado → Retirado`, con opción `Cancelado` desde cualquier estado previo a `Retirado`; cancelar una orden libera sus unidades de stock comprometido | 05 | I |
-| RF-21 | El detalle por ítem de cada orden se guarda en la base interna | 05 | P |
+| RF-20 | Las órdenes siguen `Recibido → Preparado → Retirado` (retira el cliente) o `Recibido → Preparado → Despachado → Entregado` (envío), con opción `Cancelado` desde `Recibido` o `Preparado`; `Retirado`, `Entregado` y `Cancelado` son terminales. Cancelar una orden libera sus unidades de stock comprometido | 05 | I |
+| RF-80 | Al pasar a `Despachado` o `Retirado`, la orden descuenta sus unidades del catálogo local una sola vez (`stock_applied`) y deja de reservarlas. El descuento y el cambio de estado se guardan juntos: si uno falla, no queda ninguno. Con el catálogo en Sheet 1 (solo lectura) o en `data_example/` no se descuenta y la orden sigue reservando | 06 | I |
+| RF-81 | Cada cambio de estado se refleja en el CSV de pedidos y, si está configurada, en Sheet 2. Si la planilla falla, el cambio queda hecho, la orden queda pendiente de sincronizar y el reintento de `sync_pending_orders` aplica el estado | 06 | I |
+| RF-21 | El detalle por ítem de cada orden se guarda en la base interna | 05 | I |
 
-### Observabilidad
-
-| ID | Dado | Cuando | Entonces | RF | Test |
-|---|---|---|---|---|---|
-| CA-56 | `MLFLOW_ENABLED` apagado / prendido | Corre un turno del agente | Apagado: no se importa mlflow y el resultado es el mismo. Prendido: el turno es una traza con un span por llamada al LLM y por tool, con `kind`, iteraciones, skills, tokens, proveedor, modelo y versión del prompt, sin el texto del cliente ni su id | RNF-03, RNF-07, RNF-08 | `test_observabilidad.py::test_apagado_no_importa_mlflow`, `test_observabilidad.py::test_prendido_traza_el_turno_sin_texto` |
-| CA-57 | `MLFLOW_TRACE_TEXT=true` | `APP_ENV` es `development` / otro | La traza suma el mensaje y la respuesta / la app no arranca | RNF-03 | `test_observabilidad.py::test_con_texto_en_desarrollo_guarda_mensaje_y_respuesta`, `test_observabilidad.py::test_texto_en_la_traza_solo_en_desarrollo` |
+Los criterios de observabilidad (CA-56 y CA-57) prueban RNF-03 y RNF-07, y están en [§9](#observabilidad).
 
 ### Dashboard
 
 | ID | Requisito | Etapa | Estado |
 |---|---|---|---|
-| RF-22 | Indicadores: pedidos de hoy, pedidos por estado, productos distintos pedidos hoy y cantidad de productos con stock bajo | 06 | P |
-| RF-23 | Listados: últimos pedidos con estado y hora; stock disponible con marca de stock bajo | 06 | P |
-| RF-24 | Listado de conversaciones derivadas que requieren atención | 06 | P |
-| RF-25 | El dashboard obtiene todo de la API del backend y requiere autenticación | 06 | P |
+| RF-22 | Indicadores: pedidos de hoy, pedidos por estado, productos distintos pedidos hoy y cantidad de productos con stock bajo | 06 | I |
+| RF-23 | Listados: últimos pedidos con estado y hora; stock disponible con marca de stock bajo | 06 | I |
+| RF-24 | Listado de conversaciones derivadas que requieren atención | 06 | I |
+| RF-25 | El dashboard obtiene todo de la API del backend y requiere autenticación | 06 | I |
+| RF-82 | Pedidos del dashboard: la base es la fuente. Los pedidos de Sheet 2 (CSV local) que no están en la base se muestran como solo lectura, sin acciones; una fila con fecha ilegible se saltea. El total de cada pedido usa el precio de la línea o, si no lo tiene, el del catálogo, igual en todas las vistas. `GET /dashboard/summary` acepta `period` (`all`, `today`, `yesterday`, `7d`, `30d`) | 06 | I |
+| RF-83 | Ventas y KPIs (`GET /dashboard/metrics`): facturación total, concretada (`Retirado`, `Entregado`), en curso y cancelada; ticket promedio; tasas de cancelación y de concreción; serie temporal por día, semana, mes o año; desglose por categoría o marca, por canal y por estado; los 10 productos que más facturan y los 10 de más valor en stock sin ventas; valorización del catálogo y salud de stock. Filtros `period` y `channel` | 06 | I |
 
 ### Conversación
 
 | ID | Requisito | Etapa | Estado |
 |---|---|---|---|
-| RF-26 | El cliente puede cancelar un pedido antes de confirmarlo; el borrador queda descartado | 04 | P |
-| RF-27 | La conversación se deriva a una persona si el cliente lo pide, tras 2 fallas o tras 3 aclaraciones seguidas sin borrador | 04 | P |
-| RF-28 | Una conversación abierta vence tras 24 h sin actividad; su borrador queda descartado | 04 | P |
+| RF-26 | El cliente puede cancelar un pedido antes de confirmarlo; el borrador queda descartado | 04 | I |
+| RF-27 | La conversación se deriva a una persona si el cliente lo pide, tras 2 fallas o tras 3 aclaraciones seguidas sin borrador | 04 | I |
+| RF-28 | Una conversación abierta vence tras 24 h sin actividad; su borrador queda descartado | 04 | I |
+| RF-100 | Una conversación nueva arranca sin estado del agente: si `CHECKPOINT_DB` ya guarda uno con su ID (por ejemplo, porque `norma.db` volvió a un backup o se recreó), se descarta. Tampoco se retoma un estado guardado de otro cliente o de otro canal | 04 | I |
 
 ### Canal de prueba: Telegram
 
@@ -488,7 +507,7 @@ Detalle en la [spec del canal](canal-telegram.md).
 | RF-29 | El sistema recibe mensajes de texto, audio y foto por un bot de Telegram, por polling o por webhook con secret token, y solo atiende a los usuarios de la lista blanca | Beta | I |
 | ~~RF-30~~ | ~~En Telegram, una respuesta con borrador lleva los botones Confirmar / Corregir~~ Eliminado: el cliente confirma escribiendo, en todos los canales | Beta | — |
 | RF-31 | Un update de Telegram repetido (mismo `update_id`) se procesa una sola vez | Beta | I |
-| RF-32 | Mientras no haya modelo de visión, un audio o una imagen reciben el pedido de escribirlo, sin llamar al LLM | Beta | I |
+| RF-32 | Un audio, o una imagen sin modelo de visión configurado (`LLM_VISION_PROVIDER`), reciben el pedido de escribirlo, sin llamar al LLM | Beta | I |
 
 ---
 
@@ -505,9 +524,9 @@ Detalle en la [spec del canal](canal-telegram.md).
 | RNF-07 | Observabilidad | Logs estructurados con `conversation_id`, `draft_id`, `order_id`, tools llamadas, iteraciones, latencia y tokens; la versión que corre se ve en `/openapi.json`. Opcional: cada turno como traza en MLflow (`MLFLOW_ENABLED`, apagado por defecto; [spec del agente §10.1](agente.md#101-observabilidad-con-mlflow)) |
 | RNF-08 | Testabilidad | Tests sin red ni Docker; el LLM se reemplaza por un modelo falso; datos sintéticos deterministas; cada CA tiene al menos un test |
 | RNF-09 | Portabilidad | Cambiar de proveedor de LLM es sumar su modelo de LangChain en `agent/llm.py`; cambiar Google Sheets por el sistema real es reemplazar `sheets_service` |
-| RNF-10 | Despliegue | Producción corre la imagen de una release; la configuración va en la imagen y cambiar un parámetro es una release ([CONTRIBUTING](../../CONTRIBUTING.md#producción)) |
+| RNF-10 | Despliegue | Producción corre la imagen de una release; el código y los valores por defecto van en la imagen, y cambiarlos es una release. Fuera de la imagen quedan solo el `.env` (secretos y variables de entorno, como el modelo de LLM o la ruta del catálogo) y los datos ([CONTRIBUTING](../../CONTRIBUTING.md#producción)) |
 | RNF-11 | Experiencia | Español rioplatense, breve y amable; una pregunta por vez; mensajes de WhatsApp dentro de los límites del canal |
-| RNF-12 | Costo | Máximo 15 iteraciones por turno, historial acotado a 20 mensajes y catálogo fuera del contexto (D-07) |
+| RNF-12 | Costo | Máximo 50 iteraciones y 300 s por turno (RNF-16), historial acotado a 20 mensajes y catálogo fuera del contexto (D-07) |
 | RNF-13 | Caché | El catálogo se cachea 5 min para buscar (hasta 1 h si Google no responde); la confirmación siempre lee fresco |
 | RNF-14 | Seguridad | El token del bot de Telegram y las API keys no aparecen en logs, URLs guardadas ni datos persistidos |
 
@@ -522,11 +541,11 @@ Mismas 7 etapas que [`roadmap.md`](../roadmap.md). Cerrar una etapa es una versi
 | Etapa | Meta | Requisitos | Se cierra cuando | Versión | Estado |
 |---|---|---|---|---|---|
 | 01 · Base compartida | Todos pueden ejecutar el proyecto | — | La API levanta en los tres equipos y el CI está en verde | 0.1.0 | ✅ Completa (publicada en 0.1.0) |
-| 02 · Datos del negocio | Consultar catálogo, precios y stock | RF-07, RF-35, RNF-13 | Pasan CA-27, CA-29, CA-53 y CA-55 con el catálogo de ejemplo, y se consulta Sheet 1 real sin tocar código | 0.2.0 | Pendiente |
-| 03 · Agente y pedidos multimodales | Del mensaje al borrador o la pregunta | RF-01, RF-04 a RF-06, RF-08 a RF-10, RF-33, RF-34 | Pasan CA-06 a CA-12, CA-20 y CA-37 a CA-44 con un modelo falso, y los casos de `mensajes.json` con el LLM elegido | 0.3.0 | Pendiente (bloqueada por D-01) |
-| 04 · Confirmación del cliente | Ningún pedido sin confirmación | RF-11 a RF-14, RF-16, RF-26 a RF-28 | Pasan CA-13, CA-14, CA-16, CA-17 y CA-21 a CA-23, CA-28 | 0.4.0 | Pendiente |
-| 05 · Registro y seguimiento | Pedido confirmado = trabajo operativo | RF-15, RF-17 a RF-21 | Pasan CA-15, CA-19 y CA-48 a CA-52 | 0.5.0 | Pendiente |
-| 06 · Dashboard | Ver qué pasa en el negocio | RF-22 a RF-25 | Pasan CA-24 y CA-25 | 0.6.0 | Pendiente (bloqueada por D-02) |
+| 02 · Datos del negocio | Consultar catálogo, precios y stock | RF-07, RF-35, RNF-13 | Pasan CA-27, CA-29, CA-53 y CA-55 con el catálogo de ejemplo, y se consulta Sheet 1 real sin tocar código | 0.2.0 | En curso: pasan los CA; falta Sheet 1 real |
+| 03 · Agente y pedidos multimodales | Del mensaje al borrador o la pregunta | RF-01, RF-04 a RF-06, RF-08 a RF-10, RF-33, RF-34 | Pasan CA-06 a CA-12, CA-20 y CA-37 a CA-44 con un modelo falso, y los casos de `mensajes.json` con el LLM elegido | 0.3.0 | En curso: loop, tools, skills, audio e imagen; faltan chat web y la evaluación (D-01) |
+| 04 · Confirmación del cliente | Ningún pedido sin confirmación | RF-11 a RF-14, RF-16, RF-26 a RF-28 | Pasan CA-13, CA-14, CA-16, CA-17, CA-21 a CA-23, CA-28 | 0.4.0 | ✅ Completa: propuesta, corrección, aceptación, descarte (CA-23), derivación (CA-21, CA-22) y vencimiento (CA-28) |
+| 05 · Registro y seguimiento | Pedido confirmado = trabajo operativo | RF-15, RF-17 a RF-21 | Pasan CA-15, CA-19 y CA-48 a CA-52 | 0.5.0 | En curso: órdenes en SQLite y CSV local; faltan Sheet 2 real y `order_items` |
+| 06 · Dashboard | Ver qué pasa en el negocio | RF-22 a RF-25, RF-80 a RF-83 | Pasan CA-24, CA-25 y CA-135 a CA-142 | 0.6.0 | En curso: dashboard de una página (D-11), estados y KPIs de ventas |
 | 07 · WhatsApp de punta a punta | Operar desde el canal del cliente | RF-02, RF-03 | Pasan CA-05 y CA-18, y un pedido real de prueba por WhatsApp llega al dashboard | 0.7.0 | Pendiente |
 
 Orden sugerido dentro de la etapa 03: primero el loop con texto (orquestador, tools y un modelo falso), después audio e
@@ -549,8 +568,8 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-03 | `WHATSAPP_APP_SECRET` configurado | Llega un POST con firma válida / inválida | `200` / `403` | RF-02 | `test_api.py::test_whatsapp_post_*` |
 | CA-04 | Cualquier canal | Llega un mensaje de texto sin texto, o un audio o imagen sin `media_url` o con `media_url` insegura/privada | Se rechaza (`422` en la API) | RF-01, RNF-02 | `test_orders.py`, `test_api.py` |
 | CA-05 | Un mensaje de WhatsApp ya procesado | Meta lo reenvía con el mismo id | Se responde `200` y no se procesa de nuevo | RF-03 | pendiente |
-| CA-06 | Un audio con un pedido | Llega por cualquier canal | El agente recibe la transcripción marcada como `audio transcripto`; si está vacía, se pide escribirlo sin llamar al LLM | RF-04 | pendiente |
-| CA-07 | Una imagen con un pedido | Llega por cualquier canal | Igual que CA-06, con `imagen leída` | RF-05 | pendiente |
+| CA-06 | Un audio con un pedido | Llega por cualquier canal | El agente recibe la transcripción marcada como `audio transcripto`; si está vacía, se pide escribirlo sin llamar al LLM | RF-04 | `test_audio_service.py` |
+| CA-07 | Una imagen con un pedido | Llega por cualquier canal (hoy solo Telegram baja la foto) | Igual que CA-06, con `imagen leída`; sin texto útil, «No pude entender la imagen, ¿me lo escribís?» sin llamar al LLM | RF-05 | `test_conversation.py::test_imagen_*`, `test_vision.py` |
 | CA-26 | — | Se construyen borradores y órdenes | Un borrador sin ítems o con cantidad ≤ 0 es inválido; nace `pendiente_confirmacion`; los precios son `Decimal` | RF-08 | `test_orders.py`, `test_invariantes.py::test_un_borrador_nace_sin_confirmar` |
 
 ### Interpretación (casos de `data_example/mensajes.json`)
@@ -562,7 +581,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-10 | El catálogo de ejemplo | Llega un caso con `resultado: sin_stock` | El turno termina en `sin_stock` y no se crea borrador con cantidades sin stock | RF-10 | pendiente |
 | CA-11 | El catálogo de ejemplo | Llega `fuera-de-catalogo` | El turno termina en `fuera_de_catalogo` y no aparece ningún SKU inventado | RF-08, RF-10 | pendiente |
 | CA-12 | Una tool de borrador | El LLM pide un SKU que no existe o una cantidad sin stock | La tool devuelve `sku_inexistente` / `stock_insuficiente` y no se guarda nada | RF-08, RF-10 | `test_agent_graph.py::test_propuesta_*` |
-| CA-20 | Un modelo falso que nunca llama a una tool terminal | Corre un turno | Se corta a las 15 iteraciones con mensaje fijo y la conversación suma una falla | RNF-12 | `test_agent_graph.py::test_tope_de_iteraciones` |
+| CA-20 | Un modelo falso que nunca llama a una tool terminal | Corre un turno | Se corta al tope de iteraciones (8, RNF-16) con mensaje fijo y la conversación suma una falla | RNF-12 | `test_agent_graph.py::test_tope_de_iteraciones` |
 | CA-37 | Un turno sin skills activas | El LLM pide `armar_pedido` | Recibe `tool_no_permitida` y no se guarda nada | RF-34 | `test_agent_graph.py::test_armar_pedido_sin_leer_la_skill_no_se_ejecuta`, `test_tools.py` |
 | CA-38 | Un turno en el que se leyó `confirmar_pedido` y después `tomar_pedido` | Se calculan las tools de la iteración siguiente | Se ofrecen las tools de base y las de las dos skills | RF-33, RF-34 | `test_agent_graph.py::test_tools_ofrecidas_dependen_de_la_skill_y_se_reinician` |
 | CA-39 | Un turno anterior leyó una skill | Empieza un turno nuevo | Solo se ofrecen las tools de base; `leer_br` con una BR de esa skill devuelve `br_no_permitida` | RF-34 | `test_agent_graph.py::test_tools_ofrecidas_dependen_de_la_skill_y_se_reinician`, `test_tools.py::test_leer_br_solo_de_skills_leidas` |
@@ -584,21 +603,23 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 
 | ID | Dado | Cuando | Entonces | RF | Test |
 |---|---|---|---|---|---|
-| CA-13 | Un borrador pendiente versión 1 | El cliente corrige una cantidad | El mismo `draft_id` pasa a versión 2, el resumen nuevo muestra cada ítem, sigue pendiente | RF-11, RF-12 | `test_invariantes.py::test_el_resumen_muestra_cada_item_del_borrador` (resumen); resto pendiente |
+| CA-13 | Un borrador pendiente versión 1 | El cliente corrige una cantidad | El mismo `draft_id` pasa a versión 2, el resumen nuevo muestra cada ítem, sigue pendiente | RF-11, RF-12 | `test_invariantes.py::test_el_resumen_muestra_cada_item_del_borrador`, `test_agent_graph.py::test_correccion_sube_la_version_del_mismo_borrador` |
 | CA-14 | Una propuesta en versión 2 | El cliente acepta | La orden se crea con las líneas de la versión 2 | RF-16 | `test_agent_graph.py` |
 | CA-15 | Un borrador pendiente | La aceptación llega dos veces (reintento) | Se crea una sola orden, las dos respuestas tienen el mismo `order_id` y hay una sola fila en Sheet 2 | RF-15 | `test_agent_graph.py::test_reintento_no_duplica_la_orden` |
 | CA-16 | Un borrador cuyo stock se agotó después de armarlo por órdenes concurrentes | El cliente confirma | No se crea orden, se informa qué línea no alcanza, la conversación sigue en `borrador_pendiente` y se rechaza la sobreventa | RF-14 | `test_inventory.py` |
 | CA-17 | Una propuesta vigente | El cliente escribe «dale» | Se crea una sola orden con lo propuesto. Si escribe «dale, pero 2» o «no, gracias», no se crea orden | RF-13 | `test_agent_graph.py`; interpretación real: casos de `mensajes.json` |
-| CA-18 | Una propuesta vigente | El cliente responde exactamente `OK` o `CONFIRMAR` | Se registra sin llamar al LLM. Si el stock ya no alcanza, responde el agente. Sin propuesta vigente, el mensaje va al agente | RF-13 | `test_agent_graph.py` |
+| CA-18 | Una propuesta vigente | El cliente responde con una aceptación exacta (`OK`, `CONFIRMAR`, «dale», «sí», «listo», «de una» o «mandale») | Se registra sin llamar al LLM. Si el stock ya no alcanza, responde el agente. Sin propuesta vigente, o si la respuesta anterior preguntó algo (CA-164), el mensaje va al agente | RF-13 | `test_agent_graph.py` |
 | CA-19 | Una orden confirmada | Sheet 2 falla al escribir y después vuelve | La orden existe en la base con `sheets_synced = false` y el reintento agrega una sola fila con las columnas de `pedidos.csv` | RF-19, RNF-04 | `test_orders.py::test_confirm_draft_falla_sheets_resiliente_y_reintento` (I) |
-| CA-21 | Una conversación con una falla previa | Ocurre una segunda falla | La conversación pasa a `derivada` y el bot no responde a ese cliente por 24 h | RF-27 | pendiente |
-| CA-22 | Cualquier conversación abierta | El cliente pide hablar con una persona | El turno termina en `derivado` | RF-27 | pendiente |
-| CA-23 | Un borrador pendiente | El cliente dice que ya no lo quiere | El borrador queda `descartado`, la conversación `descartada` y no hay orden | RF-26 | pendiente |
-| CA-28 | Una conversación abierta sin actividad | Pasan 24 h | Queda `vencida` y el siguiente mensaje abre una conversación nueva | RF-28 | pendiente |
+| CA-21 | Una conversación con una falla previa | Ocurre una segunda falla | La conversación pasa a `derivada` y el bot no responde a ese cliente por 24 h | RF-27 | `test_conversation.py::test_derivada_a_humano_silencia_al_bot_durante_24h`, `test_agent_graph.py::test_segunda_falla_termina_la_conversacion` |
+| CA-22 | Cualquier conversación abierta | El cliente pide hablar con una persona | El turno termina en `derivado` | RF-27 | `test_agent_graph.py::test_solicitud_humano_usa_escalate_to_human`, `test_tools.py::test_tool_escalate_to_human` |
+| CA-23 | Un borrador pendiente | El cliente dice que ya no lo quiere | El borrador queda `descartado`, la conversación `descartada` y no hay orden | RF-26 | `test_conversation.py::test_cancelacion_deterministica_descarta_borrador_y_cierra_conversacion`, `test_tools.py::test_tool_discard_order_draft` |
+| CA-28 | Una conversación abierta sin actividad | Pasan 24 h | Queda `vencida` y el siguiente mensaje abre una conversación nueva | RF-28 | `test_conversation.py::test_conversacion_abierta_vence_tras_24_horas` |
+| CA-165 | `CHECKPOINT_DB` guarda una propuesta pendiente con el ID que recibe una conversación nueva, porque `norma.db` se recreó | El cliente escribe «dale» | El agente arranca sin ese historial ni esa propuesta, no se registra ninguna orden y el log avisa con el ID de la conversación, sin el texto | RF-100 | `test_agent_graph.py::test_conversacion_nueva_no_hereda_el_estado_guardado` |
+| CA-166 | Una conversación abierta cuyo estado guardado es de otro cliente o de otro canal | El cliente escribe | El agente arranca sin ese estado y el log avisa con el ID de la conversación | RF-100 | `test_agent_graph.py::test_no_retoma_el_estado_de_otro_cliente` |
 | CA-48 | Un request a `/orders/*` | Llega sin credencial o con token inválido | Se rechaza con `401 Unauthorized` | RF-20, RNF-01 | `test_api_orders.py::test_orders_endpoints_requieren_autenticacion` |
 | CA-49 | Una orden registrada | Se consulta por `GET /orders/{order_id}` con token de operador | Devuelve `200` con los datos de la orden; si no existe, `404` | RF-20 | `test_api_orders.py::test_get_order_*` |
 | CA-50 | Una orden activa | Se cancela por `POST /orders/{order_id}/cancel` con token de operador | Pasa a `Cancelado`, devuelve `200` y libera sus unidades comprometidas del stock disponible | RF-20 | `test_api_orders.py::test_cancel_order_api_success_and_frees_stock` |
-| CA-51 | Una orden inexistente o en estado terminal (`Cancelado`, `Retirado`) | Se cancela por `POST /orders/{order_id}/cancel` con token de operador | Devuelve `404` (inexistente) o `400` (ya terminal) | RF-20 | `test_api_orders.py::test_cancel_order_api_*` |
+| CA-51 | Una orden inexistente, en estado terminal (`Cancelado`, `Retirado`, `Entregado`) o `Despachado` | Se cancela por `POST /orders/{order_id}/cancel` o `POST /orders/{order_id}/status` con token de operador | Devuelve `404` (inexistente) o `400` (no se puede cancelar) | RF-20 | `test_api_orders.py::test_cancel_order_api_*`, `test_dashboard.py::test_update_order_status_workflow_and_stock_deduction` |
 | CA-52 | Una orden en el backend | Se cancela mediante la tool `cancelar_pedido` | Devuelve la orden cancelada, o lanza `ToolFailure("orden_invalida")` si no existe o es terminal | RF-20 | `test_api_orders.py::test_order_tools_cancelar_pedido` |
 | CA-53 | Carga de catálogo local | Se configura `CATALOG_FILE` con una ruta existente o inexistente | Se carga el archivo indicado; si no existe, recurre a `data_example/catalogo.csv` como fallback | RF-07 | `test_catalog.py::test_get_catalog_configurable_y_fallback` |
 
@@ -609,17 +630,35 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-30 | `TELEGRAM_WEBHOOK_SECRET` configurado / sin configurar | Llega un POST con el secret correcto, incorrecto o sin header | `200` / `403` / `403`; sin secret configurado, siempre `403` | RF-29 | `test_telegram.py::test_webhook_*` |
 | CA-31 | Un usuario fuera de la lista blanca | Escribe al bot | Recibe un texto fijo con su id y el mensaje no llega al orquestador | RF-29 | `test_telegram.py::test_usuario_fuera_de_la_lista_blanca` |
 | CA-32 | Un update ya procesado | Llega otra vez con el mismo `update_id` | No se procesa ni se responde de nuevo | RF-31 | `test_telegram.py::test_update_repetido_se_procesa_una_vez` |
-| CA-33 | Un integrante de la lista blanca | Manda texto, un audio o una foto | Llega como `IncomingMessage` `text`, `audio` o `image` con `media_url = telegram:<file_id>`; audio y foto reciben el pedido de escribirlo | RF-29, RF-32 | `test_telegram.py::test_traduce_*`, `test_conversation.py`, `test_orders.py::test_incoming_message_*telegram*` |
+| CA-33 | Un integrante de la lista blanca | Manda texto, un audio o una foto | Llega como `IncomingMessage` `text`, `audio` o `image` con `media_url = telegram:<file_id>`; el audio, y la foto sin `LLM_VISION_PROVIDER`, reciben el pedido de escribirlo; con él, la foto se baja con `getFile` y se lee (CA-07) | RF-29, RF-32 | `test_telegram.py::test_traduce_*`, `test_conversation.py`, `test_orders.py::test_incoming_message_*telegram*` |
 | ~~CA-34~~ | ~~Botones Confirmar / Corregir en Telegram~~ Eliminado: el cliente confirma escribiendo, en todos los canales | — | — | ~~RF-30~~ | — |
 | CA-35 | Un `AIMessage` de Gemini con tool calls | Vuelve al modelo dentro del mismo turno | Se reenvía completo, sin reconstruirlo, para conservar las firmas | RNF-09 | `test_agent_graph.py` |
-| CA-36 | `LLM_PROVIDER` = `gemini` / vacío / otro | Se pide el modelo | `ChatGoogleGenerativeAI` / error que dice qué variable falta / error de proveedor no soportado | RNF-09 | `test_llm.py` |
+| CA-36 | `LLM_PROVIDER` = `gemini`, `groq`, `openrouter` u `openai` / vacío / otro | Se pide el modelo | `ChatGoogleGenerativeAI`, `ChatGroq`, `ChatOpenAI` apuntado a OpenRouter o `ChatOpenAI` de OpenAI / error que dice qué variable falta / error de proveedor no soportado | RNF-09 | `test_llm.py` |
+
+### Observabilidad
+
+| ID | Dado | Cuando | Entonces | RF | Test |
+|---|---|---|---|---|---|
+| CA-56 | `MLFLOW_ENABLED` apagado / prendido | Corre un turno del agente | Apagado: no se importa mlflow y el resultado es el mismo. Prendido: el turno es una traza con un span por llamada al LLM y por tool, con `kind`, iteraciones, skills, tokens, proveedor, modelo y versión del prompt, sin el texto del cliente ni su id | RNF-03, RNF-07, RNF-08 | `test_observabilidad.py::test_apagado_no_importa_mlflow`, `test_observabilidad.py::test_prendido_traza_el_turno_sin_texto` |
+| CA-57 | `MLFLOW_TRACE_TEXT=true` | `APP_ENV` es `development` / otro | La traza suma el mensaje y la respuesta / la app no arranca | RNF-03 | `test_observabilidad.py::test_con_texto_en_desarrollo_guarda_mensaje_y_respuesta`, `test_observabilidad.py::test_texto_en_la_traza_solo_en_desarrollo` |
+| CA-167 | `docker-compose.prod.yml`, con cualquier `.env` | Se levanta producción | El catálogo es `data/catalogo.csv`, cada turno queda en MLflow sin el texto de los mensajes, y MLflow se publica solo en 127.0.0.1 y no ve `data/` ni `credentials/` | RNF-03, RNF-07, RNF-10 | `test_compose_prod.py` |
+| CA-168 | MLflow prendido | Llega un audio | La transcripción queda en una traza `transcripcion_audio` con proveedor, modelo, segundos y cantidad de palabras, enlazada con la del turno por `mensaje_id` y sin el texto; si falla, con el tipo de error | RNF-03, RNF-07 | `test_observabilidad.py::test_transcripcion_*` |
+| CA-169 | MLflow no respondió al primer intento | Pasa un minuto y llega otro mensaje | Se vuelve a conectar sin reiniciar el proceso; mientras tanto el agente responde igual, sin trazas | RNF-07 | `test_observabilidad.py::test_mlflow_caido_al_arrancar_se_reintenta` |
 
 ### Dashboard
 
 | ID | Dado | Cuando | Entonces | RF | Test |
 |---|---|---|---|---|---|
-| CA-24 | — | Se pide `/dashboard/*` sin token o con uno inválido | `401` | RF-25 | pendiente |
-| CA-25 | El catálogo y los pedidos de ejemplo | Se pide `/dashboard/summary` | Productos con stock bajo = 3 (`CE-SED-340`, `ALG-EST-140`, `TIN-KOL-71`) y pedidos por estado = 2 `Recibido`, 2 `Preparado`, 2 `Retirado`, 1 `Cancelado` | RF-22, RF-23 | pendiente |
+| CA-24 | — | Se pide `/dashboard/*` sin token o con uno inválido | `401` | RF-25 | `tests/test_dashboard.py::test_dashboard_endpoints_require_authentication` |
+| CA-25 | El catálogo y los pedidos de ejemplo | Se pide `/dashboard/summary` | Productos con stock bajo = 3 (`CE-SED-340`, `ALG-EST-140`, `TIN-KOL-71`) y pedidos por estado = 2 `Recibido`, 2 `Preparado`, 2 `Retirado`, 1 `Cancelado` | RF-22, RF-23 | `tests/test_dashboard.py::test_dashboard_summary_datos_ejemplo` |
+| CA-135 | Una orden `Recibido` con stock en un catálogo local | Pasa a `Preparado`, `Despachado` y `Entregado` por `POST /orders/{order_id}/status` | Cada paso queda en el historial; al despachar el catálogo baja una vez, `stock_applied` queda en `true` y la orden deja de reservar | RF-20, RF-80 | `tests/test_dashboard.py::test_update_order_status_workflow_and_stock_deduction` |
+| CA-136 | El catálogo en Sheet 1 / en `data_example/catalogo.csv` | Una orden pasa a `Despachado` o `Retirado` | El archivo no cambia, `stock_applied` queda en `false` y la orden sigue reservando | RF-80 | `tests/test_dashboard.py::test_con_el_catalogo_en_sheet_1_no_se_descuenta`, `tests/test_dashboard.py::test_el_catalogo_de_ejemplo_no_se_descuenta` |
+| CA-137 | Una orden `Preparado` | Falla el guardado del cambio a `Despachado` en la base | El catálogo vuelve a como estaba, la orden sigue `Preparado` y un segundo intento descuenta una sola vez | RF-80 | `tests/test_dashboard.py::test_si_falla_la_base_el_catalogo_no_queda_descontado` |
+| CA-138 | Una orden registrada | Falla la planilla al cambiarle el estado | La API responde `200` con el estado nuevo, la orden queda con `sheets_synced = false` y `sync_pending_orders` escribe el estado en la planilla | RF-81 | `tests/test_dashboard.py::test_si_falla_la_planilla_el_estado_se_reintenta` |
+| CA-139 | Pedidos en la base y en el CSV de pedidos, uno solo en el CSV / una fila con fecha ilegible | Se pide `/dashboard/orders` | Aparecen todos, sin duplicar; el que está solo en el CSV viene con `read_only = true` / la fila ilegible no aparece | RF-82 | `tests/test_dashboard.py::test_pedidos_del_csv_que_no_estan_en_la_base_son_de_solo_lectura`, `tests/test_dashboard.py::test_fila_con_fecha_ilegible_se_saltea` |
+| CA-140 | Una línea sin precio de un producto del catálogo | Se piden `/dashboard/orders` y `/dashboard/metrics` | Las dos vistas dan el mismo total, con el precio del catálogo | RF-82, RF-83 | `tests/test_dashboard.py::test_linea_sin_precio_usa_el_del_catalogo_en_todas_las_vistas` |
+| CA-141 | Pedidos de distintos días, canales y estados | Se pide `/dashboard/metrics` con `granularity`, `breakdown_by`, `period` y `channel` / `/dashboard/summary?period=` | Facturación, serie, desgloses y KPIs coinciden con los pedidos del período y canal | RF-82, RF-83 | `tests/test_dashboard.py::test_dashboard_metrics_revenue_granularity_and_breakdown`, `tests/test_dashboard.py::test_dashboard_summary_period_filtering_and_metrics_yesterday` |
+| CA-142 | La pestaña Conversaciones del dashboard | Carga | Pide solo las conversaciones `derivada` (RF-24) | RF-24 | `tests/test_dashboard.py::test_la_ui_pide_solo_conversaciones_derivadas` |
 
 ---
 
@@ -629,16 +668,17 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 
 | ID | Tema | Estado | Detalle |
 |---|---|---|---|
-| D-01 | Proveedor de LLM | **Tomada en parte**: LangGraph y LangChain para el loop, con Gemini free tier para texto en la beta ([canal Telegram §7](canal-telegram.md#7-decisiones-y-riesgos)). Audio, imagen y producción siguen abiertos | Tiene que soportar tool calling con JSON Schema, buen español, y transcripción de audio y lectura de imágenes (o usar otro servicio para eso). Criterios: aciertos en `mensajes.json`, latencia (RNF-06) y costo por pedido |
-| D-02 | Tecnología del frontend | **Abierta**, bloquea la etapa 06 | Chat web y dashboard en `frontend/src/` |
+| D-01 | Proveedor de LLM | **Tomada en parte**: LangGraph y LangChain para el loop, con un modelo free tier para texto en la beta: Gemini, Groq u OpenRouter según `LLM_PROVIDER`; `.env.example` trae OpenRouter y deja Gemini como alternativa ([canal Telegram §7](canal-telegram.md#7-decisiones-y-riesgos)). Para texto también está la API paga de OpenAI (`LLM_PROVIDER=openai`, ej. `gpt-6-luna`), sin el límite diario de los free tier. Imagen, en prueba: un modelo local de Hugging Face (Qwen3-VL 2B) o una API, comparados con `internal.comparar_vision`. Audio y producción siguen abiertos | Tiene que soportar tool calling con JSON Schema, buen español, y transcripción de audio y lectura de imágenes (o usar otro servicio para eso). Criterios: aciertos en `mensajes.json`, latencia (RNF-06) y costo por pedido |
+| D-02 | Tecnología del frontend | **Abierta** para el chat web; el dashboard de la beta se resolvió sin framework (D-11) | Chat web y dashboard en `frontend/src/` |
 | D-03 | Servidor de producción | **Tomada en parte**: por ahora cada integrante corre producción en el Docker de su máquina (`~/norma-prod`), con su propio bot de Telegram y su propia API | Sigue abierto un servidor siempre prendido para el bot beta compartido (ver `MEJORAS.md`, próximos pasos) |
-| D-04 | ¿El resumen muestra precios y total? | **Tomada** | Sí: el resumen del borrador (`build_summary`), el mensaje de confirmación (`build_order_message`) y la propuesta del agente incluyen precio unitario y total estimado cuando están disponibles en el catálogo. |
+| D-04 | ¿El resumen muestra precios y total? | **Tomada** | Sí: el resumen del borrador (`build_summary`), el detalle debajo de cada propuesta (`build_proposal_detail`) y el mensaje de la orden registrada (`build_order_message`) incluyen precio unitario, subtotal y total cuando están en el catálogo. Los arma `validation_service`, no el LLM ([§5.3](#53-borrador-orderdraft-orderitem)) |
 | D-05 | Identidad del cliente en el chat web | **Abierta** | Propuesta: un id anónimo que genera el backend y el navegador guarda; sin cuentas de usuario |
-| D-06 | Dónde se cambia el estado de una orden | Tomada en esta spec, a revisar | En el MVP el equipo lo cambia en Sheet 2 y el dashboard lo lee de ahí; la base guarda la orden y su estado inicial |
-| D-07 | Parámetros del agente | Tomada en esta spec, a revisar | 15 iteraciones por turno, 20 mensajes de historial, 24 h de vencimiento y de silencio tras derivar, 2 fallas o 3 aclaraciones para derivar, 30 s de timeout, caché de 5 min; se ajustan con uso real |
+| D-06 | Dónde se cambia el estado de una orden | **Tomada** | En el dashboard: la base es la fuente y el cambio se copia al CSV de pedidos y a Sheet 2 (RF-81). Un cambio hecho a mano en Sheet 2 no vuelve a la base |
+| D-07 | Parámetros del agente | Tomada en esta spec, a revisar | 50 iteraciones y 300 s por turno, configurables (fueron 15 y después 8; RNF-16), 20 mensajes de historial, 24 h de vencimiento y de silencio tras derivar, 2 fallas o 3 aclaraciones para derivar, 30 s de timeout, caché de 5 min; se ajustan con uso real |
 | D-08 | Retención de conversaciones | **Abierta** | Propuesta: 90 días |
 | D-09 | BR usadas por varias skills | Cerrada | No hay BR compartidas: las que se usan juntas (BR-01, BR-03, BR-04 y BR-05) quedaron en `tomar_pedido`, y BR-02 está en el system prompt. Si otra skill necesita una, lee `tomar_pedido`, como ya hace `confirmar_pedido` con BR-01 |
-| D-10 | Trazas y evaluación del agente | **Tomada en parte**: MLflow, apagado por defecto y solo en desarrollo (`docker compose --profile mlflow`), sin el texto de los mensajes | Producción sigue abierta: el servidor de MLflow no tiene login y la retención de las trazas depende de D-08 |
+| D-10 | Trazas y evaluación del agente | **Tomada en parte**: MLflow en desarrollo (`docker compose --profile mlflow`, apagado por defecto) y, desde la 0.2.0, en la producción local de cada integrante (`docker-compose.prod.yml`, siempre prendido, publicado solo en 127.0.0.1), sin el texto de los mensajes | Siguen abiertos el login del servidor, si se publica fuera de la máquina (D-03), y la retención de las trazas, que depende de D-08 |
+| D-11 | Dashboard sin build | **Tomada para la beta** | Una sola página (`frontend/src/Dashboard/index.html`) con Tailwind y Chart.js desde CDN, sin paso de build. El token de operador queda en `localStorage` del navegador: aceptable para una beta interna en equipos del negocio. Para producción: servir los assets locales y revisar el guardado del token |
 
 ### 10.2 Riesgos
 

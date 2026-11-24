@@ -11,8 +11,6 @@
       "Read(./.env.production)",
       "Read(./.env.test)",
       "Read(./credentials/**)",
-      "Read(./data/*.db*)",
-      "Read(./data/**/*.db*)",
       "Read(./data/**/*.vcf)"
     ]
   }

@@ -418,5 +418,195 @@
     "esperado": {
       "resultado": "sin_pedido"
     }
+  },
+  {
+    "id": "conversacion-aclara-medida-y-acepta",
+    "descripcion": "Saluda, pide algo ambiguo, elige la medida y acepta: cuatro turnos",
+    "previo": [
+      "hola, buen día",
+      "mandame 2 pantene",
+      "el shampoo de 400"
+    ],
+    "mensaje": {
+      "customer_id": "cli-006",
+      "channel": "telegram",
+      "type": "text",
+      "text": "dale"
+    },
+    "esperado": {
+      "resultado": "pedido",
+      "items": [
+        {
+          "sku": "SH-PAN-400",
+          "cantidad": 2
+        }
+      ]
+    }
+  },
+  {
+    "id": "conversacion-elige-tono-y-suma",
+    "descripcion": "Elige el tono que se le preguntó y suma otro producto en el mismo mensaje",
+    "previo": [
+      "3 tinturas koleston"
+    ],
+    "mensaje": {
+      "customer_id": "cli-006",
+      "channel": "telegram",
+      "type": "text",
+      "text": "la 6.1, y sumame 2 oxidantes de 20 vol"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "TIN-KOL-61",
+          "cantidad": 3
+        },
+        {
+          "sku": "OX-KOL-20",
+          "cantidad": 2
+        }
+      ]
+    }
+  },
+  {
+    "id": "conversacion-agotado-y-alternativa",
+    "descripcion": "El tono está agotado y el cliente acepta la alternativa ofrecida",
+    "previo": [
+      "2 koleston 7.1"
+    ],
+    "mensaje": {
+      "customer_id": "cli-007",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "bueno, dame la 6.1 entonces"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "TIN-KOL-61",
+          "cantidad": 2
+        }
+      ]
+    }
+  },
+  {
+    "id": "conversacion-suma-a-pedido-confirmado",
+    "descripcion": "Después de confirmar quiere agregar algo: va en un pedido nuevo, solo con lo nuevo",
+    "previo": [
+      "2 shampoos Pantene 400 por favor",
+      "dale"
+    ],
+    "mensaje": {
+      "customer_id": "cli-007",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "agregale una pasta colgate al pedido que te hice"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "PAS-COL-90",
+          "cantidad": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "conversacion-pregunta-horario-con-propuesta",
+    "descripcion": "Con una propuesta vigente pregunta el horario: no hay dato confirmado y la propuesta sigue",
+    "previo": [
+      "2 shampoos Pantene 400 por favor"
+    ],
+    "mensaje": {
+      "customer_id": "cli-008",
+      "channel": "telegram",
+      "type": "text",
+      "text": "¿hasta qué hora atienden hoy?"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "SH-PAN-400",
+          "cantidad": 2
+        }
+      ]
+    }
+  },
+  {
+    "id": "conversacion-corrige-dos-veces",
+    "descripcion": "Cambia una cantidad y después suma otro producto: cada respuesta cierra distinto",
+    "previo": [
+      "2 shampoos Pantene 400 por favor",
+      "que sean 4"
+    ],
+    "mensaje": {
+      "customer_id": "cli-008",
+      "channel": "telegram",
+      "type": "text",
+      "text": "y sumale 2 acondicionadores pantene"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "SH-PAN-400",
+          "cantidad": 4
+        },
+        {
+          "sku": "AC-PAN-400",
+          "cantidad": 2
+        }
+      ]
+    }
+  },
+  {
+    "id": "pedido-largo-con-una-duda",
+    "descripcion": "Lista agrupada por marca con un renglón dudoso: propone lo claro y pregunta lo otro",
+    "mensaje": {
+      "customer_id": "cli-009",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "Pantene\n2 sh 400\n1 acond\nKoleston\n61/2\nSedal\n3"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "SH-PAN-400",
+          "cantidad": 2
+        },
+        {
+          "sku": "AC-PAN-400",
+          "cantidad": 1
+        },
+        {
+          "sku": "TIN-KOL-61",
+          "cantidad": 2
+        }
+      ]
+    }
+  },
+  {
+    "id": "observacion-sin-bolsa",
+    "descripcion": "Una observación de cómo preparar el pedido no cambia las líneas",
+    "mensaje": {
+      "customer_id": "cli-009",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "2 shampoos pantene 400, sin bolsa por favor"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "SH-PAN-400",
+          "cantidad": 2
+        }
+      ]
+    }
   }
 ]

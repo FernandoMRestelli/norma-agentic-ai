@@ -79,9 +79,10 @@ por token y responde `409 Conflict` al segundo.
 
 1. **Token de tu bot de desarrollo**: en Telegram, `/newbot` en [@BotFather](https://t.me/BotFather).
    Va en `TELEGRAM_BOT_TOKEN`.
-2. **API key del LLM**: gratis en [Google AI Studio](https://aistudio.google.com/apikey). Va en `LLM_API_KEY`
-   (`LLM_PROVIDER=gemini` y `LLM_MODEL` ya vienen en `.env.example`). El free tier usa lo que se manda para
-   mejorar los productos de Google: **solo datos simulados**.
+2. **API key del LLM**: gratis en [OpenRouter](https://openrouter.ai/keys). Va en `LLM_API_KEY`
+   (`LLM_PROVIDER=openrouter` y `LLM_MODEL` ya vienen en `.env.example`). Si el modelo no usa las tools, la
+   alternativa es Gemini con una clave de [Google AI Studio](https://aistudio.google.com/apikey) (está comentada
+   en `.env.example`). Los free tier pueden usar lo que se manda para entrenar: **solo datos simulados**.
 3. Verificar las claves (no las muestra):
 
    ```bash
@@ -103,8 +104,8 @@ sistema trata a cada integrante como un cliente distinto (`telegram:<id>`).
 ## Monitoreo del agente con MLflow (opcional)
 
 [MLflow](https://mlflow.org/) guarda cada turno del agente como una traza: cada llamada al LLM y cada tool, con
-iteraciones, tokens, latencia, skills leídas, proveedor, modelo y versión del prompt. Está apagado por defecto y es
-solo para desarrollo (detalle en la [spec del agente §10.1](docs/spec/agente.md#101-observabilidad-con-mlflow)).
+iteraciones, tokens, latencia, skills leídas, proveedor, modelo y versión del prompt. En desarrollo está apagado por
+defecto; en producción lo levanta `docker-compose.prod.yml` y siempre está prendido (detalle en la [spec del agente §10.1](docs/spec/agente.md#101-observabilidad-con-mlflow)).
 
 1. Levantar el servidor. Queda en http://localhost:5001 (en macOS el 5000 lo ocupa AirPlay) y guarda los datos en
    `data/mlflow/`:
@@ -137,6 +138,36 @@ python -m internal.evaluar_agente --mlflow --pausa 30
 
 En MLflow, el experimento → **Runs** → seleccionar dos corridas → **Compare**.
 
+## Lectura de imágenes a JSON (experimental)
+
+`internal/services/vision_service.py` lee una foto o captura de un pedido y devuelve un JSON (`ImagenLeida` en
+`internal/schemas/vision_schema.py`): el texto completo, un renglón por producto con su cantidad, marca y
+presentación, y las partes dudosas. Con `LLM_VISION_PROVIDER` configurado, el bot de Telegram baja cada foto, la lee
+y le pasa el texto al agente; sin configurar, le pide al cliente que lo escriba (RF-32).
+
+Hay dos caminos, con la misma salida:
+
+| | Proveedor | Necesita |
+|---|---|---|
+| **API de frontera** | `openai` (ej. `gpt-6-luna`), `openrouter` o `gemini` | `LLM_VISION_API_KEY`. Salida estructurada con JSON Schema |
+| **Modelo local de Hugging Face** | `huggingface` (por defecto `Qwen/Qwen3-VL-2B-Instruct`) | `pip install -r requirements-vision-local.txt` y ~5 GB de disco; sin key ni costo por imagen. Corre con Python local (en Docker para Mac no hay GPU y va lento) |
+
+```bash
+# Una imagen (usa LLM_VISION_* de .env, o los flags)
+python -m internal.leer_imagen tests/fixtures/imagenes_pedidos/captura-chat.png --proveedor openai --modelo gpt-6-luna
+
+# Comparar modelos con las imágenes ficticias de tests/fixtures/imagenes_pedidos/
+python -m internal.comparar_vision --modelo openai:gpt-6-luna --modelo huggingface:Qwen/Qwen3-VL-2B-Instruct \
+  --precio 0.10,0.50 --salida data/comparacion-vision.json
+```
+
+Primera prueba de Qwen3-VL 2B en una Mac M5 (16 GB): leyó los 17 productos de las 6 imágenes, con JSON válido
+en todas, en 16 s por imagen en promedio (3 a 28 s) y 9 s de carga al arrancar. Suma saludos y encabezados como
+renglones sin cantidad; al agente no le afecta porque recibe el texto completo.
+
+`--precio` es USD por millón de tokens de entrada y de salida, para estimar el costo por imagen de los modelos por
+API. Lo que se manda a una API puede quedar guardado del lado del proveedor: **solo imágenes de prueba** (RNF-03).
+
 ## Cómo funciona
 
 1. El mensaje del cliente entra por `api/` (chat web, webhook de WhatsApp con la firma de Meta validada, o el bot de Telegram de la beta).
@@ -154,7 +185,7 @@ El detalle de cada pieza está en [docs/architecture.md](docs/architecture.md).
 | `internal/main.py` | App FastAPI y rutas; la versión sale de `APP_VERSION`, que fija la imagen de cada release |
 | `internal/config.py` | Configuración y secretos por variables de entorno (`.env`) |
 | `internal/api/` | Entradas: chat web, webhook de WhatsApp y webhook de Telegram |
-| `internal/agent/` | Agente Norma, sus instrucciones e interfaz neutral del LLM (con el cliente de Gemini) |
+| `internal/agent/` | Agente Norma, sus instrucciones e interfaz neutral del LLM (Gemini, Groq u OpenRouter) |
 | `internal/skills/` | Skills del agente: cada una con su `skill.md` y sus BR |
 | `internal/tools/` | Acciones que el agente puede usar (catálogo, stock, borradores) |
 | `internal/services/` | Orquestador, preprocesamiento, interpretación, confirmación, órdenes, Google Sheets y Telegram |

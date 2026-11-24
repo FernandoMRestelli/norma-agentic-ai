@@ -9,6 +9,7 @@ prompt completo, y solo se puede prender en desarrollo, con datos simulados.
 import json
 import logging
 import os
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -16,7 +17,7 @@ from functools import lru_cache
 from types import ModuleType
 from typing import Any
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from internal.agent.state import EstadoNorma
 from internal.config import get_settings
@@ -26,6 +27,9 @@ logger = logging.getLogger(__name__)
 
 # Atributo que MLflow suma por traza para mostrar los tokens (mlflow.tracing.constant.SpanAttributeKey.CHAT_USAGE)
 _USO_TOKENS = "mlflow.chat.tokenUsage"
+# Con los contenedores arrancando a la vez, MLflow puede tardar más que el primer mensaje: se vuelve a probar
+REINTENTO_SEGUNDOS = 60.0
+_ultimo_intento = 0.0
 
 
 @dataclass
@@ -40,6 +44,11 @@ class ResumenTurno:
     fallas: int = 0  # en toda la conversación
     draft_id: str | None = None
     via: str = "llm"  # confirmar_directo: «OK» registró la propuesta sin llamar al LLM (RF-13)
+    # Los sub-loops, aparte del orquestador (RF-94): sus mensajes no quedan en el estado, sí su uso en la nota
+    llamadas_sub_loop: int = 0
+    tokens_entrada_sub_loop: int = 0
+    tokens_salida_sub_loop: int = 0
+    sub_loops: list[str] = field(default_factory=list)  # la skill de cada delegación, en orden
 
 
 def resumir(state: EstadoNorma) -> ResumenTurno:
@@ -54,6 +63,14 @@ def resumir(state: EstadoNorma) -> ResumenTurno:
             result = json.loads(message.content)
             if not result.get("ok"):
                 resumen.errores.append(result["error"]["code"])
+        elif isinstance(message, HumanMessage) and "guardrail" in message.additional_kwargs:
+            resumen.errores.append("respuesta_rechazada")  # texto suelto que no pasó el validador
+    for nota in state.get("notas_turno") or []:
+        if nota.get("tipo") == "sub_loop":
+            resumen.sub_loops.append(nota["skill"])
+            resumen.llamadas_sub_loop += nota.get("llamadas", 0)
+            resumen.tokens_entrada_sub_loop += nota.get("tokens_entrada", 0)
+            resumen.tokens_salida_sub_loop += nota.get("tokens_salida", 0)
     if propuesta := state.get("propuesta"):
         resumen.draft_id = propuesta.get("draft_id")
     if state.get("kind") == "pedido" and not state.get("iteraciones"):
@@ -63,12 +80,20 @@ def resumir(state: EstadoNorma) -> ResumenTurno:
 
 def cliente() -> ModuleType | None:
     """El módulo mlflow ya conectado, o None si las trazas están apagadas o MLflow no respondió."""
-    return _configurar() if get_settings().mlflow_enabled else None
+    if not get_settings().mlflow_enabled:
+        return None
+    modulo = _configurar()
+    if modulo is None and time.monotonic() - _ultimo_intento >= REINTENTO_SEGUNDOS:
+        _configurar.cache_clear()
+        modulo = _configurar()
+    return modulo
 
 
 @lru_cache(maxsize=1)
 def _configurar() -> ModuleType | None:
-    """Conecta una sola vez por proceso. Si MLflow no responde, el agente sigue igual, sin trazas."""
+    """Conecta una sola vez por proceso. Si MLflow no responde, el agente sigue sin trazas y se reintenta después."""
+    global _ultimo_intento
+    _ultimo_intento = time.monotonic()
     settings = get_settings()
     # Sin el servidor, MLflow reintenta por minutos y frenaría la primera respuesta al cliente
     os.environ.setdefault("MLFLOW_HTTP_REQUEST_MAX_RETRIES", "1")
@@ -161,6 +186,9 @@ class Turno(Paso):
                 skills=resumen.skills,
                 tokens_entrada=resumen.tokens_entrada,
                 tokens_salida=resumen.tokens_salida,
+                llamadas_sub_loop=resumen.llamadas_sub_loop,
+                tokens_entrada_sub_loop=resumen.tokens_entrada_sub_loop,
+                sub_loops=resumen.sub_loops,
                 latencia_ms=latencia_ms,
                 draft_id=resumen.draft_id,
                 order_id=outcome.order_id,
@@ -185,8 +213,11 @@ class Turno(Paso):
 
 
 @contextmanager
-def turno(conversation_id: str, canal: str, texto: str) -> Iterator[Turno]:
-    """La traza de un turno. Agrupa los turnos por conversación con el id interno, no con el del cliente."""
+def turno(conversation_id: str, canal: str, texto: str, mensaje_id: str | None = None) -> Iterator[Turno]:
+    """La traza de un turno. Agrupa los turnos por conversación con el id interno, no con el del cliente.
+
+    Con `mensaje_id`, la del turno que usa la lectura de una imagen lleva el mismo tag que la lectura.
+    """
     mlflow = cliente()
     if mlflow is None:
         yield Turno()
@@ -197,6 +228,39 @@ def turno(conversation_id: str, canal: str, texto: str) -> Iterator[Turno]:
         actual.texto(entrada={"mensaje": texto})
         try:
             mlflow.update_current_trace(session_id=conversation_id)
+            if mensaje_id:
+                mlflow.update_current_trace(tags={"mensaje_id": mensaje_id})
         except Exception as exc:
             logger.warning("MLflow: no se pudo abrir la traza del turno (%s)", type(exc).__name__)
+        yield actual
+
+
+@contextmanager
+def lectura(mensaje_id: str) -> Iterator[Paso]:
+    """La traza de la lectura de una imagen. Con `MLFLOW_TRACE_TEXT`, la llamada al modelo de visión queda adentro,
+    con la imagen adjunta."""
+    with _traza_previa("lectura_imagen", mensaje_id) as actual:
+        yield actual
+
+
+@contextmanager
+def transcripcion(mensaje_id: str) -> Iterator[Paso]:
+    """La traza de la transcripción de un audio."""
+    with _traza_previa("transcripcion_audio", mensaje_id) as actual:
+        yield actual
+
+
+@contextmanager
+def _traza_previa(nombre: str, mensaje_id: str) -> Iterator[Paso]:
+    """Una traza que pasa antes del turno. Lleva el tag `mensaje_id`, el mismo que la traza del turno que la usa."""
+    mlflow = cliente()
+    if mlflow is None:
+        yield Paso()
+        return
+    with mlflow.start_span(nombre, span_type="PARSER") as span:
+        actual = Paso(span)
+        try:
+            mlflow.update_current_trace(tags={"mensaje_id": mensaje_id})
+        except Exception as exc:
+            logger.warning("MLflow: no se pudo abrir la traza %s (%s)", nombre, type(exc).__name__)
         yield actual

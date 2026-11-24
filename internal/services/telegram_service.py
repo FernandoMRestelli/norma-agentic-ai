@@ -6,22 +6,28 @@ Detalle en docs/spec/canal-telegram.md.
 
 import logging
 import re
-import threading
-from collections import deque
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
 from pydantic import BaseModel
+from sqlalchemy import delete
+from sqlalchemy.exc import IntegrityError
 
 from internal.config import get_settings
-from internal.schemas.conversation_schema import ChannelReply
+from internal.database.connection import SessionLocal
+from internal.database.models import ProcessedMessageRecord
 from internal.schemas.order_schema import Channel, IncomingMessage, MessageType
-from internal.services import conversation_service
+from internal.services import conversation_service, message_service
+from internal.services.agrupador import Agrupador
 
 logger = logging.getLogger(__name__)
 
 API_URL = "https://api.telegram.org/bot{token}/{method}"
+FILE_URL = "https://api.telegram.org/file/bot{token}/{file_path}"
 TIMEOUT_SECONDS = 10
+MAX_LARGO_MENSAJE = 4096  # límite de `sendMessage`: un mensaje más largo se manda en partes (RF-70)
+MAX_FILE_BYTES = 20 * 1024 * 1024  # la Bot API no deja bajar archivos más grandes
 
 NOT_ALLOWED = (
     "Hola 👋 Este bot es de prueba y solo atiende a integrantes del equipo de Norma.\n"
@@ -34,6 +40,10 @@ SOMETHING_FAILED = "Tuve un problema, probá de nuevo en unos minutos."
 
 class TelegramError(RuntimeError):
     """La Bot API respondió con error o no se pudo llamar. El mensaje nunca incluye el token."""
+
+
+class TelegramArchivoMuyGrande(TelegramError):
+    """El archivo supera el límite de tamaño de Telegram (20 MB), antes o después de bajarlo."""
 
 
 class TelegramClient:
@@ -59,6 +69,37 @@ class TelegramClient:
     def delete_webhook(self) -> None:
         self.call("deleteWebhook")
 
+    def download_file_with_path(self, file_id: str) -> tuple[bytes, str]:
+        """Baja un archivo (foto, audio) por su file_id y devuelve (bytes, file_path).
+
+        Valida el tamaño antes (vía getFile) y después de descargar. Nunca incluye el token en errores (RNF-14).
+        """
+        try:
+            info = self.call("getFile", file_id=file_id)
+        except TelegramError as exc:
+            if "file is too big" in str(exc).lower():
+                raise TelegramArchivoMuyGrande(str(exc)) from None
+            raise
+        if info.get("file_size", 0) > MAX_FILE_BYTES:
+            raise TelegramArchivoMuyGrande("getFile: el archivo es muy grande")
+        if "file_path" not in info:
+            raise TelegramError("getFile: el archivo no se puede bajar")
+        url = FILE_URL.format(token=self._token, file_path=info["file_path"])
+        try:
+            response = self.http.get(url, timeout=TIMEOUT_SECONDS * 3)
+            response.raise_for_status()
+        except (httpx.HTTPError, ValueError) as exc:
+            # El error de httpx incluye la URL, que tiene el token: no se encadena (RNF-14)
+            raise TelegramError(f"download_file: no se pudo bajar el archivo ({type(exc).__name__})") from None
+        if len(response.content) > MAX_FILE_BYTES:
+            raise TelegramArchivoMuyGrande("download_file: el archivo es muy grande")
+        return response.content, info["file_path"]
+
+    def download_file(self, file_id: str) -> bytes:
+        """Baja un archivo (foto, audio) por su file_id: getFile da la ruta y se descarga con el token."""
+        content, _ = self.download_file_with_path(file_id)
+        return content
+
     def get_updates(self, offset: int | None, poll_seconds: int) -> list[dict]:
         params: dict[str, Any] = {"timeout": poll_seconds, "allowed_updates": ["message"]}
         if offset is not None:
@@ -66,11 +107,13 @@ class TelegramClient:
         return self.call("getUpdates", http_timeout=poll_seconds + 10, **params)
 
     def send_message(self, chat_id: int, text: str) -> None:
-        md_text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text)
-        try:
-            self.call("sendMessage", chat_id=chat_id, text=md_text, parse_mode="Markdown")
-        except TelegramError:
-            self.call("sendMessage", chat_id=chat_id, text=text)
+        """Manda el texto en un mensaje, o en varios si pasa el límite de Telegram, partido por renglón (RF-70)."""
+        for parte in message_service.partir(text, MAX_LARGO_MENSAJE):
+            md_text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", parte)
+            try:
+                self.call("sendMessage", chat_id=chat_id, text=md_text, parse_mode="Markdown")
+            except TelegramError:
+                self.call("sendMessage", chat_id=chat_id, text=parte)
 
 
 def get_client() -> TelegramClient:
@@ -121,30 +164,65 @@ def parse_update(update: dict) -> TelegramMessage | None:
 
 
 class _ProcessedUpdates:
-    """Últimos update_id procesados, en memoria (RF-31). Pasa a la tabla processed_messages cuando exista."""
+    """update_id ya procesados, en la tabla processed_messages (RF-31): valen aunque el proceso se reinicie.
 
-    def __init__(self, size: int = 1000):
-        self._order: deque[int] = deque(maxlen=size)
-        self._ids: set[int] = set()
-        self._lock = threading.Lock()
+    Solo guarda el canal y el id, nunca el texto. Telegram no reenvía updates de más de 24 h, así que los
+    registros de más de `RETENTION` se borran al registrar uno nuevo.
+    """
+
+    CHANNEL = Channel.TELEGRAM.value
+    RETENTION = timedelta(days=7)
 
     def first_time(self, update_id: int) -> bool:
-        with self._lock:
-            if update_id in self._ids:
+        with SessionLocal() as session:
+            session.add(ProcessedMessageRecord(channel=self.CHANNEL, external_id=str(update_id)))
+            try:
+                session.flush()
+            except IntegrityError:
                 return False
-            if len(self._order) == self._order.maxlen:
-                self._ids.discard(self._order[0])
-            self._order.append(update_id)
-            self._ids.add(update_id)
+            session.execute(
+                delete(ProcessedMessageRecord).where(
+                    ProcessedMessageRecord.channel == self.CHANNEL,
+                    ProcessedMessageRecord.created_at < datetime.now(UTC) - self.RETENTION,
+                )
+            )
+            session.commit()
             return True
 
     def clear(self) -> None:
-        with self._lock:
-            self._order.clear()
-            self._ids.clear()
+        with SessionLocal() as session:
+            session.execute(delete(ProcessedMessageRecord).where(ProcessedMessageRecord.channel == self.CHANNEL))
+            session.commit()
 
 
 processed_updates = _ProcessedUpdates()
+
+_agrupador: Agrupador | None = None
+
+
+def get_agrupador() -> Agrupador | None:
+    """El agrupador de mensajes seguidos, si `MESSAGE_GROUP_SECONDS` es mayor que 0 (RF-74)."""
+    global _agrupador
+    ventana = get_settings().message_group_seconds
+    if ventana <= 0:
+        return None
+    if _agrupador is None or _agrupador.ventana != ventana:
+        _agrupador = Agrupador(ventana)
+    return _agrupador
+
+
+def _responder(message: IncomingMessage, chat_id: int, client: TelegramClient, referencia: Any) -> None:
+    """Le pasa el mensaje al orquestador y manda la respuesta; si algo falla, avisa con un mensaje fijo."""
+    try:
+        reply = conversation_service.handle_message(message)
+        if reply and reply.text:
+            client.send_message(chat_id, reply.text)
+    except Exception:
+        logger.exception("Telegram: error procesando el update %s", referencia)
+        try:
+            client.send_message(chat_id, SOMETHING_FAILED)
+        except TelegramError:
+            logger.warning("Telegram: tampoco se pudo avisar el error del update %s", referencia)
 
 
 def handle_update(update: dict, client: TelegramClient) -> None:
@@ -153,8 +231,14 @@ def handle_update(update: dict, client: TelegramClient) -> None:
     Los logs llevan ids, nunca el texto de los mensajes (RNF-03).
     """
     update_id = update.get("update_id")
-    if update_id is None or not processed_updates.first_time(update_id):
+    if update_id is None:
         return
+    try:
+        if not processed_updates.first_time(update_id):
+            return
+    except Exception:
+        # Sin poder registrar el update es mejor contestar que dejar al cliente sin respuesta
+        logger.warning("Telegram: no se pudo registrar el update %s como procesado", update_id, exc_info=True)
     event = parse_update(update)
     if event is None:
         return
@@ -166,13 +250,21 @@ def handle_update(update: dict, client: TelegramClient) -> None:
             return
 
         if event.message is None:
-            reply = ChannelReply(text=UNSUPPORTED)
-        else:
-            reply = conversation_service.handle_message(event.message)
-        client.send_message(event.chat_id, reply.text)
+            client.send_message(event.chat_id, UNSUPPORTED)
+            return
     except Exception:
         logger.exception("Telegram: error procesando el update %s", update_id)
         try:
             client.send_message(event.chat_id, SOMETHING_FAILED)
         except TelegramError:
             logger.warning("Telegram: tampoco se pudo avisar el error del update %s", update_id)
+        return
+
+    agrupador = get_agrupador()
+    if agrupador is not None and event.message.type == MessageType.TEXT:
+        # Un pedido en varios mensajes seguidos se procesa como un solo turno (RF-74): responde el temporizador
+        chat_id = event.chat_id
+        clave = (event.message.customer_id, event.message.channel)
+        agrupador.recibir(clave, event.message, lambda junto: _responder(junto, chat_id, client, update_id))
+        return
+    _responder(event.message, event.chat_id, client, update_id)

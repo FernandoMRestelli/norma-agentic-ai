@@ -12,22 +12,37 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_version: str = "dev"  # la imagen de cada release la fija con el número del tag
 
-    # LLM de texto (ver internal/agent/llm.py). Proveedores free tier: gemini, groq, openrouter
+    # LLM de texto (ver internal/agent/llm.py): openai (pago) o los free tier gemini, groq, openrouter
     llm_provider: str | None = None
     llm_model: str | None = None
     llm_api_key: str | None = None
 
-    # LLM para audio e imagen (modelo pago, a definir): se lee pero todavía no se usa
+    # Lectura de imágenes (internal/services/vision_service.py): openai, openrouter, gemini o huggingface (local).
+    # Vacío: las fotos reciben el pedido de escribirlo (RF-32)
     llm_vision_provider: str | None = None
     llm_vision_model: str | None = None
     llm_vision_api_key: str | None = None
+    # Suma las marcas del catálogo a las instrucciones de la lectura, para leer nombres de marca mal escritos.
+    # Solo marcas: ni productos ni precios
+    vision_marcas: bool = False
 
-    # Google Sheets / Catálogo local
+    # Módulo de Audio (Speech-to-Text). Proveedores: gemini, groq, openai
+    audio_enabled: bool = False
+    audio_provider: str | None = None
+    audio_model: str | None = None
+    audio_api_key: str | None = None
+
+    # Google Sheets / Catálogo local (docs/spec/planillas.md). Sin los ids, todo sale y va a los CSV
     google_credentials_file: str | None = None
     catalog_sheet_id: str | None = None
     orders_sheet_id: str | None = None
+    catalog_worksheet: str | None = None  # hoja dentro de Sheet 1; vacío: la primera
+    orders_worksheet: str | None = None  # hoja dentro de Sheet 2; vacío: la primera
     catalog_file: str = "data_example/catalogo.csv"
     orders_file: str = "data/pedidos.csv"
+    # Una fila por línea de cada orden (RF-75). Vacío: junto a ORDERS_FILE, con `_lineas` en el nombre
+    order_lines_file: str | None = None
+    order_lines_worksheet: str | None = None  # hoja de Sheet 2 para las líneas; vacío: no se escriben en Google
 
     # WhatsApp Cloud API
     whatsapp_verify_token: str | None = None
@@ -39,6 +54,20 @@ class Settings(BaseSettings):
     telegram_bot_token: str | None = None
     telegram_webhook_secret: str | None = None  # header X-Telegram-Bot-Api-Secret-Token
     telegram_allowed_user_ids: str = ""  # ids numéricos separados por coma
+
+    # Presupuesto de un turno del agente (RNF-16): un turno es la respuesta a un mensaje del cliente, no la
+    # conversación. Al llegar a cualquiera de los dos topes el agente cierra con lo que ya encontró
+    agent_max_iterations: int = 50
+    agent_max_seconds_per_turn: float = 300.0
+    # Turno con orquestador y sub-loops (docs/spec/orquestador-y-sub-loops.md). Apagado: el loop de hoy (RF-95)
+    agent_orquestador: bool = False
+
+    # Segundos que el canal espera más mensajes del mismo cliente antes de abrir el turno (RF-74, D-26). 0: no espera
+    message_group_seconds: float = 0.0
+
+    # Vencimiento de la conversación por inactividad (RF-28, D-07): tras estas horas sin mensajes, vence y su borrador
+    # queda descartado. El siguiente mensaje abre una conversación nueva con contexto limpio
+    conversation_timeout_hours: float = 24.0
 
     # Operador / Dashboard (autenticación de endpoints de gestión de órdenes)
     operator_token: str | None = None

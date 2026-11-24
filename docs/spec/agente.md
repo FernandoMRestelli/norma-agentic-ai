@@ -16,7 +16,7 @@ El agente **no maneja la conversación solo**. La conversación la conduce el ba
 | En qué estado está la conversación y qué eventos acepta | Qué quiso decir el cliente |
 | Crear la orden exactamente con lo propuesto | Qué productos buscar y cuáles coinciden |
 | Revalidar el stock al crear la orden | Si hace falta preguntar algo y qué |
-| Qué se le puede registrar al cliente: solo la propuesta vigente | Si el cliente aceptó la propuesta, salvo `OK` o `CONFIRMAR` exactos |
+| Qué se le puede registrar al cliente: solo la propuesta vigente | Si el cliente aceptó la propuesta, salvo una aceptación exacta (§2.1) |
 | Completar nombre, presentación y precio desde el catálogo | Las cantidades y el SKU de cada línea |
 | El mensaje final con el pedido registrado | Si el cliente quiere cancelar o hablar con una persona |
 | Límites, reintentos, vencimientos y derivación por fallas | El texto de las preguntas y avisos al cliente |
@@ -29,8 +29,8 @@ evaluación de `data_example/mensajes.json`.
 
 ## 2. Estados de la conversación
 
-> **Primer corte:** por ahora la conversación solo se guarda como `abierta`, `cerrada` o `fallida`. Los estados
-> de esta sección, el vencimiento y la derivación se suman en etapas siguientes.
+> **Primer corte:** la conversación se guarda en la base con sus estados de ciclo de vida (`abierta`, `cerrada`,
+> `fallida` y `vencida` tras 24 h sin actividad, RF-28). La derivación y descarte se suman en etapas siguientes.
 
 Una **conversación** es el intento de armar **un** pedido de un cliente por un canal. Hay como máximo una
 conversación abierta por `(customer_id, channel)`. Cuando termina (confirmada, descartada, vencida o derivada),
@@ -76,7 +76,7 @@ stateDiagram-v2
 | Evento | Origen | ¿Pasa por el LLM? |
 |---|---|---|
 | Mensaje de texto, audio o imagen | Cualquier canal | Sí, después del preprocesamiento |
-| `OK` o `CONFIRMAR` exactos, con una propuesta vigente | Texto del cliente | **No**: el backend registra la propuesta |
+| Una aceptación exacta (`OK`, `CONFIRMAR`, «dale», «sí», «listo», «de una» o «mandale»), con una propuesta vigente | Texto del cliente | **No**: el backend registra la propuesta (RF-64) |
 | Vencimiento | Tarea del backend | No |
 
 Ningún canal usa botones: el cliente confirma escribiendo. Cualquier otra respuesta («dale», «sí») va al agente, que
@@ -88,7 +88,7 @@ decide si acepta la propuesta vigente (RF-13, §5). Sin propuesta vigente, `OK` 
 |---|---|
 | `esperando_pedido` | Turno del agente |
 | `aclarando` | Turno del agente (con la pregunta pendiente en contexto) |
-| `borrador_pendiente` | `OK` o `CONFIRMAR` exactos: se registra la propuesta (§5). Otro mensaje: turno del agente, con la propuesta en contexto |
+| `borrador_pendiente` | Una aceptación exacta (§2.1): se registra la propuesta (§5). Otro mensaje: turno del agente, con la propuesta en contexto |
 | Cerrada | Abre una conversación nueva (salvo `derivada`, ver §7) |
 
 ## 3. El loop de un turno
@@ -110,7 +110,7 @@ sequenceDiagram
     O->>M: prepare(mensaje)
     M-->>O: texto (+ origen: texto / audio / imagen)
     O->>A: handle(contexto del turno)
-    loop hasta una tool terminal (máx. 15 iteraciones)
+    loop hasta una tool terminal (máx. 50 iteraciones)
         A->>L: instrucciones + contexto + historial + tools permitidas
         L-->>A: tool calls
         A->>T: ejecutar con contexto inyectado
@@ -125,8 +125,12 @@ sequenceDiagram
 Reglas del loop:
 
 1. **Cada turno termina con exactamente una tool terminal** (§4.2). Ese resultado decide la transición de estado.
-2. **Máximo 15 iteraciones** LLM ↔ tools por turno (D-07). Si se alcanza sin tool terminal, el turno termina con
-   un mensaje fijo de disculpa y suma una falla a la conversación (§6).
+2. **Máximo 50 iteraciones y 300 s** LLM ↔ tools por turno (RNF-16), configurables con `AGENT_MAX_ITERATIONS` y
+   `AGENT_MAX_SECONDS_PER_TURN`. Un turno es la respuesta a un mensaje del cliente: la conversación no tiene tope. Si se
+   alcanza sin tool terminal, el turno **cierra con lo encontrado**: el modelo recibe solo `respond_to_customer` y un
+   aviso en el estado actual, y tiene 2 iteraciones más para responder con lo que ya buscó (lo resuelto en
+   `propuesta`, lo que falta en `pendientes`, lo que no se trabaja en `afuera`). Solo si tampoco responde, el turno
+   termina con un mensaje fijo de disculpa y suma una falla a la conversación (§6).
 3. Si el LLM responde **solo texto** sin llamar a una tool terminal, se trata como
    `respond_to_customer(kind="informacion")`, descarta la propuesta y queda registrado como advertencia.
 4. Las tools de lectura se pueden llamar varias veces en un turno. Las terminales, una sola vez: la primera
@@ -163,7 +167,9 @@ con esas 3 unidades (§5).
 
 > **Riesgo:** cada lectura suma una llamada al LLM, con todo el contexto. Hay que medir que el camino normal cumpla
 > el p95 de 10 s (RNF-06). Un turno que agota el tope puede tardar varios minutos con la conversación bloqueada
-> (15 llamadas de hasta 30 s), y en el free tier de Gemini consume 15 requests (D-07).
+> (el plazo de 300 s se controla entre una llamada y la siguiente, y cada llamada puede tardar hasta 30 s más un
+> reintento), y en el free tier consume hasta 52 requests con el cierre (RNF-16); con modelos de unos 5 s por llamada, 50 iteraciones son unos 250 s, así que los dos topes quedan parejos. Si el proveedor limita los requests
+> por minuto, bajar `AGENT_MAX_ITERATIONS`.
 
 ### 3.2 El grafo
 
@@ -171,7 +177,10 @@ El loop se implementa con LangGraph en `agent/graph.py`, y el modelo se llama co
 
 ```mermaid
 flowchart TD
-    S([START]) --> D[descubrir_tools]
+    S([START]) --> A[armar_contexto]
+    A --> R[encaminar]
+    R --> PB[precarga_busqueda]
+    PB --> D[descubrir_tools]
     D -->|hay iteraciones| L[llm]
     D -->|tope, primera falla| P[pausa]
     D -->|tope, segunda falla| E([END])
@@ -181,28 +190,43 @@ flowchart TD
     T -->|continuar| D
     T -->|pausar| P
     T -->|final| E
-    P -->|otro mensaje| D
-    P -->|OK o CONFIRMAR, con propuesta| C[confirmar]
+    P -->|otro mensaje| A
+    P -->|aceptación exacta, con propuesta| C[confirmar]
     C -->|orden creada| E
-    C -->|no se pudo| D
+    C -->|no se pudo| A
 ```
 
 | Nodo | Qué hace |
 |---|---|
-| `descubrir_tools` | Calcula las tools permitidas: las de base más las de las skills leídas en el turno. Corta al llegar a 15 iteraciones |
+| `armar_contexto` | Si no hay un contexto del cliente de hoy, lo arma sin LLM: últimos pedidos y SKU comprados. Vence con el cambio de fecha o al registrar un pedido ([orquestador §3.2](orquestador-y-sub-loops.md#32-el-turno-con-el-orquestador), RF-84) |
+| `encaminar` | Abre el turno. Si el mensaje no admite dudas, lee la skill antes de la primera llamada al LLM: su texto va en el contexto y sus tools quedan habilitadas (RF-62) |
+| `precarga_busqueda` | Busca sin LLM los renglones nuevos de forma inequívoca («2 mascara argan x 1k», «tinte 8.1/2») y deja el resultado en el contexto como nota de búsqueda (RF-86) |
+| `descubrir_tools` | Calcula las tools permitidas: las de base más las de las skills leídas en el turno. Al llegar al tope de iteraciones o al plazo (RNF-16) deja solo `respond_to_customer` para cerrar con lo encontrado; si el cierre tampoco responde, corta |
 | `llm` | Arma el contexto (§8) y llama al modelo solo con esas tools. Guarda el `AIMessage` completo para conservar las firmas de Gemini |
 | `tools` | Rechaza lo no permitido, inyecta los datos del backend, ejecuta y guarda los resultados en el sobre común |
 | `pausa` | Devuelve el mensaje con `interrupt()` y espera. Al retomar, agrega el mensaje del cliente y reinicia iteraciones y skills |
-| `confirmar` | Registra la propuesta sin llamar al LLM, si el cliente respondió exactamente `OK` o `CONFIRMAR`. Si no se puede, por ejemplo porque ya no alcanza el stock, sigue el agente |
+| `confirmar` | Registra la propuesta sin llamar al LLM, si el cliente respondió con una aceptación exacta (§2.1). Si no se puede, por ejemplo porque ya no alcanza el stock, sigue el agente |
 
+- **Orquestador (`AGENT_ORQUESTADOR=true`):** el mismo grafo, pero `llm` es el orquestador: suma `delegar_skill`,
+  que corre el sub-loop de una skill `sub_loop` dentro del nodo `tools` y devuelve su nota como resultado. Las
+  vueltas del sub-loop cuentan para el tope del turno
+  ([orquestador §3.3 y §3.4](orquestador-y-sub-loops.md#33-el-loop-vuelta-por-vuelta)).
 - **Persistencia:** el estado del grafo se guarda con `SqliteSaver` en `CHECKPOINT_DB`, un archivo propio dentro de
   `data/`, con `LANGGRAPH_STRICT_MSGPACK=true`. El `thread_id` es el ID de la conversación, y una conversación
   sigue aunque el proceso se reinicie entre dos mensajes.
+  Como el ID sale de `norma.db` y el estado vive en otro archivo, una conversación nueva descarta cualquier estado
+  que ya tuviera ese ID, y ninguna retoma uno guardado para otro cliente o canal (RF-100): pasa si `norma.db` vuelve
+  a un backup o se recrea y `CHECKPOINT_DB` no.
 - **Un solo worker:** el lock por conversación vive en el proceso, así que la API corre con un solo worker mientras
   los checkpoints estén en SQLite. La conexión espera hasta 15 s si otro proceso, como el bot, está escribiendo.
 - **Salidas por `END`:** un pedido registrado cierra la conversación. Una segunda falla la marca `fallida`, y el
   mensaje siguiente abre otra.
-- **`recursion_limit`:** es solo una red de seguridad. El tope real es el contador de 15 iteraciones.
+- **`recursion_limit`:** es solo una red de seguridad. El tope real es el contador de iteraciones (`AGENT_MAX_ITERATIONS`, 50 por defecto, más 2 para el cierre).
+- **Tool obligatoria:** cada llamada al modelo lleva `tool_choice="any"` (RF-61). El camino de texto suelto queda
+  para un proveedor que no lo respete.
+- **BR junto al resultado:** cuando el resultado de una tool lleva a una sola BR (`sugerencias` o `aproximado` →
+  BR-09, varias coincidencias → BR-03, nada parecido → BR-04, stock que no alcanza → BR-01), el sobre trae su
+  texto en `regla`, una vez por turno y solo si una skill leída la permite (RF-63).
 
 ## 4. Tools
 
@@ -223,6 +247,9 @@ Las tools reciben dos tipos de parámetros:
 | Tool | Tipo | Archivo | Para qué |
 |---|---|---|---|
 | `search_products` | Lectura | `tools/catalog_tools.py` | Buscar candidatos por nombre, marca o presentación |
+| `buscar_renglones` | Lectura | `tools/catalog_tools.py` | Buscar todos los renglones de una lista en una llamada: por cada uno, un estado y hasta 3 candidatos (RF-66) |
+| `pedidos_anteriores` | Lectura | `tools/order_tools.py` | Los últimos pedidos del cliente del turno, sin precios, para «lo de siempre» (RF-73) |
+| `consultar_estado_pedido` | Lectura | `tools/order_tools.py` | El estado actual de los últimos pedidos del cliente del turno, o de una orden puntual (Issue #26) |
 | `get_product` | Lectura | `tools/catalog_tools.py` | Ver un producto por SKU |
 | `explorar_catalogo` | Lectura | `tools/catalog_tools.py` | Explorar marcas o categorías del catálogo de forma agregada sin recorrer todo el catálogo |
 | `check_stock` | Lectura | `tools/inventory_tools.py` | Saber si alcanza el stock para una cantidad |
@@ -248,13 +275,16 @@ Todas las tools devuelven un sobre común, para que el LLM pueda recuperarse de 
 #### `leer_skill`
 
 Entrada `nombre: str`. Busca en el índice de skills cargado al arrancar. Salida `data`: `{nombre, instrucciones,
-tools, br}`. Desde la iteración siguiente, las tools de esa skill quedan disponibles y sus BR se pueden leer.
-Errores: `skill_inexistente`.
+tools, br}`, donde `br` es la lista de `{id, titulo}`: el título sale del encabezado de cada BR
+(«# BR-01: Falta de stock»), así el agente elige cuál leer sin leerlas todas. Una BR sin ese encabezado impide
+arrancar. Desde la iteración siguiente, las tools de esa skill quedan disponibles y sus BR se pueden leer.
+Errores: `skill_inexistente`, que lista las skills del índice (sin propuesta vigente, no las que la necesitan).
 
 #### `leer_br`
 
 Entrada `id: str`. Inyectado: `skills_activas`. Busca en el índice de BR cargado al arrancar. Salida `data`:
-`{id, texto}`. Errores: `br_inexistente`, `br_no_permitida` (ninguna skill leída en este turno la permite).
+`{id, texto}`. Errores: `br_inexistente`, que lista las BR de las skills leídas con su título, y `br_no_permitida`
+(ninguna skill leída en este turno la permite), que nombra la skill de esa BR.
 
 Ninguna de las dos arma una ruta de archivo con lo que manda el LLM: el nombre o el ID solo se comparan contra el
 índice. Así, un mensaje malicioso no puede hacer que el agente lea otro archivo del sistema, como `.env`.
@@ -265,15 +295,39 @@ Ninguna de las dos arma una ruta de archivo con lo que manda el LLM: el nombre o
 |---|---|---|
 | `query` | `str` | No vacío. Texto libre del cliente o del LLM («pantene 400») |
 | `limit` | `int` | 1 a 10, por defecto 5 |
+| `quantity` | `int \| None` | Opcional, mayor que 0. La cantidad que pide el cliente |
 
-Salida `data.matches`: lista de `{sku, name, brand, presentation, price, stock, score}`, ordenada por `score`
-descendente (0 a 1). La búsqueda es aproximada: tolera mayúsculas, tildes, plurales y errores de tipeo (RF-07).
+Salida `data.matches`: lista de `{sku, name, brand, presentation, price, score, aproximado, hay_stock}`, ordenada
+por `score` descendente (0 a 1), sin el número de stock. Con `quantity`, cada match y cada sugerencia suman
+`alcanza` y, solo si no alcanza, `disponible`: las unidades que quedan, lo único que BR-01 deja decirle al cliente.
+Así el agente no necesita `check_stock` después de buscar, y un único match que no alcanza adjunta BR-01. La búsqueda es aproximada: tolera mayúsculas, tildes,
+plurales, errores de tipeo y de sonido, abreviaturas y medidas escritas de otra forma (RF-07, RF-36 a RF-38).
 Los números no se aproximan: `340` no trae un producto de 400 ml, y `6.1` no trae el tono 7.1 (RF-08).
-Lista vacía si no hay coincidencias razonables. Errores: `catalogo_no_disponible`.
+Si no hay coincidencias confiables, `data.sugerencias` trae los candidatos más parecidos, y `data.corregido` dice
+qué palabras se interpretaron como otra (RF-39). Detalle en [busqueda-tolerante.md](busqueda-tolerante.md).
+Errores: `catalogo_no_disponible`.
 
 #### `get_product`
 
 Entrada `sku: str`. Salida `data.product`: `{sku, name, brand, presentation, price, stock}` o `null`. Errores: `catalogo_no_disponible`.
+
+#### `pedidos_anteriores`
+
+Entrada `limite: int` (1 a 5, por defecto 3). Inyectado: `customer_id`. Salida `data.pedidos`: los últimos pedidos del
+cliente, cada uno con `fecha` y `lineas` (`sku`, `name`, `cantidad`, `nota`), sin precios, número de orden ni estado
+(RF-73). Cada línea suma `en_catalogo` y, si está, `hay_stock` y `alcanza` (si el stock de hoy cubre la `cantidad`
+de esa vez; si no, `disponible`, como `search_products`): el catálogo cambia y lo de hace un mes puede no estar hoy.
+Sin pedidos, o con productos que ya no están, trae `_hint`. Siempre adjunta BR-11, la regla de cómo usar lo que
+trae; con un producto que ya no está suma BR-04, y con uno que no alcanza, BR-01.
+
+#### `consultar_estado_pedido`
+
+Entrada opcional: `order_id: str | None` (si el cliente indicó un número de orden) y `limite: int` (1 a 5, por defecto 3).
+Inyectado: `customer_id` (RNF-02: un cliente nunca puede consultar órdenes de otro). Habilitada por la skill `informar`.
+Salida `data.pedidos`: lista de órdenes del cliente (de la más nueva a la más vieja, en cualquier estado) con `order_id`,
+`fecha` (en zona horaria Argentina), `estado`, `estado_detalle`, `lineas` (`name`, `cantidad`, `presentacion`, sin SKU) y
+`notas` si existen. El guardrail permite mencionar únicamente los `order_id` reales devueltos por esta tool en el mismo
+turno cuando se responde con `kind = informacion`.
 
 #### `explorar_catalogo`
 
@@ -291,11 +345,18 @@ Devuelve un diccionario estructurado según los parámetros provistos:
 - Si se indican ambos (`brand` y `category`): muestra acotada de nombres y presentaciones de productos (`tipo_consulta: productos_por_marca_y_categoria`).
 - Si no se indican parámetros: listado general de categorías con su total de productos (`tipo_consulta: categorias_generales`).
 
+Si la muestra se recorta por `limit`, `_hint` lo avisa y sugiere buscar el producto puntual con `search_products`.
+La marca y la categoría se comparan sin mayúsculas, tildes ni signos: «L'Oréal» encuentra la marca cargada como
+`LOREAL`. El apóstrofo se borra y los demás signos separan palabras: «Anti-Frizz» queda como «anti frizz». Sin resultados, `_hint` trae las marcas o categorías más parecidas. Si la marca existe pero no tiene esa
+categoría, dice qué categorías tiene la marca y hasta cinco marcas que sí tienen la categoría, para ofrecerle otra
+sin una vuelta más.
+
 
 #### `check_stock`
 
-Entrada `sku: str`, `quantity: int > 0`. Salida `data`: un `StockCheck` (`sku`, `requested`, `available`,
-`is_enough`). Errores: `sku_inexistente`, `catalogo_no_disponible`.
+Entrada `sku: str`, `quantity: int > 0`. Salida `data`: un `StockCheck` (`sku`, `requested`, `is_enough`). Solo si
+no alcanza suma `available`, como `falta` en `buscar_renglones`: si alcanza, el LLM no necesita el número y no se lo
+puede pasar al cliente. Errores: `sku_inexistente`, `catalogo_no_disponible`.
 
 #### `armar_pedido` (terminal)
 
@@ -322,11 +383,13 @@ Solo se usa cuando el cliente lo pide de forma explícita. Resultado del turno: 
 | `message` | `str` | El texto para el cliente. No vacío, máx. 600 caracteres. Con `propuesta`, no repite las líneas: el backend agrega el detalle debajo |
 | `options` | `list[str]` | SKU que se le ofrecen al cliente. Cada uno tiene que existir (`sku_inexistente` si no) |
 | `propuesta` | `list[{sku: str, quantity: int}] \| None` | Solo con `kind` `propuesta` o `sin_stock`. El backend valida cada SKU y el stock (`sku_inexistente`, `stock_insuficiente`) |
+| `descartar_propuesta` | `bool` | Por defecto `false`. `true` solo cuando el cliente rechaza la propuesta vigente o saca todo (BR-05, BR-06). Va sin `propuesta` |
 
 Con `propuesta`, el backend completa los datos desde el catálogo y guarda un `OrderDraft`. Si ya había una, conserva
-el `draft_id` y sube la versión, y las líneas nuevas reemplazan a las anteriores. Sin `propuesta`, descarta la que
-hubiera: una propuesta solo sigue vigente si es lo último que el bot le ofreció al cliente. Por eso, si el cliente
-pregunta algo sobre ella, el agente responde y la vuelve a enviar con las mismas líneas (BR-06).
+el `draft_id` y sube la versión, y las líneas nuevas reemplazan a las anteriores. Sin `propuesta`, la vigente sigue
+igual (RF-98): una aclaración, un aviso de fuera de catálogo o una consulta no la tiran, y el texto suelto tampoco. Solo
+`descartar_propuesta` la descarta. Como lo último que leyó el cliente puede ser una pregunta y no la propuesta, una
+aceptación exacta se registra sin el LLM solo si la respuesta anterior cerró con la propuesta (RF-99).
 
 | `kind` | Cuándo | Nuevo estado |
 |---|---|---|
@@ -353,6 +416,9 @@ LangChain traduce esos esquemas al formato del proveedor elegido (D-01).
 
 Antes de cada iteración, el registro calcula las tools disponibles: las **tools de base** más las que permiten las
 skills activas. Al LLM solo se le ofrecen esas, y si pide otra recibe el error `tool_no_permitida` sin ejecutarla.
+El mensaje nombra la skill que la habilita, para que lea esa y no adivine. Sin propuesta vigente no sugiere las
+skills que la necesitan: `armar_pedido` responde que no hay nada que registrar. En el cierre (RNF-16), cuando solo
+queda `respond_to_customer`, no sugiere leer una skill: dice que responda con lo que ya averiguó.
 
 ### 4.5 Skills
 
@@ -368,8 +434,24 @@ internal/skills/tomar_pedido/
     ├── BR-01.md
     ├── BR-03.md
     ├── BR-04.md
-    └── BR-05.md
+    ├── BR-05.md
+    ├── BR-09.md
+    └── BR-10.md
 ```
+
+Una skill con `modo: sub_loop` en el encabezado (hoy `tomar_pedido`) suma `sub_loop.md`, lo que hace su sub-loop, y
+`respuesta.md`, cómo responde el orquestador con su nota. Su `skill.md` no lista `respond_to_customer`: la suma quien
+la tiene activa, y su sub-loop termina con `entregar_nota`
+([orquestador §4.1](orquestador-y-sub-loops.md#41-encabezado-de-la-skill)).
+
+`informar/` suma `datos_negocio.md`: los datos del negocio que la skill le puede dar al cliente, en un encabezado YAML
+con un texto o `null` por tema. `leer_skill` los devuelve en `datos_negocio`
+([skills y respuestas §3.5](skills-y-respuestas.md#35-datos-del-negocio)).
+
+Cada `skill.md` termina con una sección «Ejemplos», una respuesta por situación, ilustrativa y con cierres distintos
+([skills y respuestas §3.2](skills-y-respuestas.md#32-ejemplos)). Cada regla se dice en un solo archivo: lo que vale
+para todas las skills está en el system prompt
+([skills y respuestas §3.1](skills-y-respuestas.md#31-dónde-vive-cada-regla)).
 
 ```markdown
 ---
@@ -410,9 +492,9 @@ Reglas:
 
 | Skill | Función | Cuándo aplica | Tools que habilita, además de las de catálogo | BR |
 |---|---|---|---|---|
-| `tomar_pedido` | Convierte el pedido en una propuesta y responde consultas de precio, disponibilidad y marcas. Nunca registra | El cliente pide o consulta productos, o cambia la propuesta vigente | `respond_to_customer` | BR-01, BR-03, BR-04, BR-05 |
+| `tomar_pedido` | Convierte el pedido en una propuesta y responde consultas de precio, disponibilidad y marcas. Nunca registra | El cliente pide o consulta productos, o cambia la propuesta vigente | `respond_to_customer` | BR-01, BR-03, BR-04, BR-05, BR-09, BR-10 |
 | `confirmar_pedido` | Registra la propuesta vigente si el cliente la acepta sin cambios; si no, le responde sin registrar | Hay una propuesta vigente y el cliente la acepta, la rechaza o duda | `armar_pedido`, `respond_to_customer` | BR-06 |
-| `informar` | Responde lo que no es un pedido y vuelve a ofrecer tomar uno | Saludo, consulta general, «dale» sin propuesta o algo que no es un pedido | `respond_to_customer` | — |
+| `informar` | Responde lo que no es un pedido y vuelve a ofrecer tomar uno | Saludo, consulta general, «dale» sin propuesta o algo que no es un pedido | `respond_to_customer` | — (lee `datos_negocio`) |
 | `derivar_o_cancelar` | Pasa la charla a una persona o descarta el pedido | Pide una persona o cancela el pedido | `escalate_to_human`, `discard_order_draft` | BR-08 |
 
 `derivar_o_cancelar` todavía no existe: depende de las tools de §4.2. Mientras tanto, `informar` no promete
@@ -435,6 +517,8 @@ hace cumplir el backend, aunque el agente no la haya leído.
 | BR-06 | Armar el pedido solo si el cliente acepta la propuesta vigente sin cambios ni condiciones; si cambia algo, proponer de nuevo; si pone una condición, duda o pregunta, responder y volver a ofrecerla | LLM interpreta, backend registra solo la propuesta | RF-13 |
 | BR-07 | Revalidar el stock al crear la orden | Backend. No la permite ninguna skill | RF-14 |
 | BR-08 | Derivar si el cliente lo pide, tras 2 fallas o tras 3 aclaraciones seguidas | LLM y backend | RF-27 |
+| BR-09 | Ante una coincidencia aproximada (`sugerencias` o `aproximado`), preguntar si se refería a ese producto antes de proponerlo; decir que no está en el catálogo solo sin `matches` ni `sugerencias` | LLM | RF-56 |
+| BR-10 | Anotar preparación, retiro, fecha, envío, pago o descuento solicitados por el cliente (`notes`, `note` por línea), como dichos sujetos a validación del negocio; no implican condiciones aceptadas | LLM | RF-56 |
 
 Las reglas que dependen solo del LLM, como BR-03, se controlan con la evaluación de `mensajes.json`, que registra
 qué BR leyó el agente en cada caso (§10).
@@ -445,9 +529,9 @@ El cliente confirma conversando (RF-13). El LLM interpreta si aceptó, pero **no
 
 1. El bot propone un pedido con `respond_to_customer(propuesta=...)`. El backend valida SKU y stock, y guarda la
    propuesta como `OrderDraft`.
-2. El cliente responde. Si escribe exactamente `OK` o `CONFIRMAR`, el backend sigue en el paso 3 sin llamar al LLM.
-   Con otra respuesta decide el agente: si acepta sin cambios («dale», «sí»), lee la skill `confirmar_pedido` y llama a
-   la tool. Si cambia algo, pone una condición o duda, propone de nuevo o pregunta (BR-06).
+2. El cliente responde. Si el mensaje completo es una aceptación exacta (§2.1), el backend sigue en el paso 3 sin
+   llamar al LLM. Con otra respuesta decide el agente: si acepta sin cambios («sí, dale», «perfecto»), usa la skill
+   `confirmar_pedido` y llama a la tool. Si cambia algo, pone una condición o duda, propone de nuevo o pregunta (BR-06).
 3. `armar_pedido` solo puede crear lo que está en la propuesta vigente.
 4. Si ya hay una orden con ese `draft_id`, devuelve la existente (idempotencia, CA-15).
 5. **Revalida el stock disponible** de cada línea con una lectura fresca descontando las órdenes activas previas
@@ -470,7 +554,8 @@ El cliente confirma conversando (RF-13). El LLM interpreta si aceptó, pero **no
 | Una tool devuelve `ok: false` | El error vuelve al LLM en la misma iteración para que corrija. Cada `error.message` dice qué hacer (p. ej. buscar de nuevo), así el system prompt no repite la lista de errores | Sin cambio |
 | Argumentos que no cumplen el esquema | Error `argumentos_invalidos` al LLM, con el detalle de pydantic | Sin cambio |
 | El LLM falla o tarda más de 30 s | 1 reintento. Si vuelve a fallar: mensaje fijo «Tuve un problema, probá de nuevo en unos minutos» y +1 falla | Sin cambio |
-| Se alcanzan 15 iteraciones sin tool terminal | Mensaje fijo de disculpa y +1 falla | Sin cambio |
+| Se alcanzan 50 iteraciones o 300 s sin tool terminal | El modelo cierra con lo encontrado usando solo `respond_to_customer` | Según la respuesta |
+| Tampoco responde en las 2 iteraciones del cierre | Mensaje fijo de disculpa y +1 falla | Sin cambio |
 | El LLM pide una tool que su skill no permite | Error `tool_no_permitida` al LLM, sin ejecutarla | Sin cambio |
 | Audio o imagen sin texto útil (transcripción u OCR vacíos o fallidos) | Sin llamar al LLM: «No pude entender el audio / la imagen, ¿me lo escribís?» | Sin cambio |
 | Catálogo no disponible al buscar | Se usa la última copia en caché si tiene menos de 1 h; si no, `catalogo_no_disponible` | Sin cambio |
@@ -503,7 +588,8 @@ mensajes del cliente (ya preprocesados), respuestas, tool calls con sus resultad
 
 1. El system prompt de [`agent/system_prompt.md`](../../internal/agent/system_prompt.md), más un **índice de
    skills** con el `nombre`, la `funcion` y el `cuando` de cada una, generado desde los archivos. Sin propuesta vigente, no incluye
-   las skills con `requiere_propuesta: true` (§4.5).
+   las skills con `requiere_propuesta: true` (§4.5). Si el backend preactivó una skill en este turno (RF-62), sigue
+   un bloque «Skill activa» con lo mismo que devuelve `leer_skill`.
 2. Un bloque de **estado actual**, generado por el backend: estado de la conversación, borrador pendiente
    (líneas y versión), última pregunta hecha y opciones ofrecidas.
 3. Los **últimos 20 mensajes** de la conversación abierta (D-07), con el origen de cada uno
@@ -642,7 +728,10 @@ Con `MLFLOW_ENABLED=true` (D-10), `observabilidad.py` manda además cada turno a
 | una por tool (`search_products`, `armar_pedido`…) | `ok` y, si falló, el código (`tool_no_permitida`, `sin_propuesta`…) |
 
 - **Apagado** (por defecto, tests y CI): no se importa mlflow y el agente se comporta igual.
-- **Sin servidor**: un aviso en el log y el proceso sigue sin trazas hasta reiniciarlo; una falla de MLflow nunca
+- **Fotos y audios**: la lectura (`lectura_imagen`) y la transcripción (`transcripcion_audio`) pasan antes del turno y
+  quedan en su propia traza, enlazada con la del turno por la etiqueta `mensaje_id` (CA-168).
+- **Producción**: `docker-compose.prod.yml` levanta MLflow y lo deja prendido, sin texto y solo en 127.0.0.1 (CA-167).
+- **Sin servidor**: un aviso en el log y el proceso sigue sin trazas; se reintenta al minuto (CA-169). Una falla de MLflow nunca
   cambia la respuesta al cliente.
 - **Privacidad**: la traza no lleva el texto de los mensajes, el prompt, los argumentos de las tools ni el
   `customer_id`, que puede ser un teléfono. `MLFLOW_TRACE_TEXT=true` suma el texto y los spans de LangChain con el
@@ -651,3 +740,23 @@ Con `MLFLOW_ENABLED=true` (D-10), `observabilidad.py` manda además cada turno a
 - **Evaluación**: `evaluar_agente --mlflow` abre un run con `proveedor`, `modelo` y `prompt_version` como parámetros,
   las métricas `aciertos_pct`, `evaluados`, `sin_evaluar`, `iteraciones_promedio`, tokens y latencia p50/p95, y la
   tabla `casos.json` con un caso por fila. Las trazas de los casos quedan vinculadas al run.
+
+### Resolución humana: fallas y límite de notas
+
+La base de negocio y el checkpointer del agente son persistencias distintas. Al resolver desde el
+dashboard se conserva una copia de los campos del agente que se cambian (sin mensajes). Si falla
+el envío por Telegram o el commit de negocio, se hace rollback y se restauran esos campos.
+La resolución no devuelve éxito si falla la restauración: responde 503 y la conversación permanece
+derivada en la base. En cada reintento se vuelven a cargar el descuento y acuerdo de la base,
+respetando que omitir un campo conserva su valor y `null` lo borra.
+
+Las notas del cliente y el acuerdo operativo deben entrar completos en el límite existente de
+300 caracteres de `OrderDraft.notes`. No se recortan. Si exceden el límite, el dashboard responde
+422 antes de enviar el mensaje o modificar el agente; el operador debe resumirlas. Una propuesta
+del LLM que no entre recibe `notas_demasiado_largas`, sin guardar ni enviar el texto recortado.
+El límite incluye el prefijo «Acuerdo confirmado:» y se valida incluso si todavía no hay borrador.
+
+Pruebas: `tests/test_resolucion_derivaciones.py` cubre falla de Telegram/reintento, falla de commit,
+falla de restauración, límite exacto de notas, rechazo sin efectos y error corregible de la tool.
+Esto no constituye una transacción distribuida con Telegram: si el mensaje ya se envió y luego
+falla el commit, no puede retirarse ni garantizarse que un reintento no duplique ese envío.

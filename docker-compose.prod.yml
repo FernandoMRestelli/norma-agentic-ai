@@ -1,5 +1,5 @@
 # Producción: corre la imagen publicada de una release, nunca el código de una carpeta de trabajo.
-# Se usa desde ~/norma-prod (ver CONTRIBUTING.md#producción). Levanta la API y el bot de Telegram:
+# Se usa desde ~/norma-prod (ver CONTRIBUTING.md#producción). Levanta la API, el bot de Telegram y MLflow:
 #   VERSION=X.Y.Z docker compose -f docker-compose.prod.yml pull
 #   VERSION=X.Y.Z docker compose -f docker-compose.prod.yml up -d
 services:
@@ -11,9 +11,14 @@ services:
     env_file:
       - path: .env
         required: true
+    # Fijos, aunque el .env diga otra cosa: el catálogo real y una traza por turno, sin el texto del cliente (RNF-03)
     environment:
       APP_ENV: production
       DATABASE_URL: sqlite:////app/data/norma.db
+      CATALOG_FILE: data/catalogo.csv
+      MLFLOW_ENABLED: "true"
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_TRACE_TEXT: "false"
     volumes:
       # Solo datos y credenciales: el código y la config vienen dentro de la imagen
       - ./data:/app/data
@@ -37,8 +42,32 @@ services:
     environment:
       APP_ENV: production
       DATABASE_URL: sqlite:////app/data/norma.db
+      CATALOG_FILE: data/catalogo.csv
+      MLFLOW_ENABLED: "true"
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_TRACE_TEXT: "false"
     volumes:
       - ./data:/app/data
       - ./credentials:/app/credentials:ro
     depends_on:
       - api
+
+  # Trazas del agente: http://localhost:5001. No tiene login, así que se publica solo en 127.0.0.1.
+  # Los datos quedan en ./mlflow, aparte de data/. Si se cae, el bot y la API siguen sin trazas y reintentan.
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v3.18.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5001:5000"  # en macOS el 5000 lo ocupa AirPlay
+    volumes:
+      - ./mlflow:/mlflow
+    command: >
+      mlflow server --host 0.0.0.0 --port 5000 --workers 1
+      --backend-store-uri sqlite:////mlflow/mlflow.db --artifacts-destination /mlflow/artifacts
+      --allowed-hosts mlflow:5000,localhost:*,127.0.0.1:*
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s

@@ -10,17 +10,44 @@ import socket
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Self
+from typing import Literal, Self
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 MAX_QUANTITY: int = 999
 MAX_MEDIA_URL_LENGTH: int = 2048
+MAX_LINE_NOTE_LENGTH: int = 120  # nota de una línea: tono, variante o aclaración (RF-48)
+MAX_ORDER_NOTES_LENGTH: int = 300  # observación general del pedido (RF-48)
+MAX_CUSTOMER_NAME_LENGTH: int = 64
+MAX_SOURCE_TEXT_LENGTH: int = 300  # el renglón como lo escribió el cliente (D-24)
+
+# De dónde salió el pedido (RF-79). Hoy siempre `texto`: audio e imagen todavía no llegan al agente
+ORIGEN_POR_TIPO = {"text": "texto", "audio": "audio", "image": "imagen"}
+Coincidencia = Literal["exacta", "aproximada"]
 _NUMERIC_OR_HEX_HOST = re.compile(
     r"^(0x[0-9a-f]+|[0-9]+)(\.(0x[0-9a-f]+|[0-9]+))*$", re.IGNORECASE
 )
 _TELEGRAM_FILE_REFERENCE = re.compile(r"telegram:[A-Za-z0-9_-]+")
+
+
+def clean_note(value: str | None) -> str | None:
+    """Colapsa los espacios de una nota; una nota vacía es None."""
+    if value is None:
+        return None
+    return " ".join(value.split()) or None
+
+
+def items_total(items: "list[OrderItem]") -> Decimal:
+    """Suma de cantidad por precio de las líneas con precio: es el total que ve el cliente."""
+    return sum((item.quantity * item.unit_price for item in items if item.unit_price is not None), Decimal(0))
+
+
+def descuento(subtotal: Decimal, porcentaje: float | Decimal | None) -> Decimal:
+    """El monto que descuenta un porcentaje autorizado por el operador, redondeado al centavo (RF-27)."""
+    if not porcentaje:
+        return Decimal(0)
+    return (subtotal * Decimal(str(porcentaje)) / Decimal(100)).quantize(Decimal("0.01"))
 
 
 class Channel(StrEnum):
@@ -41,7 +68,7 @@ class IncomingMessage(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     customer_id: str = Field(min_length=1)
-    customer_name: str | None = Field(default=None, max_length=64)  # el nombre del perfil, si el canal lo da
+    customer_name: str | None = Field(default=None, max_length=MAX_CUSTOMER_NAME_LENGTH)  # nombre del perfil
     channel: Channel
     type: MessageType = MessageType.TEXT
     text: str | None = None
@@ -143,12 +170,36 @@ class OrderItem(BaseModel):
     presentation: str | None = None
     quantity: int = Field(gt=0, le=MAX_QUANTITY)
     unit_price: Decimal | None = Field(default=None, ge=0)
+    note: str | None = Field(default=None, max_length=MAX_LINE_NOTE_LENGTH)  # el tono mientras siga abierta V-01
+    # Para quien prepara el pedido (RF-75). Los cuatro son opcionales: una orden anterior a la migración 2 no los trae
+    brand: str | None = None
+    category: str | None = None
+    match: Coincidencia | None = None  # `aproximada`: el cliente tuvo que confirmar «¿es este?»
+    source_text: str | None = None  # el renglón como lo escribió el cliente; solo en pedidos numerados (D-24)
+
+    @field_validator("note")
+    @classmethod
+    def clean_line_note(cls, v: str | None) -> str | None:
+        return clean_note(v)
+
+    @field_validator("source_text")
+    @classmethod
+    def clean_source_text(cls, v: str | None) -> str | None:
+        return (clean_note(v) or "")[:MAX_SOURCE_TEXT_LENGTH] or None
+
+
+class Leftover(BaseModel):
+    """Un renglón que el cliente pidió y no entró al pedido (RF-76): es una venta que el equipo puede recuperar."""
+
+    source_text: str = Field(min_length=1, max_length=MAX_SOURCE_TEXT_LENGTH)
+    reason: str  # fuera_de_catalogo, sin_stock, lo_saco_el_cliente o duda_sin_resolver
 
 
 class DraftStatus(StrEnum):
     PENDING_CONFIRMATION = "pendiente_confirmacion"
     CONFIRMED = "confirmado"
     DISCARDED = "descartado"
+    REPLACED = "reemplazado"  # llegó otra versión del mismo borrador
 
 
 class OrderDraft(BaseModel):
@@ -158,23 +209,58 @@ class OrderDraft(BaseModel):
 
     draft_id: str
     customer_id: str = Field(min_length=1)
+    customer_name: str | None = None  # lo pone el backend desde el perfil, nunca el LLM
     channel: Channel
+    conversation_id: int | None = None  # lo pone el backend
     items: list[OrderItem] = Field(min_length=1)
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=MAX_ORDER_NOTES_LENGTH)
     status: DraftStatus = DraftStatus.PENDING_CONFIRMATION
     version: int = Field(default=1, ge=1)
+    leftovers: list[Leftover] = Field(default_factory=list)  # lo que quedó afuera al proponer (RF-76)
+    source: str = "texto"  # texto, audio o imagen (RF-79)
+    discount_percentage: float | None = Field(default=None, ge=0, le=100)
+
+    @field_validator("notes")
+    @classmethod
+    def clean_notes(cls, v: str | None) -> str | None:
+        return clean_note(v)
+
+    @field_validator("customer_name")
+    @classmethod
+    def clean_customer_name(cls, v: str | None) -> str | None:
+        return (clean_note(v) or "")[:MAX_CUSTOMER_NAME_LENGTH] or None
+
+    @property
+    def total(self) -> Decimal:
+        return self.subtotal - descuento(self.subtotal, self.discount_percentage)
+
+    @property
+    def subtotal(self) -> Decimal:
+        return items_total(self.items)
 
 
 class ConfirmationAction(StrEnum):
     CONFIRM = "confirmar"
     CORRECT = "corregir"
+    CANCEL = "cancelar"
 
 
 class OrderStatus(StrEnum):
     RECEIVED = "Recibido"
     PREPARED = "Preparado"
+    DISPATCHED = "Despachado"
     PICKED_UP = "Retirado"
+    DELIVERED = "Entregado"
     CANCELLED = "Cancelado"
+
+
+class OrderEvent(BaseModel):
+    """Un cambio de estado de una orden. `from_status` es None en el alta (RF-47)."""
+
+    from_status: OrderStatus | None = None
+    to_status: OrderStatus
+    source: str  # agente, operador o migracion
+    created_at: datetime
 
 
 class Order(BaseModel):
@@ -186,11 +272,31 @@ class Order(BaseModel):
     draft_id: str
     created_at: datetime
     customer_id: str = Field(min_length=1)
+    customer_name: str | None = None  # nombre del perfil: dato personal, nunca a logs ni trazas (RNF-03)
     channel: Channel
+    conversation_id: int | None = None
     items: list[OrderItem] = Field(min_length=1)
     notes: str | None = None
+    total: Decimal | None = None  # siempre Decimal después de validar: si no viene, sale de las líneas
     status: OrderStatus = OrderStatus.RECEIVED
     sheets_synced: bool = False
+    stock_applied: bool = False  # el stock ya se descontó del catálogo al despachar o retirar (Issue #61)
+    discount_percentage: float | None = None
+    history: list[OrderEvent] = Field(default_factory=list)
+    leftovers: list[Leftover] = Field(default_factory=list)
+    source: str | None = None  # None en una orden anterior a la migración 2
+
+    @property
+    def updated_at(self) -> datetime:
+        """Cuándo cambió de estado por última vez; sin historial, cuándo se creó."""
+        return self.history[-1].created_at if self.history else self.created_at
+
+    @model_validator(mode="after")
+    def fill_total(self) -> Self:
+        if self.total is None:
+            subtotal = items_total(self.items)
+            self.total = subtotal - descuento(subtotal, self.discount_percentage)
+        return self
 
     @field_validator("order_id")
     @classmethod

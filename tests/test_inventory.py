@@ -40,7 +40,7 @@ def _make_draft(items: list[tuple[str, int]]) -> OrderDraft:
                 product_name=f"Producto {sku}",
                 presentation="Unidad",
                 quantity=qty,
-                unit_price=Decimal("100.00"),
+                unit_price=None,  # sin precio: estos tests miran el stock, y al confirmar el precio se revalida
             )
             for sku, qty in items
         ],

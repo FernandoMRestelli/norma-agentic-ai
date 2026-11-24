@@ -13,15 +13,43 @@ class EstadoNorma(TypedDict, total=False):
     customer_id: str
     customer_name: str | None
     channel: str
+    origen: str  # texto, audio o imagen: de dónde salió el último mensaje del cliente (RF-79)
+    # La lectura de la imagen del mensaje de este turno, si trajo renglones (`ImagenLeida`): `encaminar` arma los
+    # renglones desde acá y la borra
+    lectura: dict[str, Any] | None
     inicio_turno: int  # posición en `messages` del mensaje que abrió el turno
     skills_activas: list[str]  # skills leídas en este turno: dan los permisos
+    skill_preactivada: str | None  # la que leyó el backend antes de la primera llamada al LLM (RF-62)
+    br_entregadas: list[str]  # BR que ya vio el LLM en este turno: no se repiten (RF-63)
+    turno_desde: float  # cuándo empezó el turno, para el plazo total (RNF-16)
     tools_disponibles: list[str]
     iteraciones: int  # llamadas al LLM en este turno
+    # Iteración en la que se agotó el presupuesto del turno: desde ahí solo queda responder (RNF-16). None: no se agotó
+    cierre_desde: int | None
     fallas: int  # en toda la conversación
     falla_turno: bool
     propuesta: dict[str, Any] | None  # OrderDraft vigente, ya validado por el backend
+    # Renglones del pedido numerados por el backend (RF-65, RF-67). Viven mientras la conversación esté abierta.
+    # Cada uno: n, texto, marca, estado (sin_resolver, resuelto, pendiente o afuera) y, según el estado, lineas
+    # ([{sku, cantidad}]), opciones, motivo, tono y coincidencia
+    renglones: list[dict[str, Any]]
     respuesta: str | None  # lo que va a ver el cliente
     kind: str | None
     options: list[str]
+    opciones_previas: list[str]  # las `options` de tu respuesta anterior: lo que el cliente está contestando (RF-71)
+    kind_anterior: str | None  # `kind` de la respuesta anterior: si no cerró con la propuesta, «sí» va al LLM (RF-99)
     order_id: str | None
+    derivation_reason: str | None
+    descuento_autorizado: float | None  # descuento comercial autorizado por el operador humano
+    condicion_comercial: str | None  # tipo de resolución comercial aprobada por el operador (sin notas internas)
+    acuerdo_operativo: str | None  # acuerdos operativos confirmados para el pedido (visibles al cliente y planilla)
+    propuesta_pendiente_mostrar: bool  # True si la propuesta cambió tras resolución y falta mostrarla al cliente
+    aclaraciones_seguidas: int  # para derivar si superan 3 seguidas sin borrador (RF-27)
     resultado: Resultado
+    # Lo que el backend sabe del cliente, armado sin LLM una vez por día: nombre, pedidos, comprados, desde, fecha y
+    # completo (RF-84). None: todavía no se armó, o lo invalidó un pedido registrado
+    contexto_cliente: dict[str, Any] | None
+    # La nota de búsqueda de la precarga y las de los sub-loops de este turno, con sus renglones y sus intentos.
+    # `pausa` la vacía: al mensaje siguiente pasa solo el estado estructurado (RF-92)
+    notas_turno: list[dict[str, Any]]
+    iteraciones_sub_loop: int  # llamadas al LLM de los sub-loops en este turno: cuentan para el tope (RF-93)

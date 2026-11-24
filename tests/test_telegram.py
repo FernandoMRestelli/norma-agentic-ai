@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -126,6 +128,49 @@ def test_mensaje_de_integrante_llega_al_orquestador(orquestador):
     assert bot.calls == [("send_message", USUARIO, "respuesta")]
 
 
+def test_mensajes_seguidos_llegan_juntos_al_orquestador(monkeypatch, orquestador):
+    """RF-74: con `MESSAGE_GROUP_SECONDS`, dos mensajes seguidos son un solo turno y una sola respuesta."""
+    from internal.services.agrupador import Agrupador
+
+    temporizadores = []
+
+    class Temporizador:
+        def __init__(self, espera, funcion, args=()):
+            self.funcion, self.args, self.cancelado = funcion, args, False
+            temporizadores.append(self)
+
+        def start(self):
+            pass
+
+        def cancel(self):
+            self.cancelado = True
+
+    monkeypatch.setenv("MESSAGE_GROUP_SECONDS", "6")
+    get_settings.cache_clear()
+    monkeypatch.setattr(telegram_service, "_agrupador", Agrupador(6, temporizador=Temporizador))
+    bot = FakeTelegram()
+
+    telegram_service.handle_update(mensaje(update_id=1, text="Pantene"), bot)
+    telegram_service.handle_update(mensaje(update_id=2, text="2 sh 400"), bot)
+    assert orquestador == [] and bot.sent == []  # todavía espera
+
+    for temporizador in temporizadores:
+        if not temporizador.cancelado:
+            temporizador.funcion(*temporizador.args)
+
+    assert [m.text for m in orquestador] == ["Pantene\n2 sh 400"]
+    assert bot.sent == [("send_message", USUARIO, "respuesta")]
+
+
+def test_sin_ventana_cada_mensaje_se_contesta_al_llegar(orquestador):
+    """RF-74: por defecto no se agrupa, como hasta ahora."""
+    bot = FakeTelegram()
+    telegram_service.handle_update(mensaje(update_id=1, text="Pantene"), bot)
+    telegram_service.handle_update(mensaje(update_id=2, text="2 sh 400"), bot)
+    assert [m.text for m in orquestador] == ["Pantene", "2 sh 400"]
+    assert len(bot.sent) == 2
+
+
 def test_usuario_fuera_de_la_lista_blanca(orquestador):
     """CA-31: responde un texto fijo con su id y no llega al orquestador."""
     bot = FakeTelegram()
@@ -197,6 +242,23 @@ def test_cliente_de_telegram_arma_el_pedido():
     assert b'"inline_keyboard"' not in request.content
 
 
+def test_cliente_de_telegram_parte_un_mensaje_largo():
+    """RF-70: una propuesta de muchas líneas pasa el límite de Telegram y sale en varios mensajes, por renglón."""
+    enviados = []
+
+    def handler(request):
+        enviados.append(json.loads(request.content)["text"])
+        return httpx.Response(200, json={"ok": True, "result": True})
+
+    client = TelegramClient("123:token-de-prueba", http=httpx.Client(transport=httpx.MockTransport(handler)))
+    lineas = [f"• 2 x Producto de prueba con un nombre bastante largo número {n} ($12500.00 c/u)" for n in range(80)]
+    client.send_message(USUARIO, "\n".join(lineas))
+
+    assert len(enviados) == 2
+    assert all(len(texto) <= telegram_service.MAX_LARGO_MENSAJE for texto in enviados)
+    assert "\n".join(enviados).splitlines() == lineas
+
+
 def test_cliente_de_telegram_respuesta_con_error():
     def handler(request):
         return httpx.Response(
@@ -245,3 +307,42 @@ def test_webhook_sin_secret_configurado(monkeypatch):
     get_settings.cache_clear()
     response = api.post("/webhook/telegram", json=mensaje(), headers={"X-Telegram-Bot-Api-Secret-Token": ""})
     assert response.status_code == 403
+
+
+def test_cliente_de_telegram_baja_una_foto():
+    """getFile da la ruta y el archivo se baja de /file/bot<token>/<ruta>."""
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        if request.url.path.endswith("/getFile"):
+            return httpx.Response(200, json={"ok": True, "result": {"file_path": "photos/f1.jpg", "file_size": 3}})
+        return httpx.Response(200, content=b"JPG")
+
+    client = TelegramClient("123:token-de-prueba", http=httpx.Client(transport=httpx.MockTransport(handler)))
+    assert client.download_file("GRANDE") == b"JPG"
+    assert b'"file_id":"GRANDE"' in requests[0].content.replace(b" ", b"")
+    assert requests[1].url.path == "/file/bot123:token-de-prueba/photos/f1.jpg"
+
+
+def test_cliente_de_telegram_no_baja_archivos_grandes():
+    def handler(request):
+        return httpx.Response(200, json={"ok": True, "result": {"file_path": "x.jpg", "file_size": 30 * 1024 * 1024}})
+
+    client = TelegramClient("123:token-de-prueba", http=httpx.Client(transport=httpx.MockTransport(handler)))
+    with pytest.raises(TelegramError, match="grande"):
+        client.download_file("X")
+
+
+def test_error_al_bajar_no_filtra_el_token():
+    """RNF-14: igual que en call, el error de la descarga no lleva la URL con el token."""
+
+    def handler(request):
+        if request.url.path.endswith("/getFile"):
+            return httpx.Response(200, json={"ok": True, "result": {"file_path": "x.jpg"}})
+        raise httpx.ConnectError(f"no se pudo conectar a {request.url}")
+
+    client = TelegramClient("123:token-de-prueba", http=httpx.Client(transport=httpx.MockTransport(handler)))
+    with pytest.raises(TelegramError) as error:
+        client.download_file("X")
+    assert "token-de-prueba" not in str(error.value) and error.value.__cause__ is None
