@@ -27,7 +27,9 @@ from internal.schemas.vision_schema import ImagenLeida
 
 logger = logging.getLogger(__name__)
 
-TIMEOUT_SECONDS = 30  # RNF-06: imagen p95 < 20 s, timeout del LLM 30 s
+# Una hoja escrita a mano, con la disposición completa, puede llevarle más de 30 s al modelo: con 30 s la llamada se
+# cortaba y el reintento arrancaba de cero, y tardaba el doble. Es preferible esperar a que termine
+TIMEOUT_SECONDS = 180
 MAX_RETRIES = 1
 MAX_LADO_PX = 1600  # más grande no mejora la lectura de un pedido y encarece los tokens de imagen
 
