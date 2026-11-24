@@ -641,6 +641,9 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 |---|---|---|---|---|---|
 | CA-56 | `MLFLOW_ENABLED` apagado / prendido | Corre un turno del agente | Apagado: no se importa mlflow y el resultado es el mismo. Prendido: el turno es una traza con un span por llamada al LLM y por tool, con `kind`, iteraciones, skills, tokens, proveedor, modelo y versión del prompt, sin el texto del cliente ni su id | RNF-03, RNF-07, RNF-08 | `test_observabilidad.py::test_apagado_no_importa_mlflow`, `test_observabilidad.py::test_prendido_traza_el_turno_sin_texto` |
 | CA-57 | `MLFLOW_TRACE_TEXT=true` | `APP_ENV` es `development` / otro | La traza suma el mensaje y la respuesta / la app no arranca | RNF-03 | `test_observabilidad.py::test_con_texto_en_desarrollo_guarda_mensaje_y_respuesta`, `test_observabilidad.py::test_texto_en_la_traza_solo_en_desarrollo` |
+| CA-167 | `docker-compose.prod.yml`, con cualquier `.env` | Se levanta producción | El catálogo es `data/catalogo.csv`, cada turno queda en MLflow sin el texto de los mensajes, y MLflow se publica solo en 127.0.0.1 y no ve `data/` ni `credentials/` | RNF-03, RNF-07, RNF-10 | `test_compose_prod.py` |
+| CA-168 | MLflow prendido | Llega un audio | La transcripción queda en una traza `transcripcion_audio` con proveedor, modelo, segundos y cantidad de palabras, enlazada con la del turno por `mensaje_id` y sin el texto; si falla, con el tipo de error | RNF-03, RNF-07 | `test_observabilidad.py::test_transcripcion_*` |
+| CA-169 | MLflow no respondió al primer intento | Pasa un minuto y llega otro mensaje | Se vuelve a conectar sin reiniciar el proceso; mientras tanto el agente responde igual, sin trazas | RNF-07 | `test_observabilidad.py::test_mlflow_caido_al_arrancar_se_reintenta` |
 
 ### Dashboard
 
@@ -674,7 +677,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | D-07 | Parámetros del agente | Tomada en esta spec, a revisar | 50 iteraciones y 300 s por turno, configurables (fueron 15 y después 8; RNF-16), 20 mensajes de historial, 24 h de vencimiento y de silencio tras derivar, 2 fallas o 3 aclaraciones para derivar, 30 s de timeout, caché de 5 min; se ajustan con uso real |
 | D-08 | Retención de conversaciones | **Abierta** | Propuesta: 90 días |
 | D-09 | BR usadas por varias skills | Cerrada | No hay BR compartidas: las que se usan juntas (BR-01, BR-03, BR-04 y BR-05) quedaron en `tomar_pedido`, y BR-02 está en el system prompt. Si otra skill necesita una, lee `tomar_pedido`, como ya hace `confirmar_pedido` con BR-01 |
-| D-10 | Trazas y evaluación del agente | **Tomada en parte**: MLflow, apagado por defecto y solo en desarrollo (`docker compose --profile mlflow`), sin el texto de los mensajes | Producción sigue abierta: el servidor de MLflow no tiene login y la retención de las trazas depende de D-08 |
+| D-10 | Trazas y evaluación del agente | **Tomada en parte**: MLflow en desarrollo (`docker compose --profile mlflow`, apagado por defecto) y, desde la 0.2.0, en la producción local de cada integrante (`docker-compose.prod.yml`, siempre prendido, publicado solo en 127.0.0.1), sin el texto de los mensajes | Siguen abiertos el login del servidor, si se publica fuera de la máquina (D-03), y la retención de las trazas, que depende de D-08 |
 | D-11 | Dashboard sin build | **Tomada para la beta** | Una sola página (`frontend/src/Dashboard/index.html`) con Tailwind y Chart.js desde CDN, sin paso de build. El token de operador queda en `localStorage` del navegador: aceptable para una beta interna en equipos del negocio. Para producción: servir los assets locales y revisar el guardado del token |
 
 ### 10.2 Riesgos

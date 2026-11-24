@@ -20,6 +20,8 @@ RUN if [ "$INSTALL_DEV" = "true" ]; then pip install -r requirements-dev.txt; el
 COPY internal/ internal/
 COPY tests/ tests/
 COPY data_example/ data_example/
+# La página del dashboard (/dashboard/ui)
+COPY frontend/ frontend/
 COPY pytest.ini .
 
 # UID fijo para que en el servidor se pueda dar permiso de escritura sobre ./data (montado en /app/data)

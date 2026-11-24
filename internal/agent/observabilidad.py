@@ -9,6 +9,7 @@ prompt completo, y solo se puede prender en desarrollo, con datos simulados.
 import json
 import logging
 import os
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -26,6 +27,9 @@ logger = logging.getLogger(__name__)
 
 # Atributo que MLflow suma por traza para mostrar los tokens (mlflow.tracing.constant.SpanAttributeKey.CHAT_USAGE)
 _USO_TOKENS = "mlflow.chat.tokenUsage"
+# Con los contenedores arrancando a la vez, MLflow puede tardar más que el primer mensaje: se vuelve a probar
+REINTENTO_SEGUNDOS = 60.0
+_ultimo_intento = 0.0
 
 
 @dataclass
@@ -76,12 +80,20 @@ def resumir(state: EstadoNorma) -> ResumenTurno:
 
 def cliente() -> ModuleType | None:
     """El módulo mlflow ya conectado, o None si las trazas están apagadas o MLflow no respondió."""
-    return _configurar() if get_settings().mlflow_enabled else None
+    if not get_settings().mlflow_enabled:
+        return None
+    modulo = _configurar()
+    if modulo is None and time.monotonic() - _ultimo_intento >= REINTENTO_SEGUNDOS:
+        _configurar.cache_clear()
+        modulo = _configurar()
+    return modulo
 
 
 @lru_cache(maxsize=1)
 def _configurar() -> ModuleType | None:
-    """Conecta una sola vez por proceso. Si MLflow no responde, el agente sigue igual, sin trazas."""
+    """Conecta una sola vez por proceso. Si MLflow no responde, el agente sigue sin trazas y se reintenta después."""
+    global _ultimo_intento
+    _ultimo_intento = time.monotonic()
     settings = get_settings()
     # Sin el servidor, MLflow reintenta por minutos y frenaría la primera respuesta al cliente
     os.environ.setdefault("MLFLOW_HTTP_REQUEST_MAX_RETRIES", "1")
@@ -225,19 +237,30 @@ def turno(conversation_id: str, canal: str, texto: str, mensaje_id: str | None =
 
 @contextmanager
 def lectura(mensaje_id: str) -> Iterator[Paso]:
-    """La traza de la lectura de una imagen, que pasa antes del turno.
+    """La traza de la lectura de una imagen. Con `MLFLOW_TRACE_TEXT`, la llamada al modelo de visión queda adentro,
+    con la imagen adjunta."""
+    with _traza_previa("lectura_imagen", mensaje_id) as actual:
+        yield actual
 
-    Lleva el tag `mensaje_id`, el mismo que la traza del turno que la usa. Con `MLFLOW_TRACE_TEXT`, la llamada al
-    modelo de visión queda adentro, con la imagen adjunta.
-    """
+
+@contextmanager
+def transcripcion(mensaje_id: str) -> Iterator[Paso]:
+    """La traza de la transcripción de un audio."""
+    with _traza_previa("transcripcion_audio", mensaje_id) as actual:
+        yield actual
+
+
+@contextmanager
+def _traza_previa(nombre: str, mensaje_id: str) -> Iterator[Paso]:
+    """Una traza que pasa antes del turno. Lleva el tag `mensaje_id`, el mismo que la traza del turno que la usa."""
     mlflow = cliente()
     if mlflow is None:
         yield Paso()
         return
-    with mlflow.start_span("lectura_imagen", span_type="PARSER") as span:
+    with mlflow.start_span(nombre, span_type="PARSER") as span:
         actual = Paso(span)
         try:
             mlflow.update_current_trace(tags={"mensaje_id": mensaje_id})
         except Exception as exc:
-            logger.warning("MLflow: no se pudo abrir la traza de la lectura (%s)", type(exc).__name__)
+            logger.warning("MLflow: no se pudo abrir la traza %s (%s)", nombre, type(exc).__name__)
         yield actual

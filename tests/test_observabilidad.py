@@ -410,3 +410,76 @@ def test_lectura_y_turno_comparten_mensaje(mlflow_local, monkeypatch):
     assert raiz.name == "lectura_imagen"
     assert (raiz.attributes["renglones"], raiz.attributes["tokens_salida"]) == (1, 20)
     assert raiz.outputs is None  # sin MLFLOW_TRACE_TEXT, sin el texto de la imagen (RNF-03)
+
+
+def test_transcripcion_y_turno_comparten_mensaje(mlflow_local, monkeypatch):
+    """CA-168: un audio deja su traza `transcripcion_audio`, enlazada con la del turno y sin el texto (RNF-03)."""
+    from internal.schemas.order_schema import IncomingMessage, MessageType
+    from internal.services import audio_service, message_service
+
+    monkeypatch.setenv("AUDIO_PROVIDER", "openai")
+    monkeypatch.setattr(audio_service, "transcribe_audio", lambda url: TEXTO_CLIENTE)
+    mensaje = IncomingMessage(customer_id="telegram:secreto-77", channel=Channel.TELEGRAM, type=MessageType.AUDIO,
+                              media_url="telegram:abc", external_id="tg-100")  # fmt: skip
+
+    entrada = message_service.preparar(mensaje)
+    audio = _traza(mlflow_local)
+    agent = NormaAgent(ModeloGuionado(*_guion()), InMemorySaver())
+    agent.handle("45", customer_id="telegram:1", channel=Channel.TELEGRAM, text=entrada.texto, origen="audio",
+                 mensaje_id=entrada.mensaje_id)  # fmt: skip
+    turno = _traza(mlflow_local)
+
+    assert audio.info.tags["mensaje_id"] == turno.info.tags["mensaje_id"] == "tg-100"
+    (raiz,) = audio.data.spans
+    assert raiz.name == "transcripcion_audio"
+    assert raiz.attributes["proveedor"] == "openai"
+    assert raiz.attributes["palabras"] == len(TEXTO_CLIENTE.split())
+    assert TEXTO_CLIENTE not in audio.to_json()
+    assert "secreto-77" not in audio.to_json()
+
+
+def test_transcripcion_fallida_queda_en_la_traza_sin_el_mensaje(mlflow_local, monkeypatch):
+    """CA-168: si la transcripción falla, la traza dice el tipo de error y la excepción llega igual."""
+    from internal.services import audio_service, message_service
+
+    def falla(url):
+        raise audio_service.AudioProcessingError("detalle-privado")
+
+    monkeypatch.setattr(audio_service, "transcribe_audio", falla)
+
+    with pytest.raises(audio_service.AudioProcessingError):
+        message_service.transcribir_audio_del_mensaje("telegram:abc")
+
+    traza = _traza(mlflow_local)
+    (raiz,) = traza.data.spans
+    assert raiz.attributes["error"] == "AudioProcessingError"
+    assert "detalle-privado" not in traza.to_json()
+
+
+def test_mlflow_caido_al_arrancar_se_reintenta(monkeypatch):
+    """CA-169: si MLflow no respondió al principio, se vuelve a probar al minuto, sin reiniciar el proceso."""
+    import sys
+    from types import SimpleNamespace
+
+    intentos, caido = [], [True]
+
+    def set_experiment(nombre):
+        intentos.append(nombre)
+        if caido[0]:
+            raise ConnectionError
+
+    langchain = SimpleNamespace(autolog=lambda **_: None)  # el teardown lo apaga
+    falso = SimpleNamespace(set_tracking_uri=lambda uri: None, set_experiment=set_experiment, langchain=langchain)
+    reloj = [1000.0]
+    monkeypatch.setitem(sys.modules, "mlflow", falso)
+    monkeypatch.setenv("MLFLOW_ENABLED", "true")
+    monkeypatch.setattr(observabilidad.time, "monotonic", lambda: reloj[0])
+
+    assert observabilidad.cliente() is None
+    caido[0] = False
+    reloj[0] += observabilidad.REINTENTO_SEGUNDOS - 1
+    assert observabilidad.cliente() is None
+    assert len(intentos) == 1  # todavía no: no frena cada mensaje
+    reloj[0] += 1
+    assert observabilidad.cliente() is falso
+    assert len(intentos) == 2
