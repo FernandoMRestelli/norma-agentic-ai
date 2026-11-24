@@ -79,7 +79,7 @@ flowchart LR
 Un audio sin `AUDIO_ENABLED=true`, o una foto sin `LLM_VISION_PROVIDER`, reciben **sin llamar al LLM** el mensaje fijo «Por ahora solo puedo
 leer pedidos escritos. ¿Me lo mandás por texto?» (RF-32).
 
-Con `AUDIO_ENABLED=true` y un proveedor configurado (`AUDIO_PROVIDER=gemini`, `groq`, `openai` o `mock`), el audio se descarga (hasta 20 MB)
+Con `AUDIO_ENABLED=true` y un proveedor configurado (`AUDIO_PROVIDER=gemini`, `groq` u `openai`), el audio se descarga (hasta 20 MB)
 y se transcribe fielmente al español para el agente (RF-04, CA-06).
 
 Con `LLM_VISION_PROVIDER` configurado, `message_service` baja la foto con `getFile` (hasta 20 MB, el límite de la Bot
@@ -130,7 +130,7 @@ Se suma `telegram` (`web | whatsapp | telegram`) en `IncomingMessage`, `OrderDra
 | `LLM_MODEL` | Sí, para el agente | P. ej. `nvidia/nemotron-3.5-lightning:free` en OpenRouter, `gemini-3.8-flash` o `gpt-6-luna` |
 | `LLM_API_KEY` | Sí, para el agente | API key del proveedor (OpenRouter, Groq, Google AI Studio u OpenAI) |
 | `LLM_VISION_PROVIDER`, `LLM_VISION_MODEL`, `LLM_VISION_API_KEY` | No, para leer fotos | `huggingface` (local, sin key), `openai`, `openrouter` o `gemini`. Vacío: la foto recibe el pedido de escribirla |
-| `AUDIO_ENABLED`, `AUDIO_PROVIDER`, `AUDIO_MODEL`, `AUDIO_API_KEY` | No, para audios | `gemini`, `groq`, `openai`, `mock`. Vacío o false: el audio recibe el pedido de escribirlo (RF-32) |
+| `AUDIO_ENABLED`, `AUDIO_PROVIDER`, `AUDIO_MODEL`, `AUDIO_API_KEY` | No, para audios | `gemini`, `groq`, `openai`. Vacío o false: el audio recibe el pedido de escribirlo (RF-32) |
 
 ### 4.3 Modelo con LangChain
 

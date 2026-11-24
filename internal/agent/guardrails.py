@@ -772,10 +772,20 @@ class Limitador:
 limitador = Limitador()
 
 
-def revisar_entrada(clave: Any, texto: str) -> str | None:
-    """La respuesta fija si el mensaje no puede llegar al agente, o None si pasa. No llama al LLM."""
+def revisar_rafaga(clave: Any) -> str | None:
+    """Tope de ráfaga por cliente y canal, antes de descargar o transcribir multimedia."""
     if not limitador.permitir(clave):
         return MENSAJE_RAFAGA
+    return None
+
+
+def revisar_largo(texto: str) -> str | None:
+    """Tope de largo sobre el texto preparado, sin llamar al LLM."""
     if len(texto) > MAX_LARGO_MENSAJE:
         return MENSAJE_LARGO
     return None
+
+
+def revisar_entrada(clave: Any, texto: str) -> str | None:
+    """La respuesta fija si el mensaje no puede llegar al agente, o None si pasa. No llama al LLM."""
+    return revisar_rafaga(clave) or revisar_largo(texto)

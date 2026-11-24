@@ -2,14 +2,30 @@
 
 import logging
 
-from internal.schemas.order_schema import Channel, IncomingMessage, MessageType
+from internal.schemas.order_schema import IncomingMessage, MessageType
 from internal.services import audio_service, vision_service
 
 logger = logging.getLogger(__name__)
 
+MARCA_AUDIO = "[audio transcripto]"
+MARCA_IMAGEN = "[imagen leída]"
+MARCAS_ORIGEN = (MARCA_AUDIO, MARCA_IMAGEN)
+
 
 class ImagenIlegible(ValueError):
     """La imagen no se pudo bajar o leer, o no tiene texto útil: se le pide al cliente que lo escriba (spec §6)."""
+
+
+def marcar_origen(texto: str, tipo: MessageType) -> str:
+    """Agrega la marca de origen multimedia solo en el texto que llega al agente."""
+    if tipo == MessageType.AUDIO:
+        return f"{MARCA_AUDIO}\n{texto}"
+    return texto
+
+
+def sin_marca_origen(texto: str) -> str:
+    """Quita las marcas de origen (`[audio transcripto]`, `[imagen leída]`) para ruteo y palabras clave."""
+    return "\n".join(linea for linea in texto.splitlines() if linea.strip() not in MARCAS_ORIGEN)
 
 
 def prepare(message: IncomingMessage) -> str:
@@ -17,7 +33,7 @@ def prepare(message: IncomingMessage) -> str:
         case MessageType.TEXT:
             return normalize_text(message.text)
         case MessageType.AUDIO:
-            return transcribe_audio(message.media_url, message.channel)
+            return transcribe_audio(message.media_url)
         case MessageType.IMAGE:
             return extract_text_from_image(message.media_url, message.text)
         case _:
@@ -58,13 +74,13 @@ def partir(texto: str, limite: int) -> list[str]:
     return [parte for parte in partes if parte.strip()]
 
 
-def transcribe_audio(media_url: str, channel: Channel | None = None) -> str:
-    """Delega la descarga y transcripción en audio_service, normaliza el texto y lo marca para el agente (CA-06)."""
-    raw_text = audio_service.transcribe_audio(media_url, channel)
+def transcribe_audio(media_url: str) -> str:
+    """Delega la descarga y transcripción en audio_service y normaliza el texto sin marca de origen (CA-06)."""
+    raw_text = audio_service.transcribe_audio(media_url)
     texto = normalize_text(raw_text)
     if not texto:
         raise audio_service.AudioEmptyError("La transcripción del audio está vacía")
-    return f"[audio transcripto]\n{texto}"
+    return texto
 
 
 def download_media(media_url: str) -> bytes:

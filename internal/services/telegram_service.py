@@ -42,6 +42,10 @@ class TelegramError(RuntimeError):
     """La Bot API respondió con error o no se pudo llamar. El mensaje nunca incluye el token."""
 
 
+class TelegramArchivoMuyGrande(TelegramError):
+    """El archivo supera el límite de tamaño de Telegram (20 MB), antes o después de bajarlo."""
+
+
 class TelegramClient:
     def __init__(self, token: str, http: httpx.Client | None = None):
         self._token = token
@@ -71,8 +75,10 @@ class TelegramClient:
         Valida el tamaño antes (vía getFile) y después de descargar. Nunca incluye el token en errores (RNF-14).
         """
         info = self.call("getFile", file_id=file_id)
-        if info.get("file_size", 0) > MAX_FILE_BYTES or "file_path" not in info:
-            raise TelegramError("getFile: el archivo es muy grande o no se puede bajar")
+        if info.get("file_size", 0) > MAX_FILE_BYTES:
+            raise TelegramArchivoMuyGrande("getFile: el archivo es muy grande")
+        if "file_path" not in info:
+            raise TelegramError("getFile: el archivo no se puede bajar")
         url = FILE_URL.format(token=self._token, file_path=info["file_path"])
         try:
             response = self.http.get(url, timeout=TIMEOUT_SECONDS * 3)
@@ -81,7 +87,7 @@ class TelegramClient:
             # El error de httpx incluye la URL, que tiene el token: no se encadena (RNF-14)
             raise TelegramError(f"download_file: no se pudo bajar el archivo ({type(exc).__name__})") from None
         if len(response.content) > MAX_FILE_BYTES:
-            raise TelegramError("download_file: el archivo es muy grande")
+            raise TelegramArchivoMuyGrande("download_file: el archivo es muy grande")
         return response.content, info["file_path"]
 
     def download_file(self, file_id: str) -> bytes:
@@ -94,10 +100,6 @@ class TelegramClient:
         if offset is not None:
             params["offset"] = offset
         return self.call("getUpdates", http_timeout=poll_seconds + 10, **params)
-
-    def get_file(self, file_id: str) -> dict:
-        """Consulta la metadata de un archivo multimedia en Telegram (getFile)."""
-        return self.call("getFile", file_id=file_id)
 
     def send_message(self, chat_id: int, text: str) -> None:
         """Manda el texto en un mensaje, o en varios si pasa el límite de Telegram, partido por renglón (RF-70)."""

@@ -127,6 +127,7 @@ def startup() -> None:
     """Se llama al arrancar la API y el bot: sin skills válidas o sin tablas, mejor no arrancar."""
     validate_skills()
     init_db()
+    audio_service.check_audio_config()
 
 
 class ConversacionAbierta(NamedTuple):
@@ -256,6 +257,15 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
     if _sin_lector(message):
         return ChannelReply(text=WRITE_IT_PLEASE)
 
+    # Tope de ráfaga antes de descargar/transcribir audio o imagen (evita gastar llamadas pagas en ráfagas)
+    if rechazo := guardrails.revisar_rafaga((message.customer_id, message.channel)):
+        logger.warning(
+            "Guardrail: mensaje de %s por %s no llega al agente (rafaga)",
+            message.customer_id,
+            message.channel.value,
+        )
+        return ChannelReply(text=rechazo)
+
     try:
         text = message_service.prepare(message)
     except message_service.ImagenIlegible:
@@ -268,26 +278,27 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
     except audio_service.AudioProcessingError as exc:
         logger.warning("Fallo al interpretar audio de %s: %s", message.customer_id, exc)
         return ChannelReply(text=AUDIO_PROCESSING_ERROR_MESSAGE)
-    # Topes de entrada antes de abrir la conversación y sin llamar al LLM (spec de guardrails §3.3)
-    if rechazo := guardrails.revisar_entrada((message.customer_id, message.channel), text):
+    # Tope de largo antes de abrir la conversación y sin llamar al LLM (spec de guardrails §3.3)
+    if rechazo := guardrails.revisar_largo(text):
         logger.warning(
-            "Guardrail: mensaje de %s por %s no llega al agente (%s, %d caracteres)",
+            "Guardrail: mensaje de %s por %s no llega al agente (largo, %d caracteres)",
             message.customer_id,
             message.channel.value,
-            "rafaga" if rechazo == guardrails.MENSAJE_RAFAGA else "largo",
             len(text),
         )
         return ChannelReply(text=rechazo)
 
+    texto_limpio = message_service.sin_marca_origen(text)
+
     # Fuera de tema evidente: sin abrir/cerrar conversación ni modificar la propuesta vigente.
-    if topic_filter.is_off_topic(text):
+    if topic_filter.is_off_topic(texto_limpio):
         logger.info("Filtro de tema: respuesta fija sin llamar al agente")
         return ChannelReply(text=topic_filter.OFF_TOPIC_REPLY)
 
     # Los turnos de una conversación se procesan de a uno (RNF-05)
     with _locks[(message.customer_id, message.channel)]:
         conversation_id, nueva, tenia_propuesta_vencida = _abrir_conversacion(message.customer_id, message.channel)
-        clave = interpretar_palabra_clave(text)
+        clave = interpretar_palabra_clave(texto_limpio)
         if tenia_propuesta_vencida and clave == ConfirmationAction.CONFIRM:
             return ChannelReply(text=proposal_expired_message())
         if clave == ConfirmationAction.CANCEL:
@@ -304,7 +315,7 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
             thread_id=str(conversation_id),
             customer_id=message.customer_id,
             channel=message.channel,
-            text=text,
+            text=message_service.marcar_origen(text, message.type),
             customer_name=message.customer_name,
             origen=ORIGEN_POR_TIPO[message.type.value],
             nueva=nueva,

@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     llm_vision_model: str | None = None
     llm_vision_api_key: str | None = None
 
-    # Módulo de Audio (Speech-to-Text). Proveedores: gemini, groq, openai, mock
+    # Módulo de Audio (Speech-to-Text). Proveedores: gemini, groq, openai
     audio_enabled: bool = False
     audio_provider: str | None = None
     audio_model: str | None = None
