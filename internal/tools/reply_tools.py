@@ -135,7 +135,7 @@ def cubrir_renglones(
     for item in data.propuesta or []:
         if item.renglon is not None:
             resueltos.setdefault(item.renglon, []).append({"sku": item.sku, "cantidad": item.quantity})
-    # RF-105: un renglón leído de una foto con una duda de lectura no entra a la propuesta sin preguntarle al cliente
+    # Un renglón leído de una foto con una duda de lectura no entra a la propuesta sin preguntarle al cliente
     if (dudosos := sorted(n for n in resueltos if por_n[n].get("duda"))) and not tolerar:
         raise ToolFailure(
             "duda_de_lectura",

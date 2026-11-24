@@ -20,8 +20,7 @@ class Entrada:
     """Un mensaje preparado para el agente.
 
     `lectura` es la lectura de una imagen con renglones: el agente arma los renglones del pedido desde ahí, sin
-    volver a partir el texto (spec de lectura de imágenes, RF-102). `mensaje_id` enlaza la traza de la lectura con
-    la del turno (RF-109).
+    volver a partir el texto. `mensaje_id` enlaza la traza de la lectura con la del turno.
     """
 
     texto: str

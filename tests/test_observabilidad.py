@@ -386,7 +386,7 @@ def test_con_texto_el_orquestador_guarda_encargo_y_nota(orquestador_en_mlflow, m
 
 
 def test_lectura_y_turno_comparten_mensaje(mlflow_local, monkeypatch):
-    """CA-182, RF-109: la traza de la lectura y la del turno que la usa llevan el mismo `mensaje_id`."""
+    """La traza de la lectura y la del turno que la usa llevan el mismo `mensaje_id`."""
     from internal.schemas.vision_schema import ImagenLeida, RenglonLeido
     from internal.services import message_service, vision_service
 

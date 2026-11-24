@@ -95,7 +95,7 @@ def _renglon(renglon: dict) -> str:
     marca = f"[{renglon['marca']}] " if renglon.get("marca") else ""
     linea = f"{renglon['n']}. {marca}{renglon['texto']}"
     if renglon.get("duda"):
-        # RF-105: la duda de lectura de una foto se confirma con el cliente antes de proponer
+        # La duda de lectura de una foto se confirma con el cliente antes de proponer
         linea += f" (duda de lectura: {renglon['duda']}; preguntale antes de proponerlo)"
     match renglon["estado"]:
         case "resuelto":

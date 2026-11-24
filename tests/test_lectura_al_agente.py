@@ -1,4 +1,4 @@
-"""Renglones del pedido desde la lectura de una imagen (spec de lectura de imágenes, RF-102 a RF-107)."""
+"""Renglones del pedido desde la lectura de una imagen: encabezado, tachados, variantes y dudas de lectura."""
 
 import pytest
 
@@ -13,7 +13,7 @@ def _lectura(*renglones: RenglonLeido, **extra) -> ImagenLeida:
 
 
 def test_renglones_salen_de_la_lectura():
-    """CA-170, CA-175: numerados desde `desde`, con producto y cantidad ya separados para la precarga."""
+    """Numerados desde `desde`, con producto y cantidad ya separados para la precarga."""
     lectura = _lectura(
         RenglonLeido(texto="Shampoo keratina La Puissance 1L x3", producto="Shampoo keratina", marca="La Puissance",
                      presentacion="1L", cantidad=3, cantidad_escrita="x3"),
@@ -27,7 +27,7 @@ def test_renglones_salen_de_la_lectura():
 
 
 def test_variantes_dan_un_renglon_cada_una():
-    """CA-171."""
+    """Un renglón con varios colores da un renglón por color, con su cantidad."""
     lectura = _lectura(
         RenglonLeido(texto="Henna x90 - negro (2) - marrón (3)", producto="Henna", presentacion="x90",
                      variantes=[Variante(detalle="negro", cantidad=2), Variante(detalle="marrón", cantidad=3)]),
@@ -38,7 +38,7 @@ def test_variantes_dan_un_renglon_cada_una():
 
 
 def test_tabla_de_tonos():
-    """CA-172."""
+    """Una tabla de tonos da un renglón por tono, con su cantidad."""
     lectura = _lectura(
         RenglonLeido(texto="Igora Royal 7.1/2 8.0/1", producto="Igora Royal",
                      variantes=[Variante(detalle="", tono="7.1", cantidad=2),
@@ -51,7 +51,7 @@ def test_tabla_de_tonos():
 
 
 def test_linea_que_sigue_hereda_producto_y_marca():
-    """CA-173."""
+    """La línea que sigue a la de arriba hereda su producto y su marca."""
     lectura = _lectura(
         RenglonLeido(texto="Cepillo Dompel Enlace verde (3)", producto="Cepillo", marca="Dompel", cantidad=3),
         RenglonLeido(texto="Maya negro (2)", producto="Maya negro", cantidad=2, sigue_a=1),
@@ -63,7 +63,7 @@ def test_linea_que_sigue_hereda_producto_y_marca():
 
 
 def test_encabezado_y_tachados_no_son_renglones():
-    """CA-174."""
+    """El encabezado y lo tachado no dan renglones."""
     lectura = _lectura(
         RenglonLeido(texto="3 shampoo", producto="shampoo", cantidad=3),
         encabezado={"cliente": "Peluquería Sol", "fecha": "25/11"},
@@ -73,7 +73,7 @@ def test_encabezado_y_tachados_no_son_renglones():
 
 
 def test_cantidad_escrita_y_unidad_quedan_en_el_renglon():
-    """CA-178: la lectura conserva cómo está escrita la cantidad, para dudar entre unidades y cajas (D-43)."""
+    """La lectura conserva cómo está escrita la cantidad, para dudar entre unidades y cajas."""
     (renglon,) = renglones_desde_lectura(
         _lectura(RenglonLeido(texto="Ampollas caviar x24", producto="Ampollas caviar", cantidad=24,
                               cantidad_escrita="x24"))
@@ -92,7 +92,7 @@ RENGLONES = [
 
 
 def test_duda_de_lectura_se_confirma():
-    """CA-176, RF-105: un renglón con duda no entra a la propuesta sin preguntarle al cliente."""
+    """Un renglón con duda no entra a la propuesta sin preguntarle al cliente."""
     proponer = _respuesta(propuesta=[{"sku": "SH", "quantity": 3, "renglon": 1}, {"sku": "CAPA", "quantity": 7,
                                                                                   "renglon": 2}])
     with pytest.raises(ToolFailure) as falla:
@@ -127,7 +127,7 @@ def test_la_nota_del_sub_loop_no_resuelve_un_renglon_dudoso():
     ],
 )
 def test_la_respuesta_no_nombra_numeros_de_renglon(mensaje, rechaza):
-    """CA-177, RF-106."""
+    """La respuesta no nombra números de renglón: el cliente no los tiene."""
     reglas = [r.regla for r in guardrails.validar_salida(mensaje, "aclaracion")]
     assert ("numero_de_renglon" in reglas) is rechaza
 
@@ -191,7 +191,7 @@ def _turno_con_imagen(agent, lectura: ImagenLeida | dict):
 
 
 def test_turno_con_imagen_arma_los_renglones_desde_la_lectura(catalogo, monkeypatch):
-    """CA-170, CA-174, CA-175: sin volver a partir el texto, sin el encabezado ni lo tachado, y con la precarga."""
+    """Sin volver a partir el texto, sin el encabezado ni lo tachado, y con la precarga."""
 
     def no_numerar(*args, **kwargs):
         raise AssertionError("un mensaje con lectura no se vuelve a partir")
@@ -215,7 +215,7 @@ def test_turno_con_imagen_arma_los_renglones_desde_la_lectura(catalogo, monkeypa
 
 
 def test_duda_de_lectura_vuelve_al_modelo_en_el_turno(catalogo):
-    """CA-176: si propone un renglón dudoso, la tool le pide preguntar; la segunda respuesta lo pregunta."""
+    """Si propone un renglón dudoso, la tool le pide preguntar; la segunda respuesta lo pregunta."""
     agent, _ = _agente(
         _responder(),
         _responder(propuesta=(), pendientes=((1, ["SH-KER-900"]), (2, MASCARAS)), n="-2"),
@@ -229,7 +229,7 @@ def test_duda_de_lectura_vuelve_al_modelo_en_el_turno(catalogo):
 
 
 def test_lectura_que_no_valida_usa_el_camino_del_texto(catalogo):
-    """CA-179, RF-110: los renglones salen del texto, como antes."""
+    """Si la lectura no valida, los renglones salen del texto, como antes."""
     agent, _ = _agente(_responder())
 
     _turno_con_imagen(agent, {"renglones": "no es una lista"})

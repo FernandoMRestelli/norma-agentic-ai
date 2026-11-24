@@ -74,7 +74,7 @@ ENCABEZADO_MARCAS = (
 
 
 def instrucciones() -> str:
-    """Las instrucciones de la lectura; con `VISION_MARCAS`, más las marcas del catálogo (D-42)."""
+    """Las instrucciones de la lectura; con `VISION_MARCAS`, más las marcas del catálogo."""
     if not get_settings().vision_marcas:
         return INSTRUCCIONES
     try:

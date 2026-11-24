@@ -66,7 +66,7 @@ class Puntaje:
     esperados: int
     sobrantes: int  # renglones leídos que no corresponden a ninguno esperado (inventados o mal leídos)
     faltantes: list[str] = field(default_factory=list)
-    # Lo tachado en la hoja (spec de lectura de imágenes, RNF-18): cuántos se reconocieron como tachados y cuántos
+    # Lo tachado en la hoja: cuántos se reconocieron como tachados y cuántos
     # terminaron como renglón del pedido, que es el error que importa
     tachados_vistos: int = 0
     tachados_esperados: int = 0

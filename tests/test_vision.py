@@ -183,7 +183,7 @@ def test_texto_para_el_agente_marca_el_origen():
 
 
 def test_texto_para_el_agente_separa_lo_que_no_es_pedido():
-    """CA-167: el encabezado y lo tachado van aparte, marcados como «no es pedido», antes de los renglones."""
+    """El encabezado y lo tachado van aparte, marcados como «no es pedido», antes de los renglones."""
     leida = ImagenLeida(
         legible=True,
         tipo="lista_pedido",
@@ -208,13 +208,13 @@ def test_texto_para_el_agente_separa_lo_que_no_es_pedido():
 
 
 def test_sin_renglones_queda_el_texto_plano():
-    """CA-168, RF-110: sin renglones, el agente recibe lo de antes."""
+    """Sin renglones, el agente recibe lo de antes."""
     leida = ImagenLeida(legible=True, tipo="captura_chat", texto="hola\n¿abren el sábado?", tachados=["algo"])
     assert leida.como_texto_para_el_agente() == "[imagen leída]\nhola\n¿abren el sábado?"
 
 
 def test_lectura_vieja_sigue_validando():
-    """CA-169: un JSON sin los campos nuevos valida, con los campos nuevos vacíos."""
+    """Un JSON sin los campos nuevos valida, con los campos nuevos vacíos."""
     leida = ImagenLeida.model_validate(LEIDA)
     assert leida.encabezado is None and leida.tachados == []
     assert all(r.variantes == [] and r.duda is None and r.sigue_a is None for r in leida.renglones)
@@ -229,7 +229,7 @@ def test_instrucciones_hablan_de_la_disposicion_de_la_hoja(settings):
 
 
 def test_instrucciones_con_marcas_del_catalogo(settings, monkeypatch):
-    """CA-181: con VISION_MARCAS, las marcas del catálogo y nada más: ni productos ni precios."""
+    """Con VISION_MARCAS, las marcas del catálogo y nada más: ni productos ni precios."""
     from internal.schemas.catalog_schema import Product
     from internal.services import inventory_service
 
@@ -297,7 +297,7 @@ CASO_TACHADOS = {
 
 
 def test_puntaje_cuenta_tachados():
-    """CA-180, RNF-18: lo tachado tiene que leerse como tachado y nunca terminar en un renglón."""
+    """Lo tachado tiene que leerse como tachado y nunca terminar en un renglón."""
     bien = ImagenLeida(
         legible=True, tipo="lista_pedido", texto="x",
         tachados=["5 guantes nitrilo M", "2 capas descartables"],

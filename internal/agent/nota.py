@@ -28,7 +28,7 @@ def validar(
     """El error que vuelve al sub-loop, o None si la nota es válida (CA-154, CA-155).
 
     `disponibles` son las unidades que quedan de los renglones cuya búsqueda dio `sin_stock` con algo de stock.
-    `con_duda` son los renglones de una foto con una duda de lectura: se le preguntan al cliente (RF-105).
+    `con_duda` son los renglones de una foto con una duda de lectura: se le preguntan al cliente.
     """
     skus = [r.sku for r in data.resueltos] + [sku for p in data.pendientes for sku in p.opciones]
     if inventados := sorted({sku for sku in skus if sku not in vistos}):

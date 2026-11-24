@@ -548,13 +548,13 @@ def test_imagen_leida_llega_al_agente_con_el_epigrafe(vision, monkeypatch):
     assert reply.text == "Te propongo…"
     esperado = "esto para el lunes\n[imagen leída: lista de pedido]\nRenglones:\n- 5 shampoo pantene 400"
     assert recibido["text"] == esperado
-    # RF-102: la lectura viaja entera, para que los renglones salgan de ahí; RF-109: con el id que enlaza las trazas
+    # La lectura viaja entera, para que los renglones salgan de ahí, con el id que enlaza las trazas
     assert recibido["lectura"]["renglones"][0]["cantidad"] == 5
     assert recibido["mensaje_id"]
 
 
 def test_imagen_sin_renglones_llega_como_texto_plano(vision, monkeypatch):
-    """RF-110: una lectura sin renglones (una captura que no es un pedido) llega como hoy y sin lectura."""
+    """Una lectura sin renglones (una captura que no es un pedido) llega como hoy y sin lectura."""
     vision(ImagenLeida(legible=True, tipo="captura_chat", texto="hola, ¿abren el sábado?"))
     recibido = {}
 

@@ -52,7 +52,7 @@ class NormaAgent:
         `origen` dice de dónde salió el texto (`texto`, `audio` o `imagen`) y queda en la orden (RF-79).
         `nueva` dice que el orquestador acaba de abrir la conversación: no puede tener estado guardado (RF-100).
         `lectura` es la lectura de una imagen con renglones (`ImagenLeida`): los renglones del pedido salen de ahí
-        (RF-102). `mensaje_id` enlaza la traza del turno con la de la lectura (RF-109).
+        `mensaje_id` enlaza la traza del turno con la de la lectura.
         """
         inicio = time.perf_counter()
         with observabilidad.turno(thread_id, channel.value, text, mensaje_id) as turno:

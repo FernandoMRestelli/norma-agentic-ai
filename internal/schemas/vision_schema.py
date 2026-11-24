@@ -2,7 +2,7 @@
 
 El modelo solo transcribe y ordena la hoja; no busca SKU ni precios. Eso lo sigue haciendo el agente contra el
 catálogo (el LLM interpreta, el backend valida). Además de los renglones, la lectura separa lo que no se pide: el
-encabezado de la hoja y lo tachado (spec de lectura de imágenes §4.1). Los campos nuevos tienen valor por defecto:
+encabezado de la hoja y lo tachado. Los campos nuevos tienen valor por defecto:
 el modelo local y una lectura vieja siguen validando.
 """
 
@@ -94,10 +94,10 @@ class ImagenLeida(BaseModel):
         return self
 
     def como_texto_para_el_agente(self) -> str:
-        """Lo que entra al agente (spec de lectura de imágenes §4.3).
+        """Lo que entra al agente.
 
         Con renglones, la lectura ordenada: el encabezado y lo tachado aparte, marcados como «no es pedido», y cada
-        renglón con sus variantes y su duda. Sin renglones, el texto leído como hoy (RF-110).
+        renglón con sus variantes y su duda. Sin renglones, el texto leído como antes.
         """
         if not self.renglones:
             return f"[imagen leída]\n{self.texto.strip()}"
@@ -135,7 +135,7 @@ def _producto(renglon: RenglonLeido) -> str:
 
 
 def renglones_desde_lectura(lectura: ImagenLeida, desde: int = 1) -> list[dict[str, Any]]:
-    """Los renglones del pedido de un mensaje con imagen, numerados desde `desde` (RF-102, RF-103).
+    """Los renglones del pedido de un mensaje con imagen, numerados desde `desde`.
 
     Cada renglón queda como los que arma `numerar_renglones` (`n`, `texto`, `marca`, `estado`) y suma lo que ya
     separó la lectura para la precarga (`buscar`, `cantidad`, `tono`) y la `duda` de lectura. Un renglón con

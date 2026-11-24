@@ -227,7 +227,7 @@ _NO_NIEGAN = re.compile(
 _ORACIONES = re.compile(r"[.!?;\n]+")
 
 _FORMATO = re.compile(r"\*\*|__|`|^\s*#{1,6}\s", re.MULTILINE)
-# El número de renglón es interno: «renglón 9», «renglones 1 y 2» o una viñeta «• 12:» (spec de lectura de imágenes)
+# El número de renglón es interno: «renglón 9», «renglones 1 y 2» o una viñeta «• 12:»
 NUMERO_DE_RENGLON = re.compile(
     r"\brengl[oó]n(?:es)?\s*(?:n[°º.]?\s*)?\d|^\s*[•*-]\s*\d{1,2}(?:\s*(?:y|,)\s*\d{1,2})*\s*:",
     re.IGNORECASE | re.MULTILINE,
@@ -515,7 +515,7 @@ def _regla_formato(texto: str) -> Rechazo | None:
 
 
 def _regla_numero_de_renglon(texto: str) -> Rechazo | None:
-    """RF-106: el cliente no tiene los números de renglón en su hoja ni en su mensaje."""
+    """El cliente no tiene los números de renglón en su hoja ni en su mensaje."""
     if NUMERO_DE_RENGLON.search(texto):
         return Rechazo(
             "numero_de_renglon",

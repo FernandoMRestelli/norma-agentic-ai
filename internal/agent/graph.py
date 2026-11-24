@@ -205,9 +205,9 @@ def _sumar_origen(anterior: str | None, nuevo: str) -> str:
 
 
 def _desde_lectura(lectura: dict[str, Any] | None, renglones: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
-    """Los renglones de un mensaje con imagen salen de su lectura, a continuación de los que ya había (RF-102).
+    """Los renglones de un mensaje con imagen salen de su lectura, a continuación de los que ya había.
 
-    None si el mensaje no trae una lectura con renglones, o si no valida: ahí se numera el texto, como siempre (RF-110).
+    None si el mensaje no trae una lectura con renglones, o si no valida: ahí se numera el texto, como siempre.
     """
     if not lectura:
         return None

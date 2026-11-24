@@ -204,7 +204,7 @@ class Turno(Paso):
 def turno(conversation_id: str, canal: str, texto: str, mensaje_id: str | None = None) -> Iterator[Turno]:
     """La traza de un turno. Agrupa los turnos por conversación con el id interno, no con el del cliente.
 
-    Con `mensaje_id`, la del turno que usa la lectura de una imagen lleva el mismo tag que la lectura (RF-109).
+    Con `mensaje_id`, la del turno que usa la lectura de una imagen lleva el mismo tag que la lectura.
     """
     mlflow = cliente()
     if mlflow is None:
@@ -225,7 +225,7 @@ def turno(conversation_id: str, canal: str, texto: str, mensaje_id: str | None =
 
 @contextmanager
 def lectura(mensaje_id: str) -> Iterator[Paso]:
-    """La traza de la lectura de una imagen, que pasa antes del turno (spec de lectura de imágenes, D-44).
+    """La traza de la lectura de una imagen, que pasa antes del turno.
 
     Lleva el tag `mensaje_id`, el mismo que la traza del turno que la usa. Con `MLFLOW_TRACE_TEXT`, la llamada al
     modelo de visión queda adentro, con la imagen adjunta.
