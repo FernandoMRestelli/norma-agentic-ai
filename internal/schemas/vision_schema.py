@@ -130,6 +130,21 @@ def _numero(valor: float | None) -> int | None:
     return int(valor)
 
 
+def _juntar(anterior: str, propio: str) -> str:
+    """El producto de una línea que sigue a la de arriba.
+
+    La línea es otro modelo del mismo producto («Maya» debajo de «Cepillo Enlace»): hereda solo el tipo, que es la
+    primera palabra de arriba, y no el modelo. «Cepillo Enlace» y «Maya» dan «Cepillo Maya»; «Cepillos» y «Cepillos
+    Maya» dan «Cepillos Maya». Sin producto propio, es el de arriba entero.
+    """
+    if not propio:
+        return anterior
+    tipo = anterior.split()[:1]
+    if tipo and tipo[0].casefold() in {palabra.casefold() for palabra in propio.split()}:
+        return propio
+    return " ".join([*tipo, propio]).strip()
+
+
 def _producto(renglon: RenglonLeido) -> str:
     return " ".join(filter(None, (renglon.producto, renglon.presentacion))).strip()
 
@@ -148,7 +163,7 @@ def renglones_desde_lectura(lectura: ImagenLeida, desde: int = 1) -> list[dict[s
         producto, marca = _producto(renglon), renglon.marca
         if renglon.sigue_a is not None and 1 <= renglon.sigue_a <= len(leidos) and renglon.sigue_a != indice + 1:
             anterior = leidos[renglon.sigue_a - 1]
-            producto = " ".join(filter(None, (_producto(anterior), producto))).strip()
+            producto = _juntar(_producto(anterior), producto)
             marca = marca or anterior.marca
         if renglon.variantes:
             for variante in renglon.variantes:

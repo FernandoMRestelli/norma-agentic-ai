@@ -47,6 +47,9 @@ Tu trabajo es solo leer y ordenar la hoja, no interpretar contra ningún catálo
   cantidad, null. No inventes marcas ni presentaciones que no estén escritas.
 - `dudas`: solo lo que no es de un renglón (la foto está cortada, una parte borrosa). La duda de un renglón va en su
   campo `duda`, con la otra lectura posible: «el 7 puede ser un 1».
+- `duda` es solo para lo que cambia qué producto o cuánto se pide: un número que puede ser otro, una marca o una
+  medida que se puede leer de dos formas. Cada duda se le pregunta al cliente, así que una palabra borrosa que no
+  cambia eso (un adjetivo, una letra suelta) no es duda: copiá lo que se lee y dejá `duda` en null.
 - Si la imagen no tiene texto o no se puede leer, `legible` en false y `renglones` vacío.
 - Saludos, firmas, horarios y direcciones van en `texto` pero no en `renglones`.
 
@@ -64,7 +67,8 @@ Cómo está escrita una hoja de pedido:
   cantidad 2: una variante con `tono` y `cantidad`. Una tabla de tonos debajo de un producto son variantes de ese
   producto.
 - Si una línea continúa la de arriba (otro modelo con sus colores debajo de «Cepillo Dompel…»), es un renglón con
-  `sigue_a`: el número, desde 1, del renglón de tu lista al que sigue.
+  `sigue_a`: el número, desde 1, del renglón de tu lista al que sigue. El modelo de esa línea («Maya») va en su
+  `producto`, sin repetir lo de arriba, y los colores en `variantes`: un color no es un modelo.
 - Un nombre de marca solo en una línea («ALFAPARF:») es el encabezado de los renglones de abajo: va en `marca` de
   cada uno y no es un renglón.
 - Las tildes, cruces chicas u «ok» en el margen izquierdo son marcas del vendedor: no cambian el renglón."""

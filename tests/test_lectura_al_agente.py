@@ -62,6 +62,28 @@ def test_linea_que_sigue_hereda_producto_y_marca():
     assert algo["buscar"]["texto"] == "Algo"
 
 
+def test_linea_que_sigue_es_otro_modelo():
+    """Hereda el tipo de producto y la marca, no el modelo de la línea de arriba."""
+    lectura = _lectura(
+        RenglonLeido(texto="Cepillo Dompel Enlace verde (3)", producto="Cepillo Enlace", marca="Dompel", cantidad=3),
+        RenglonLeido(texto="Maya negro (2)", producto="Maya", sigue_a=1,
+                     variantes=[Variante(detalle="negro", cantidad=2)]),
+    )  # fmt: skip
+    _, maya = renglones_desde_lectura(lectura)
+    assert (maya["buscar"]["texto"], maya["marca"]) == ("Cepillo Maya", "Dompel")
+
+
+def test_linea_que_sigue_no_repite_el_producto():
+    """Si la línea repite el producto de arriba («Cepillos»), no queda «Cepillos Cepillos»."""
+    lectura = _lectura(
+        RenglonLeido(texto="Cepillos Dompel verde (3)", producto="Cepillos", marca="Dompel", cantidad=3),
+        RenglonLeido(texto="Maya - fucsia (2)", producto="Cepillos Maya", sigue_a=1,
+                     variantes=[Variante(detalle="fucsia", cantidad=2)]),
+    )  # fmt: skip
+    _, fucsia = renglones_desde_lectura(lectura)
+    assert fucsia["buscar"]["texto"] == "Cepillos Maya" and fucsia["texto"] == "Cepillos Maya fucsia x2"
+
+
 def test_encabezado_y_tachados_no_son_renglones():
     """El encabezado y lo tachado no dan renglones."""
     lectura = _lectura(
