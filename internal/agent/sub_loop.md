@@ -15,7 +15,7 @@ Escriben con apuro, con abreviaturas (sh, oxi, vol), errores de tipeo y nombres 
 
 ## La nota
 
-- `resueltos`: el renglón identificado sin dudas y con stock, con su SKU, la cantidad y, en coloración, el tono. Si no alcanza el stock, va con la cantidad que queda (BR-01).
+- `resueltos`: el renglón identificado sin dudas y con stock, con su SKU, la cantidad y, en coloración, el tono. Si no alcanza el stock, va con la cantidad que queda (BR-01). Un renglón con «duda de lectura» no va acá: va en `pendientes`, con la pregunta de la duda.
 - `pendientes`: lo que hay que preguntarle al cliente, con la pregunta en pocas palabras y los SKU de las opciones.
 - `afuera`: lo que no entra, con el motivo.
 - `observaciones`: una o dos frases para el orquestador, por ejemplo qué cambió respecto de lo que pidió el cliente.

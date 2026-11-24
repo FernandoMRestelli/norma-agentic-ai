@@ -182,6 +182,92 @@
     ]
   },
   {
+    "id": "lista-con-tachados",
+    "archivo": "lista-con-tachados.jpg",
+    "descripcion": "Hoja inventada escrita a mano: encabezado con nombre y fecha, un recuadro tachado con una cruz que no hay que pedir, la cantidad al final de cada renglón, un «1» que parece «7» y un producto sin cantidad («Igora Royal con tonos»). Productos del catálogo real",
+    "legible": true,
+    "renglones": [
+      {
+        "cantidad": 3,
+        "palabras": [
+          "shampoo",
+          "keratina",
+          "puissance"
+        ]
+      },
+      {
+        "cantidad": 2,
+        "palabras": [
+          "mascara",
+          "argan",
+          "fidelite"
+        ]
+      },
+      {
+        "cantidad": 20,
+        "palabras": [
+          "oxidante",
+          "fidelite",
+          "20"
+        ]
+      },
+      {
+        "cantidad": 4,
+        "palabras": [
+          "oxidante",
+          "alfap",
+          "20"
+        ]
+      },
+      {
+        "cantidad": 2,
+        "palabras": [
+          "shampoo",
+          "keratina"
+        ]
+      },
+      {
+        "cantidad": null,
+        "palabras": [
+          "igora",
+          "royal"
+        ]
+      },
+      {
+        "cantidad": 1,
+        "palabras": [
+          "capa",
+          "descartable"
+        ]
+      },
+      {
+        "cantidad": 24,
+        "palabras": [
+          "ampollas",
+          "caviar"
+        ]
+      },
+      {
+        "cantidad": 2,
+        "palabras": [
+          "koleston"
+        ]
+      }
+    ],
+    "tachados": [
+      [
+        "guantes"
+      ],
+      [
+        "capas",
+        "descartables"
+      ],
+      [
+        "curl"
+      ]
+    ]
+  },
+  {
     "id": "sin-texto",
     "archivo": "sin-texto.png",
     "descripcion": "Imagen sin texto: no debería inventar renglones",

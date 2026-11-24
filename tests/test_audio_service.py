@@ -561,16 +561,16 @@ def test_handle_message_errores_audio_devuelven_mensajes_amigables(monkeypatch):
     get_settings.cache_clear()
 
     # Caso 1: audio inaudible / vacío
-    monkeypatch.setattr(message_service, "prepare", Mock(side_effect=audio_service.AudioEmptyError()))
+    monkeypatch.setattr(message_service, "preparar", Mock(side_effect=audio_service.AudioEmptyError()))
     msg = IncomingMessage(
         customer_id="telegram:1", channel=Channel.TELEGRAM, type=MessageType.AUDIO, media_url="telegram:aud1"
     )
     assert conversation_service.handle_message(msg).text == conversation_service.AUDIO_NOT_CLEAR_MESSAGE
 
     # Caso 2: audio demasiado largo
-    monkeypatch.setattr(message_service, "prepare", Mock(side_effect=audio_service.AudioTooLongError()))
+    monkeypatch.setattr(message_service, "preparar", Mock(side_effect=audio_service.AudioTooLongError()))
     assert conversation_service.handle_message(msg).text == conversation_service.AUDIO_TOO_LONG_MESSAGE
 
     # Caso 3: falla de servicio/proveedor
-    monkeypatch.setattr(message_service, "prepare", Mock(side_effect=audio_service.AudioProcessingError("API error")))
+    monkeypatch.setattr(message_service, "preparar", Mock(side_effect=audio_service.AudioProcessingError("API error")))
     assert conversation_service.handle_message(msg).text == conversation_service.AUDIO_PROCESSING_ERROR_MESSAGE

@@ -27,7 +27,9 @@ from internal.schemas.vision_schema import ImagenLeida
 
 logger = logging.getLogger(__name__)
 
-TIMEOUT_SECONDS = 30  # RNF-06: imagen p95 < 20 s, timeout del LLM 30 s
+# Una hoja escrita a mano, con la disposición completa, puede llevarle más de 30 s al modelo: con 30 s la llamada se
+# cortaba y el reintento arrancaba de cero, y tardaba el doble. Es preferible esperar a que termine
+TIMEOUT_SECONDS = 180
 MAX_RETRIES = 1
 MAX_LADO_PX = 1600  # más grande no mejora la lectura de un pedido y encarece los tokens de imagen
 
@@ -38,14 +40,60 @@ INSTRUCCIONES = """Sos el lector de imágenes de un distribuidor de perfumería 
 Te llega una foto o captura que manda un cliente: una lista escrita a mano o impresa, una captura de otro chat,
 la foto de un producto o un ticket.
 
-Tu trabajo es solo leer, no interpretar contra ningún catálogo:
+Tu trabajo es solo leer y ordenar la hoja, no interpretar contra ningún catálogo:
 - `texto`: copiá todo el texto visible, en orden de lectura, con un salto de línea por renglón. Sin corregir
   la ortografía ni completar abreviaturas.
 - `renglones`: un elemento por producto pedido. `cantidad` como número (media docena = 6, "una" = 1); si no hay
   cantidad, null. No inventes marcas ni presentaciones que no estén escritas.
-- `dudas`: lo que no se lee bien o es ambiguo (un número tapado, una palabra borrosa).
+- `dudas`: solo lo que no es de un renglón (la foto está cortada, una parte borrosa). La duda de un renglón va en su
+  campo `duda`, con la otra lectura posible: «el 7 puede ser un 1».
+- `duda` es solo para lo que cambia qué producto o cuánto se pide: un número que puede ser otro, una marca o una
+  medida que se puede leer de dos formas. Cada duda se le pregunta al cliente, así que una palabra borrosa que no
+  cambia eso (un adjetivo, una letra suelta) no es duda, ni una palabra mal escrita que se entiende («cavir» por
+  «caviar»): copiá lo que se lee y dejá `duda` en null.
 - Si la imagen no tiene texto o no se puede leer, `legible` en false y `renglones` vacío.
-- Saludos, firmas, horarios y direcciones van en `texto` pero no en `renglones`."""
+- Saludos, firmas, horarios y direcciones van en `texto` pero no en `renglones`.
+
+Cómo está escrita una hoja de pedido:
+- Arriba suele haber un encabezado: el nombre del cliente o del negocio, una fecha, «hoja 1». Va en `encabezado`,
+  nunca en `renglones`.
+- Lo tachado no se pide: una línea cruzada, o una cruz o un garabato sobre un bloque entero. Cada renglón o bloque
+  tachado va en `tachados`, con lo que se alcance a leer, y no en `renglones`. Una palabra tachada y vuelta a escribir
+  al lado no tacha el renglón: copiá la versión que quedó.
+- La cantidad puede ir adelante («3 shampoo»), al final («— (3)», «x 20») o dentro de un círculo. Copiala como está
+  en `cantidad_escrita` y el número en `cantidad`. `unidad` solo si está escrita: «u» es unidades, «cajas»,
+  «c/u» es cada_uno.
+- Una línea con varios colores o modelos, cada uno con su cantidad («Henna x90 — negro (2) — marrón (3)»), es un
+  renglón con `variantes`, y su `cantidad` queda null. En coloración, «7/2» o «7.1/2» es el tono 7 o 7.1 con
+  cantidad 2: una variante con `tono` y `cantidad`. Una tabla de tonos debajo de un producto son variantes de ese
+  producto.
+- Si una línea continúa la de arriba (otro modelo con sus colores debajo de «Cepillo Dompel…»), es un renglón con
+  `sigue_a`: el número, desde 1, del renglón de tu lista al que sigue. El modelo de esa línea («Maya») va en su
+  `producto`, sin repetir lo de arriba, y los colores en `variantes`: un color no es un modelo.
+- Un nombre de marca solo en una línea («ALFAPARF:») es el encabezado de los renglones de abajo: va en `marca` de
+  cada uno y no es un renglón.
+- Las tildes, cruces chicas u «ok» en el margen izquierdo son marcas del vendedor: no cambian el renglón."""
+
+ENCABEZADO_MARCAS = (
+    "Marcas que trabaja el distribuidor, para reconocer un nombre de marca mal escrito o abreviado. Copiá igual lo "
+    "que está escrito; si no se parece a ninguna, no la cambies:"
+)
+
+
+def instrucciones() -> str:
+    """Las instrucciones de la lectura; con `VISION_MARCAS`, más las marcas del catálogo."""
+    if not get_settings().vision_marcas:
+        return INSTRUCCIONES
+    try:
+        from internal.services import inventory_service
+
+        marcas = sorted({product.brand.strip() for product in inventory_service.get_catalog() if product.brand})
+    except OSError:  # sin catálogo se lee igual, sin la lista
+        logger.warning("Visión: no se pudo leer el catálogo para sumar las marcas")
+        return INSTRUCCIONES
+    if not marcas:
+        return INSTRUCCIONES
+    return f"{INSTRUCCIONES}\n\n{ENCABEZADO_MARCAS} {', '.join(marcas)}."
 
 
 @dataclass
@@ -106,10 +154,10 @@ def get_vision_model(proveedor: str, modelo: str, api_key: str | None) -> BaseCh
             raise ValueError(f"Proveedor de visión por API no soportado: {other}")
 
 
-def _mensajes(imagen: bytes, mime: str, instrucciones: str = INSTRUCCIONES) -> list:
+def _mensajes(imagen: bytes, mime: str, texto_instrucciones: str | None = None) -> list:
     datos = base64.b64encode(imagen).decode()
     return [
-        SystemMessage(content=instrucciones),
+        SystemMessage(content=texto_instrucciones or instrucciones()),
         HumanMessage(
             content=[
                 {"type": "text", "text": "Leé esta imagen."},

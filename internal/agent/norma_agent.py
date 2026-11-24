@@ -5,6 +5,7 @@ import sqlite3
 import time
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage
@@ -43,16 +44,20 @@ class NormaAgent:
         customer_name: str | None = None,
         origen: str = "texto",
         nueva: bool = False,
+        lectura: dict[str, Any] | None = None,
+        mensaje_id: str | None = None,
     ) -> AgentOutcome:
         """Procesa un mensaje ya preparado por message_service. `thread_id` identifica la conversación.
 
         `origen` dice de dónde salió el texto (`texto`, `audio` o `imagen`) y queda en la orden (RF-79).
         `nueva` dice que el orquestador acaba de abrir la conversación: no puede tener estado guardado (RF-100).
+        `lectura` es la lectura de una imagen con renglones (`ImagenLeida`): los renglones del pedido salen de ahí
+        `mensaje_id` enlaza la traza del turno con la de la lectura.
         """
         inicio = time.perf_counter()
-        with observabilidad.turno(thread_id, channel.value, text) as turno:
+        with observabilidad.turno(thread_id, channel.value, text, mensaje_id) as turno:
             self._descartar_estado_ajeno(thread_id, customer_id, channel, nueva)
-            outcome, state = self._run(thread_id, customer_id, channel, text, customer_name, origen)
+            outcome, state = self._run(thread_id, customer_id, channel, text, customer_name, origen, lectura)
             resumen = observabilidad.resumir(state)
             latencia_ms = round((time.perf_counter() - inicio) * 1000)
             turno.cerrar(outcome, resumen, latencia_ms, self.prompt_version)
@@ -108,11 +113,18 @@ class NormaAgent:
         self.checkpointer.delete_thread(thread_id)
 
     def _run(
-        self, thread_id: str, customer_id: str, channel: Channel, text: str, customer_name: str | None, origen: str
+        self,
+        thread_id: str,
+        customer_id: str,
+        channel: Channel,
+        text: str,
+        customer_name: str | None,
+        origen: str,
+        lectura: dict[str, Any] | None = None,
     ) -> tuple[AgentOutcome, EstadoNorma]:
         config = {"configurable": {"thread_id": thread_id}, "recursion_limit": recursion_limit()}
         if self.graph.get_state(config).next == ("pausa",):
-            entry: Command | EstadoNorma = Command(resume={"texto": text, "origen": origen})
+            entry: Command | EstadoNorma = Command(resume={"texto": text, "origen": origen, "lectura": lectura})
         else:
             prev_state = self.graph.get_state(config).values
             entry = {
@@ -121,6 +133,7 @@ class NormaAgent:
                 "customer_name": customer_name,
                 "channel": channel.value,
                 "origen": origen,
+                "lectura": lectura,
                 "inicio_turno": len(prev_state.get("messages", [])) if prev_state else 0,
                 "skills_activas": [],
                 "iteraciones": 0,

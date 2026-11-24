@@ -28,11 +28,11 @@ _lock = threading.Lock()
 
 def _prompt() -> str:
     # Sin salida estructurada nativa, el esquema va en el prompt y el JSON se valida al final.
-    from internal.services.vision_service import INSTRUCCIONES
+    from internal.services.vision_service import instrucciones
 
     esquema = json.dumps(ImagenLeida.model_json_schema(), ensure_ascii=False)
     return (
-        f"{INSTRUCCIONES}\n\nRespondé SOLO con un objeto JSON que cumpla este JSON Schema, sin texto antes ni "
+        f"{instrucciones()}\n\nRespondé SOLO con un objeto JSON que cumpla este JSON Schema, sin texto antes ni "
         f"después:\n{esquema}"
     )
 

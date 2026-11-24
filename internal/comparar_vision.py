@@ -26,15 +26,36 @@ def _normalizar(texto: str) -> str:
     return " ".join(sin_tildes.lower().split())
 
 
+def _tiene_palabras(texto: str, palabras: list[str]) -> bool:
+    normalizado = _normalizar(texto)
+    return all(_normalizar(p) in normalizado for p in palabras)
+
+
 def _coincide(esperado: dict, leido: RenglonLeido) -> bool:
-    """El renglón leído tiene todas las palabras esperadas (en cualquier campo) y la misma cantidad."""
-    campos = _normalizar(" ".join(filter(None, [leido.texto, leido.producto, leido.marca, leido.presentacion])))
-    palabras = all(_normalizar(p) in campos for p in esperado["palabras"])
-    return palabras and leido.cantidad is not None and float(leido.cantidad) == float(esperado["cantidad"])
+    """El renglón leído tiene todas las palabras esperadas (en cualquier campo) y la misma cantidad.
+
+    Un renglón esperado sin cantidad («Igora Royal con tonos») tiene que leerse sin cantidad.
+    """
+    campos = " ".join(filter(None, [leido.texto, leido.producto, leido.marca, leido.presentacion]))
+    if not _tiene_palabras(campos, esperado["palabras"]):
+        return False
+    cantidad = _cantidad(leido)
+    if esperado["cantidad"] is None:
+        return cantidad is None
+    return cantidad is not None and float(cantidad) == float(esperado["cantidad"])
+
+
+def _cantidad(leido: RenglonLeido) -> float | None:
+    """La cantidad del renglón; con variantes («Koleston 7.1 x2» como tono 7.1 y cantidad 2), la suma de las suyas."""
+    if leido.cantidad is not None or not leido.variantes:
+        return leido.cantidad
+    cantidades = [variante.cantidad for variante in leido.variantes]
+    return None if None in cantidades else sum(cantidades)
 
 
 def _describir(esperado: dict) -> str:
-    return f"{esperado['cantidad']:g} {' '.join(esperado['palabras'])}"
+    cantidad = "?" if esperado["cantidad"] is None else f"{esperado['cantidad']:g}"
+    return f"{cantidad} {' '.join(esperado['palabras'])}"
 
 
 @dataclass
@@ -45,10 +66,21 @@ class Puntaje:
     esperados: int
     sobrantes: int  # renglones leídos que no corresponden a ninguno esperado (inventados o mal leídos)
     faltantes: list[str] = field(default_factory=list)
+    # Lo tachado en la hoja: cuántos se reconocieron como tachados y cuántos
+    # terminaron como renglón del pedido, que es el error que importa
+    tachados_vistos: int = 0
+    tachados_esperados: int = 0
+    tachados_pedidos: int = 0
 
     @property
     def ok(self) -> bool:
-        return self.json_valido and self.legible_ok and self.acertados == self.esperados and self.sobrantes == 0
+        return (
+            self.json_valido
+            and self.legible_ok
+            and self.acertados == self.esperados
+            and self.sobrantes == 0
+            and self.tachados_pedidos == 0
+        )
 
 
 def puntuar(caso: dict, resultado: ImagenLeida | None) -> Puntaje:
@@ -65,7 +97,17 @@ def puntuar(caso: dict, resultado: ImagenLeida | None) -> Puntaje:
         else:
             libres.remove(par)
             acertados += 1
-    return Puntaje(True, resultado.legible == caso["legible"], acertados, len(esperados), len(libres), faltantes)
+    tachados = caso.get("tachados", [])
+    leidos_tachados = " ".join(resultado.tachados)
+    vistos = sum(_tiene_palabras(leidos_tachados, palabras) for palabras in tachados)
+    pedidos = sum(
+        any(_tiene_palabras(f"{leido.texto} {leido.producto or ''}", palabras) for leido in resultado.renglones)
+        for palabras in tachados
+    )
+    return Puntaje(
+        True, resultado.legible == caso["legible"], acertados, len(esperados), len(libres), faltantes,
+        tachados_vistos=vistos, tachados_esperados=len(tachados), tachados_pedidos=pedidos,
+    )  # fmt: skip
 
 
 @dataclass
@@ -84,6 +126,8 @@ class Corrida:
             "imagenes_ok": f"{sum(p.ok for p in puntajes)}/{len(puntajes)}",
             "renglones": f"{sum(p.acertados for p in puntajes)}/{sum(p.esperados for p in puntajes)}",
             "sobrantes": sum(p.sobrantes for p in puntajes),
+            "tachados": f"{sum(p.tachados_vistos for p in puntajes)}/{sum(p.tachados_esperados for p in puntajes)}",
+            "tachados_pedidos": sum(p.tachados_pedidos for p in puntajes),
             "json_valido": f"{sum(p.json_valido for p in puntajes)}/{len(puntajes)}",
             "segundos_media": round(statistics.mean(segundos), 1),
             "segundos_max": round(max(segundos), 1),
@@ -105,6 +149,10 @@ def correr(proveedor: str, modelo: str, casos: list[dict], carpeta: Path) -> Cor
         detalle = f"{puntaje.acertados}/{puntaje.esperados} renglones"
         if puntaje.sobrantes:
             detalle += f", {puntaje.sobrantes} de más"
+        if puntaje.tachados_esperados:
+            detalle += f", tachados {puntaje.tachados_vistos}/{puntaje.tachados_esperados}"
+        if puntaje.tachados_pedidos:
+            detalle += f" ({puntaje.tachados_pedidos} pedidos)"
         if puntaje.faltantes:
             detalle += f", faltan: {'; '.join(puntaje.faltantes)}"
         if lectura.error:

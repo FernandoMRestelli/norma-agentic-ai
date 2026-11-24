@@ -84,6 +84,10 @@ def chequear_estilo(texto: str, *, skus: Iterable[str] = (), kind: str = "", ped
         fallas.append("sin_nombres_internos")
     if _INGLES.search(texto):
         fallas.append("sin_ingles")
+    from internal.agent.guardrails import NUMERO_DE_RENGLON  # los imports de internal van después de fijar el entorno
+
+    if NUMERO_DE_RENGLON.search(texto):
+        fallas.append("sin_numero_de_renglon")
     return fallas
 
 

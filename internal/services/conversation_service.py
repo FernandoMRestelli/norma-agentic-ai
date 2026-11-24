@@ -267,7 +267,7 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
         return ChannelReply(text=rechazo)
 
     try:
-        text = message_service.prepare(message)
+        entrada = message_service.preparar(message)
     except message_service.ImagenIlegible:
         # Spec del agente §6: sin texto útil no se llama al LLM
         return ChannelReply(text=COULD_NOT_READ_IMAGE)
@@ -278,6 +278,7 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
     except audio_service.AudioProcessingError as exc:
         logger.warning("Fallo al interpretar audio de %s: %s", message.customer_id, exc)
         return ChannelReply(text=AUDIO_PROCESSING_ERROR_MESSAGE)
+    text = entrada.texto
     # Tope de largo antes de abrir la conversación y sin llamar al LLM (spec de guardrails §3.3)
     if rechazo := guardrails.revisar_largo(text):
         logger.warning(
@@ -319,6 +320,8 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
             customer_name=message.customer_name,
             origen=ORIGEN_POR_TIPO[message.type.value],
             nueva=nueva,
+            lectura=entrada.lectura.model_dump() if entrada.lectura else None,
+            mensaje_id=entrada.mensaje_id,
         )
         if outcome.cerrada:
             if outcome.kind == "pedido":

@@ -33,7 +33,8 @@ def precargar(
     for renglon in renglones:
         if renglon["estado"] != "sin_resolver":
             continue
-        if (separado := interpretation_service.separar_renglon(renglon["texto"])) is None:
+        # Un renglón de una foto trae el producto y la cantidad ya separados por la lectura
+        if (separado := renglon.get("buscar") or interpretation_service.separar_renglon(renglon["texto"])) is None:
             continue
         buscados.append({"n": renglon["n"], "marca": renglon.get("marca"), **separado})
     if not buscados:

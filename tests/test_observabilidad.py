@@ -383,3 +383,30 @@ def test_con_texto_el_orquestador_guarda_encargo_y_nota(orquestador_en_mlflow, m
     assert spans["nota"].inputs["resueltos"][0]["sku"] == "SH-KER-900"
     assert [b["texto"] for b in spans["precarga_busqueda"].inputs["buscados"]] == ["shampoo keratina", "mascara argan"]
     assert {r["estado"] for r in spans["precarga_busqueda"].outputs["resultados"]} == {"varias"}
+
+
+def test_lectura_y_turno_comparten_mensaje(mlflow_local, monkeypatch):
+    """La traza de la lectura y la del turno que la usa llevan el mismo `mensaje_id`."""
+    from internal.schemas.vision_schema import ImagenLeida, RenglonLeido
+    from internal.services import message_service, vision_service
+
+    leida = ImagenLeida(legible=True, tipo="lista_pedido", texto="5 cremas nivea",
+                        renglones=[RenglonLeido(texto="5 cremas nivea", producto="cremas nivea", cantidad=5)])
+    monkeypatch.setattr(message_service, "download_media", lambda url: b"imagen")
+    monkeypatch.setattr(
+        vision_service, "leer_imagen", lambda imagen: vision_service.Lectura("openai", "m", leida, "", 1.0, 10, 20)
+    )
+
+    entrada = message_service.leer_imagen_del_mensaje("telegram:abc", external_id="tg-99")
+    lectura = _traza(mlflow_local)
+    agent = NormaAgent(ModeloGuionado(*_guion()), InMemorySaver())
+    agent.handle("43", customer_id="telegram:1", channel=Channel.TELEGRAM, text=entrada.texto, origen="imagen",
+                 lectura=entrada.lectura.model_dump(), mensaje_id=entrada.mensaje_id)  # fmt: skip
+    turno = _traza(mlflow_local)
+
+    assert entrada.mensaje_id == "tg-99"
+    assert lectura.info.tags["mensaje_id"] == turno.info.tags["mensaje_id"] == "tg-99"
+    (raiz,) = [span for span in lectura.data.spans if span.parent_id is None]
+    assert raiz.name == "lectura_imagen"
+    assert (raiz.attributes["renglones"], raiz.attributes["tokens_salida"]) == (1, 20)
+    assert raiz.outputs is None  # sin MLFLOW_TRACE_TEXT, sin el texto de la imagen (RNF-03)

@@ -12,6 +12,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import interrupt
+from pydantic import ValidationError
 
 from internal.agent import (
     context,
@@ -25,6 +26,7 @@ from internal.agent import (
 from internal.agent.state import EstadoNorma
 from internal.config import get_settings
 from internal.schemas.order_schema import Channel, ConfirmationAction, OrderDraft
+from internal.schemas.vision_schema import ImagenLeida, renglones_desde_lectura
 from internal.services import interpretation_service, inventory_service, message_service, validation_service
 from internal.services.palabras_clave import (
     es_cancelacion,
@@ -159,7 +161,9 @@ def encaminar(state: EstadoNorma) -> dict[str, Any]:
     if skill not in get_skills():
         skill = None
     renglones = list(state.get("renglones") or [])
-    nuevos = _numerar(texto, renglones) if isinstance(entrada, HumanMessage) else []
+    nuevos = _desde_lectura(state.get("lectura"), renglones)
+    if nuevos is None:
+        nuevos = _numerar(texto, renglones) if isinstance(entrada, HumanMessage) else []
     with observabilidad.paso("encaminar", "CHAIN", skill_preactivada=skill or "-", renglones=len(nuevos)):
         pass
     return {
@@ -169,6 +173,7 @@ def encaminar(state: EstadoNorma) -> dict[str, Any]:
         "turno_desde": _reloj(),
         "cierre_desde": None,
         "renglones": renglones + nuevos,
+        "lectura": None,
         "notas_turno": [],
         "iteraciones_sub_loop": 0,
     }
@@ -201,6 +206,24 @@ def _sumar_origen(anterior: str | None, nuevo: str) -> str:
     """Los orígenes de la conversación, sin repetir y en orden: un audio corregido por texto es `audio+texto`."""
     origenes = [parte for parte in (anterior or "").split("+") if parte]
     return "+".join(origenes if nuevo in origenes else [*origenes, nuevo])
+
+
+def _desde_lectura(lectura: dict[str, Any] | None, renglones: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
+    """Los renglones de un mensaje con imagen salen de su lectura, a continuación de los que ya había.
+
+    None si el mensaje no trae una lectura con renglones, o si no valida: ahí se numera el texto, como siempre.
+    """
+    if not lectura:
+        return None
+    try:
+        leida = ImagenLeida.model_validate(lectura)
+    except ValidationError:
+        logger.warning("Agente: la lectura de la imagen no valida; los renglones salen del texto")
+        return None
+    if not leida.renglones:
+        return None
+    desde = max((renglon["n"] for renglon in renglones), default=0) + 1
+    return renglones_desde_lectura(leida, desde)
 
 
 def _numerar(texto: str, renglones: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -377,7 +400,9 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
         del_turno = state["messages"][state.get("inicio_turno", 0) :]
         ctx.turno = _contexto_validacion(state)
         ctx.coberturas_fallidas = sum(
-            isinstance(m, ToolMessage) and '"code": "renglones_sin_cuenta"' in m.content for m in del_turno
+            isinstance(m, ToolMessage)
+            and ('"code": "renglones_sin_cuenta"' in m.content or '"code": "duda_de_lectura"' in m.content)
+            for m in del_turno
         )
         ctx.orquestador = tool_registry.orquestador_activo()
         ctx.notas_turno = list(state.get("notas_turno") or [])
@@ -457,6 +482,7 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
         return {
             "messages": [HumanMessage(content=text)],
             "origen": _sumar_origen(state.get("origen"), origen),
+            "lectura": entrada.get("lectura") if isinstance(entrada, dict) else None,
             "opciones_previas": list(state.get("options") or []),
             "kind_anterior": state.get("kind"),
             "inicio_turno": len(state["messages"]),
