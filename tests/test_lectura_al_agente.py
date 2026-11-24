@@ -94,6 +94,16 @@ def test_encabezado_y_tachados_no_son_renglones():
     assert [r["texto"] for r in renglones_desde_lectura(lectura)] == ["3 shampoo"]
 
 
+def test_palabra_tachada_y_reescrita_no_tacha_el_renglon():
+    """«Capa [tachado] descartable x1»: el agente no tiene que ver «[tachado]» y sacar el renglón."""
+    lectura = _lectura(
+        RenglonLeido(texto="Capa [tachado] descartable x1", producto="Capa [tachado] descartable", cantidad=1)
+    )
+    (renglon,) = renglones_desde_lectura(lectura)
+    assert renglon["texto"] == "Capa descartable x1" and renglon["buscar"]["texto"] == "Capa descartable"
+    assert "tachado" not in lectura.como_texto_para_el_agente().split("Renglones:")[1]
+
+
 def test_cantidad_escrita_y_unidad_quedan_en_el_renglon():
     """La lectura conserva cómo está escrita la cantidad, para dudar entre unidades y cajas."""
     (renglon,) = renglones_desde_lectura(
@@ -258,3 +268,31 @@ def test_lectura_que_no_valida_usa_el_camino_del_texto(catalogo):
 
     estado = agent.graph.get_state({"configurable": {"thread_id": "1"}}).values
     assert [r["texto"] for r in estado["renglones"]] == ["2 shampoo", "3 mascara"]
+
+
+# --- Cajas o unidades ---
+
+from internal.tools import catalog_tools  # noqa: E402
+
+AMPOLLA = Product(sku="AMP-CAV", name="FIDELITE CAVIAR AMPOLLA 15ML X 12 UNID", brand="FIDELITE",
+                  price=Decimal("10000"), stock=80)  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("texto", "cantidad", "unidad", "pregunta"),
+    [
+        ("ampollas caviar", 24, None, True),  # 24 cajas o 2 cajas: no se sabe
+        ("ampollas caviar", 2, None, False),  # menos que una caja: son cajas
+        ("ampollas caviar", 30, None, False),  # no es múltiplo de 12: son cajas
+        ("ampollas caviar 24 u", 24, None, False),  # el cliente dijo unidades
+        ("ampollas caviar", 24, "cajas", False),  # la lectura dice la unidad
+    ],
+)
+def test_cantidad_que_puede_ser_de_cajas_o_de_unidades(monkeypatch, texto, cantidad, unidad, pregunta):
+    monkeypatch.setattr(sheets_service, "get_catalog", lambda: [AMPOLLA])
+    (resultado,) = catalog_tools.buscar_renglones(
+        [{"n": 1, "texto": texto, "marca": None, "cantidad": cantidad, "unidad": unidad}]
+    )
+    assert (resultado["estado"] == "varias") is pregunta
+    if pregunta:
+        assert resultado["difieren_en"] == ["cajas o unidades"] and "caja de 12" in resultado["_hint"]

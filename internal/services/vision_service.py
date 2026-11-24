@@ -49,7 +49,8 @@ Tu trabajo es solo leer y ordenar la hoja, no interpretar contra ningún catálo
   campo `duda`, con la otra lectura posible: «el 7 puede ser un 1».
 - `duda` es solo para lo que cambia qué producto o cuánto se pide: un número que puede ser otro, una marca o una
   medida que se puede leer de dos formas. Cada duda se le pregunta al cliente, así que una palabra borrosa que no
-  cambia eso (un adjetivo, una letra suelta) no es duda: copiá lo que se lee y dejá `duda` en null.
+  cambia eso (un adjetivo, una letra suelta) no es duda, ni una palabra mal escrita que se entiende («cavir» por
+  «caviar»): copiá lo que se lee y dejá `duda` en null.
 - Si la imagen no tiene texto o no se puede leer, `legible` en false y `renglones` vacío.
 - Saludos, firmas, horarios y direcciones van en `texto` pero no en `renglones`.
 

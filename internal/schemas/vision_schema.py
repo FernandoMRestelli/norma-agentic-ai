@@ -6,6 +6,7 @@ encabezado de la hoja y lo tachado. Los campos nuevos tienen valor por defecto:
 el modelo local y una lectura vieja siguen validando.
 """
 
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -113,8 +114,17 @@ class ImagenLeida(BaseModel):
         return "\n".join(lineas)
 
 
+# Una marca de tachado dentro de un renglón es una palabra tachada y vuelta a escribir: lo tachado entero va en
+# `tachados`. Si queda en el texto, el agente cree que el renglón está tachado y lo saca del pedido
+_MARCA_TACHADO = re.compile(r"\s*\[\s*tachad[oa]s?\s*\]\s*", re.IGNORECASE)
+
+
+def _sin_tachado(texto: str) -> str:
+    return " ".join(_MARCA_TACHADO.sub(" ", texto).split())
+
+
 def _describir(renglon: RenglonLeido) -> str:
-    linea = renglon.texto.strip()
+    linea = _sin_tachado(renglon.texto)
     if renglon.duda:
         linea += f" (duda de lectura: {renglon.duda.strip()})"
     dudas_variantes = [f"{v.detalle or v.tono}: {v.duda.strip()}" for v in renglon.variantes if v.duda]
@@ -146,7 +156,7 @@ def _juntar(anterior: str, propio: str) -> str:
 
 
 def _producto(renglon: RenglonLeido) -> str:
-    return " ".join(filter(None, (renglon.producto, renglon.presentacion))).strip()
+    return _sin_tachado(" ".join(filter(None, (renglon.producto, renglon.presentacion))))
 
 
 def renglones_desde_lectura(lectura: ImagenLeida, desde: int = 1) -> list[dict[str, Any]]:
@@ -168,7 +178,7 @@ def renglones_desde_lectura(lectura: ImagenLeida, desde: int = 1) -> list[dict[s
         if renglon.variantes:
             for variante in renglon.variantes:
                 detalle = " ".join(filter(None, (variante.detalle.strip(), variante.tono))).strip()
-                texto = " ".join(filter(None, (producto or renglon.texto.strip(), detalle)))
+                texto = " ".join(filter(None, (producto or _sin_tachado(renglon.texto), detalle)))
                 if variante.cantidad is not None:
                     texto += f" x{variante.cantidad:g}"
                 resultado.append(
@@ -177,7 +187,7 @@ def renglones_desde_lectura(lectura: ImagenLeida, desde: int = 1) -> list[dict[s
                 )  # fmt: skip
             continue
         resultado.append(
-            _renglon(desde + len(resultado), renglon.texto.strip(), marca, producto, renglon.cantidad, None,
+            _renglon(desde + len(resultado), _sin_tachado(renglon.texto), marca, producto, renglon.cantidad, None,
                      renglon.duda, renglon)
         )  # fmt: skip
     return resultado
@@ -196,6 +206,8 @@ def _renglon(
     renglon: dict[str, Any] = {"n": n, "texto": texto, "marca": marca, "estado": "sin_resolver", "origen": "imagen"}
     if producto and (numero := _numero(cantidad)) is not None:
         renglon["buscar"] = {"texto": producto, "cantidad": numero, "tono": tono}
+        if leido.unidad:
+            renglon["buscar"]["unidad"] = leido.unidad  # el cliente ya dijo si son cajas o unidades
     if leido.cantidad_escrita:
         renglon["cantidad_escrita"] = leido.cantidad_escrita
     if leido.unidad:
