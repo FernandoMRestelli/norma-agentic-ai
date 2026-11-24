@@ -178,7 +178,83 @@ def test_sin_texto_no_es_legible():
 
 
 def test_texto_para_el_agente_marca_el_origen():
-    assert ImagenLeida.model_validate(LEIDA).como_texto_para_el_agente().startswith("[imagen leída]\n5 x Shampoo")
+    texto = ImagenLeida.model_validate(LEIDA).como_texto_para_el_agente()
+    assert texto.startswith("[imagen leída: lista de pedido]\nRenglones:\n- 5 x Shampoo")
+
+
+def test_texto_para_el_agente_separa_lo_que_no_es_pedido():
+    """CA-167: el encabezado y lo tachado van aparte, marcados como «no es pedido», antes de los renglones."""
+    leida = ImagenLeida(
+        legible=True,
+        tipo="lista_pedido",
+        texto="Peluquería Sol 25/11\n~~5 guantes~~\n3 shampoo\n2 máscara\n1 capa x7",
+        encabezado={"cliente": "Peluquería Sol", "fecha": "25/11", "otros": ["hoja 1"]},
+        tachados=["5 guantes nitrilo M"],
+        renglones=[
+            RenglonLeido(texto="3 shampoo", cantidad=3),
+            RenglonLeido(texto="2 máscara", cantidad=2),
+            RenglonLeido(texto="Capa x7", cantidad=7, duda="el 7 puede ser un 1"),
+        ],
+    )
+    assert leida.como_texto_para_el_agente().splitlines() == [
+        "[imagen leída: lista de pedido]",
+        "No es pedido (encabezado): Peluquería Sol · 25/11 · hoja 1",
+        "No es pedido (tachado en la hoja): 5 guantes nitrilo M",
+        "Renglones:",
+        "- 3 shampoo",
+        "- 2 máscara",
+        "- Capa x7 (duda de lectura: el 7 puede ser un 1)",
+    ]
+
+
+def test_sin_renglones_queda_el_texto_plano():
+    """CA-168, RF-110: sin renglones, el agente recibe lo de antes."""
+    leida = ImagenLeida(legible=True, tipo="captura_chat", texto="hola\n¿abren el sábado?", tachados=["algo"])
+    assert leida.como_texto_para_el_agente() == "[imagen leída]\nhola\n¿abren el sábado?"
+
+
+def test_lectura_vieja_sigue_validando():
+    """CA-169: un JSON sin los campos nuevos valida, con los campos nuevos vacíos."""
+    leida = ImagenLeida.model_validate(LEIDA)
+    assert leida.encabezado is None and leida.tachados == []
+    assert all(r.variantes == [] and r.duda is None and r.sigue_a is None for r in leida.renglones)
+
+
+def test_instrucciones_hablan_de_la_disposicion_de_la_hoja(settings):
+    settings(VISION_MARCAS="false")
+    texto = vision_service.instrucciones()
+    for parte in ("`encabezado`", "`tachados`", "`variantes`", "`sigue_a`", "`cantidad_escrita`", "`duda`"):
+        assert parte in texto
+    assert vision_service.ENCABEZADO_MARCAS not in texto
+
+
+def test_instrucciones_con_marcas_del_catalogo(settings, monkeypatch):
+    """CA-181: con VISION_MARCAS, las marcas del catálogo y nada más: ni productos ni precios."""
+    from internal.schemas.catalog_schema import Product
+    from internal.services import inventory_service
+
+    productos = [
+        Product(sku="A1", name="SHAMPOO KERATINA X 1L", brand="LA PUISSANCE", price=100, stock=5),
+        Product(sku="B1", name="OXIDANTE 20 VOL", brand="ALFAPARF", price=200, stock=5),
+        Product(sku="B2", name="OXIDANTE 30 VOL", brand="ALFAPARF", price=210, stock=5),
+        Product(sku="C1", name="CAPA DESCARTABLE", brand="DOMPEL", price=300, stock=5),
+    ]
+    monkeypatch.setattr(inventory_service, "get_catalog", lambda: productos)
+    settings(VISION_MARCAS="true")
+    texto = vision_service.instrucciones()
+    assert texto.endswith(f"{vision_service.ENCABEZADO_MARCAS} ALFAPARF, DOMPEL, LA PUISSANCE.")
+    assert "KERATINA" not in texto and "100" not in texto and "A1" not in texto
+
+
+def test_instrucciones_sin_catalogo_leen_igual(settings, monkeypatch):
+    from internal.services import inventory_service
+
+    def sin_catalogo():
+        raise OSError("no está")
+
+    monkeypatch.setattr(inventory_service, "get_catalog", sin_catalogo)
+    settings(VISION_MARCAS="true")
+    assert vision_service.instrucciones() == vision_service.INSTRUCCIONES
 
 
 # --- Comparación ---
@@ -211,6 +287,50 @@ def test_puntaje_ignora_tildes_y_mayusculas():
 def test_puntaje_sin_json():
     puntaje = comparar_vision.puntuar(CASO, None)
     assert not puntaje.json_valido and puntaje.faltantes == ["5 pantene 400", "3 koleston 6.1"]
+
+
+CASO_TACHADOS = {
+    "legible": True,
+    "renglones": [{"cantidad": 3, "palabras": ["shampoo"]}, {"cantidad": None, "palabras": ["igora"]}],
+    "tachados": [["guantes"], ["capas", "descartables"]],
+}
+
+
+def test_puntaje_cuenta_tachados():
+    """CA-180, RNF-18: lo tachado tiene que leerse como tachado y nunca terminar en un renglón."""
+    bien = ImagenLeida(
+        legible=True, tipo="lista_pedido", texto="x",
+        tachados=["5 guantes nitrilo M", "2 capas descartables"],
+        renglones=[RenglonLeido(texto="Shampoo x3", cantidad=3), RenglonLeido(texto="Igora Royal con tonos")],
+    )  # fmt: skip
+    puntaje = comparar_vision.puntuar(CASO_TACHADOS, bien)
+    assert puntaje.ok and (puntaje.tachados_vistos, puntaje.tachados_pedidos) == (2, 0)
+
+    mal = bien.model_copy(
+        update={"tachados": [], "renglones": [*bien.renglones, RenglonLeido(texto="5 guantes nitrilo M", cantidad=5)]}
+    )
+    puntaje = comparar_vision.puntuar(CASO_TACHADOS, mal)
+    assert not puntaje.ok
+    assert (puntaje.tachados_vistos, puntaje.tachados_pedidos, puntaje.sobrantes) == (0, 1, 1)
+
+
+def test_puntaje_renglon_sin_cantidad_se_lee_sin_cantidad():
+    caso = {"legible": True, "renglones": [{"cantidad": None, "palabras": ["igora"]}]}
+    con_cantidad = ImagenLeida(legible=True, tipo="lista_pedido", texto="x",
+                               renglones=[RenglonLeido(texto="Igora Royal", cantidad=1)])
+    assert not comparar_vision.puntuar(caso, con_cantidad).ok
+
+
+def test_puntaje_cuenta_las_variantes():
+    """Un renglón leído como variantes vale por la suma de sus cantidades."""
+    from internal.schemas.vision_schema import Variante
+
+    caso = {"legible": True, "renglones": [{"cantidad": 2, "palabras": ["koleston"]}]}
+    leida = ImagenLeida(legible=True, tipo="lista_pedido", texto="x", renglones=[
+        RenglonLeido(texto="Koleston 7.1 x2", producto="Koleston",
+                     variantes=[Variante(detalle="", tono="7.1", cantidad=2)])
+    ])  # fmt: skip
+    assert comparar_vision.puntuar(caso, leida).ok
 
 
 def test_casos_de_ejemplo_tienen_su_imagen():
