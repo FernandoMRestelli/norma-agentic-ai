@@ -282,6 +282,7 @@ def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict
         if (
             data.kind.value == "aclaracion"
             and options
+            and not data.pendientes
             and not propuesta
             and [r.regla for r in rechazos] == ["pregunta_faltante"]
             and (opciones_texto := validation_service.build_options_list(options))

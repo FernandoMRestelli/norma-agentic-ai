@@ -439,6 +439,26 @@ def test_aclaracion_con_options_intentos_agotados_inyecta_catalogo():
     assert SKU not in resultado.message
 
 
+def test_aclaracion_con_pendientes_intentos_agotados_usa_mensaje_seguro():
+    """Con `pendientes` (varios renglones), al agotar intentos por `pregunta_faltante` sale `MENSAJE_SEGURO`."""
+    pendientes = [
+        {"renglon": 1, "opciones": [SKU_SHAMPOO]},
+        {"renglon": 2, "opciones": [SKU]},
+    ]
+    malos = [
+        _responder("Te paso las dudas que encontré:", kind="aclaracion", pendientes=pendientes)
+        for _ in range(3)
+    ]
+    agent, _ = _agente(_ai(_call("leer_skill", nombre="tomar_pedido")), *malos)
+
+    resultado = agent.handle("1", text="2 shampoo\n1 crema", **CLIENTE)
+
+    assert [r["ok"] for r in _resultados(agent, "respond_to_customer")] == [False, False, True]
+    assert resultado.kind == "aclaracion"
+    assert resultado.message == guardrails.MENSAJE_SEGURO
+    assert "¿Cuál preferís?" not in resultado.message
+
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Intentos agotados y texto suelto
 # ---------------------------------------------------------------------------------------------------------------------
