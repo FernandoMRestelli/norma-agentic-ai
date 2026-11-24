@@ -154,7 +154,7 @@ def encaminar(state: EstadoNorma) -> dict[str, Any]:
     rechaza una llamada que no trae su firma (CA-35). El modelo puede leer otra skill con `leer_skill`.
     """
     entrada = state["messages"][state.get("inicio_turno", 0)]
-    texto = message_service.sin_marca_origen(entrada.text) if isinstance(entrada, HumanMessage) else ""
+    texto = message_service.sin_marca_audio(entrada.text) if isinstance(entrada, HumanMessage) else ""
     skill = skill_clara(texto, bool(state.get("propuesta"))) if isinstance(entrada, HumanMessage) else None
     if skill not in get_skills():
         skill = None
@@ -500,7 +500,7 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
         }
 
     def decidir_tras_pausa(state: EstadoNorma) -> str:
-        texto = message_service.sin_marca_origen(state["messages"][-1].content)
+        texto = message_service.sin_marca_audio(state["messages"][-1].content)
         confirma = interpretar_palabra_clave(texto) == ConfirmationAction.CONFIRM
         return "confirmar" if confirma and state.get("propuesta") and not pregunta_abierta(state) else "agente"
 

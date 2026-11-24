@@ -8,8 +8,6 @@ from internal.services import audio_service, vision_service
 logger = logging.getLogger(__name__)
 
 MARCA_AUDIO = "[audio transcripto]"
-MARCA_IMAGEN = "[imagen leída]"
-MARCAS_ORIGEN = (MARCA_AUDIO, MARCA_IMAGEN)
 
 
 class ImagenIlegible(ValueError):
@@ -23,9 +21,9 @@ def marcar_origen(texto: str, tipo: MessageType) -> str:
     return texto
 
 
-def sin_marca_origen(texto: str) -> str:
-    """Quita las marcas de origen (`[audio transcripto]`, `[imagen leída]`) para ruteo y palabras clave."""
-    return "\n".join(linea for linea in texto.splitlines() if linea.strip() not in MARCAS_ORIGEN)
+def sin_marca_audio(texto: str) -> str:
+    """Quita solo `[audio transcripto]` para ruteo y palabras clave; `[imagen leída]` se conserva."""
+    return "\n".join(linea for linea in texto.splitlines() if linea.strip() != MARCA_AUDIO)
 
 
 def prepare(message: IncomingMessage) -> str:

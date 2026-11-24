@@ -288,7 +288,7 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
         )
         return ChannelReply(text=rechazo)
 
-    texto_limpio = message_service.sin_marca_origen(text)
+    texto_limpio = message_service.sin_marca_audio(text)
 
     # Fuera de tema evidente: sin abrir/cerrar conversación ni modificar la propuesta vigente.
     if topic_filter.is_off_topic(texto_limpio):

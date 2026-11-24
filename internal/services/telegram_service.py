@@ -74,7 +74,12 @@ class TelegramClient:
 
         Valida el tamaño antes (vía getFile) y después de descargar. Nunca incluye el token en errores (RNF-14).
         """
-        info = self.call("getFile", file_id=file_id)
+        try:
+            info = self.call("getFile", file_id=file_id)
+        except TelegramError as exc:
+            if "file is too big" in str(exc).lower():
+                raise TelegramArchivoMuyGrande(str(exc)) from None
+            raise
         if info.get("file_size", 0) > MAX_FILE_BYTES:
             raise TelegramArchivoMuyGrande("getFile: el archivo es muy grande")
         if "file_path" not in info:

@@ -1,4 +1,3 @@
-import base64
 import logging
 from decimal import Decimal
 from types import SimpleNamespace
@@ -38,15 +37,36 @@ def test_audio_deshabilitado_por_defecto():
     assert reply.text == conversation_service.WRITE_IT_PLEASE
 
 
-def test_download_audio_bytes_data_uri():
-    """Descarga de audio vía data URI en base64."""
-    raw = b"OggS_TEST_AUDIO_BYTES"
-    b64 = base64.b64encode(raw).decode("ascii")
-    uri = f"data:audio/ogg;base64,{b64}"
+def test_protocolo_no_soportado_no_filtra_url_completa():
+    """RNF-14: URLs no soportadas (que pueden traer tokens firmados) no se incluyen completas en el error."""
+    with pytest.raises(audio_service.AudioProcessingError) as exc_info:
+        audio_service.download_audio_bytes("https://media.example.com/audio.ogg?token=SECRETO_123")
+    assert "SECRETO_123" not in str(exc_info.value)
+    assert "(https)" in str(exc_info.value)
 
-    data, mime = audio_service.download_audio_bytes(uri)
-    assert data == raw
-    assert mime == "audio/ogg"
+
+def test_falta_telegram_token_envuelve_en_audio_processing_error(monkeypatch):
+    """Si falta TELEGRAM_BOT_TOKEN, get_client() lanza ValueError y se envuelve en AudioProcessingError."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    get_settings.cache_clear()
+
+    with pytest.raises(audio_service.AudioProcessingError, match="descargar el audio"):
+        audio_service.download_audio_bytes("telegram:aud1")
+
+
+def test_telegram_getfile_file_is_too_big_lanza_archivo_muy_grande():
+    """Telegram devuelve ok:false con 'file is too big' para >20 MB y se mapea a TelegramArchivoMuyGrande."""
+    from internal.services import telegram_service
+
+    mock_http = Mock(spec=httpx.Client)
+    mock_response = Mock()
+    mock_response.status_code = 400
+    mock_response.json.return_value = {"ok": False, "description": "Bad Request: file is too big"}
+    mock_http.post.return_value = mock_response
+
+    client = telegram_service.TelegramClient("fake-token", http=mock_http)
+    with pytest.raises(telegram_service.TelegramArchivoMuyGrande):
+        client.download_file_with_path("aud-big")
 
 
 def test_protocolo_mock_no_esta_soportado():
@@ -216,7 +236,7 @@ def test_transcribe_groq_exitoso(monkeypatch):
 
 
 def test_transcribe_openai_exitoso(monkeypatch):
-    """Llamada exitosa a la API de OpenAI Whisper."""
+    """Llamada exitosa a la API de OpenAI Whisper (audio/ogg envía extensión .ogg, no .oga)."""
     monkeypatch.setenv("AUDIO_PROVIDER", "openai")
     monkeypatch.setenv("AUDIO_API_KEY", "test-key-openai")
     get_settings.cache_clear()
@@ -229,6 +249,51 @@ def test_transcribe_openai_exitoso(monkeypatch):
 
     res = audio_service.transcribe_audio_bytes(b"RAW_AUDIO", "audio/ogg", http_client=mock_http)
     assert res == "Anotame 1 baño de crema"
+    assert mock_http.post.call_args.kwargs["files"]["file"][0] == "audio.ogg"
+
+
+def test_whisper_text_null_y_gemini_part_no_str_lanzan_audio_empty(monkeypatch):
+    """Respuestas con `text: null` en Whisper o `part.text` no-string en Gemini dan AudioEmptyError, no crash."""
+    mock_http = Mock(spec=httpx.Client)
+    mock_response = Mock()
+    mock_response.status_code = 200
+    mock_http.post.return_value = mock_response
+
+    monkeypatch.setenv("AUDIO_PROVIDER", "groq")
+    monkeypatch.setenv("AUDIO_API_KEY", "test-key-groq")
+    get_settings.cache_clear()
+    mock_response.json.return_value = {"text": None}
+    with pytest.raises(audio_service.AudioEmptyError):
+        audio_service.transcribe_audio_bytes(b"RAW_AUDIO", "audio/ogg", http_client=mock_http)
+
+    monkeypatch.setenv("AUDIO_PROVIDER", "gemini")
+    monkeypatch.setenv("AUDIO_API_KEY", "test-key-gemini")
+    get_settings.cache_clear()
+    mock_response.json.return_value = {"candidates": [{"content": {"parts": [{"text": None}]}}]}
+    with pytest.raises(audio_service.AudioEmptyError):
+        audio_service.transcribe_audio_bytes(b"RAW_AUDIO", "audio/ogg", http_client=mock_http)
+
+
+def test_llm_provider_con_mayusculas_se_normaliza_para_respaldo(monkeypatch):
+    """LLM_PROVIDER con mayúsculas (ej. Gemini) se normaliza y funciona como respaldo de proveedor y clave."""
+    monkeypatch.delenv("AUDIO_PROVIDER", raising=False)
+    monkeypatch.delenv("AUDIO_API_KEY", raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "Gemini")
+    monkeypatch.setenv("LLM_API_KEY", "key-gemini-respaldo")
+    get_settings.cache_clear()
+
+    provider, api_key = audio_service._resolve_provider_and_key()
+    assert provider == "gemini"
+    assert api_key == "key-gemini-respaldo"
+
+
+def test_imagen_con_palabra_clave_no_confirma_ni_cancela_sin_llm():
+    """`sin_marca_audio` conserva `[imagen leída]`: una foto con «Dale» o «Cancelado» nunca dispara atajos."""
+    from internal.services.palabras_clave import interpretar_palabra_clave
+
+    assert message_service.sin_marca_audio("[imagen leída]\nDale") == "[imagen leída]\nDale"
+    assert interpretar_palabra_clave(message_service.sin_marca_audio("[imagen leída]\nDale")) is None
+    assert interpretar_palabra_clave(message_service.sin_marca_audio("[imagen leída]\nCancelado")) is None
 
 
 def test_transcribe_error_json_no_corta_excepcion_cruda(monkeypatch):

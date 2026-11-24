@@ -1,6 +1,6 @@
 """Módulo de interpretación y transcripción de audios (Speech-to-Text).
 
-Permite recibir notas de voz desde canales soportados (Telegram) o data URIs,
+Permite recibir notas de voz desde canales soportados (Telegram),
 transcribirlos a texto en lenguaje natural y pasarlos al pipeline del agente de Norma.
 """
 
@@ -34,12 +34,13 @@ PROMPT_TRANSCRIPCION = (
 )
 
 _EXTENSION_BY_MIME: dict[str, str] = {
-    "audio/ogg": "audio.oga",
+    "audio/ogg": "audio.ogg",
     "audio/opus": "audio.opus",
     "audio/mpeg": "audio.mp3",
     "audio/mp3": "audio.mp3",
     "audio/mp4": "audio.m4a",
     "audio/x-m4a": "audio.m4a",
+    "audio/aac": "audio.aac",
     "audio/wav": "audio.wav",
     "audio/x-wav": "audio.wav",
     "audio/webm": "audio.webm",
@@ -53,7 +54,9 @@ def _detect_mime(file_path: str) -> str:
         return "audio/ogg"
     if ext == ".mp3":
         return "audio/mpeg"
-    if ext in (".m4a", ".mp4", ".aac"):
+    if ext == ".aac":
+        return "audio/aac"
+    if ext in (".m4a", ".mp4"):
         return "audio/mp4"
     if ext == ".wav":
         return "audio/wav"
@@ -80,16 +83,17 @@ def is_audio_enabled() -> bool:
 def _resolve_provider_and_key() -> tuple[str | None, str | None]:
     """Resuelve el proveedor de audio y su API key sin caer en un LLM_PROVIDER no soportado."""
     settings = get_settings()
+    llm_provider = (settings.llm_provider or "").strip().lower() or None
     if settings.audio_provider:
         provider = settings.audio_provider.strip().lower()
-    elif settings.llm_provider in SUPPORTED_AUDIO_PROVIDERS:
-        provider = settings.llm_provider
+    elif llm_provider in SUPPORTED_AUDIO_PROVIDERS:
+        provider = llm_provider
     else:
         provider = None
 
     api_key = settings.audio_api_key
     # Seguridad (RNF-01): solo usar LLM_API_KEY como respaldo si coincide el proveedor
-    if not api_key and provider and provider == settings.llm_provider:
+    if not api_key and provider and provider == llm_provider:
         api_key = settings.llm_api_key
     return provider, api_key
 
@@ -117,28 +121,24 @@ def download_audio_bytes(media_url: str) -> tuple[bytes, str]:
 
     Devuelve: (bytes_del_audio, mime_type)
     """
-    if media_url.startswith("data:"):
-        # Formato data URI: data:audio/ogg;base64,...
-        header, b64_data = media_url.split(",", 1)
-        mime = header.split(";")[0].removeprefix("data:") or "audio/ogg"
-        return base64.b64decode(b64_data), mime
-
     if media_url.startswith("telegram:"):
         from internal.services.telegram_service import TelegramArchivoMuyGrande, TelegramError, get_client
 
         file_id = media_url.removeprefix("telegram:")
-        client = get_client()
         try:
+            client = get_client()
             raw_bytes, file_path = client.download_file_with_path(file_id)
         except TelegramArchivoMuyGrande:
             raise AudioTooLongError("El audio supera el límite de tamaño de Telegram") from None
-        except TelegramError as exc:
-            logger.warning("Fallo al descargar audio de Telegram: %s", exc)
+        except (TelegramError, ValueError) as exc:
+            logger.warning("Fallo al descargar audio de Telegram (%s)", type(exc).__name__)
             raise AudioProcessingError("No se pudo descargar el audio de Telegram") from None
 
         return raw_bytes, _detect_mime(file_path)
 
-    raise AudioProcessingError(f"Protocolo o canal de audio no soportado: {media_url}")
+    # Seguridad (RNF-14): no incluir la URL completa (puede traer tokens firmados), solo el esquema
+    esquema = media_url.split(":", 1)[0] if ":" in media_url else "desconocido"
+    raise AudioProcessingError(f"Protocolo o canal de audio no soportado ({esquema})")
 
 
 def transcribe_audio_bytes(
@@ -156,7 +156,7 @@ def transcribe_audio_bytes(
 
     provider, api_key = _resolve_provider_and_key()
     model = get_settings().audio_model
-    file_name = filename or _EXTENSION_BY_MIME.get(mime_type, "audio.oga")
+    file_name = filename or _EXTENSION_BY_MIME.get(mime_type, "audio.ogg")
 
     client = http_client or httpx.Client(timeout=TIMEOUT_SECONDS)
 
@@ -220,7 +220,9 @@ def _transcribe_gemini(
             raise AudioEmptyError("Gemini no detectó contenido de voz en el audio")
         content = candidates[0].get("content", {})
         parts = content.get("parts", []) if isinstance(content, dict) else []
-        text = "".join(part.get("text", "") for part in parts if isinstance(part, dict)).strip()
+        text = "".join(
+            part["text"] for part in parts if isinstance(part, dict) and isinstance(part.get("text"), str)
+        ).strip()
         if not text:
             raise AudioEmptyError("La transcripción del audio está vacía")
         return text
@@ -243,7 +245,7 @@ def _transcribe_whisper(
     api_key: str | None,
     model: str | None,
     client: httpx.Client,
-    filename: str = "audio.oga",
+    filename: str = "audio.ogg",
 ) -> str:
     if not api_key:
         raise AudioProcessingError(f"Falta AUDIO_API_KEY para transcribir con {provider_name}")
@@ -256,7 +258,8 @@ def _transcribe_whisper(
         response = client.post(url, headers=headers, files=files, data=data, timeout=TIMEOUT_SECONDS)
         response.raise_for_status()
         data_resp = response.json()
-        text = data_resp.get("text", "").strip() if isinstance(data_resp, dict) else ""
+        raw = data_resp.get("text") if isinstance(data_resp, dict) else None
+        text = raw.strip() if isinstance(raw, str) else ""
         if not text:
             raise AudioEmptyError(f"{provider_name} devolvió transcripción vacía")
         return text
