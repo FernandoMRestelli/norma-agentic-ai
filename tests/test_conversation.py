@@ -546,7 +546,32 @@ def test_imagen_leida_llega_al_agente_con_el_epigrafe(vision, monkeypatch):
     reply = conversation_service.handle_message(foto("esto   para el lunes"))
 
     assert reply.text == "Te propongo…"
-    assert recibido["text"] == "esto para el lunes\n[imagen leída]\n5 shampoo pantene 400"
+    esperado = "esto para el lunes\n[imagen leída: lista de pedido]\nRenglones:\n- 5 shampoo pantene 400"
+    assert recibido["text"] == esperado
+    # La lectura viaja entera, para que los renglones salgan de ahí, con el id que enlaza las trazas
+    assert recibido["lectura"]["renglones"][0]["cantidad"] == 5
+    assert recibido["mensaje_id"]
+
+
+def test_imagen_sin_renglones_llega_como_texto_plano(vision, monkeypatch):
+    """Una lectura sin renglones (una captura que no es un pedido) llega como hoy y sin lectura."""
+    vision(ImagenLeida(legible=True, tipo="captura_chat", texto="hola, ¿abren el sábado?"))
+    recibido = {}
+
+    class _Agente:
+        def handle(self, **kwargs):
+            recibido.update(kwargs)
+
+            class _Outcome:
+                message, cerrada, kind = "Sí, de 9 a 13", False, "informacion"
+
+            return _Outcome()
+
+    monkeypatch.setattr(conversation_service, "get_agent", lambda: _Agente())
+    conversation_service.handle_message(foto())
+
+    assert recibido["text"] == "[imagen leída]\nhola, ¿abren el sábado?"
+    assert recibido["lectura"] is None
 
 
 @pytest.mark.parametrize(

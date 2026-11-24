@@ -94,6 +94,9 @@ def opciones_previas(skus: list[str]) -> str:
 def _renglon(renglon: dict) -> str:
     marca = f"[{renglon['marca']}] " if renglon.get("marca") else ""
     linea = f"{renglon['n']}. {marca}{renglon['texto']}"
+    if renglon.get("duda"):
+        # La duda de lectura de una foto se confirma con el cliente antes de proponer
+        linea += f" (duda de lectura: {renglon['duda']}; preguntale antes de proponerlo)"
     match renglon["estado"]:
         case "resuelto":
             lineas = ", ".join(f"{linea['cantidad']} x {linea['sku']}" for linea in renglon["lineas"])

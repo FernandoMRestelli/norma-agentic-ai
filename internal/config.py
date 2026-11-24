@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     llm_vision_provider: str | None = None
     llm_vision_model: str | None = None
     llm_vision_api_key: str | None = None
+    # Suma las marcas del catálogo a las instrucciones de la lectura, para leer nombres de marca mal escritos.
+    # Solo marcas: ni productos ni precios
+    vision_marcas: bool = False
 
     # Google Sheets / Catálogo local (docs/spec/planillas.md). Sin los ids, todo sale y va a los CSV
     google_credentials_file: str | None = None

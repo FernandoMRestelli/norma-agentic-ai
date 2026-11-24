@@ -251,8 +251,9 @@ def correr(
                     resultado = {"ok": False, "error": {"code": "nota_entregada", "message": "Ya entregaste la nota"}}
                 elif call["name"] == tool_registry.TERMINAL_SUB_LOOP:
                     resultado, entregada, rechazos = _entregar(
-                        call["args"], numeros, vistos, rechazos, busquedas, datos.faltantes, avisados
-                    )
+                        call["args"], numeros, vistos, rechazos, busquedas, datos.faltantes, avisados,
+                        {renglon["n"] for renglon in ctx.renglones if renglon.get("duda")},
+                    )  # fmt: skip
                     if entregada is not None:
                         cerrada_por = "nota" if rechazos <= nota.MAX_RECHAZOS else "forzada"
                         entrada.update(nota=entregada, cerrada_por=cerrada_por)
@@ -406,6 +407,7 @@ def _entregar(
     busquedas: dict[int, tuple[dict, dict]],
     faltantes: dict[str, int] | None = None,
     avisados: set[str] | None = None,
+    con_duda: set[int] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None, int]:
     """Valida una nota. Devuelve el resultado para el sub-loop, la nota aceptada (o None) y los rechazos."""
     with observabilidad.paso("nota", "PARSER", renglones=len(numeros), entrega=rechazos + 1) as paso:
@@ -420,7 +422,7 @@ def _entregar(
             }
             data = None
         else:
-            error = nota.validar(data, numeros, vistos, _disponibles(busquedas)) or _stock_sin_renglon(
+            error = nota.validar(data, numeros, vistos, _disponibles(busquedas), con_duda) or _stock_sin_renglon(
                 data, busquedas, faltantes or {}, avisados if avisados is not None else set()
             )
         paso.texto(entrada=args, salida=error)

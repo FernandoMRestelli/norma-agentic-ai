@@ -9,7 +9,7 @@ La nota trae cada renglón en un lugar. Respondé con `respond_to_customer` pas�
 Debajo de tu mensaje el sistema agrega cada línea con su precio y el total, así que tu mensaje no los repite. Los SKU van solo en `propuesta`, `pendientes` y `options`. En el mensaje nombrá cada producto con `productos` de la nota y las opciones de una duda con su `nombres`; un SKU o un motivo como `sin_stock` en el mensaje hace que lo rechacen:
 
 - En una frase decí qué le armaste.
-- Después, las dudas: una por renglón, con una viñeta (•) y sus opciones.
+- Después, las dudas: una por renglón, con una viñeta (•) y sus opciones. Nombrá cada renglón como lo escribió el cliente («las ampollas caviar x24»): los números de renglón son internos y el cliente no los tiene.
 - En una frase, lo que quedó afuera.
 - Cerrá con la pregunta: si lo confirmás o suma algo, o qué elige de cada duda.
 
