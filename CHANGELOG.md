@@ -14,7 +14,7 @@ El asistente toma pedidos por texto, foto y audio contra el catálogo real. Suma
 
 **Para desplegar desde la 0.1.1:**
 
-1. Frená la API y el bot, y copiá `~/norma-prod/data/` completa a otra carpeta. La base se migra sola al arrancar (versión 4 del esquema) y esa copia es la única forma de volver atrás.
+1. Frená la API y el bot, y copiá `~/norma-prod/data/` completa a otra carpeta. La base se migra sola al arrancar (versión 5 del esquema) y esa copia es la única forma de volver atrás.
 2. Copiá el `docker-compose.prod.yml` de esta versión. Levanta también MLflow en http://localhost:5001 (carpeta nueva `~/norma-prod/mlflow/`). Si el MLflow o la API de desarrollo están corriendo en la misma máquina, frenalos: usan los mismos puertos.
 3. Dejá el catálogo real en `~/norma-prod/data/catalogo.csv`: el compose ya lo fija, y fija también `MLFLOW_ENABLED=true` y `MLFLOW_TRACE_TEXT=false`.
 4. En `~/norma-prod/.env`, para los audios: `AUDIO_ENABLED=true`, `AUDIO_PROVIDER` (`gemini`, `groq` u `openai`), `AUDIO_MODEL` de ese proveedor (o vacío) y `AUDIO_API_KEY`. Para las fotos: `LLM_VISION_PROVIDER`, `LLM_VISION_MODEL` y `LLM_VISION_API_KEY`. Para el dashboard y las órdenes: `OPERATOR_TOKEN`. Las demás variables nuevas son opcionales y están en `.env.example`.
