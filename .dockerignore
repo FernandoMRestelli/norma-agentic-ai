@@ -13,6 +13,5 @@ credentials/
 *.db
 data/
 notebooks/
-frontend/
 docs/
 .DS_Store

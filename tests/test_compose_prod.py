@@ -35,3 +35,28 @@ def test_el_bot_comparte_datos_y_entorno_con_la_api():
     assert set(api["volumes"]) == set(bot["volumes"])
     assert bot["environment"] == api["environment"]
     assert bot["environment"]["APP_ENV"] == "production"
+
+
+def test_produccion_usa_el_catalogo_real_y_traza_sin_texto():
+    """CA-167: el compose fija el catálogo de data/ y las trazas sin el texto del cliente, diga lo que diga el .env."""
+    entorno = _servicios()["bot"]["environment"]
+    assert entorno["CATALOG_FILE"] == "data/catalogo.csv"
+    assert entorno["MLFLOW_ENABLED"] == "true"
+    assert entorno["MLFLOW_TRACKING_URI"] == "http://mlflow:5000"
+    assert entorno["MLFLOW_TRACE_TEXT"] == "false"
+
+
+def test_mlflow_se_publica_solo_en_la_maquina_y_no_ve_los_datos():
+    """CA-167: MLflow no tiene login: solo 127.0.0.1, con versión fija y sin acceso a data/ ni a credentials/."""
+    mlflow = _servicios()["mlflow"]
+    assert all(puerto.startswith("127.0.0.1:") for puerto in mlflow["ports"])
+    assert mlflow["volumes"] == ["./mlflow:/mlflow"]
+    assert not mlflow["image"].endswith(":latest")
+    assert "depends_on" not in mlflow and "mlflow" not in _servicios()["bot"]["depends_on"]
+
+
+def test_la_imagen_lleva_la_pagina_del_dashboard():
+    """Sin frontend/ en la imagen, /dashboard/ui responde 404 en producción."""
+    raiz = COMPOSE.parent
+    assert "COPY frontend/ frontend/" in (raiz / "Dockerfile").read_text(encoding="utf-8")
+    assert "frontend/" not in (raiz / ".dockerignore").read_text(encoding="utf-8").splitlines()

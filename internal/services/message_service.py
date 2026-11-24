@@ -1,6 +1,7 @@
 """Preprocesamiento multimodal: convierte texto, audio o imagen en texto para el agente."""
 
 import logging
+import time
 import uuid
 from dataclasses import dataclass
 
@@ -47,7 +48,7 @@ def preparar(message: IncomingMessage) -> Entrada:
         case MessageType.TEXT:
             return Entrada(normalize_text(message.text))
         case MessageType.AUDIO:
-            return Entrada(transcribe_audio(message.media_url))
+            return transcribir_audio_del_mensaje(message.media_url, message.external_id)
         case MessageType.IMAGE:
             return leer_imagen_del_mensaje(message.media_url, message.text, message.external_id)
         case _:
@@ -90,6 +91,33 @@ def partir(texto: str, limite: int) -> list[str]:
     if actual.strip():
         partes.append(actual)
     return [parte for parte in partes if parte.strip()]
+
+
+def transcribir_audio_del_mensaje(media_url: str, external_id: str | None = None) -> Entrada:
+    """Transcribe el audio y deja su traza, enlazada con la del turno. Lanza los errores de `audio_service`."""
+    from internal.agent import observabilidad  # import local: el agente importa los servicios
+
+    mensaje_id = external_id or uuid.uuid4().hex
+    texto, error = "", None
+    inicio = time.perf_counter()
+    with observabilidad.transcripcion(mensaje_id) as paso:
+        try:
+            texto = transcribe_audio(media_url)
+        except Exception as exc:  # se relanza fuera del span: MLflow guardaría el mensaje de la excepción (RNF-03)
+            error = exc
+            paso.fallo(type(exc).__name__)
+        proveedor, modelo = audio_service.proveedor_y_modelo()
+        # Solo números: sin el texto del audio (RNF-03)
+        paso.atributos(
+            proveedor=proveedor,
+            modelo=modelo,
+            segundos=round(time.perf_counter() - inicio, 1),
+            palabras=len(texto.split()),
+        )
+        paso.texto(salida={"transcripcion": texto} if texto else None)
+    if error is not None:
+        raise error
+    return Entrada(texto, mensaje_id=mensaje_id)
 
 
 def transcribe_audio(media_url: str) -> str:

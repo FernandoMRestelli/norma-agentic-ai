@@ -8,20 +8,22 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Sin publicar]
 
-### Corregido
+## [0.2.0] - 2026-11-23
 
-- En respuestas de aclaración (`kind="aclaracion"`) con `options`, el guardrail `pregunta_faltante` ahora rechaza mensajes cortados (p. ej. terminados en «:» sin viñetas o sin pregunta) para que el modelo liste las opciones; si agota los reintentos por esta regla, el backend anexa automáticamente la lista legible desde el catálogo (Issue #107).
-- Al reactivar una conversación derivada desde el dashboard se vence cualquier conversación abierta más nueva del cliente y se descartan sus borradores pendientes, evitando duplicados; el contador de aclaraciones y fallas se reinicia limpiamente.
-- El guardrail de promesas comerciales con descuento autorizado no permite promesas adicionales (como entrega gratis, bonificaciones o promociones) en la misma oración.
-- Los contadores de aclaraciones consecutivas y fallas se actualizan solo en turnos terminales y se reinician tras turnos exitosos (CA-21, RF-27).
-- Consultas informativas como «¿hacen envío al interior?» o «¿tienen cuenta corriente?» ya no fuerzan indebidamente la derivación ni el silencio de 24 horas.
-- Subtotales, totales y métricas de ingresos calculan de forma uniforme las líneas sin precio unitario a partir del catálogo (`_line_price`).
-- Los audios e imágenes recibidos durante el silencio de 24 horas quedan registrados con un marcador visible en el dashboard.
-- Se elimina el bloqueo de escritura de SQLite durante el envío de mensajes de operador a Telegram.
-- Resolver una derivación restaura las condiciones del agente si falla Telegram o el commit, además del rollback de la base. Las observaciones y acuerdos ya no se recortan silenciosamente: si no entran en 300 caracteres se pide resumir antes de guardarlos o enviarlos. Sin migraciones ni configuración nueva.
+El asistente toma pedidos por texto, foto y audio contra el catálogo real. Suma pedidos largos renglón por renglón, búsqueda que tolera errores de tipeo, guardrails en código, memoria entre mensajes, consulta del estado de los pedidos, derivación a una persona, vencimiento de conversaciones, dashboard operativo, Google Sheets y Excel. Producción suma MLflow, con una traza de cada turno, foto y audio, sin el texto de los mensajes.
+
+**Para desplegar desde la 0.1.1:**
+
+1. Frená la API y el bot, y copiá `~/norma-prod/data/` completa a otra carpeta. La base se migra sola al arrancar (versión 5 del esquema) y esa copia es la única forma de volver atrás.
+2. Copiá el `docker-compose.prod.yml` de esta versión. Levanta también MLflow en http://localhost:5001 (carpeta nueva `~/norma-prod/mlflow/`). Si el MLflow o la API de desarrollo están corriendo en la misma máquina, frenalos: usan los mismos puertos.
+3. Dejá el catálogo real en `~/norma-prod/data/catalogo.csv`: el compose ya lo fija, y fija también `MLFLOW_ENABLED=true` y `MLFLOW_TRACE_TEXT=false`.
+4. En `~/norma-prod/.env`, para los audios: `AUDIO_ENABLED=true`, `AUDIO_PROVIDER` (`gemini`, `groq` u `openai`), `AUDIO_MODEL` de ese proveedor (o vacío) y `AUDIO_API_KEY`. Para las fotos: `LLM_VISION_PROVIDER`, `LLM_VISION_MODEL` y `LLM_VISION_API_KEY`. Para el dashboard y las órdenes: `OPERATOR_TOKEN`. Las demás variables nuevas son opcionales y están en `.env.example`.
+5. Después de levantarla, verificá qué catálogo se lee (ver [CONTRIBUTING.md](CONTRIBUTING.md#producción)) y mandá una nota de voz y una foto de prueba.
 
 ### Agregado
 
+- MLflow en producción (D-10, CA-167): `docker-compose.prod.yml` levanta el servidor en http://localhost:5001, publicado solo en la máquina, y deja siempre prendidas las trazas de cada turno, sin el texto de los mensajes (RNF-03). Los audios suman su traza `transcripcion_audio`, enlazada con la del turno por `mensaje_id` (CA-168). Si MLflow no responde al arrancar, se reintenta al minuto sin reiniciar el bot (CA-169).
+- El compose de producción fija `CATALOG_FILE=data/catalogo.csv`: ya no depende de lo que diga el `.env` (CA-167).
 - La lectura de una foto de pedido entiende cómo está escrita la hoja: el encabezado (cliente, fecha) y lo tachado quedan aparte y no se piden, un renglón con varios colores o tonos se separa en uno por variante, y la cantidad se lee aunque esté al final o en un círculo. El agente arma los renglones desde esa lectura, y un renglón con una duda de lectura («el 7 puede ser un 1») se le pregunta al cliente antes de proponerlo. La respuesta ya no nombra números de renglón que el cliente no tiene. En MLflow, la lectura queda en su traza `lectura_imagen`, enlazada con la del turno por el tag `mensaje_id`. `VISION_MARCAS=true` suma las marcas del catálogo a la lectura (apagado por defecto). La lectura espera hasta 3 minutos al modelo de visión antes de cortar (antes, 30 segundos). Sin migraciones.
 - Derivaciones y descarte de pedidos (RF-26, RF-27, CA-21, CA-22, CA-23, Issue #84, Etapa 04):
   * **Descarte de pedido (RF-26, CA-23):** cancelación determinística de propuestas por palabras clave («cancelar», «no quiero nada», etc.) con 0 tokens de LLM y tool `discard_order_draft`. Descarta el borrador pendiente (`descartado`) y cierra la conversación (`descartada`).
@@ -47,7 +49,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 - Spec del orquestador de skills en `docs/spec/orquestador-y-sub-loops.md`: propone pasar del loop único por turno a un orquestador que elige skills por su descripción y delega el trabajo largo de `tomar_pedido` en un sub-loop con contexto propio, que le devuelve una nota con lo resuelto y lo que falta. Trae contratos, requisitos (RF-84 a RF-97, RNF-17), criterios de aceptación (CA-144 a CA-161) y decisiones (D-30 a D-39), y anota cómo quedó implementado (§9.1).
 - Orquestador con sub-loops, apagado por defecto (RF-87 a RF-97): con `AGENT_ORQUESTADOR=true` en `.env`, el agente delega el trabajo largo de `tomar_pedido` en un sub-loop con su propio contexto, que busca y resuelve los renglones y le devuelve una nota validada (cada SKU salió de una búsqueda, cada renglón en un solo lugar). El orquestador ve la nota, no cada búsqueda, y es el único que le responde al cliente. Las vueltas del sub-loop cuentan para el tope del turno. El sub-loop arranca con los renglones que se le delegaron, no repite una búsqueda que ya hizo la precarga ni busca fuera de su encargo, y su nota no puede dejar afuera como agotado un renglón del que queda stock (BR-01). La traza en MLflow cuenta cuántos renglones buscó la precarga y con qué resultado, y cuántos resolvió, dejó pendientes o afuera cada sub-loop; con `MLFLOW_TRACE_TEXT=true` suma el encargo, la nota y lo que buscó la precarga. `evaluar_agente` reporta las llamadas y los tokens del sub-loop aparte, para compararlo con el loop de hoy antes de decidir si lo reemplaza (D-36). Con la bandera apagada el turno corre como hasta ahora. No hay nada que migrar al desplegar.
 - Lectura de imágenes a JSON (`ImagenLeida`: texto, renglones con cantidad, marca y presentación, y dudas) en `internal/services/vision_service.py`, con `LLM_VISION_PROVIDER`: por API (`openai`, `openrouter`, `gemini`, con salida estructurada) o con un modelo local de Hugging Face (`huggingface`, por defecto Qwen3-VL 2B, dependencias aparte en `requirements-vision-local.txt`). Se prueba con `python -m internal.leer_imagen` y se comparan modelos con `python -m internal.comparar_vision` sobre las imágenes ficticias de `tests/fixtures/imagenes_pedidos/`.
-- El bot de Telegram lee las fotos (CA-07): con `LLM_VISION_PROVIDER` configurado baja la foto con `getFile`, la lee y le pasa el texto al agente marcado con `[imagen leída]`, con el epígrafe adelante. Si no hay texto útil responde «No pude entender la imagen, ¿me lo escribís?» sin llamar al LLM. Sin `LLM_VISION_PROVIDER`, y con los audios, sigue pidiendo que lo escriban (RF-32).
+- El bot de Telegram lee las fotos (CA-07): con `LLM_VISION_PROVIDER` configurado baja la foto con `getFile`, la lee y le pasa el texto al agente marcado con `[imagen leída]`, con el epígrafe adelante. Si no hay texto útil responde «No pude entender la imagen, ¿me lo escribís?» sin llamar al LLM. Sin `LLM_VISION_PROVIDER` sigue pidiendo que lo escriban (RF-32).
 - Proveedor `openai` para el agente (`LLM_PROVIDER=openai`, por ejemplo `gpt-6-luna`): API paga y barata, sin el límite diario del free tier de Gemini.
 
 ### Cambiado
@@ -70,6 +72,16 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Corregido
 
+- La imagen de producción incluye la página del dashboard: sin ella, `/dashboard/ui` respondía 404.
+- En respuestas de aclaración (`kind="aclaracion"`) con `options`, el guardrail `pregunta_faltante` ahora rechaza mensajes cortados (p. ej. terminados en «:» sin viñetas o sin pregunta) para que el modelo liste las opciones; si agota los reintentos por esta regla, el backend anexa automáticamente la lista legible desde el catálogo (Issue #107).
+- Al reactivar una conversación derivada desde el dashboard se vence cualquier conversación abierta más nueva del cliente y se descartan sus borradores pendientes, evitando duplicados; el contador de aclaraciones y fallas se reinicia limpiamente.
+- El guardrail de promesas comerciales con descuento autorizado no permite promesas adicionales (como entrega gratis, bonificaciones o promociones) en la misma oración.
+- Los contadores de aclaraciones consecutivas y fallas se actualizan solo en turnos terminales y se reinician tras turnos exitosos (CA-21, RF-27).
+- Consultas informativas como «¿hacen envío al interior?» o «¿tienen cuenta corriente?» ya no fuerzan indebidamente la derivación ni el silencio de 24 horas.
+- Subtotales, totales y métricas de ingresos calculan de forma uniforme las líneas sin precio unitario a partir del catálogo (`_line_price`).
+- Los audios e imágenes recibidos durante el silencio de 24 horas quedan registrados con un marcador visible en el dashboard.
+- Se elimina el bloqueo de escritura de SQLite durante el envío de mensajes de operador a Telegram.
+- Resolver una derivación restaura las condiciones del agente si falla Telegram o el commit, además del rollback de la base. Las observaciones y acuerdos ya no se recortan silenciosamente: si no entran en 300 caracteres se pide resumir antes de guardarlos o enviarlos. Sin migraciones ni configuración nueva.
 - Una conversación nueva ya no retoma el estado que el agente tenía guardado con el mismo ID (RF-100, CA-165, CA-166). El número de conversación sale de `norma.db` y el historial y la propuesta viven en `CHECKPOINT_DB`: si `norma.db` volvía a un backup o se recreaba y `CHECKPOINT_DB` no, el cliente heredaba la charla de otro, y un «dale» podía registrar a su nombre la propuesta de otro cliente. Ahora la conversación nueva arranca de cero, ninguna retoma un estado de otro cliente o canal, y el log lo avisa con el ID, sin el texto. No hay nada que migrar al desplegar.
 - La propuesta armada ya no se pierde cuando el asistente responde otra cosa (RF-98, CA-163). Antes, cualquier respuesta sin propuesta la descartaba: una pregunta por una medida, un «ese no lo trabajamos», una consulta sobre envíos o un texto suelto del modelo, y el «dale» siguiente no encontraba nada para confirmar. Ahora sigue vigente hasta que el cliente la rechaza o saca todo: para eso `respond_to_customer` suma `descartar_propuesta`, y BR-05 y BR-06 dicen cuándo usarlo.
 - Un «sí», «ok» o «dale» que contesta una pregunta del asistente ya no registra el pedido (RF-99, CA-164). Antes, con una propuesta vigente, esas palabras confirmaban sin pasar por el modelo aunque el último mensaje hubiera preguntado «¿es el de 400?» o hubiera dejado dudas de un pedido largo, y el pedido salía sin ese renglón. Ahora el atajo corre solo si la respuesta anterior cerró con la propuesta, sin opciones ofrecidas; si no, decide el modelo. No hay nada que migrar al desplegar.
@@ -166,6 +178,7 @@ Primera versión publicada. Reúne la base del proyecto y la beta del agente de 
 - Documentación en `CONTRIBUTING.md` sobre gestión de secretos en desarrollo y producción, uso de correos `noreply` en commits y procedimiento ante filtraciones.
 - El webhook de WhatsApp valida la firma `X-Hub-Signature-256` de Meta (nueva variable `WHATSAPP_APP_SECRET`) y compara el token de verificación en tiempo constante.
 
-[Sin publicar]: https://github.com/FernandoMRestelli/norma-agentic-ai/compare/v0.1.1...develop
+[Sin publicar]: https://github.com/FernandoMRestelli/norma-agentic-ai/compare/v0.2.0...develop
+[0.2.0]: https://github.com/FernandoMRestelli/norma-agentic-ai/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/FernandoMRestelli/norma-agentic-ai/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/FernandoMRestelli/norma-agentic-ai/releases/tag/v0.1.0

@@ -728,7 +728,10 @@ Con `MLFLOW_ENABLED=true` (D-10), `observabilidad.py` manda además cada turno a
 | una por tool (`search_products`, `armar_pedido`…) | `ok` y, si falló, el código (`tool_no_permitida`, `sin_propuesta`…) |
 
 - **Apagado** (por defecto, tests y CI): no se importa mlflow y el agente se comporta igual.
-- **Sin servidor**: un aviso en el log y el proceso sigue sin trazas hasta reiniciarlo; una falla de MLflow nunca
+- **Fotos y audios**: la lectura (`lectura_imagen`) y la transcripción (`transcripcion_audio`) pasan antes del turno y
+  quedan en su propia traza, enlazada con la del turno por la etiqueta `mensaje_id` (CA-168).
+- **Producción**: `docker-compose.prod.yml` levanta MLflow y lo deja prendido, sin texto y solo en 127.0.0.1 (CA-167).
+- **Sin servidor**: un aviso en el log y el proceso sigue sin trazas; se reintenta al minuto (CA-169). Una falla de MLflow nunca
   cambia la respuesta al cliente.
 - **Privacidad**: la traza no lleva el texto de los mensajes, el prompt, los argumentos de las tools ni el
   `customer_id`, que puede ser un teléfono. `MLFLOW_TRACE_TEXT=true` suma el texto y los spans de LangChain con el
