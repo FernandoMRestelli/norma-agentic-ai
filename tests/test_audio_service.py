@@ -273,6 +273,10 @@ def test_whisper_text_null_y_gemini_part_no_str_lanzan_audio_empty(monkeypatch):
     with pytest.raises(audio_service.AudioEmptyError):
         audio_service.transcribe_audio_bytes(b"RAW_AUDIO", "audio/ogg", http_client=mock_http)
 
+    mock_response.json.return_value = {"candidates": [{"content": {"parts": None}}]}
+    with pytest.raises(audio_service.AudioEmptyError):
+        audio_service.transcribe_audio_bytes(b"RAW_AUDIO", "audio/ogg", http_client=mock_http)
+
 
 def test_llm_provider_con_mayusculas_se_normaliza_para_respaldo(monkeypatch):
     """LLM_PROVIDER con mayúsculas (ej. Gemini) se normaliza y funciona como respaldo de proveedor y clave."""

@@ -39,6 +39,7 @@ _EXTENSION_BY_MIME: dict[str, str] = {
     "audio/mpeg": "audio.mp3",
     "audio/mp3": "audio.mp3",
     "audio/mp4": "audio.m4a",
+    "audio/m4a": "audio.m4a",
     "audio/x-m4a": "audio.m4a",
     "audio/aac": "audio.aac",
     "audio/wav": "audio.wav",
@@ -56,7 +57,9 @@ def _detect_mime(file_path: str) -> str:
         return "audio/mpeg"
     if ext == ".aac":
         return "audio/aac"
-    if ext in (".m4a", ".mp4"):
+    if ext == ".m4a":
+        return "audio/m4a"
+    if ext == ".mp4":
         return "audio/mp4"
     if ext == ".wav":
         return "audio/wav"
@@ -219,7 +222,8 @@ def _transcribe_gemini(
         if not isinstance(candidates, list) or not candidates or not isinstance(candidates[0], dict):
             raise AudioEmptyError("Gemini no detectó contenido de voz en el audio")
         content = candidates[0].get("content", {})
-        parts = content.get("parts", []) if isinstance(content, dict) else []
+        raw_parts = content.get("parts") if isinstance(content, dict) else None
+        parts = raw_parts if isinstance(raw_parts, list) else []
         text = "".join(
             part["text"] for part in parts if isinstance(part, dict) and isinstance(part.get("text"), str)
         ).strip()
