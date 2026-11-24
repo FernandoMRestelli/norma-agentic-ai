@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     # Solo marcas: ni productos ni precios
     vision_marcas: bool = False
 
+    # Módulo de Audio (Speech-to-Text). Proveedores: gemini, groq, openai
+    audio_enabled: bool = False
+    audio_provider: str | None = None
+    audio_model: str | None = None
+    audio_api_key: str | None = None
+
     # Google Sheets / Catálogo local (docs/spec/planillas.md). Sin los ids, todo sale y va a los CSV
     google_credentials_file: str | None = None
     catalog_sheet_id: str | None = None

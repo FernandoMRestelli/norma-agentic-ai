@@ -27,7 +27,7 @@ from internal.agent.state import EstadoNorma
 from internal.config import get_settings
 from internal.schemas.order_schema import Channel, ConfirmationAction, OrderDraft
 from internal.schemas.vision_schema import ImagenLeida, renglones_desde_lectura
-from internal.services import interpretation_service, inventory_service, validation_service
+from internal.services import interpretation_service, inventory_service, message_service, validation_service
 from internal.services.palabras_clave import (
     es_cancelacion,
     es_consulta_estado_pedido,
@@ -156,13 +156,14 @@ def encaminar(state: EstadoNorma) -> dict[str, Any]:
     rechaza una llamada que no trae su firma (CA-35). El modelo puede leer otra skill con `leer_skill`.
     """
     entrada = state["messages"][state.get("inicio_turno", 0)]
-    skill = skill_clara(entrada.text, bool(state.get("propuesta"))) if isinstance(entrada, HumanMessage) else None
+    texto = message_service.sin_marca_audio(entrada.text) if isinstance(entrada, HumanMessage) else ""
+    skill = skill_clara(texto, bool(state.get("propuesta"))) if isinstance(entrada, HumanMessage) else None
     if skill not in get_skills():
         skill = None
     renglones = list(state.get("renglones") or [])
     nuevos = _desde_lectura(state.get("lectura"), renglones)
     if nuevos is None:
-        nuevos = _numerar(entrada.text, renglones) if isinstance(entrada, HumanMessage) else []
+        nuevos = _numerar(texto, renglones) if isinstance(entrada, HumanMessage) else []
     with observabilidad.paso("encaminar", "CHAIN", skill_preactivada=skill or "-", renglones=len(nuevos)):
         pass
     return {
@@ -525,7 +526,8 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
         }
 
     def decidir_tras_pausa(state: EstadoNorma) -> str:
-        confirma = interpretar_palabra_clave(state["messages"][-1].content) == ConfirmationAction.CONFIRM
+        texto = message_service.sin_marca_audio(state["messages"][-1].content)
+        confirma = interpretar_palabra_clave(texto) == ConfirmationAction.CONFIRM
         return "confirmar" if confirma and state.get("propuesta") and not pregunta_abierta(state) else "agente"
 
     def ruta_falla(state: EstadoNorma) -> str:

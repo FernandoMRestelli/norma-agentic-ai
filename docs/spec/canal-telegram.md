@@ -76,8 +76,11 @@ flowchart LR
 
 ### 3.3 Audio e imagen
 
-Un audio, o una foto sin `LLM_VISION_PROVIDER`, reciben **sin llamar al LLM** el mensaje fijo «Por ahora solo puedo
+Un audio sin `AUDIO_ENABLED=true`, o una foto sin `LLM_VISION_PROVIDER`, reciben **sin llamar al LLM** el mensaje fijo «Por ahora solo puedo
 leer pedidos escritos. ¿Me lo mandás por texto?» (RF-32).
+
+Con `AUDIO_ENABLED=true` y un proveedor configurado (`AUDIO_PROVIDER=gemini`, `groq` u `openai`), el audio se descarga (hasta 20 MB)
+y se transcribe fielmente al español para el agente (RF-04, CA-06).
 
 Con `LLM_VISION_PROVIDER` configurado, `message_service` baja la foto con `getFile` (hasta 20 MB, el límite de la Bot
 API), `vision_service` la lee a JSON (`ImagenLeida`) y al agente le llega el texto marcado con `[imagen leída]`, con el
@@ -127,6 +130,7 @@ Se suma `telegram` (`web | whatsapp | telegram`) en `IncomingMessage`, `OrderDra
 | `LLM_MODEL` | Sí, para el agente | P. ej. `nvidia/nemotron-3.5-lightning:free` en OpenRouter, `gemini-3.8-flash` o `gpt-6-luna` |
 | `LLM_API_KEY` | Sí, para el agente | API key del proveedor (OpenRouter, Groq, Google AI Studio u OpenAI) |
 | `LLM_VISION_PROVIDER`, `LLM_VISION_MODEL`, `LLM_VISION_API_KEY` | No, para leer fotos | `huggingface` (local, sin key), `openai`, `openrouter` o `gemini`. Vacío: la foto recibe el pedido de escribirla |
+| `AUDIO_ENABLED`, `AUDIO_PROVIDER`, `AUDIO_MODEL`, `AUDIO_API_KEY` | No, para audios | `gemini`, `groq`, `openai`. Vacío o false: el audio recibe el pedido de escribirlo (RF-32) |
 
 ### 4.3 Modelo con LangChain
 
@@ -150,7 +154,7 @@ los tres:
 | RF-29 | El sistema recibe mensajes de texto, audio y foto por un bot de Telegram, por polling o por webhook con secret token, y solo atiende a los usuarios de la lista blanca |
 | ~~RF-30~~ | ~~En Telegram, una respuesta con borrador lleva los botones Confirmar / Corregir~~ Eliminado: el cliente confirma escribiendo, en todos los canales |
 | RF-31 | Un update de Telegram repetido (mismo `update_id`) se procesa una sola vez |
-| RF-32 | Un audio, o una imagen sin modelo de visión configurado (`LLM_VISION_PROVIDER`), reciben el pedido de escribirlo, sin llamar al LLM |
+| RF-32 | Un audio sin `AUDIO_ENABLED=true`, o una imagen sin modelo de visión configurado (`LLM_VISION_PROVIDER`), reciben el pedido de escribirlo, sin llamar al LLM |
 | RNF-14 | El token del bot y las API keys no aparecen en logs, URLs guardadas ni datos persistidos |
 
 ## 6. Criterios de aceptación
@@ -160,7 +164,7 @@ los tres:
 | CA-30 | `TELEGRAM_WEBHOOK_SECRET` configurado / sin configurar | Llega un POST con el secret correcto, incorrecto o sin header | `200` / `403` / `403`; sin secret configurado, siempre `403` | RF-29 | `test_telegram.py::test_webhook_*` |
 | CA-31 | Un usuario fuera de la lista blanca | Escribe al bot | Recibe un texto fijo con su id y el mensaje no llega al orquestador | RF-29 | `test_telegram.py::test_usuario_fuera_de_la_lista_blanca` |
 | CA-32 | Un update ya procesado | Llega otra vez con el mismo `update_id` | No se procesa ni se responde de nuevo | RF-31 | `test_telegram.py::test_update_repetido_se_procesa_una_vez` |
-| CA-33 | Un integrante de la lista blanca | Manda texto, un audio o una foto | Llega como `IncomingMessage` `text`, `audio` o `image` con `media_url = telegram:<file_id>`; el audio, y la foto sin `LLM_VISION_PROVIDER`, reciben el pedido de escribirlo; con él, la foto se baja con `getFile` y se lee (CA-07) | RF-29, RF-32, RNF-14 | `test_telegram.py::test_traduce_*`, `test_conversation.py`, `test_orders.py::test_incoming_message_*telegram*` |
+| CA-33 | Un integrante de la lista blanca | Manda texto, un audio o una foto | Llega como `IncomingMessage` `text`, `audio` o `image` con `media_url = telegram:<file_id>`; el audio (sin `AUDIO_ENABLED=true`) y la foto sin `LLM_VISION_PROVIDER` reciben el pedido de escribirlo; con ellos activos, el audio se transcribe (CA-06) y la foto se baja y se lee (CA-07) | RF-29, RF-32, RNF-14 | `test_telegram.py::test_traduce_*`, `test_conversation.py`, `test_audio_service.py`, `test_orders.py::test_incoming_message_*telegram*` |
 | ~~CA-34~~ | ~~Botones Confirmar / Corregir en Telegram~~ Eliminado: el cliente confirma escribiendo, en todos los canales | — | — | ~~RF-30~~ | — |
 | CA-35 | Un `AIMessage` de Gemini con tool calls | Vuelve al modelo dentro del mismo turno | Se reenvía completo, sin reconstruirlo, para conservar las firmas | RNF-09 | `test_agent_graph.py` |
 | CA-36 | `LLM_PROVIDER` = `gemini`, `groq`, `openrouter` u `openai` / vacío / otro | Se pide el modelo | `ChatGoogleGenerativeAI`, `ChatGroq`, `ChatOpenAI` apuntado a OpenRouter o `ChatOpenAI` de OpenAI / error que dice qué variable falta / error de proveedor no soportado | RNF-09 | `test_llm.py` |

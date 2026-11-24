@@ -78,6 +78,7 @@ caso: `python -m internal.evaluar_agente --pausa 30 --conversaciones data/evalua
   (por ejemplo el umbral de "poco stock" del dashboard), van en `config/` como JSON validado al arrancar,
   dentro de la imagen: cambiarlos será una release.
 - No hay autenticación en el dashboard ni en los endpoints del chat.
+- **Aclaraciones sin opciones en el mensaje (Issue #107):** cuando el cliente pide un producto ambiguo de una sola línea (ej. «dos shampoo»), el agente responde con `kind="aclaracion"` y puebla `options` con los SKU. Ciertos modelos LLM omiten detallar las opciones comerciales en el cuerpo del mensaje y dejan la frase cortada (ej. «Tenés estas opciones:»), asumiendo que el sistema las inyecta como en las propuestas. Falta un guardrail en `validar_salida` o formateo automático de opciones en la capa de salida.
 
 ## Próximos pasos
 

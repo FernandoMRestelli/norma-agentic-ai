@@ -542,7 +542,7 @@ Mismas 7 etapas que [`roadmap.md`](../roadmap.md). Cerrar una etapa es una versi
 |---|---|---|---|---|---|
 | 01 · Base compartida | Todos pueden ejecutar el proyecto | — | La API levanta en los tres equipos y el CI está en verde | 0.1.0 | ✅ Completa (publicada en 0.1.0) |
 | 02 · Datos del negocio | Consultar catálogo, precios y stock | RF-07, RF-35, RNF-13 | Pasan CA-27, CA-29, CA-53 y CA-55 con el catálogo de ejemplo, y se consulta Sheet 1 real sin tocar código | 0.2.0 | En curso: pasan los CA; falta Sheet 1 real |
-| 03 · Agente y pedidos multimodales | Del mensaje al borrador o la pregunta | RF-01, RF-04 a RF-06, RF-08 a RF-10, RF-33, RF-34 | Pasan CA-06 a CA-12, CA-20 y CA-37 a CA-44 con un modelo falso, y los casos de `mensajes.json` con el LLM elegido | 0.3.0 | En curso: loop, tools y skills con texto; faltan audio, imagen, chat web y la evaluación (D-01) |
+| 03 · Agente y pedidos multimodales | Del mensaje al borrador o la pregunta | RF-01, RF-04 a RF-06, RF-08 a RF-10, RF-33, RF-34 | Pasan CA-06 a CA-12, CA-20 y CA-37 a CA-44 con un modelo falso, y los casos de `mensajes.json` con el LLM elegido | 0.3.0 | En curso: loop, tools, skills, audio e imagen; faltan chat web y la evaluación (D-01) |
 | 04 · Confirmación del cliente | Ningún pedido sin confirmación | RF-11 a RF-14, RF-16, RF-26 a RF-28 | Pasan CA-13, CA-14, CA-16, CA-17, CA-21 a CA-23, CA-28 | 0.4.0 | ✅ Completa: propuesta, corrección, aceptación, descarte (CA-23), derivación (CA-21, CA-22) y vencimiento (CA-28) |
 | 05 · Registro y seguimiento | Pedido confirmado = trabajo operativo | RF-15, RF-17 a RF-21 | Pasan CA-15, CA-19 y CA-48 a CA-52 | 0.5.0 | En curso: órdenes en SQLite y CSV local; faltan Sheet 2 real y `order_items` |
 | 06 · Dashboard | Ver qué pasa en el negocio | RF-22 a RF-25, RF-80 a RF-83 | Pasan CA-24, CA-25 y CA-135 a CA-142 | 0.6.0 | En curso: dashboard de una página (D-11), estados y KPIs de ventas |
@@ -568,7 +568,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-03 | `WHATSAPP_APP_SECRET` configurado | Llega un POST con firma válida / inválida | `200` / `403` | RF-02 | `test_api.py::test_whatsapp_post_*` |
 | CA-04 | Cualquier canal | Llega un mensaje de texto sin texto, o un audio o imagen sin `media_url` o con `media_url` insegura/privada | Se rechaza (`422` en la API) | RF-01, RNF-02 | `test_orders.py`, `test_api.py` |
 | CA-05 | Un mensaje de WhatsApp ya procesado | Meta lo reenvía con el mismo id | Se responde `200` y no se procesa de nuevo | RF-03 | pendiente |
-| CA-06 | Un audio con un pedido | Llega por cualquier canal | El agente recibe la transcripción marcada como `audio transcripto`; si está vacía, se pide escribirlo sin llamar al LLM | RF-04 | pendiente |
+| CA-06 | Un audio con un pedido | Llega por cualquier canal | El agente recibe la transcripción marcada como `audio transcripto`; si está vacía, se pide escribirlo sin llamar al LLM | RF-04 | `test_audio_service.py` |
 | CA-07 | Una imagen con un pedido | Llega por cualquier canal (hoy solo Telegram baja la foto) | Igual que CA-06, con `imagen leída`; sin texto útil, «No pude entender la imagen, ¿me lo escribís?» sin llamar al LLM | RF-05 | `test_conversation.py::test_imagen_*`, `test_vision.py` |
 | CA-26 | — | Se construyen borradores y órdenes | Un borrador sin ítems o con cantidad ≤ 0 es inválido; nace `pendiente_confirmacion`; los precios son `Decimal` | RF-08 | `test_orders.py`, `test_invariantes.py::test_un_borrador_nace_sin_confirmar` |
 

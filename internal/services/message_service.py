@@ -6,13 +6,27 @@ from dataclasses import dataclass
 
 from internal.schemas.order_schema import IncomingMessage, MessageType
 from internal.schemas.vision_schema import ImagenLeida
-from internal.services import vision_service
+from internal.services import audio_service, vision_service
 
 logger = logging.getLogger(__name__)
+
+MARCA_AUDIO = "[audio transcripto]"
 
 
 class ImagenIlegible(ValueError):
     """La imagen no se pudo bajar o leer, o no tiene texto útil: se le pide al cliente que lo escriba (spec §6)."""
+
+
+def marcar_origen(texto: str, tipo: MessageType) -> str:
+    """Agrega la marca de origen multimedia solo en el texto que llega al agente."""
+    if tipo == MessageType.AUDIO:
+        return f"{MARCA_AUDIO}\n{texto}"
+    return texto
+
+
+def sin_marca_audio(texto: str) -> str:
+    """Quita solo `[audio transcripto]` para ruteo y palabras clave; `[imagen leída]` se conserva."""
+    return "\n".join(linea for linea in texto.splitlines() if linea.strip() != MARCA_AUDIO)
 
 
 @dataclass(frozen=True)
@@ -79,8 +93,12 @@ def partir(texto: str, limite: int) -> list[str]:
 
 
 def transcribe_audio(media_url: str) -> str:
-    # TODO: speech-to-text con el proveedor elegido
-    raise NotImplementedError
+    """Delega la descarga y transcripción en audio_service y normaliza el texto sin marca de origen (CA-06)."""
+    raw_text = audio_service.transcribe_audio(media_url)
+    texto = normalize_text(raw_text)
+    if not texto:
+        raise audio_service.AudioEmptyError("La transcripción del audio está vacía")
+    return texto
 
 
 def download_media(media_url: str) -> bytes:
