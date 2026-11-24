@@ -14,6 +14,9 @@ class EstadoNorma(TypedDict, total=False):
     customer_name: str | None
     channel: str
     origen: str  # texto, audio o imagen: de dónde salió el último mensaje del cliente (RF-79)
+    # La lectura de la imagen del mensaje de este turno, si trajo renglones (`ImagenLeida`): `encaminar` arma los
+    # renglones desde acá y la borra
+    lectura: dict[str, Any] | None
     inicio_turno: int  # posición en `messages` del mensaje que abrió el turno
     skills_activas: list[str]  # skills leídas en este turno: dan los permisos
     skill_preactivada: str | None  # la que leyó el backend antes de la primera llamada al LLM (RF-62)

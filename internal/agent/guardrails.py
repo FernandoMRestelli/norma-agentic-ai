@@ -244,6 +244,11 @@ _NO_NIEGAN = re.compile(
 _ORACIONES = re.compile(r"[.!?;\n]+")
 
 _FORMATO = re.compile(r"\*\*|__|`|^\s*#{1,6}\s", re.MULTILINE)
+# El número de renglón es interno: «renglón 9», «renglones 1 y 2» o una viñeta «• 12:»
+NUMERO_DE_RENGLON = re.compile(
+    r"\brengl[oó]n(?:es)?\s*(?:n[°º.]?\s*)?\d|^\s*[•*-]\s*\d{1,2}(?:\s*(?:y|,)\s*\d{1,2})*\s*:",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 _MONTO = re.compile(r"\$\s*(\d[\d.,]*)|\b(\d[\d.,]*)\s*(?:pesos|ars)\b")
 
@@ -600,6 +605,17 @@ def _regla_formato(texto: str) -> Rechazo | None:
     return None
 
 
+def _regla_numero_de_renglon(texto: str) -> Rechazo | None:
+    """El cliente no tiene los números de renglón en su hoja ni en su mensaje."""
+    if NUMERO_DE_RENGLON.search(texto):
+        return Rechazo(
+            "numero_de_renglon",
+            "El cliente no ve los números de renglón: nombrá cada renglón como lo escribió él (producto y medida), "
+            "por ejemplo «las ampollas caviar x24», nunca «renglón 9» ni «• 9:»",
+        )
+    return None
+
+
 _TIENE_VINETA = re.compile(r"(?m)^\s*(?:[•\-*]|\d+[.)])\s+\S")
 
 
@@ -669,6 +685,7 @@ def validar_salida(
         _regla_promesas(normalizado, descuento_autorizado),
         _regla_formato(message),
         _regla_pregunta(message, pendientes or [], kind, options),
+        _regla_numero_de_renglon(message),
     )
     return [rechazo for rechazo in reglas if rechazo is not None]
 

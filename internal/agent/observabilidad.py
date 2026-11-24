@@ -201,8 +201,11 @@ class Turno(Paso):
 
 
 @contextmanager
-def turno(conversation_id: str, canal: str, texto: str) -> Iterator[Turno]:
-    """La traza de un turno. Agrupa los turnos por conversación con el id interno, no con el del cliente."""
+def turno(conversation_id: str, canal: str, texto: str, mensaje_id: str | None = None) -> Iterator[Turno]:
+    """La traza de un turno. Agrupa los turnos por conversación con el id interno, no con el del cliente.
+
+    Con `mensaje_id`, la del turno que usa la lectura de una imagen lleva el mismo tag que la lectura.
+    """
     mlflow = cliente()
     if mlflow is None:
         yield Turno()
@@ -213,6 +216,28 @@ def turno(conversation_id: str, canal: str, texto: str) -> Iterator[Turno]:
         actual.texto(entrada={"mensaje": texto})
         try:
             mlflow.update_current_trace(session_id=conversation_id)
+            if mensaje_id:
+                mlflow.update_current_trace(tags={"mensaje_id": mensaje_id})
         except Exception as exc:
             logger.warning("MLflow: no se pudo abrir la traza del turno (%s)", type(exc).__name__)
+        yield actual
+
+
+@contextmanager
+def lectura(mensaje_id: str) -> Iterator[Paso]:
+    """La traza de la lectura de una imagen, que pasa antes del turno.
+
+    Lleva el tag `mensaje_id`, el mismo que la traza del turno que la usa. Con `MLFLOW_TRACE_TEXT`, la llamada al
+    modelo de visión queda adentro, con la imagen adjunta.
+    """
+    mlflow = cliente()
+    if mlflow is None:
+        yield Paso()
+        return
+    with mlflow.start_span("lectura_imagen", span_type="PARSER") as span:
+        actual = Paso(span)
+        try:
+            mlflow.update_current_trace(tags={"mensaje_id": mensaje_id})
+        except Exception as exc:
+            logger.warning("MLflow: no se pudo abrir la traza de la lectura (%s)", type(exc).__name__)
         yield actual

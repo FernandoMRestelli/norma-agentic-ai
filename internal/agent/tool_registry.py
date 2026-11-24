@@ -475,9 +475,11 @@ TOOLS: dict[str, ToolSpec] = {
             "Busca todos los renglones de un pedido en una sola llamada: usala cuando el pedido viene como lista. "
             "Por cada renglón devuelve `estado`, el `total` de coincidencias y hasta 3 `candidatos`. "
             "`unico`: es ese producto y alcanza el stock, va a la propuesta. `varias`: hay más de uno y `difieren_en` "
-            "dice en qué (marca, medida o variante), preguntale. `aproximado`: se parece pero no es seguro, "
-            "confirmalo. `sin_stock`: `falta` dice cuánto queda. `no_encontrado`: no hay nada parecido. Un renglón "
-            "sin coincidencia segura trae `_hint` con el motivo y qué hacer: no lo vuelvas a buscar igual.",
+            "dice en qué (marca, medida o variante), preguntale; con `difieren_en: [\"cajas o unidades\"]` el "
+            "producto viene por caja y la cantidad puede ser de cajas o de unidades: preguntale cuál. "
+            "`aproximado`: se parece pero no es seguro, confirmalo. `sin_stock`: `falta` dice cuánto queda. "
+            "`no_encontrado`: no hay nada parecido. Un renglón sin coincidencia segura trae `_hint` con el motivo y "
+            "qué hacer: no lo vuelvas a buscar igual.",
             BuscarRenglonesInput,
             _buscar_renglones,
         ),

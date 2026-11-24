@@ -252,10 +252,11 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
         return ChannelReply(text=WRITE_IT_PLEASE)
 
     try:
-        text = message_service.prepare(message)
+        entrada = message_service.preparar(message)
     except message_service.ImagenIlegible:
         # Spec del agente §6: sin texto útil no se llama al LLM
         return ChannelReply(text=COULD_NOT_READ_IMAGE)
+    text = entrada.texto
     # Topes de entrada antes de abrir la conversación y sin llamar al LLM (spec de guardrails §3.3)
     if rechazo := guardrails.revisar_entrada((message.customer_id, message.channel), text):
         logger.warning(
@@ -296,6 +297,8 @@ def handle_message(message: IncomingMessage) -> ChannelReply:
             customer_name=message.customer_name,
             origen=ORIGEN_POR_TIPO[message.type.value],
             nueva=nueva,
+            lectura=entrada.lectura.model_dump() if entrada.lectura else None,
+            mensaje_id=entrada.mensaje_id,
         )
         if outcome.cerrada:
             if outcome.kind == "pedido":

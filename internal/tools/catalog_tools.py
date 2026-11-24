@@ -81,8 +81,33 @@ def _candidato(match: ProductMatch) -> dict[str, Any]:
     return {**candidato, "comprado_antes": True} if match.comprado_antes else candidato
 
 
+# Un producto que se vende por caja dice cuántas unidades trae en el nombre: «AMPOLLA 15ML X 12 UNID»
+_POR_CAJA = re.compile(r"\bx\s*(\d{1,3})\s*unid", re.IGNORECASE)
+# El cliente ya dijo si cuenta cajas o unidades: «2 cajas», «24 u», «24 unidades»
+_UNIDAD_ESCRITA = re.compile(r"\b(?:cajas?|unid\w*|u)\b", re.IGNORECASE)
+
+
+def caja_dudosa(producto: Product, cantidad: int, texto: str, unidad: str | None = None) -> int | None:
+    """Las unidades por caja si la cantidad puede ser de cajas o de unidades y el cliente no dijo cuál; si no, None.
+
+    «24» de una ampolla que viene de a 12 son 24 cajas o 2 cajas: hay que preguntar. «2» solo pueden ser cajas.
+    """
+    if unidad or _UNIDAD_ESCRITA.search(texto) or not (caja := _POR_CAJA.search(producto.name)):
+        return None
+    por_caja = int(caja.group(1))
+    if por_caja < 2 or cantidad < por_caja or cantidad % por_caja:
+        return None
+    return por_caja
+
+
 def _renglon(
-    n: int, texto: str, marca: str | None, cantidad: int, productos: list[Product], preferidos: frozenset[str]
+    n: int,
+    texto: str,
+    marca: str | None,
+    cantidad: int,
+    productos: list[Product],
+    preferidos: frozenset[str],
+    unidad: str | None = None,
 ) -> dict[str, Any]:
     # La marca del encabezado entra a la búsqueda salvo que el renglón ya la nombre
     de_la_marca = {p.canon for p in busqueda_service.normalizar(marca or "").palabras}
@@ -101,6 +126,13 @@ def _renglon(
     if resultado.total > 1:
         return {**salida, "estado": "varias", "difieren_en": resultado.difieren_en}
     unico = resultado.matches[0]
+    if por_caja := caja_dudosa(unico, cantidad, texto, unidad):
+        # Antes que el stock: según cuál sea, se piden `cantidad` cajas o `cantidad / por_caja`
+        salida["_hint"] = (
+            f"Viene en caja de {por_caja}: «{cantidad}» pueden ser {cantidad} cajas o {cantidad // por_caja} "
+            f"(las {cantidad} unidades). Preguntale al cliente cuál quiso decir antes de proponerlo"
+        )
+        return {**salida, "estado": "varias", "difieren_en": ["cajas o unidades"]}
     if unico.stock < cantidad:
         # `requested` y `available` como en `stock_insuficiente`: es el único caso en que el número llega al LLM
         falta = {"sku": unico.sku, "requested": cantidad, "available": unico.stock}
@@ -119,7 +151,8 @@ def buscar_renglones(
     """
     productos = inventory_service.get_catalog()
     return [
-        _renglon(r["n"], r["texto"], r.get("marca"), r.get("cantidad", 1), productos, preferidos) for r in renglones
+        _renglon(r["n"], r["texto"], r.get("marca"), r.get("cantidad", 1), productos, preferidos, r.get("unidad"))
+        for r in renglones
     ]
 
 def _normalizar(texto: str | None) -> str:
