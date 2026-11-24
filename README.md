@@ -104,8 +104,8 @@ sistema trata a cada integrante como un cliente distinto (`telegram:<id>`).
 ## Monitoreo del agente con MLflow (opcional)
 
 [MLflow](https://mlflow.org/) guarda cada turno del agente como una traza: cada llamada al LLM y cada tool, con
-iteraciones, tokens, latencia, skills leídas, proveedor, modelo y versión del prompt. Está apagado por defecto y es
-solo para desarrollo (detalle en la [spec del agente §10.1](docs/spec/agente.md#101-observabilidad-con-mlflow)).
+iteraciones, tokens, latencia, skills leídas, proveedor, modelo y versión del prompt. En desarrollo está apagado por
+defecto; en producción lo levanta `docker-compose.prod.yml` y siempre está prendido (detalle en la [spec del agente §10.1](docs/spec/agente.md#101-observabilidad-con-mlflow)).
 
 1. Levantar el servidor. Queda en http://localhost:5001 (en macOS el 5000 lo ocupa AirPlay) y guarda los datos en
    `data/mlflow/`:

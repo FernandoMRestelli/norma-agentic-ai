@@ -20,6 +20,7 @@ MAX_AUDIO_BYTES = 20 * 1024 * 1024  # 20 MB límite máximo de audio
 # Gemini limita el request completo a 20 MB y base64 suma ~33 %: 14 MB crudos entran holgados en JSON
 MAX_GEMINI_INLINE_BYTES = 14 * 1024 * 1024
 
+DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
 SUPPORTED_AUDIO_PROVIDERS = frozenset({"gemini", "groq", "openai"})
 
 _WHISPER_ENDPOINTS: dict[str, tuple[str, str, str]] = {
@@ -99,6 +100,13 @@ def _resolve_provider_and_key() -> tuple[str | None, str | None]:
     if not api_key and provider and provider == llm_provider:
         api_key = settings.llm_api_key
     return provider, api_key
+
+
+def proveedor_y_modelo() -> tuple[str | None, str | None]:
+    """Con qué se transcribe, para las trazas."""
+    provider, _ = _resolve_provider_and_key()
+    default_model = _WHISPER_ENDPOINTS[provider][2] if provider in _WHISPER_ENDPOINTS else DEFAULT_GEMINI_MODEL
+    return provider, get_settings().audio_model or (default_model if provider else None)
 
 
 def check_audio_config() -> None:
@@ -194,7 +202,7 @@ def _transcribe_gemini(
         raise AudioTooLongError(
             f"El audio excede el límite admitido por Gemini inlineData ({MAX_GEMINI_INLINE_BYTES} bytes)"
         )
-    model_name = model or "gemini-3.5-flash"
+    model_name = model or DEFAULT_GEMINI_MODEL
     # Seguridad (RNF-14): la clave se envía en el header x-goog-api-key, no en la URL
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
     headers = {"x-goog-api-key": api_key}
