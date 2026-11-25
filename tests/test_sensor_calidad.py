@@ -3,6 +3,8 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 from internal import sensor_calidad
 from internal.config import get_settings
@@ -105,3 +107,11 @@ def test_lee_la_base():
         with SessionLocal() as session:
             session.query(DraftRecord).filter_by(draft_id="sensor-1").delete()
             session.commit()
+
+
+def test_una_base_sin_tablas_no_corta(monkeypatch, tmp_path, capsys):
+    """CA-213: el sensor no migra la base; las medidas de los turnos salen igual."""
+    motor = create_engine(f"sqlite:///{tmp_path / 'vacia.db'}")
+    monkeypatch.setattr(sensor_calidad, "SessionLocal", sessionmaker(bind=motor))
+    assert sensor_calidad.leer_pedidos(datetime.now(UTC))["propuestas"] == 0
+    assert "No se pudo leer la base" in capsys.readouterr().out

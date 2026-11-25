@@ -14,6 +14,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 
 from internal.config import get_settings
 from internal.database.connection import SessionLocal
@@ -140,11 +141,14 @@ def leer_turnos(desde: datetime) -> list[dict[str, Any]] | None:
 
 
 def leer_pedidos(desde: datetime) -> dict[str, Any]:
-    with SessionLocal() as session:
-        drafts = session.execute(
-            select(DraftRecord.draft_id, DraftRecord.version, DraftRecord.status).where(DraftRecord.created_at > desde)
-        ).all()
-        pedidos = session.scalars(select(OrderRecord.status).where(OrderRecord.created_at > desde)).all()
+    columnas = (DraftRecord.draft_id, DraftRecord.version, DraftRecord.status)
+    try:
+        with SessionLocal() as session:
+            drafts = session.execute(select(*columnas).where(DraftRecord.created_at > desde)).all()
+            pedidos = session.scalars(select(OrderRecord.status).where(OrderRecord.created_at > desde)).all()
+    except OperationalError:  # sin base o con una vieja: el sensor no migra ni crea nada
+        print("No se pudo leer la base interna: las medidas de pedidos quedan en cero")
+        return medir_pedidos([], [])
     return medir_pedidos([tuple(fila) for fila in drafts], list(pedidos))
 
 
