@@ -20,7 +20,8 @@ Se actualiza al cerrar cada PR que cambie el estado o la lista.
 - **Medición**: `evaluar_agente` (tres sets, con un grupo reservado), `evaluar_busqueda` (sin LLM, con piso en el CI) y
   `sensor_calidad` (uso real).
 - **Planillas y dashboard**: catálogo y seguimiento en Google Sheets o CSV, dashboard operativo con token de operador.
-- **Sin implementar**: el chat web (`POST /chat/messages` devuelve `501`) y el envío por WhatsApp.
+- **Sin implementar**: el chat web (`POST /chat/messages` devuelve `501`) y WhatsApp, que valida la firma de Meta y no procesa el
+  mensaje.
 
 ## Qué mostró la evidencia
 

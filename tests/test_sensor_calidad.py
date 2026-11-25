@@ -7,6 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from internal import sensor_calidad
+from internal.agent import observabilidad
 from internal.config import get_settings
 from internal.database.connection import SessionLocal
 from internal.database.models import DraftRecord
@@ -71,6 +72,17 @@ def test_lee_las_trazas_de_mlflow(mlflow_local):  # noqa: F811
     assert nuevo["errores"] == ["tool_no_permitida"] and "rescates" in nuevo
     assert obs.TEXTO_CLIENTE not in str(turnos) and "secreto-77" not in str(turnos)
     assert sensor_calidad.leer_turnos(datetime.now(UTC) + timedelta(days=1)) == []
+
+
+def test_las_lecturas_de_fotos_y_audios_no_son_turnos(mlflow_local):  # noqa: F811
+    """CA-213: tienen su propia traza en el mismo experimento; contarlas bajaría todos los porcentajes."""
+    get_settings.cache_clear()
+    antes = datetime.now(UTC) - timedelta(minutes=5)
+    previos = len(sensor_calidad.leer_turnos(antes))
+    with observabilidad.lectura("msg-1") as paso:
+        paso.atributos(kind="error")
+    mlflow_local.flush_trace_async_logging()
+    assert len(sensor_calidad.leer_turnos(antes)) == previos
 
 
 def test_sin_experimento_no_lo_crea(mlflow_local, monkeypatch):  # noqa: F811

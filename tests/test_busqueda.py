@@ -578,6 +578,9 @@ def test_pista_sin_la_palabra_que_no_existe():
     hint = catalog_tools.hint_busqueda(_buscar("crema peinar frizz"))
     assert "Sin eso hay: SKALA CREMA DE PEINAR X 1 KG" in hint and "dice para qué lo quiere" in hint
     assert "Sin eso hay" not in catalog_tools.hint_busqueda(_buscar("xqzw"))
+    # Los que nombra tienen todo lo demás: ninguno es de manos y de peinar a la vez
+    assert _buscar("crema manos peinar frizz").pistas.sin_lo_que_no_esta == []
+    assert _buscar("crema manos frizz").pistas.sin_lo_que_no_esta == ["LUMINA CREMA DE MANOS X 130 ML"]
     assert "Sin eso hay" not in catalog_tools.hint_busqueda(_buscar("xqzw wkjh"))
 
 

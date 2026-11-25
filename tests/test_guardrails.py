@@ -889,3 +889,13 @@ def test_los_rescates_quedan_en_el_resumen_del_turno():
 def test_el_tope_de_avisos_es_el_de_los_guardrails():
     """`observabilidad` no puede importar `guardrails`: los dos números tienen que ser el mismo."""
     assert observabilidad.MAX_AVISOS == guardrails.MAX_RECHAZOS
+
+
+def test_un_error_de_tool_no_vuelve_vista_una_medida():
+    """CA-208: el error repite lo que mandó el LLM."""
+    def turno(ok):
+        resultado = {"ok": ok, "error": {"message": "no hay de 750 ml"}, "data": {"_hint": "no hay de 750 ml"}}
+        return guardrails.contexto_turno([ToolMessage(content=json.dumps(resultado), tool_call_id="x", name="t")])
+
+    assert _reglas("¿El de 750?", "aclaracion", turno=turno(False)) == ["medida_inventada"]
+    assert _reglas("¿El de 750?", "aclaracion", turno=turno(True)) == []
