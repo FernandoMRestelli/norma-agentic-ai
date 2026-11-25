@@ -8,6 +8,10 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Sin publicar]
 
+### Agregado
+
+- La evaluación suma un set de 24 casos adversariales con un grupo reservado, un puntaje más exigente (qué respondió, en qué quedó la propuesta y qué dijo, no solo si registró), tope de llamadas, corte si el LLM no responde, costo, intervalo de confianza y resultado en `.json` (RF-115 a RF-117, CA-199 a CA-203). El caso `pide-una-persona` espera la derivación, que ya existe. No cambia nada en producción.
+
 ### Corregido
 
 - Un pedido se registra solo si el cliente lo aceptó de verdad, aunque el modelo se confunda (RF-111, CA-183 a CA-188). Antes, si el modelo llamaba a `armar_pedido` con un «dale, pero que sean 3 y solo si llega el lunes», o con el «sí» que contestaba «¿la de 1 kilo?», la propuesta anterior quedaba registrada: la regla estaba solo en BR-06. Ahora el backend comprueba el mensaje antes de crear la orden y, si dice algo más que aceptar o contesta una pregunta, no registra: el modelo responde, o el sistema vuelve a mostrar la propuesta y pide la confirmación. Puede sumar una confirmación cuando el cliente acepta con palabras que no están en la lista. En las trazas aparece como `aceptacion_no_clara`. No hay nada que migrar al desplegar.

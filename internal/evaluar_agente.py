@@ -4,15 +4,20 @@ Es una evaluación manual, fuera del CI (spec del agente §10). Usa una base, un
 propios: no toca los pedidos locales ni las planillas, aunque estén configuradas en `.env`.
 Solo manda datos inventados. Cada caso hace varias llamadas al LLM: en el free tier conviene usar --pausa.
 
-Hay dos conjuntos de casos (--set):
+Hay tres conjuntos de casos (--set):
 - `mensajes` (por defecto): `data_example/mensajes.json` contra `data_example/catalogo.csv`, de 15 productos.
 - `pedidos`: `data_example/pedidos_evaluacion.json` contra `data_example/catalogo_evaluacion.csv`, de unos 400.
   Son listas largas con el formato de los pedidos reales (RF-59); la corrida se compara con el umbral de RNF-15.
+- `adversariales`: `data_example/adversariales.json`, contra el mismo catálogo. Aceptaciones con trampa, falta de
+  evidencia, inyección y datos del negocio (RF-116). --grupo elige `desarrollo`, `reservado` o `todos`: lo reservado
+  se corre para medir y no se ajusta nada mirando sus casos (D-50).
 
 Además del resultado de cada caso, mide las líneas una por una (RF-60) y revisa cómo suena cada respuesta
 (chequeos de estilo, spec de skills y respuestas §3.6).
 Con --repeticiones N, corre cada caso N veces y muestra la tasa de acierto de cada uno.
 Con --conversaciones, escribe cada caso con su conversación completa para revisarla a mano.
+Con --max-llamadas N se detiene al llegar a N llamadas al LLM, y con --precio ENTRADA,SALIDA (USD por millón de tokens)
+estima el costo (RF-117). Con --salida guarda las filas en un .json después de cada caso.
 Con --mlflow, la corrida queda en MLflow con sus métricas, una tabla por caso y la traza de cada turno.
 """
 
@@ -24,7 +29,8 @@ import os
 import re
 import tempfile
 import time
-from collections.abc import Iterable
+from collections import Counter
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 DATOS = Path(__file__).resolve().parent.parent / "data_example"
@@ -32,7 +38,11 @@ DATOS = Path(__file__).resolve().parent.parent / "data_example"
 CONJUNTOS = {
     "mensajes": (DATOS / "mensajes.json", DATOS / "catalogo.csv"),
     "pedidos": (DATOS / "pedidos_evaluacion.json", DATOS / "catalogo_evaluacion.csv"),
+    "adversariales": (DATOS / "adversariales.json", DATOS / "catalogo_evaluacion.csv"),
 }
+GRUPOS = ("desarrollo", "reservado")  # un caso sin grupo es de desarrollo (RF-116, D-50)
+# Casos seguidos sin respuesta del LLM: con la cuota agotada, seguir no mide nada (RF-117)
+CORTAR_TRAS = 3
 CASES = CONJUNTOS["mensajes"][0]
 KIND_POR_RESULTADO = {"borrador": "propuesta"}
 
@@ -168,8 +178,27 @@ def medir_lineas(
     }
 
 
-def _passes(case: dict, outcome, order_items: dict[str, int] | None) -> bool:
+def dichos(esperado: dict, texto: str) -> list[str]:
+    """Los patrones de `no_dice` que aparecen en lo que escribió el agente (RF-115)."""
+    return [patron for patron in esperado.get("no_dice", []) if re.search(patron, texto, re.IGNORECASE)]
+
+
+def faltantes(esperado: dict, texto: str) -> list[str]:
+    """Los patrones de `dice` que no aparecen: sin ellos, una respuesta genérica pasaría el caso (RF-115)."""
+    return [patron for patron in esperado.get("dice", []) if not re.search(patron, texto, re.IGNORECASE)]
+
+
+def _passes(case: dict, outcome, order_items: dict[str, int] | None, texto: str = "") -> bool:
     expected = case["esperado"]
+    # No registrar no alcanza: también importa qué respondió y en qué quedó la propuesta (RF-115)
+    if "kinds" in expected and outcome.kind not in expected["kinds"]:
+        return False
+    if "propuesta_final" in expected:
+        final = _items(outcome.draft.items) if outcome.draft else {}
+        if final != _esperados(expected["propuesta_final"]):
+            return False
+    if dichos(expected, texto) or faltantes(expected, texto):
+        return False
     wanted = expected["resultado"]
     items = _esperados(expected.get("items", []))
     if wanted == "sin_pedido":
@@ -181,7 +210,7 @@ def _passes(case: dict, outcome, order_items: dict[str, int] | None) -> bool:
     if wanted == "borrador":
         return outcome.draft is not None and _items(outcome.draft.items) == items
     if wanted == "aclaracion":
-        return set(outcome.options) == set(expected["opciones"])
+        return "opciones" not in expected or set(outcome.options) == set(expected["opciones"])
     return True
 
 
@@ -191,6 +220,19 @@ def _percentil(valores: list[int], p: float) -> int:
         return 0
     ordenados = sorted(valores)
     return ordenados[max(math.ceil(p / 100 * len(ordenados)) - 1, 0)]
+
+
+def intervalo(aciertos: int, total: int, z: float = 1.96) -> tuple[float, float]:
+    """Intervalo de Wilson al 95 % de un porcentaje: con pocos casos, la diferencia entre dos corridas puede ser azar.
+
+    Trata cada corrida como independiente; las repeticiones de un mismo caso no lo son del todo, así que es un piso.
+    """
+    if not total:
+        return 0.0, 0.0
+    p = aciertos / total
+    centro, margen = p + z * z / (2 * total), z * math.sqrt(p * (1 - p) / total + z * z / (4 * total * total))
+    divisor = 1 + z * z / total
+    return round(100 * (centro - margen) / divisor, 1), round(100 * (centro + margen) / divisor, 1)
 
 
 def _pct(parte: int, total: int) -> float:
@@ -211,7 +253,16 @@ def _metricas(filas: list[dict]) -> dict[str, float]:
         return sum(fila.get(columna, 0) for fila in evaluadas)
 
     llamadas = sum(fila.get("llamadas_llm", fila["iteraciones"]) for fila in evaluadas)
+    bajo, alto = intervalo(correctas, len(evaluadas))
+    tasas = tasas_por_caso(filas)
     return {
+        "aciertos_ic95_bajo": bajo,
+        "aciertos_ic95_alto": alto,
+        # Casos que acertaron todas sus repeticiones: un cliente ve una sola, y no puede tocarle la mala
+        "casos_firmes_pct": _pct(sum(ok == n for ok, n in tasas.values()), len(tasas)),
+        "llamadas_llm_total": sum(fila.get("llamadas_llm", 0) for fila in filas),
+        "tokens_entrada_total": sum(fila.get("tokens_entrada_total", 0) for fila in filas),
+        "tokens_salida_total": sum(fila.get("tokens_salida_total", 0) for fila in filas),
         "aciertos_pct": _pct(correctas, len(evaluadas)),
         "estilo_ok_pct": _pct(estilo_ok, len(evaluadas)),
         "correctos": correctas,
@@ -267,6 +318,10 @@ def main() -> int:
     parser.add_argument("--set", dest="conjunto", choices=sorted(CONJUNTOS), default="mensajes", help="casos a correr")
     parser.add_argument("--repeticiones", type=int, default=1, help="veces que corre cada caso")
     parser.add_argument("--pausa", type=float, default=0, help="segundos de espera entre casos")
+    parser.add_argument("--grupo", choices=(*GRUPOS, "todos"), default="todos", help="casos de desarrollo o reservados")
+    parser.add_argument("--max-llamadas", type=int, help="tope de llamadas al LLM de toda la corrida")
+    parser.add_argument("--precio", help="USD por millón de tokens de entrada y de salida, por ejemplo 0.10,0.50")
+    parser.add_argument("--salida", type=Path, help="guarda las filas y las métricas en este .json")
     parser.add_argument("--caso", help="corre solo el caso con este id")
     parser.add_argument("--conversaciones", type=Path, help="escribe las conversaciones completas en este .md")
     parser.add_argument("--mlflow", action="store_true", help="guarda la corrida en MLflow (ver MLFLOW_* en .env)")
@@ -274,6 +329,7 @@ def main() -> int:
 
     if args.repeticiones < 1:
         parser.error("--repeticiones tiene que ser 1 o más")
+    precio = leer_precio(args.precio) if args.precio else None
     archivo_casos, catalogo = CONJUNTOS[args.conjunto]
     # Antes de importar la app: la base se elige al importarla. Los pedidos de la evaluación van a una carpeta
     # temporal y el catálogo es el del conjunto, aunque `.env` apunte a las planillas o a otros archivos
@@ -299,6 +355,7 @@ def main() -> int:
     skus = [product.sku for product in sheets_service.get_catalog()]
 
     cases = [case for case in json.loads(archivo_casos.read_text(encoding="utf-8")) if args.caso in (None, case["id"])]
+    cases = del_grupo(cases, args.grupo)
     corridas = [(case, repeticion) for case in cases for repeticion in range(1, args.repeticiones + 1)]
     corrida: contextlib.AbstractContextManager = contextlib.nullcontext()
     if args.mlflow:
@@ -309,14 +366,21 @@ def main() -> int:
         settings = get_settings()
         corrida = mlflow.start_run(run_name=f"{settings.llm_provider}/{settings.llm_model} {agent.prompt_version}")
 
-    filas, conversaciones = [], []
+    settings = get_settings()
+    contexto = {
+        "conjunto": args.conjunto, "grupo": args.grupo, "repeticiones": args.repeticiones,
+        "proveedor": settings.llm_provider, "modelo": settings.llm_model, "prompt_version": agent.prompt_version,
+        "orquestador": settings.agent_orquestador, "max_iteraciones": settings.agent_max_iterations,
+    }  # fmt: skip
+
+    def guardar(filas: list[dict], conversaciones: list[list[dict]]) -> None:
+        if args.salida:
+            escribir_salida(args.salida, contexto, filas, conversaciones, precio)
+
     with corrida:
-        for number, (case, repeticion) in enumerate(corridas):
-            if number and args.pausa:
-                time.sleep(args.pausa)
-            fila, conversacion = _evaluar(agent, case, skus, repeticion)
-            filas.append(fila)
-            conversaciones.append(conversacion)
+        filas, conversaciones = correr(
+            agent, corridas, skus, pausa=args.pausa, max_llamadas=args.max_llamadas, al_terminar_caso=guardar
+        )
         if args.mlflow:
             _registrar(mlflow, agent, cases, args.caso, filas, args.conjunto, args.repeticiones)
     if args.conversaciones:
@@ -336,6 +400,17 @@ def main() -> int:
         f"{metricas['aclaraciones_de_mas']} aclaraciones de más, "
         f"{metricas['llamadas_llm_promedio']} llamadas al LLM por caso"
     )
+    print(
+        f"Aciertos: {metricas['aciertos_pct']} % (IC 95 %: {metricas['aciertos_ic95_bajo']} a "
+        f"{metricas['aciertos_ic95_alto']}), {metricas['casos_firmes_pct']} % de los casos siempre bien"
+    )
+    costo = f", US$ {costo_usd(metricas, precio):.4f}" if precio else ""
+    print(
+        f"Uso: {metricas['llamadas_llm_total']} llamadas, {metricas['tokens_entrada_total']} tokens de entrada y "
+        f"{metricas['tokens_salida_total']} de salida{costo}"
+    )
+    if codigos := codigos_de_error(filas):
+        print("Códigos de error: " + ", ".join(f"{codigo} {n}" for codigo, n in codigos.items()))
     if metricas["llamadas_sub_loop_promedio"]:  # con AGENT_ORQUESTADOR (RF-94)
         print(
             f"Sub-loops: {metricas['llamadas_sub_loop_promedio']} llamadas por caso; tokens de entrada por llamada "
@@ -350,6 +425,87 @@ def main() -> int:
         print("RNF-15: cumple el umbral de release" if not fallas else f"RNF-15: no cumple ({'; '.join(fallas)})")
         return 1 if fallas else 0
     return 0 if passed == len(filas) and estilo_ok == len(filas) else 1
+
+
+def del_grupo(cases: list[dict], grupo: str) -> list[dict]:
+    """Los casos de un grupo; los que no dicen el suyo son de desarrollo (RF-116)."""
+    return [case for case in cases if grupo in ("todos", case.get("grupo", GRUPOS[0]))]
+
+
+def leer_precio(texto: str) -> tuple[float, float]:
+    entrada, salida = (float(parte) for parte in texto.split(","))
+    return entrada, salida
+
+
+def costo_usd(metricas: dict[str, float], precio: tuple[float, float]) -> float:
+    """Costo estimado sin caché de prompt: con caché, el real es menor."""
+    entrada, salida = precio
+    return (metricas["tokens_entrada_total"] * entrada + metricas["tokens_salida_total"] * salida) / 1e6
+
+
+def codigos_de_error(filas: list[dict]) -> dict[str, int]:
+    """Cuántas veces apareció cada código de error de tool, del más frecuente al menos."""
+    cuenta = Counter(codigo for fila in filas for codigo in fila.get("errores", "").split(",") if codigo)
+    return dict(cuenta.most_common())
+
+
+def _sin_correr(case: dict, repeticion: int) -> dict:
+    """La fila de un caso que no llegó a correr: cuenta como sin evaluar (RF-117)."""
+    return {
+        "caso": case["id"], "repeticion": repeticion, "resultado": "sin_evaluar", "estilo": "ok", "kind": "",
+        "esperado": json.dumps(case["esperado"], ensure_ascii=False), "turnos": 0, "iteraciones": 0, "tools": "",
+        "skills": "", "tokens_entrada": 0, "tokens_salida": 0, "latencia_ms": 0, "llamadas_llm": 0, "errores": "",
+    }  # fmt: skip
+
+
+def correr(
+    agent, corridas: list[tuple[dict, int]], skus: list[str], *, pausa: float = 0, max_llamadas: int | None = None,
+    al_terminar_caso: Callable[[list[dict], list[list[dict]]], None] = lambda *_: None,
+) -> tuple[list[dict], list[list[dict]]]:  # fmt: skip
+    """Corre los casos en orden hasta el tope de llamadas o hasta que el LLM deje de responder (RF-117).
+
+    El tope se controla entre un caso y el siguiente: el último puede pasarlo por las llamadas de ese caso.
+    """
+    filas: list[dict] = []
+    conversaciones: list[list[dict]] = []
+    llamadas, sin_respuesta, motivo = 0, 0, None
+    for numero, (case, repeticion) in enumerate(corridas):
+        if max_llamadas is not None and llamadas >= max_llamadas:
+            motivo = f"tope de {max_llamadas} llamadas"
+        elif sin_respuesta >= CORTAR_TRAS:
+            motivo = f"{sin_respuesta} casos seguidos sin respuesta del LLM"
+        if motivo:
+            print(f"\n⚠️  Corte: {motivo}; quedan {len(corridas) - numero} sin correr")
+            for resto, n in corridas[numero:]:
+                filas.append(_sin_correr(resto, n))
+                conversaciones.append([])
+            al_terminar_caso(filas, conversaciones)
+            break
+        if numero and pausa:
+            time.sleep(pausa)
+        fila, conversacion = _evaluar(agent, case, skus, repeticion)
+        filas.append(fila)
+        conversaciones.append(conversacion)
+        llamadas += fila["llamadas_llm"]
+        sin_respuesta = sin_respuesta + 1 if fila["resultado"] == "sin_evaluar" else 0
+        al_terminar_caso(filas, conversaciones)
+    return filas, conversaciones
+
+
+def escribir_salida(
+    path: Path, contexto: dict, filas: list[dict], conversaciones: list[list[dict]],
+    precio: tuple[float, float] | None = None,
+) -> None:  # fmt: skip
+    """Las filas, sus conversaciones y las métricas en un .json. Se reescribe entero: si se corta, queda lo corrido."""
+    metricas = _metricas(filas)
+    datos = {**contexto, "metricas": metricas, "codigos_de_error": codigos_de_error(filas)}
+    if precio:
+        datos["costo_usd"] = round(costo_usd(metricas, precio), 5)
+    datos["filas"] = [
+        {**fila, "conversacion": conversacion} for fila, conversacion in zip(filas, conversaciones, strict=True)
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(datos, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
 def _turnos(case: dict) -> list[str]:
@@ -374,6 +530,7 @@ def _evaluar(agent, case: dict, skus: Iterable[str] = (), repeticion: int = 1) -
     thread_id, conversaciones_cerradas = corrida, 0
     conversacion: list[dict] = []
     llamadas_llm, llamadas_sub_loop, ordenes = 0, 0, []
+    tokens_entrada, tokens_salida, errores = 0, 0, []
     for texto in _turnos(case):
         turn = {"thread_id": thread_id, "customer_id": message["customer_id"], "channel": Channel(message["channel"])}
         inicio = time.perf_counter()
@@ -381,6 +538,10 @@ def _evaluar(agent, case: dict, skus: Iterable[str] = (), repeticion: int = 1) -
         latencia_ms = round((time.perf_counter() - inicio) * 1000)
         llamadas_llm += outcome.iterations + outcome.llamadas_sub_loop
         llamadas_sub_loop += outcome.llamadas_sub_loop
+        turno = observabilidad.resumir(agent.graph.get_state({"configurable": {"thread_id": thread_id}}).values)
+        tokens_entrada += turno.tokens_entrada + turno.tokens_entrada_sub_loop
+        tokens_salida += turno.tokens_salida + turno.tokens_salida_sub_loop
+        errores += turno.errores
         if outcome.order_id:
             ordenes.append(outcome.order_id)
         # La respuesta de una orden y la de una falla las escribe el sistema: no se chequean
@@ -423,6 +584,12 @@ def _evaluar(agent, case: dict, skus: Iterable[str] = (), repeticion: int = 1) -
         "llamadas_sub_loop_ultimo_turno": resumen.llamadas_sub_loop,
         "tokens_entrada_sub_loop": resumen.tokens_entrada_sub_loop,
         "tokens_salida_sub_loop": resumen.tokens_salida_sub_loop,
+        # De todos los turnos del caso, con los sub-loops: lo que se paga (RF-117)
+        "tokens_entrada_total": tokens_entrada,
+        "tokens_salida_total": tokens_salida,
+        "errores": ",".join(errores),
+        "grupo": case.get("grupo", GRUPOS[0]),
+        "tema": case.get("tema", ""),
     }
     order_items = None
     if outcome.order_id:
@@ -443,7 +610,10 @@ def _evaluar(agent, case: dict, skus: Iterable[str] = (), repeticion: int = 1) -
     fila["aclaracion_de_mas"] = int(
         esperado["resultado"] in ("borrador", "pedido") and outcome.kind == "aclaracion" and not esperado.get("dudas")
     )
-    ok = _passes(case, outcome, order_items)
+    ultimo = conversacion[-1]["agente"]
+    fila["dijo"] = "; ".join(dichos(esperado, ultimo))
+    fila["no_dijo"] = "; ".join(faltantes(esperado, ultimo))
+    ok = _passes(case, outcome, order_items, ultimo)
     fila["resultado"] = "correcto" if ok else "incorrecto"
     marca = "✅" if ok else "❌"
     lineas = f", líneas {fila['lineas_correctas']}/{fila['lineas_esperadas']}" if fila["lineas_esperadas"] else ""
@@ -500,7 +670,9 @@ def _registrar(
     )
     mlflow.log_metrics(_metricas(filas))
     if filas:
-        mlflow.log_table({columna: [fila[columna] for fila in filas] for columna in filas[0]}, "casos.json")
+        # Un caso sin evaluar no trae las columnas de líneas: la tabla las deja vacías
+        columnas = list(dict.fromkeys(columna for fila in filas for columna in fila))
+        mlflow.log_table({columna: [fila.get(columna) for fila in filas] for columna in columnas}, "casos.json")
 
 
 if __name__ == "__main__":
