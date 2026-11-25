@@ -9,7 +9,7 @@
 | Estado | Implementado en cinco ramas, una por mejora ([§10.1](#101-estado-de-implementación)). Falta medirlo con un LLM real |
 | Responsable | Federico Picado |
 | Requisitos de la spec del MVP | RF-07, RF-11, RF-13, RF-19, RF-21, RF-28, RF-36 a RF-39, RNF-03, RNF-06, RNF-07 |
-| IDs que reserva | RF-59 a RF-79, RF-98, RF-99, RF-111 a RF-117, RF-122, RF-123, RNF-15 y RNF-16, CA-113 a CA-134, CA-162 a CA-164, CA-183 a CA-203, CA-209 a CA-213, D-21 a D-29, D-47 a D-52, BR-11 |
+| IDs que reserva | RF-59 a RF-79, RF-98, RF-99, RF-111 a RF-117, RF-122 a RF-124, RNF-15 y RNF-16, CA-113 a CA-134, CA-162 a CA-164, CA-183 a CA-203, CA-209 a CA-215, D-21 a D-29, D-47 a D-52, BR-11 |
 
 **Índice**
 
@@ -619,6 +619,7 @@ Todos están implementados en las ramas de [§10.1](#101-estado-de-implementaci�
 | RF-117 | M1 | La evaluación tiene un tope de llamadas (`--max-llamadas`) y corta tras varios casos seguidos sin respuesta del LLM; lo que no corrió cuenta como sin evaluar. Reporta tokens y costo de todos los turnos, los códigos de error de cada caso, el intervalo del porcentaje de aciertos y los casos que acertaron todas sus repeticiones |
 | RF-122 | M2 | El presupuesto del turno suma un tope de tokens (`AGENT_MAX_TOKENS_PER_TURN`, 200.000), con los de los sub-loops. Una tool de lectura llamada otra vez con los mismos argumentos en el turno no se ejecuta: devuelve `llamada_repetida`, y a la tercera el turno cierra con lo encontrado |
 | RF-123 | M1 | Un sensor mide el uso real con lo que ya queda en las trazas y en la base, sin texto de clientes, y avisa cuando algo pasa su umbral. Cada turno dice si lo rescató el sistema |
+| RF-124 | M1 | Dos corridas de la evaluación se comparan con una herramienta: métricas lado a lado, casos que cambiaron, si la diferencia puede ser azar y, con y sin orquestador, si cumple RNF-17 |
 | RNF-15 | M1 | Umbral de release sobre el set de RF-59: recall por línea ≥ 95 %, precisión ≥ 98 %, 0 registros indebidos y 0 líneas perdidas. Los números se ajustan con la primera corrida (D-28) |
 | RNF-16 | M2 | Presupuesto del turno: hasta 2 llamadas al LLM en el camino normal, tope de 50 iteraciones y 300 s en total (configurables); al agotarse, el turno cierra respondiendo con lo encontrado |
 
@@ -664,6 +665,8 @@ Todos están implementados en las ramas de [§10.1](#101-estado-de-implementaci�
 | CA-211 | Un turno que salió con el mensaje fijo, por el cierre, con la propuesta mostrada de nuevo o tolerando un control | Se resume | `rescates` lo dice; si el LLM corrigió solo, está vacío | `tests/test_guardrails.py::test_los_rescates_quedan_en_el_resumen_del_turno`, `tests/test_agent_graph.py`, `tests/test_evidencia.py` |
 | CA-212 | Turnos y propuestas con resultados conocidos | Mide el sensor | Los porcentajes son por turno y por pedido; avisa solo lo que pasa el umbral y con 20 casos o más | `tests/test_sensor_calidad.py::test_medir_turnos`, `::test_medir_pedidos`, `::test_avisos` |
 | CA-213 | Trazas en MLflow y propuestas en la base | Corre el sensor | Lee los turnos sin texto ni crear nada, y sale con 0, 1 o 2 | `tests/test_sensor_calidad.py` |
+| CA-214 | Dos corridas guardadas | Se comparan | Dice qué casos cambiaron, si los intervalos se superponen y por qué no serían comparables | `tests/test_comparar_corridas.py::test_casos_que_cambiaron`, `::test_cuando_no_son_comparables`, `::test_intervalos_superpuestos` |
+| CA-215 | Una corrida con orquestador y otra sin | Se comparan, en cualquier orden | Dice si cumple RNF-17 y sale con 1 si no | `tests/test_comparar_corridas.py::test_rnf_17`, `::test_de_punta_a_punta` |
 | CA-162 | Una lista que abre con «Buenas! Para el salón necesito:» y un catálogo con un producto que dice «salón» | Se numera | La línea de introducción no es un renglón: el primer producto es el renglón 1 | `tests/test_interpretation.py::test_la_introduccion_no_es_un_renglon` |
 | CA-123 | 30 renglones | Se llama a `buscar_renglones` | Devuelve 30 resultados con estado y, como mucho, 3 candidatos de 4 campos | `tests/test_busqueda.py::test_busqueda_por_lote` |
 | CA-124 | Un renglón de coloración con `tono` | Se busca | Encuentra la coloración de la marca y el tono no baja el puntaje | `tests/test_busqueda.py::test_tono_no_participa` |

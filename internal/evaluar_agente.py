@@ -322,6 +322,7 @@ def main() -> int:
     parser.add_argument("--max-llamadas", type=int, help="tope de llamadas al LLM de toda la corrida")
     parser.add_argument("--precio", help="USD por millón de tokens de entrada y de salida, por ejemplo 0.10,0.50")
     parser.add_argument("--salida", type=Path, help="guarda las filas y las métricas en este .json")
+    parser.add_argument("--orquestador", choices=("si", "no"), help="pisa AGENT_ORQUESTADOR para comparar (D-36)")
     parser.add_argument("--caso", help="corre solo el caso con este id")
     parser.add_argument("--conversaciones", type=Path, help="escribe las conversaciones completas en este .md")
     parser.add_argument("--mlflow", action="store_true", help="guarda la corrida en MLflow (ver MLFLOW_* en .env)")
@@ -341,6 +342,8 @@ def main() -> int:
     os.environ["ORDERS_SHEET_ID"] = ""
     if args.mlflow:
         os.environ["MLFLOW_ENABLED"] = "true"
+    if args.orquestador:
+        os.environ["AGENT_ORQUESTADOR"] = "true" if args.orquestador == "si" else "false"
 
     from langgraph.checkpoint.memory import InMemorySaver
 

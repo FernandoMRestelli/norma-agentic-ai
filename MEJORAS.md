@@ -8,21 +8,29 @@ Se actualiza al cerrar cada PR que cambie el estado o la lista.
 - **Etapa 01 del [roadmap](docs/roadmap.md) (base compartida)**: completa. La API levanta con Docker o con
   Python local, responde `/health` y valida la firma del webhook de WhatsApp.
 - **Contratos de datos**: borrador (`OrderDraft`) separado de la orden (`Order`), catálogo (`Product`, `StockCheck`).
-- **Fuentes de datos del issue #2**: material original en Drive privado, inventario con referencias de Drive,
-  catálogo de 1.090 productos con stock ficticio de prueba y planilla vacía de seguimiento preparados fuera del repo.
-  La cuenta de servicio tiene permisos por archivo; falta probar la autenticación del backend. La evaluación de
-  los pedidos se difiere hasta disponer del agente. Ver [alcance y pendientes](docs/data/fuentes.md).
+- **Fuentes de datos del issue #2**: material original en Drive privado, inventario con referencias de Drive y
+  planilla de seguimiento, fuera del repo. Ver [alcance y pendientes](docs/data/fuentes.md).
 - **Flujo de trabajo**: ramas, PR, changelog, CI (lint, tests, build, secretos, reglas de PR) e imagen por release.
-  Todavía no hay ninguna release publicada ni producción corriendo.
-- **Primer loop del agente**: grafo con LangGraph, skills y BR, y pedido por conversación en Telegram. El catálogo
-  sale de `data_example/catalogo.csv` y el pedido queda en la base local. Son 3 skills: `tomar_pedido`,
-  `confirmar_pedido` e `informar`.
-- **Esqueletos sin implementar**: Google Sheets, chat y frontend (devuelven `501` o
-  `NotImplementedError`).
+  Publicadas la 0.1.0, la 0.1.1 y la 0.2.0.
+- **Agente**: grafo con LangGraph y cuatro skills (`tomar_pedido`, `confirmar_pedido`, `informar` y
+  `derivar_o_cancelar`), pedidos por texto, foto y audio en Telegram, derivación a una persona y consulta de estado.
+- **Controles en código**: la aceptación, los productos, las opciones, las cantidades, los precios y las medidas se
+  comprueban antes de responder o registrar (RF-111 a RF-114, RF-120, RF-121). Lo que resuelve el sistema en lugar del
+  modelo queda en `rescates` (RF-123).
+- **Medición**: `evaluar_agente` (tres sets, con un grupo reservado), `evaluar_busqueda` (sin LLM, con piso en el CI) y
+  `sensor_calidad` (uso real).
+- **Planillas y dashboard**: catálogo y seguimiento en Google Sheets o CSV, dashboard operativo con token de operador.
+- **Sin implementar**: el chat web (`POST /chat/messages` devuelve `501`) y el envío por WhatsApp.
 
 ## Qué mostró la evidencia
 
-Todavía no hay uso real: lo único medido son los tests.
+**Buscador solo, sin LLM (2026-11-24):** 124 consultas ficticias. Antes y después de RF-118: recall@3 0,87 → 0,94, MRR
+0,867 → 0,937, únicos correctos 0,776 → 0,91 y productos que existen y se negaban 12 → 5; abstención 1,0 y falsos únicos
+0, sin cambios. Lo que falta son necesidades dichas con palabras que ningún nombre tiene («teñir», «mechas»).
+
+**Trazas locales (2026-11-24):** 28 turnos de prueba del equipo, con modelos distintos: el loop principal dio p50 2, p95 5
+y máximo 8 iteraciones (el tope es 50, D-51), 22.500 tokens por turno, p95 de latencia 69 s y 21 % de turnos con error.
+Es una muestra chica y mezcla modelos gratuitos: sirve para ver el orden de magnitud, no para comparar.
 
 **Evaluación con Gemini (2026-11-05), incompleta:** de 14 casos de `mensajes.json`, solo 2 llegaron a evaluarse
 (`texto-varios-productos` y `cantidad-en-palabras`, ambos correctos en 3 iteraciones). El resto falló por `503` de alta
@@ -77,8 +85,9 @@ caso: `python -m internal.evaluar_agente --pausa 30 --conversaciones data/evalua
 - No hay configuración de negocio fuera del código y del `.env`. Cuando aparezcan parámetros que no son secretos
   (por ejemplo el umbral de "poco stock" del dashboard), van en `config/` como JSON validado al arrancar,
   dentro de la imagen: cambiarlos será una release.
-- No hay autenticación en el dashboard ni en los endpoints del chat.
-- **Aclaraciones sin opciones en el mensaje (Issue #107):** cuando el cliente pide un producto ambiguo de una sola línea (ej. «dos shampoo»), el agente responde con `kind="aclaracion"` y puebla `options` con los SKU. Ciertos modelos LLM omiten detallar las opciones comerciales en el cuerpo del mensaje y dejan la frase cortada (ej. «Tenés estas opciones:»), asumiendo que el sistema las inyecta como en las propuestas. Falta un guardrail en `validar_salida` o formateo automático de opciones en la capa de salida.
+- El endpoint del chat web no tiene autenticación, y todavía no está implementado.
+- **El control de la aceptación no cubre todo (D-47):** después de una respuesta informativa sin opciones, un «dale» lo
+  decide el modelo. Y una búsqueda a la que el modelo le sumó un dato que el cliente no dijo pasa como definida (D-49).
 
 ## Próximos pasos
 
@@ -86,9 +95,11 @@ caso: `python -m internal.evaluar_agente --pausa 30 --conversaciones data/evalua
 implementadas en ramas apiladas (evaluación, grafo, renglones, CSV por línea y memoria), cada una para su PR a
 `develop`. Lo que falta para cerrarla:
 
-- **Medir.** Todavía no hay una corrida completa con un LLM real. La primera fija la línea de base y los umbrales
-  de release: `python -m internal.evaluar_agente --set pedidos --repeticiones 3 --conversaciones data/evaluacion/pedidos.md`.
-  Hace falta un modelo que use tools de forma confiable y con cuota para los 11 casos (D-21).
+- **Medir.** Todavía no hay una corrida completa con un LLM real. La primera fija la línea de base, los umbrales de
+  release (D-28), el modelo (D-21), el tope de iteraciones (D-51) y si se queda el orquestador (D-36):
+  `python -m internal.evaluar_agente --set pedidos --repeticiones 3 --max-llamadas 600 --precio 0.10,0.50 --salida data/evaluacion/pedidos.json`,
+  lo mismo con `--set mensajes` y `--set adversariales`, y con `--orquestador si`. Después,
+  `python -m internal.comparar_corridas`.
 - **Decidir** la ventana para agrupar mensajes seguidos (D-26): está implementada y apagada (`MESSAGE_GROUP_SECONDS`).
 - **Probar** el volcado nuevo contra las planillas reales, con `python -m internal.verificar_claves` para que
   Sheet 2 sume las columnas nuevas.
@@ -96,10 +107,8 @@ implementadas en ramas apiladas (evaluación, grafo, renglones, CSV por línea y
 Antes: el [plan de mejora del asistente](docs/plan-mejora-asistente.md), con cinco frentes (búsqueda tolerante a
 errores, guardrails, guardado de pedidos, planillas y skills), ya integrados en `develop`.
 
-1. **Primera release `0.1.0`**: `release/0.1.0` → `main`, tag `v0.1.0`, backport, y configurar la
-   protección de ramas descrita en [CONTRIBUTING.md](CONTRIBUTING.md#protección-de-ramas).
-2. **Etapa 02, datos del negocio**: `sheets_service.get_catalog()` con gspread y búsqueda por SKU y por nombre
-   aproximado en `catalog_tools`; tests con `datos_sinteticos.catalogo()` y el helper `sin_stock`.
-3. **Elegir el proveedor de LLM** para producción; tests del agente con un modelo falso (pedido ambiguo → pide aclaración).
-4. **Base interna**: tablas de borradores y órdenes con `draft_id` único para que un reintento no duplique órdenes.
+1. **Ajustar los umbrales** del sensor con las primeras semanas de uso (D-52) y los de release con la primera corrida.
+2. **Sumar consultas reales del equipo** (sin datos de clientes) a `consultas_busqueda.json`: las de hoy son inventadas.
+3. **Decidir embeddings** (D-29) solo si las consultas de necesidad pesan en el uso real.
+4. **Chat web**: conectar `POST /chat/messages` con el orquestador de la conversación.
 5. **Despliegue**: por ahora cada integrante despliega en el Docker de su máquina (D-03, ver `CONTRIBUTING.md#producción`). Falta definir un servidor siempre prendido para el bot beta compartido.
