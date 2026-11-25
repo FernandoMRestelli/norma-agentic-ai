@@ -11,7 +11,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import ValidationError
 from sqlalchemy import delete, func, select
 
-from internal.agent import context, graph, norma_agent, tool_registry
+from internal.agent import context, graph, norma_agent, observabilidad, tool_registry
 from internal.agent.graph import FAILURE_MESSAGE, HANDOFF_MESSAGE
 from internal.agent.norma_agent import NormaAgent
 from internal.config import get_settings
@@ -426,6 +426,8 @@ def test_si_el_modelo_insiste_el_sistema_vuelve_a_mostrar_la_propuesta(catalogo)
     assert "• 3 x Crema Nivea 100 ml ($1000.00 c/u = $3000.00)" in respuesta.message
     assert respuesta.draft == oferta.draft
     assert _ordenes() == 0
+    estado = agent.graph.get_state({"configurable": {"thread_id": "1"}}).values
+    assert observabilidad.resumir(estado).rescates == ["confirmacion_pedida"]  # CA-211
 
     llamadas = len(modelo.recibidos)
     final = agent.handle("1", text="dale", **CLIENTE)
@@ -781,6 +783,8 @@ def test_tres_repetidas_cierran_el_turno(catalogo):
     resultado = agent.handle("1", text="quiero algo", **CLIENTE)
     assert modelo.ofrecidas[-1] == ["respond_to_customer"]
     assert (resultado.kind, resultado.iterations) == ("aclaracion", 5)
+    estado = agent.graph.get_state({"configurable": {"thread_id": "1"}}).values
+    assert observabilidad.resumir(estado).rescates == ["cierre"]  # CA-211
 
 
 def test_lo_que_no_es_repetir(catalogo):

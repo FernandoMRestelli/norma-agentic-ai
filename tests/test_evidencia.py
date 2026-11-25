@@ -6,7 +6,7 @@ from decimal import Decimal
 import pytest
 from langchain_core.messages import ToolMessage
 
-from internal.agent import evidencia, sub_loop, tool_registry
+from internal.agent import evidencia, observabilidad, sub_loop, tool_registry
 from internal.agent.evidencia import Evidencia
 from internal.config import get_settings
 from internal.schemas.catalog_schema import Product
@@ -254,6 +254,8 @@ def test_insistir_se_acepta_y_queda_registrado(caplog):
     assert _codigos(agent) == ["opcion_sin_elegir", "opcion_sin_elegir", None]
     assert resultado.kind == "propuesta"
     assert "después de insistir (motivo=opcion_sin_elegir)" in caplog.text
+    resumen = observabilidad.resumir(agent.graph.get_state({"configurable": {"thread_id": "1"}}).values)
+    assert resumen.rescates == ["tolerado:opcion_sin_elegir"]  # RF-123
 
 
 def test_el_freno_vale_por_turno():

@@ -89,6 +89,7 @@ class TurnContext:
     skus_pedidos: set[str] = field(default_factory=set)  # los de los pedidos anteriores que ve el LLM en su prompt
     opciones_rechazadas: int = 0  # `opcion_sin_elegir` de este turno
     cantidades_rechazadas: int = 0  # `cantidad_distinta` de este turno
+    tolerados: list[str] = field(default_factory=list)  # códigos aceptados porque el modelo insistió (RF-123)
     cierre: bool = False  # se agotó el presupuesto: el LLM ya no puede volver a buscar (RNF-16)
     turno: guardrails.ContextoTurno = field(default_factory=guardrails.ContextoTurno)  # para validar la salida
     orquestador: bool = False  # con el orquestador, `leer_skill` de una skill sub_loop dice cómo delegarla
@@ -311,7 +312,8 @@ def _error_cantidad(data: RespondToCustomerInput, ctx: TurnContext) -> ToolFailu
     )
 
 
-def _tolerar(motivo: str) -> None:
+def _tolerar(motivo: str, ctx: TurnContext) -> None:
+    ctx.tolerados.append(motivo)
     logger.warning("Guardrail: se acepta una propuesta después de insistir (motivo=%s)", motivo)
     with observabilidad.paso("control_evidencia", "GUARDRAIL", motivo=motivo, tolerado=True):
         pass
@@ -334,11 +336,11 @@ def _controlar_evidencia(data: RespondToCustomerInput, ctx: TurnContext) -> None
     if falla := error_sin_elegir([(item.sku, item.renglon) for item in items], ctx):
         if ctx.opciones_rechazadas < MAX_OPCIONES_RECHAZADAS and not ctx.cierre:
             raise falla
-        _tolerar(CODIGO_OPCION)
+        _tolerar(CODIGO_OPCION, ctx)
     if falla := _error_cantidad(data, ctx):
         if ctx.cantidades_rechazadas < MAX_CANTIDADES_RECHAZADAS and not ctx.cierre:
             raise falla
-        _tolerar(CODIGO_CANTIDAD)
+        _tolerar(CODIGO_CANTIDAD, ctx)
 
 
 def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict[str, Any]:
@@ -367,7 +369,7 @@ def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict
                 "notes": notas_combinadas,
             }
         )
-    message = data.message
+    message, fijo = data.message, False
     # Lo que escribió el LLM pasa por los guardrails antes de llegar al cliente; la vigente no cambia si falla
     rechazos = guardrails.validar_salida(
         message, data.kind.value, propuesta, options, ctx.turno, ctx.propuesta,
@@ -394,7 +396,7 @@ def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict
                 "Guardrail: intentos agotados, sale el mensaje fijo (reglas=%s)",
                 ",".join(r.regla for r in rechazos),
             )
-            message = guardrails.mensaje_seguro(propuesta)
+            message, fijo = guardrails.mensaje_seguro(propuesta), True
     respuesta = message
     if propuesta:
         # El detalle sale del catálogo, no del LLM: así entra un pedido de muchas líneas y los precios son exactos
@@ -415,7 +417,12 @@ def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict
         order_service.discard_draft(ctx.propuesta)
         ctx.propuesta = None
         ctx.propuesta_pendiente_mostrar = False
-    return {"enviado": True}
+    enviado: dict[str, Any] = {"enviado": True}
+    if fijo:
+        enviado["mensaje_fijo"] = True
+    if ctx.tolerados:
+        enviado["tolerado"] = list(ctx.tolerados)
+    return enviado
 
 
 def _delegar_skill(data: DelegarSkillInput, ctx: TurnContext) -> dict[str, Any]:

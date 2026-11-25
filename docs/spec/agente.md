@@ -744,6 +744,11 @@ Con `MLFLOW_ENABLED=true` (D-10), `observabilidad.py` manda además cada turno a
   `customer_id`, que puede ser un teléfono. `MLFLOW_TRACE_TEXT=true` suma el texto y los spans de LangChain con el
   prompt completo, para depurar con datos simulados; con `APP_ENV` distinto de `development`, la app no arranca
   (CA-57).
+- **Sensor (RF-123)**: cada turno deja `rescates`, cuando salió pero no como debía: `mensaje_fijo` (agotó los
+  rechazos), `cierre` (agotó el presupuesto), `confirmacion_pedida` y `tolerado:<código>`.
+  `python -m internal.sensor_calidad --dias 7` junta las trazas y la base (errores, rescates, derivaciones, latencia,
+  costo, correcciones por pedido y cancelados), avisa lo que pasa un umbral y sale con 1: se puede correr en un cron.
+  Solo lee, y solo números y códigos. Los umbrales son un punto de partida (D-52).
 - **Evaluación**: `evaluar_agente --mlflow` abre un run con `proveedor`, `modelo` y `prompt_version` como parámetros,
   las métricas `aciertos_pct`, `evaluados`, `sin_evaluar`, `iteraciones_promedio`, tokens y latencia p50/p95, y la
   tabla `casos.json` con un caso por fila. Las trazas de los casos quedan vinculadas al run.

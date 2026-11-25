@@ -869,3 +869,23 @@ def test_un_texto_rechazado_no_vuelve_valido_lo_que_decia():
     agent.handle("1", text="el shampoo, dale", **CLIENTE)
     reglas = [r["error"]["details"]["reglas"] for r in _resultados(agent, "respond_to_customer") if not r["ok"]]
     assert reglas == [["precio_inventado"]]
+
+
+def test_los_rescates_quedan_en_el_resumen_del_turno():
+    """CA-211: el turno salió, pero no como debía: el mensaje fijo de la tool, el del texto suelto y ninguno."""
+    def rescates(*guion):
+        agent, _ = _agente(*guion)
+        agent.handle("1", text="2 shampoo", **CLIENTE)
+        return observabilidad.resumir(agent.graph.get_state({"configurable": {"thread_id": "1"}}).values).rescates
+
+    assert rescates(_leer_y_ver(), *[_responder("Tenemos 50 en stock", **PROPUESTA_SHAMPOO) for _ in range(3)]) == [
+        "mensaje_fijo"
+    ]
+    assert rescates(*[AIMessage(content=f"Tenemos {n} en stock") for n in (40, 41, 42)]) == ["mensaje_fijo"]
+    assert rescates(_leer_y_ver(), _responder("Tenemos 50 en stock", **PROPUESTA_SHAMPOO),
+                    _responder("¿Te armo los 2?", **PROPUESTA_SHAMPOO)) == []  # fmt: skip
+
+
+def test_el_tope_de_avisos_es_el_de_los_guardrails():
+    """`observabilidad` no puede importar `guardrails`: los dos números tienen que ser el mismo."""
+    assert observabilidad.MAX_AVISOS == guardrails.MAX_RECHAZOS

@@ -14,6 +14,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 - El buscador se mide solo, sin LLM: 124 consultas con sus respuestas correctas y un piso de calidad en el CI (RF-119, CA-206). Se corre con `python -m internal.evaluar_busqueda`. No cambia nada en producción.
 - Tope de tokens por turno, `AGENT_MAX_TOKENS_PER_TURN` (200.000 por defecto, opcional), y freno a una búsqueda repetida igual en el mismo turno (RF-122, CA-209, CA-210). Al llegar, el asistente responde con lo que ya encontró. No hay nada que migrar al desplegar.
+- Sensor de calidad: `python -m internal.sensor_calidad --dias 7` resume el uso real desde las trazas y la base, sin texto de clientes, y avisa si algo pasa su umbral (RF-123, CA-211 a CA-213). Cada turno dice en el log y en la traza si lo tuvo que rescatar el sistema (`rescates`).
 
 ### Corregido
 
