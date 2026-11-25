@@ -23,6 +23,7 @@ from internal.schemas.order_schema import Channel, IncomingMessage
 from internal.services import conversation_service, order_service, sheets_service, skill_service
 
 SKU = "CR-NIV-100"
+OTRO = "CR-NIV-400"
 CLIENTE = {"customer_id": "telegram:1", "channel": Channel.TELEGRAM}
 
 
@@ -328,20 +329,21 @@ def test_descartar_propuesta_va_sin_propuesta():
     [
         ("aclaracion", [SKU], None),  # «¿es la Crema Nivea de 100?»
         ("aclaracion", [], None),  # «¿cuántas te mando?»
-        ("propuesta", [SKU], [{"sku": SKU, "quantity": 3}]),  # un pedido largo que deja una duda
+        ("propuesta", [OTRO], [{"sku": SKU, "quantity": 3}]),  # un pedido largo que deja una duda
     ],
 )
 def test_si_que_contesta_una_pregunta_va_al_agente(catalogo, kind, options, propuesta):
     """CA-164: con una propuesta vigente, «sí» después de una pregunta no registra sin el LLM (RF-99)."""
     agent, modelo = _agente(
         *GUION_OFERTA,
-        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _ai(_call("leer_skill", nombre="tomar_pedido"), _call("get_product", sku=OTRO)),
         _ai(_call("respond_to_customer", kind=kind, message="¿Es la Crema Nivea de 100?", options=options,
                   propuesta=propuesta)),
         _ai(_call("leer_skill", nombre="tomar_pedido")),
         _ai(_propuesta("Listo, van las 3 Crema Nivea de 100. ¿Te lo confirmo?", SKU, 3)),
     )
     agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+    catalogo.append(catalogo[0].model_copy(update={"sku": OTRO, "presentation": "400 ml"}))
     agent.handle("1", text="y una crema más", **CLIENTE)
     llamadas = len(modelo.recibidos)
 
@@ -357,6 +359,21 @@ PIDE_CONFIRMACION = "Antes de registrarlo, te paso el pedido como está hasta ah
 
 def _reoferta(mensaje="Te lo dejo así. ¿Lo confirmás?"):
     return _ai(_propuesta(mensaje, SKU, 3))
+
+
+@pytest.mark.parametrize("texto", ["dale", "dale, muchas gracias!"])
+def test_repetir_en_options_lo_propuesto_no_deja_una_pregunta(catalogo, texto):
+    """CA-216: el modelo manda en `options` los SKU que ya propuso; «dale» acepta igual, con o sin el LLM (RF-99)."""
+    agent, _ = _agente(
+        _ai(_call("search_products", query="crema")),
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _ai(_call("respond_to_customer", kind="propuesta", message="Van 2 cremas. ¿Lo confirmo?", options=[SKU],
+                  propuesta=[{"sku": SKU, "quantity": 2}])),
+        *GUION_ACEPTA,
+    )  # fmt: skip
+    propuesta = agent.handle("1", text="quiero dos cremas", **CLIENTE)
+    assert propuesta.options == []
+    assert agent.handle("1", text=texto, **CLIENTE).kind == "pedido"
 
 
 @pytest.mark.parametrize(
@@ -461,12 +478,13 @@ def test_pedido_con_dudas_pide_una_confirmacion_explicita(catalogo, texto, regis
     """CA-186: con dudas a la vista, «dale» puede contestar cualquiera de las dos cosas; «confirmalo así», no."""
     agent, modelo = _agente(
         *GUION_OFERTA,
-        _ai(_call("leer_skill", nombre="tomar_pedido")),
-        _ai(_call("respond_to_customer", kind="propuesta", message="Van 3. La otra, ¿es la de 100? ¿O lo confirmo así?",
-                  options=[SKU], propuesta=[{"sku": SKU, "quantity": 3}])),
+        _ai(_call("leer_skill", nombre="tomar_pedido"), _call("get_product", sku=OTRO)),
+        _ai(_call("respond_to_customer", kind="propuesta", message="Van 3. La otra, ¿es la de 400? ¿O lo confirmo así?",
+                  options=[OTRO], propuesta=[{"sku": SKU, "quantity": 3}])),
         *GUION_ACEPTA,
     )
     agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+    catalogo.append(catalogo[0].model_copy(update={"sku": OTRO, "presentation": "400 ml"}))
     agent.handle("1", text="y una crema más", **CLIENTE)
 
     respuesta = agent.handle("1", text=texto, **CLIENTE)

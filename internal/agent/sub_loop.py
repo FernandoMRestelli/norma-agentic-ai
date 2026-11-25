@@ -201,6 +201,7 @@ def correr(
         mensaje_cliente=ultimo_mensaje,
         opciones_previas=opciones_previas,
         skus_pedidos=ctx.skus_pedidos,
+        cantidades=ctx.cantidades,
         evidencia=evidencia.del_turno([], ctx.notas_turno),
     )
     prompt = construir_prompt(

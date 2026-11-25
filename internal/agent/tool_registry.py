@@ -32,7 +32,13 @@ from internal.schemas.agent_schema import (
 )
 from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import Channel, OrderDraft
-from internal.services import interpretation_service, inventory_service, order_service, validation_service
+from internal.services import (
+    busqueda_service,
+    interpretation_service,
+    inventory_service,
+    order_service,
+    validation_service,
+)
 from internal.services.palabras_clave import es_aceptacion_explicita, es_aceptacion_pura
 from internal.services.skill_service import TOOL_RESPUESTA, Skill, SkillError, get_skills
 from internal.tools import catalog_tools, inventory_tools, order_tools, reply_tools, skill_tools
@@ -89,6 +95,8 @@ class TurnContext:
     skus_pedidos: set[str] = field(default_factory=set)  # los de los pedidos anteriores que ve el LLM en su prompt
     opciones_rechazadas: int = 0  # `opcion_sin_elegir` de este turno
     cantidades_rechazadas: int = 0  # `cantidad_distinta` de este turno
+    # Las cantidades que nombró el cliente: solo con ellas una tool dice cuánto queda (RF-125). None: no se controla
+    cantidades: set[int] | None = None
     tolerados: list[str] = field(default_factory=list)  # códigos aceptados porque el modelo insistió (RF-123)
     cierre: bool = False  # se agotó el presupuesto: el LLM ya no puede volver a buscar (RNF-16)
     turno: guardrails.ContextoTurno = field(default_factory=guardrails.ContextoTurno)  # para validar la salida
@@ -114,11 +122,19 @@ def _explorar_catalogo(data: ExplorarCatalogoInput, _: TurnContext) -> dict[str,
     return catalog_tools.explorar_catalogo(data.brand, data.category, data.limit)
 
 
-def _al_llm(product: Product, quantity: int | None = None) -> dict[str, Any]:
+def _pidio(ctx: TurnContext, quantity: int, product: Product) -> bool:
+    """El cliente pidió esa cantidad: no la inventó el modelo para que la tool le diga el stock (RF-125)."""
+    if ctx.cantidades is None:
+        return True
+    medidas = busqueda_service.normalizar(f"{product.name} {product.presentation or ''}").numeros
+    return quantity in ctx.cantidades and quantity not in {numero.valor for numero in medidas}
+
+
+def _al_llm(product: Product, quantity: int | None = None, decir_cuanto: bool = True) -> dict[str, Any]:
     datos = {**product.model_dump(mode="json", exclude=_SOLO_INTERNOS), "hay_stock": product.stock > 0}
     if quantity is not None:
         datos["alcanza"] = product.stock >= quantity
-        if not datos["alcanza"]:
+        if not datos["alcanza"] and decir_cuanto:
             # Cuántas quedan solo importa si no alcanza: es lo único que BR-01 deja decirle al cliente
             datos["disponible"] = product.stock
     # Solo cuando es cierto: es una pista para preguntar («¿el de 900, como la otra vez?»), no un dato de cada producto
@@ -189,9 +205,12 @@ def _consultar_estado_pedido(data: ConsultarEstadoPedidoInput, ctx: TurnContext)
 
 def _search_products(data: SearchProductsInput, ctx: TurnContext) -> dict[str, Any]:
     resultado = catalog_tools.buscar_productos(data.query, data.limit, _comprados(ctx))
+    def al_llm(product: Product) -> dict[str, Any]:
+        return _al_llm(product, data.quantity, data.quantity is None or _pidio(ctx, data.quantity, product))
+
     salida = {
-        "matches": [_al_llm(match, data.quantity) for match in resultado.matches],
-        "sugerencias": [_al_llm(sugerencia, data.quantity) for sugerencia in resultado.sugerencias],
+        "matches": [al_llm(match) for match in resultado.matches],
+        "sugerencias": [al_llm(sugerencia) for sugerencia in resultado.sugerencias],
         "corregido": resultado.corregido,
         "total": resultado.total,
         "difieren_en": resultado.difieren_en,
@@ -206,6 +225,11 @@ def _buscar_renglones(data: BuscarRenglonesInput, ctx: TurnContext) -> dict[str,
         [renglon.model_dump() for renglon in data.renglones], _comprados(ctx)
     )
     anotar_busqueda(ctx.renglones, [renglon.model_dump() for renglon in data.renglones], resultados)
+    for resultado in resultados:
+        falta = resultado.get("falta")
+        product = catalog_tools.get_product(falta["sku"]) if falta else None
+        if product is not None and not _pidio(ctx, falta["requested"], product):
+            del falta["available"]
     return {"renglones": resultados}
 
 
@@ -233,10 +257,12 @@ def _get_product(data: GetProductInput, _: TurnContext) -> dict[str, Any]:
     return {"product": _al_llm(product)}
 
 
-def _check_stock(data: CheckStockInput, _: TurnContext) -> dict[str, Any]:
+def _check_stock(data: CheckStockInput, ctx: TurnContext) -> dict[str, Any]:
     check = inventory_tools.check_stock(data.sku, data.quantity)
     # Si alcanza, el LLM no necesita el número: así no se lo puede pasar al cliente (BR-01)
-    return check.model_dump(mode="json", exclude={"available"} if check.is_enough else None)
+    product = catalog_tools.get_product(data.sku)
+    decir_cuanto = not check.is_enough and (product is None or _pidio(ctx, data.quantity, product))
+    return check.model_dump(mode="json", exclude=None if decir_cuanto else {"available"})
 
 
 def _leer_skill(data: LeerSkillInput, ctx: TurnContext) -> dict[str, Any]:
@@ -343,14 +369,33 @@ def _controlar_evidencia(data: RespondToCustomerInput, ctx: TurnContext) -> None
         _tolerar(CODIGO_CANTIDAD, ctx)
 
 
+def _sin_stock_revelado(error: ToolFailure, ctx: TurnContext) -> ToolFailure:
+    """El error de stock sin el número, si la cantidad no la pidió el cliente (RF-125)."""
+    if error.code != "stock_insuficiente":
+        return error
+    lineas = [dict(linea) for linea in error.details["lineas"]]
+    for linea in lineas:
+        product = catalog_tools.get_product(linea["sku"])
+        if product is not None and not _pidio(ctx, linea["requested"], product):
+            del linea["available"]
+    return ToolFailure(error.code, error.message, lineas=lineas)
+
+
 def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict[str, Any]:
     data = reply_tools.con_tonos(data, ctx.renglones)
-    propuesta = reply_tools.respond_to_customer(
-        data, ctx.customer_id, ctx.channel, ctx.propuesta, ctx.customer_name, ctx.conversation_id, ctx.renglones,
-        ctx.origen,
-    )
+    try:
+        propuesta = reply_tools.respond_to_customer(
+            data, ctx.customer_id, ctx.channel, ctx.propuesta, ctx.customer_name, ctx.conversation_id, ctx.renglones,
+            ctx.origen,
+        )
+    except ToolFailure as exc:
+        raise _sin_stock_revelado(exc, ctx) from exc
     # Con un pedido numerado, `options` sale de los renglones que se preguntan
     options = data.options or list(dict.fromkeys(sku for p in data.pendientes for sku in p.opciones))
+    if propuesta and not data.pendientes:
+        # El modelo repite en `options` lo que ya propuso: eso no deja ninguna pregunta abierta (RF-99)
+        propuestos = {item.sku for item in propuesta.items}
+        options = [sku for sku in options if sku not in propuestos]
     renglones = reply_tools.cubrir_renglones(
         data, ctx.renglones, tolerar=ctx.coberturas_fallidas >= MAX_COBERTURAS_FALLIDAS
     )

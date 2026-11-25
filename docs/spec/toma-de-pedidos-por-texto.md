@@ -9,7 +9,7 @@
 | Estado | Implementado en cinco ramas, una por mejora ([§10.1](#101-estado-de-implementación)). Falta medirlo con un LLM real |
 | Responsable | Federico Picado |
 | Requisitos de la spec del MVP | RF-07, RF-11, RF-13, RF-19, RF-21, RF-28, RF-36 a RF-39, RNF-03, RNF-06, RNF-07 |
-| IDs que reserva | RF-59 a RF-79, RF-98, RF-99, RF-111 a RF-117, RF-122 a RF-124, RNF-15 y RNF-16, CA-113 a CA-134, CA-162 a CA-164, CA-183 a CA-203, CA-209 a CA-215, D-21 a D-29, D-47 a D-52, BR-11 |
+| IDs que reserva | RF-59 a RF-79, RF-98, RF-99, RF-111 a RF-117, RF-122 a RF-124, RNF-15 y RNF-16, CA-113 a CA-134, CA-162 a CA-164, CA-183 a CA-203, CA-209 a CA-216, D-21 a D-29, D-47 a D-52, BR-11 |
 
 **Índice**
 
@@ -609,7 +609,7 @@ Todos están implementados en las ramas de [§10.1](#101-estado-de-implementaci�
 | RF-78 | M5 | El CSV neutraliza los textos que empiezan como fórmula y actualiza un encabezado viejo; la hoja Líneas del Excel trae la nota |
 | RF-79 | M5 | El origen del mensaje (`texto`, `audio`, `imagen`) viaja del canal a la orden |
 | RF-98 | M4 | Una respuesta sin `propuesta` deja la vigente como estaba; solo `descartar_propuesta` la descarta, cuando el cliente la rechaza o saca todo |
-| RF-99 | M2 | El atajo de RF-64 corre solo si la respuesta anterior cerró con la propuesta (`kind` `propuesta` o `sin_stock`) sin opciones ofrecidas. Después de una aclaración, una consulta, un error o una pregunta con opciones, el mensaje va al LLM |
+| RF-99 | M2 | El atajo de RF-64 corre solo si la respuesta anterior cerró con la propuesta (`kind` `propuesta` o `sin_stock`) sin opciones ofrecidas. Después de una aclaración, una consulta, un error o una pregunta con opciones, el mensaje va al LLM. Un SKU que el modelo repite en `options` y ya está en la propuesta no es una opción |
 | RF-111 | M2 | Cuando el LLM llama a `armar_pedido`, el backend registra solo si el último mensaje del cliente es una aceptación pura: todas sus palabras son de aceptar o de cortesía. Después de una aclaración o con opciones ofrecidas, ni siquiera una aceptación pura alcanza, salvo que sea explícita («confirmalo así») y la respuesta anterior haya mostrado la propuesta. Si no se cumple, la tool devuelve `aceptacion_no_clara`; si el LLM insiste en el mismo turno, el sistema vuelve a mostrar la propuesta y pide la confirmación |
 | RF-112 | M3 | Todo SKU de `propuesta`, `options` y `pendientes` tiene que haber llegado al LLM en el turno: por el resultado de una tool, una nota, las opciones de su respuesta anterior, la propuesta vigente, los pedidos anteriores o los renglones del estado. Si no, la respuesta falla con `sku_no_buscado` |
 | RF-113 | M3 | Entre varias opciones elige el cliente: un producto que solo apareció en búsquedas con varias coincidencias, aproximadas o de otro renglón no va en `propuesta` (`opcion_sin_elegir`), salvo que sea una de las opciones ya ofrecidas, esté en la propuesta vigente, sea lo que compró y pide «lo de siempre», o se propongan todas las coincidencias («uno de cada»). Vale también para la nota de un sub-loop |
@@ -667,6 +667,7 @@ Todos están implementados en las ramas de [§10.1](#101-estado-de-implementaci�
 | CA-213 | Trazas en MLflow y propuestas en la base | Corre el sensor | Lee los turnos sin texto ni crear nada, y sale con 0, 1 o 2 | `tests/test_sensor_calidad.py` |
 | CA-214 | Dos corridas guardadas | Se comparan | Dice qué casos cambiaron, si los intervalos se superponen y por qué no serían comparables | `tests/test_comparar_corridas.py::test_casos_que_cambiaron`, `::test_cuando_no_son_comparables`, `::test_intervalos_superpuestos` |
 | CA-215 | Una corrida con orquestador y otra sin | Se comparan, en cualquier orden | Dice si cumple RNF-17 y sale con 1 si no | `tests/test_comparar_corridas.py::test_rnf_17`, `::test_de_punta_a_punta` |
+| CA-216 | Una propuesta que trae en `options` los mismos SKU que propone | El cliente escribe «dale» o «dale, muchas gracias» | Registra: no hay una pregunta abierta | `tests/test_agent_graph.py::test_repetir_en_options_lo_propuesto_no_deja_una_pregunta` |
 | CA-162 | Una lista que abre con «Buenas! Para el salón necesito:» y un catálogo con un producto que dice «salón» | Se numera | La línea de introducción no es un renglón: el primer producto es el renglón 1 | `tests/test_interpretation.py::test_la_introduccion_no_es_un_renglon` |
 | CA-123 | 30 renglones | Se llama a `buscar_renglones` | Devuelve 30 resultados con estado y, como mucho, 3 candidatos de 4 campos | `tests/test_busqueda.py::test_busqueda_por_lote` |
 | CA-124 | Un renglón de coloración con `tono` | Se busca | Encuentra la coloración de la marca y el tono no baja el puntaje | `tests/test_busqueda.py::test_tono_no_participa` |

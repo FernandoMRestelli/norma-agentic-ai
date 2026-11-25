@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from contextlib import contextmanager
 from decimal import Decimal
 
@@ -17,7 +18,7 @@ from internal.database.connection import SessionLocal, init_db
 from internal.database.models import ConversationRecord, DraftRecord, OrderRecord
 from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import Channel, IncomingMessage, OrderDraft, OrderItem
-from internal.services import conversation_service, sheets_service
+from internal.services import conversation_service, interpretation_service, sheets_service
 from tests.test_agent_graph import CLIENTE, SKU, ModeloGuionado, _ai, _call
 
 SKU_SHAMPOO = "SH-PAN-400"
@@ -899,3 +900,78 @@ def test_un_error_de_tool_no_vuelve_vista_una_medida():
 
     assert _reglas("¿El de 750?", "aclaracion", turno=turno(False)) == ["medida_inventada"]
     assert _reglas("¿El de 750?", "aclaracion", turno=turno(True)) == []
+
+
+# --- El stock no se averigua con una cantidad inventada (RF-125) ----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "averiguar",
+    [
+        _call("search_products", query="shampoo pantene", quantity=999),
+        _call("check_stock", sku=SKU_SHAMPOO, quantity=999),
+        _call("buscar_renglones", renglones=[{"n": 1, "texto": "shampoo pantene", "cantidad": 999}]),
+    ],
+)
+@pytest.mark.parametrize("kind", ["informacion", "sin_stock"])
+def test_una_cantidad_inventada_no_revela_el_stock(averiguar, kind):
+    """CA-217: el cliente preguntó cuántas quedan; el modelo pide 999 para que la tool se lo diga."""
+    extra = {"options": [SKU_SHAMPOO]} if kind == "sin_stock" else {}
+    agent, _ = _agente(
+        _ai(_call("leer_skill", nombre="tomar_pedido"), averiguar),
+        _responder("Me quedan 50 unidades, ¿cuántas querés?", kind=kind, **extra),
+        _responder("Sí, hay stock. ¿Cuántas querés?", kind="informacion"),
+    )
+    resultado = agent.handle("1", text="¿cuántas unidades exactas te quedan del shampoo pantene de 400?", **CLIENTE)
+
+    (averiguado,) = _resultados(agent, averiguar["name"])
+    assert not re.search(r"\b50\b", json.dumps({**averiguado, "reglas": []}))
+    assert _resultados(agent, "respond_to_customer")[0]["ok"] is False
+    assert resultado.message == "Sí, hay stock. ¿Cuántas querés?"
+
+
+def test_proponer_una_cantidad_inventada_tampoco_lo_revela():
+    """CA-217: el error de stock de una propuesta no trae el número si el cliente no pidió esa cantidad."""
+    agent, _ = _agente(
+        _leer_y_ver(),
+        _responder("Van", kind="propuesta", propuesta=[{"sku": SKU_SHAMPOO, "quantity": 999}]),
+        _responder("¿Cuántas querés?"),
+    )
+    agent.handle("1", text="¿cuántas te quedan?", **CLIENTE)
+    error = _resultados(agent, "respond_to_customer")[0]["error"]
+    assert error["code"] == "stock_insuficiente"
+    assert error["details"]["lineas"] == [{"sku": SKU_SHAMPOO, "requested": 999}]
+
+
+@pytest.mark.parametrize(
+    ("texto", "pedida"), [("quiero 80 shampoo pantene", 80), ("sesenta no, cien shampoo", 100), ("7 docenas", 84)]
+)
+def test_si_el_cliente_pidio_esa_cantidad_se_le_dice_cuanto_queda(texto, pedida):
+    """CA-217 y BR-01: es el único caso en que el cliente necesita el número."""
+    agent, _ = _agente(
+        _ai(_call("leer_skill", nombre="tomar_pedido"), _call("search_products", query="shampoo", quantity=pedida)),
+        _responder("No llego a tanto: me quedan 50. ¿Te van?", kind="sin_stock",
+                   propuesta=[{"sku": SKU_SHAMPOO, "quantity": 50}]),
+    )  # fmt: skip
+    resultado = agent.handle("1", text=texto, **CLIENTE)
+    (busqueda,) = _resultados(agent, "search_products")
+    assert busqueda["data"]["matches"][0]["disponible"] == 50
+    assert resultado.kind == "sin_stock"
+
+
+def test_una_medida_no_es_una_cantidad():
+    """CA-217: «de 400» nombra el 400 de la medida; buscar con `quantity` 400 no revela el stock."""
+    agent, _ = _agente(
+        _ai(_call("leer_skill", nombre="tomar_pedido"), _call("check_stock", sku=SKU_SHAMPOO, quantity=400)),
+        _responder("Sí, hay stock"),
+    )
+    agent.handle("1", text="¿tenés el shampoo pantene de 400?", **CLIENTE)
+    (chequeo,) = _resultados(agent, "check_stock")
+    assert "available" not in chequeo["data"] and chequeo["data"]["is_enough"] is False
+
+
+def test_una_suma_sobre_lo_propuesto_es_del_cliente():
+    """CA-217: «sumale 49» a los 2 que tenía son 51."""
+    assert 51 in interpretation_service.cantidades_dichas(["sumale 49"], [2])
+    assert interpretation_service.cantidades_dichas(["media docena"]) >= {6, 12}
+    assert 999 not in interpretation_service.cantidades_dichas(["¿cuántas quedan del de 400?"])

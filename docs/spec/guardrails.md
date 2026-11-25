@@ -134,6 +134,7 @@ Dentro del turno:
 | RF-44 | El nombre del perfil se limpia antes de entrar al prompt, y los intentos de cambiar las reglas se registran en el log y en la traza, sin el texto del mensaje |
 | RF-120 | Un precio del mensaje es de un producto que vio el LLM, no de cualquiera del catálogo |
 | RF-121 | Una medida del mensaje salió de algo que vio el LLM |
+| RF-125 | Una tool dice cuánto queda solo si el cliente nombró la cantidad que no alcanza: una inventada por el modelo (999) no averigua el stock, ni en la búsqueda ni en el error de una propuesta. Con `sin_stock`, el número es el de lo que se ofrece entero, no el de una alternativa |
 
 ## 6. Criterios de aceptación
 
@@ -152,6 +153,7 @@ Dentro del turno:
 | CA-79 | Un mensaje de 4001 caracteres / el mensaje 11 de un cliente en un minuto | Llega al orquestador | Respuesta fija sin llamar al LLM; otro cliente sigue normal y la ventana se libera al minuto | `test_guardrails.py::test_mensaje_demasiado_largo`, `test_guardrails.py::test_tope_de_mensajes_por_minuto` |
 | CA-207 | Un producto a $7350 visto en el turno | El mensaje dice «sale 7350» / el precio de otro producto, «sale 6900» o un precio que propuso el cliente | Pasa / se rechaza con `precio_inventado` | `test_guardrails.py::test_precio_de_un_producto_que_se_vio`, `::test_precios_que_el_llm_ya_conocia` |
 | CA-208 | Una búsqueda que trajo 400 y 900 | El mensaje ofrece «el de 400» / «el de 500» | Pasa / se rechaza con `medida_inventada` | `test_guardrails.py::test_medida_que_no_se_vio`, `::test_medidas_que_el_llm_ya_conocia` |
+| CA-217 | El cliente pregunta cuántas quedan | El modelo busca o propone 999 | Ninguna tool trae el número y el mensaje que lo dice se rechaza, también con `sin_stock`; si el cliente pidió 80, sí se lo dice | `test_guardrails.py::test_una_cantidad_inventada_no_revela_el_stock`, `::test_proponer_una_cantidad_inventada_tampoco_lo_revela`, `::test_si_el_cliente_pidio_esa_cantidad_se_le_dice_cuanto_queda` |
 | CA-80 | Un nombre de perfil con saltos, símbolos o instrucciones / un mensaje que pide ignorar las reglas | Corre el turno | El prompt recibe el nombre limpio o «desconocido» / el log y la traza registran el código del intento sin el texto, y el prompt avisa | `test_guardrails.py::test_nombre_del_perfil_se_limpia`, `test_guardrails.py::test_intento_de_cambiar_reglas_se_registra_sin_texto` |
 | CA-143 | Un pedido numerado con renglones en `pendientes` | El mensaje del LLM no tiene ninguna pregunta / la tiene | Se rechaza con `pregunta_faltante` y se reintenta / pasa | `test_guardrails.py::test_renglones_pendientes_sin_pregunta`, `test_guardrails.py::test_renglones_pendientes_sin_pregunta_se_reintenta` |
 

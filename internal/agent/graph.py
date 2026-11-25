@@ -351,6 +351,10 @@ def _turn_context(state: EstadoNorma, config: RunnableConfig, disponibles: list[
             for linea in pedido["lineas"]
         },
         cierre=state.get("cierre_desde") is not None,
+        cantidades=interpretation_service.cantidades_dichas(
+            [m.text for m in state["messages"] if isinstance(m, HumanMessage) and not guardrails.es_aviso(m)],
+            [item.quantity for item in propuesta.items] if propuesta else [],
+        ),
     )
 
 

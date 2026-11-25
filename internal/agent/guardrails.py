@@ -378,8 +378,12 @@ def _regla_stock(
         # BR-01: el agente dice cuántas quedan, y ese número es el disponible real
         disponibles = set(turno.faltantes.values())
         skus = [item.sku for item in propuesta.items] if propuesta else []
+        pedidas = {item.sku: item.quantity for item in propuesta.items} if propuesta else {}
         for sku in dict.fromkeys([*skus, *options]):
-            if (stock := _stock_real(sku)) is not None:
+            if (stock := _stock_real(sku)) is None:
+                continue
+            # El número que necesita el cliente es el de lo que se le ofrece entero: el de una alternativa, no (RF-125)
+            if turno.texto_visto is None or pedidas.get(sku) == stock:
                 disponibles.add(stock)
         if any(numero not in disponibles for numero in numeros):
             return Rechazo(
