@@ -616,3 +616,19 @@ def test_las_dudas_de_la_nota_traen_el_nombre_de_sus_opciones(catalogo):
     (duda,) = delegacion["data"]["pendientes"]
     assert duda["opciones"] == MASCARAS
     assert duda["nombres"] == ["Máscara Argan 250 g", "Máscara Argan 1 kg"]
+
+
+@pytest.mark.parametrize(
+    ("difieren", "pregunta"),
+    [
+        ("medida", "¿cuál de estos? (medida)"),  # decía «m, e, d, i, d, a»
+        (["cajas o unidades"], "¿cuál de estos? (cajas o unidades)"),
+        (None, "¿cuál de estos?"),
+    ],
+)
+def test_la_pregunta_de_la_nota_al_tope(difieren, pregunta):
+    """CA-156: la pregunta que arma el backend al llegar al tope dice en qué difieren las opciones."""
+    candidatos = [{"sku": sku} for sku in MASCARAS]
+    resultado = {"n": 1, "estado": "varias", "total": 2, "candidatos": candidatos, "difieren_en": difieren}
+    armada = nota.con_lo_encontrado([1], {1: ({"n": 1, "texto": "mascara"}, resultado)})
+    assert armada["pendientes"] == [{"renglon": 1, "pregunta": pregunta, "opciones": MASCARAS}]

@@ -44,6 +44,8 @@ class Pistas(BaseModel):
     no_estan: list[str] = Field(default_factory=list)  # palabras que no aparecen en ningún producto
     cercanos: list[Cercano] = Field(default_factory=list)  # los que tienen más partes de la búsqueda
     medidas: list[str] = Field(default_factory=list)  # las que hay de lo buscado, si lo que no coincide es la medida
+    # Con una palabra que no existe («frizz»): los que tienen todo lo demás. Puede ser una marca o para qué lo quiere
+    sin_lo_que_no_esta: list[str] = Field(default_factory=list)
 
 
 class SearchResult(BaseModel):

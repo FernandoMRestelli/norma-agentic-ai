@@ -127,5 +127,12 @@ consultas que no se pueden contestar (`negocio`). Se corren con `--set adversari
 `grupo` separa los de `desarrollo`, que se miran para ajustar prompts, de los `reservado`, que solo miden: si se ajusta
 algo mirando un caso reservado, pasa a `desarrollo` y se escribe otro (D-50).
 
+## `consultas_busqueda.json`
+
+124 consultas para medir el buscador solo, sin LLM (RF-119), contra `catalogo_evaluacion.csv`. `relevantes` son los SKU
+que responden la consulta, con comodines (`*-MA-ARG-1K`); vacío si el catálogo no tiene respuesta. Los `tipo` cubren
+desde nombres exactos hasta abreviaturas, errores, pedidos ambiguos, necesidades («algo para rulos») y cosas que no
+hay, y `grupo` funciona como en los adversariales. Se corre con `python -m internal.evaluar_busqueda --fallas`.
+
 Los tests de `tests/test_datos_ejemplo.py` verifican que estos archivos respeten
 los esquemas y sean coherentes entre sí (por ejemplo, que todo SKU exista en el catálogo).

@@ -142,7 +142,9 @@ def con_lo_encontrado(encargo: list[int], busquedas: dict[int, tuple[dict, dict]
         elif estado == "sin_stock" and not resultado.get("falta", {}).get("available"):
             nota["afuera"].append({"renglon": n, "motivo": "sin_stock"})
         else:
-            pregunta = f"¿cuál de estos? ({', '.join(resultado.get('difieren_en') or [])})".replace(" ()", "")
+            difieren = resultado.get("difieren_en") or []  # un texto («medida») o la lista de «cajas o unidades»
+            difieren = difieren if isinstance(difieren, str) else ", ".join(difieren)
+            pregunta = f"¿cuál de estos? ({difieren})" if difieren else "¿cuál de estos?"
             nota["pendientes"].append({"renglon": n, "pregunta": pregunta, "opciones": candidatos})
     nota["observaciones"] = "El sub-loop llegó a su tope: la nota la armó el sistema con lo que encontró."
     return nota

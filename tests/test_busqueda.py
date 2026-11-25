@@ -551,6 +551,36 @@ def test_hint_nunca_lleva_el_numero_de_stock():
         assert "stock" not in hint.lower()
 
 
+@pytest.mark.parametrize(
+    ("query", "igual_que"),
+    [
+        ("tenés algo de keratina fidelite en shampoo de 900?", "keratina fidelite shampoo 900"),
+        ("hola, necesito pantene shampoo 400 porfa", "pantene shampoo 400"),
+        ("cuánto sale el oxidante wella", "oxidante wella"),
+    ],
+)
+def test_lo_que_se_dice_al_pedir_no_cuenta(query, igual_que):
+    """CA-204: cómo lo pide no cambia qué pide, ni el puntaje."""
+    con, sin = _buscar(query), _buscar(igual_que)
+    assert sin.matches
+    assert [(p.sku, p.score) for p in con.matches] == [(p.sku, p.score) for p in sin.matches]
+
+
+def test_una_palabra_de_conversacion_que_esta_en_el_catalogo_cuenta():
+    """CA-204: «PELO» en un nombre distingue un producto; y una búsqueda hecha solo de esas palabras no queda vacía."""
+    productos = _productos([("CP", "BRISA CEPILLO PELO", "BRISA", 1), ("CU", "BRISA CEPILLO UÑAS", "BRISA", 1)])
+    assert _skus(busqueda_service.buscar("cepillo pelo", productos).matches) == ["CP"]
+    assert busqueda_service.buscar("tenés algo", productos).pistas.no_estan
+
+
+def test_pista_sin_la_palabra_que_no_existe():
+    """CA-205: «para el frizz» dice para qué lo quiere; «kerastase», una marca. El modelo distingue, con los datos."""
+    hint = catalog_tools.hint_busqueda(_buscar("crema peinar frizz"))
+    assert "Sin eso hay: SKALA CREMA DE PEINAR X 1 KG" in hint and "dice para qué lo quiere" in hint
+    assert "Sin eso hay" not in catalog_tools.hint_busqueda(_buscar("xqzw"))
+    assert "Sin eso hay" not in catalog_tools.hint_busqueda(_buscar("xqzw wkjh"))
+
+
 def test_buscar_renglones_explica_cada_renglon_sin_coincidencia(monkeypatch):
     monkeypatch.setattr(sheets_service, "get_catalog", lambda: PRODUCTOS)
     renglones = catalog_tools.buscar_renglones(
