@@ -13,6 +13,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 - La evaluación suma un set de 24 casos adversariales con un grupo reservado, un puntaje más exigente (qué respondió, en qué quedó la propuesta y qué dijo, no solo si registró), tope de llamadas, corte si el LLM no responde, costo, intervalo de confianza y resultado en `.json` (RF-115 a RF-117, CA-199 a CA-203). El caso `pide-una-persona` espera la derivación, que ya existe. No cambia nada en producción.
 
 - El buscador se mide solo, sin LLM: 124 consultas con sus respuestas correctas y un piso de calidad en el CI (RF-119, CA-206). Se corre con `python -m internal.evaluar_busqueda`. No cambia nada en producción.
+- Tope de tokens por turno, `AGENT_MAX_TOKENS_PER_TURN` (200.000 por defecto, opcional), y freno a una búsqueda repetida igual en el mismo turno (RF-122, CA-209, CA-210). Al llegar, el asistente responde con lo que ya encontró. No hay nada que migrar al desplegar.
 
 ### Corregido
 

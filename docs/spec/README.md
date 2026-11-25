@@ -526,7 +526,7 @@ Detalle en la [spec del canal](canal-telegram.md).
 | RNF-09 | Portabilidad | Cambiar de proveedor de LLM es sumar su modelo de LangChain en `agent/llm.py`; cambiar Google Sheets por el sistema real es reemplazar `sheets_service` |
 | RNF-10 | Despliegue | Producción corre la imagen de una release; el código y los valores por defecto van en la imagen, y cambiarlos es una release. Fuera de la imagen quedan solo el `.env` (secretos y variables de entorno, como el modelo de LLM o la ruta del catálogo) y los datos ([CONTRIBUTING](../../CONTRIBUTING.md#producción)) |
 | RNF-11 | Experiencia | Español rioplatense, breve y amable; una pregunta por vez; mensajes de WhatsApp dentro de los límites del canal |
-| RNF-12 | Costo | Máximo 50 iteraciones y 300 s por turno (RNF-16), historial acotado a 20 mensajes y catálogo fuera del contexto (D-07) |
+| RNF-12 | Costo | Máximo 50 iteraciones, 300 s y 200.000 tokens por turno (RNF-16, RF-122), historial acotado a 20 mensajes y catálogo fuera del contexto (D-07) |
 | RNF-13 | Caché | El catálogo se cachea 5 min para buscar (hasta 1 h si Google no responde); la confirmación siempre lee fresco |
 | RNF-14 | Seguridad | El token del bot de Telegram y las API keys no aparecen en logs, URLs guardadas ni datos persistidos |
 
@@ -581,7 +581,7 @@ prueba hoy; «pendiente» significa que el test se escribe con la etapa.
 | CA-10 | El catálogo de ejemplo | Llega un caso con `resultado: sin_stock` | El turno termina en `sin_stock` y no se crea borrador con cantidades sin stock | RF-10 | pendiente |
 | CA-11 | El catálogo de ejemplo | Llega `fuera-de-catalogo` | El turno termina en `fuera_de_catalogo` y no aparece ningún SKU inventado | RF-08, RF-10 | pendiente |
 | CA-12 | Una tool de borrador | El LLM pide un SKU que no existe o una cantidad sin stock | La tool devuelve `sku_inexistente` / `stock_insuficiente` y no se guarda nada | RF-08, RF-10 | `test_agent_graph.py::test_propuesta_*` |
-| CA-20 | Un modelo falso que nunca llama a una tool terminal | Corre un turno | Se corta al tope de iteraciones (8, RNF-16) con mensaje fijo y la conversación suma una falla | RNF-12 | `test_agent_graph.py::test_tope_de_iteraciones` |
+| CA-20 | Un modelo falso que nunca llama a una tool terminal | Corre un turno | Se corta al tope de iteraciones (RNF-16) con mensaje fijo y la conversación suma una falla | RNF-12 | `test_agent_graph.py::test_tope_de_iteraciones` |
 | CA-37 | Un turno sin skills activas | El LLM pide `armar_pedido` | Recibe `tool_no_permitida` y no se guarda nada | RF-34 | `test_agent_graph.py::test_armar_pedido_sin_leer_la_skill_no_se_ejecuta`, `test_tools.py` |
 | CA-38 | Un turno en el que se leyó `confirmar_pedido` y después `tomar_pedido` | Se calculan las tools de la iteración siguiente | Se ofrecen las tools de base y las de las dos skills | RF-33, RF-34 | `test_agent_graph.py::test_tools_ofrecidas_dependen_de_la_skill_y_se_reinician` |
 | CA-39 | Un turno anterior leyó una skill | Empieza un turno nuevo | Solo se ofrecen las tools de base; `leer_br` con una BR de esa skill devuelve `br_no_permitida` | RF-34 | `test_agent_graph.py::test_tools_ofrecidas_dependen_de_la_skill_y_se_reinician`, `test_tools.py::test_leer_br_solo_de_skills_leidas` |

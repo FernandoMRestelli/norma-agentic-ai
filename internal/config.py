@@ -56,9 +56,11 @@ class Settings(BaseSettings):
     telegram_allowed_user_ids: str = ""  # ids numéricos separados por coma
 
     # Presupuesto de un turno del agente (RNF-16): un turno es la respuesta a un mensaje del cliente, no la
-    # conversación. Al llegar a cualquiera de los dos topes el agente cierra con lo que ya encontró
+    # conversación. Al llegar a cualquiera de los topes el agente cierra con lo que ya encontró
     agent_max_iterations: int = 50
     agent_max_seconds_per_turn: float = 300.0
+    # Tope de gasto del turno: tokens de entrada y salida, con los sub-loops (RF-122). 0: sin tope
+    agent_max_tokens_per_turn: int = 200_000
     # Turno con orquestador y sub-loops (docs/spec/orquestador-y-sub-loops.md). Apagado: el loop de hoy (RF-95)
     agent_orquestador: bool = False
 

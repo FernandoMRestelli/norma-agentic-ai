@@ -9,7 +9,7 @@
 | Estado | Implementado en cinco ramas, una por mejora ([§10.1](#101-estado-de-implementación)). Falta medirlo con un LLM real |
 | Responsable | Federico Picado |
 | Requisitos de la spec del MVP | RF-07, RF-11, RF-13, RF-19, RF-21, RF-28, RF-36 a RF-39, RNF-03, RNF-06, RNF-07 |
-| IDs que reserva | RF-59 a RF-79, RF-98, RF-99, RF-111 a RF-117, RNF-15 y RNF-16, CA-113 a CA-134, CA-162 a CA-164, CA-183 a CA-203, D-21 a D-29, D-47 a D-50, BR-11 |
+| IDs que reserva | RF-59 a RF-79, RF-98, RF-99, RF-111 a RF-117, RF-122, RNF-15 y RNF-16, CA-113 a CA-134, CA-162 a CA-164, CA-183 a CA-203, CA-209, CA-210, D-21 a D-29, D-47 a D-51, BR-11 |
 
 **Índice**
 
@@ -617,6 +617,7 @@ Todos están implementados en las ramas de [§10.1](#101-estado-de-implementaci�
 | RF-115 | M1 | Un caso puede exigir, además del resultado, qué `kinds` valen en la respuesta, qué propuesta tiene que quedar (`propuesta_final`, vacía si ninguna) y qué tiene o no tiene que decir el mensaje (`dice`, `no_dice`): no registrar no alcanza para que `sin_pedido` sea correcto |
 | RF-116 | M1 | Hay un set de casos adversariales (aceptaciones con trampa, falta de evidencia, inyección y datos del negocio) en dos grupos. `desarrollo` se mira para ajustar prompts; `reservado` solo se corre para medir, y no se ajusta nada mirando sus casos |
 | RF-117 | M1 | La evaluación tiene un tope de llamadas (`--max-llamadas`) y corta tras varios casos seguidos sin respuesta del LLM; lo que no corrió cuenta como sin evaluar. Reporta tokens y costo de todos los turnos, los códigos de error de cada caso, el intervalo del porcentaje de aciertos y los casos que acertaron todas sus repeticiones |
+| RF-122 | M2 | El presupuesto del turno suma un tope de tokens (`AGENT_MAX_TOKENS_PER_TURN`, 200.000), con los de los sub-loops. Una tool de lectura llamada otra vez con los mismos argumentos en el turno no se ejecuta: devuelve `llamada_repetida`, y a la tercera el turno cierra con lo encontrado |
 | RNF-15 | M1 | Umbral de release sobre el set de RF-59: recall por línea ≥ 95 %, precisión ≥ 98 %, 0 registros indebidos y 0 líneas perdidas. Los números se ajustan con la primera corrida (D-28) |
 | RNF-16 | M2 | Presupuesto del turno: hasta 2 llamadas al LLM en el camino normal, tope de 50 iteraciones y 300 s en total (configurables); al agotarse, el turno cierra respondiendo con lo encontrado |
 
@@ -657,6 +658,8 @@ Todos están implementados en las ramas de [§10.1](#101-estado-de-implementaci�
 | CA-201 | El set adversarial | Se valida | Los SKU existen, los patrones compilan, hay casos de cada tema en los dos grupos y cada `--grupo` corre solo los suyos | `tests/test_evaluacion.py::test_casos_adversariales_son_coherentes`, `::test_los_dos_grupos_cubren_los_mismos_temas`, `::test_elegir_grupo` |
 | CA-202 | `--max-llamadas 3`, o tres casos seguidos sin respuesta del LLM | Corre el set | Se detiene y el resto queda sin evaluar | `tests/test_evaluacion.py::test_tope_de_llamadas`, `::test_corta_si_el_llm_no_responde` |
 | CA-203 | Un caso de dos turnos | Se miden los tokens | El total y el costo suman los dos turnos; las columnas por turno no cambian | `tests/test_evaluacion.py::test_tokens_y_costo_de_todos_los_turnos` |
+| CA-209 | Un turno que ya gastó el tope de tokens, contando los sub-loops | Iba a llamar otra vez al LLM | Cierra respondiendo con lo encontrado; con el tope en 0 no se controla | `tests/test_agent_graph.py::test_tope_de_tokens`, `::test_los_tokens_de_los_sub_loops_cuentan` |
+| CA-210 | Una búsqueda que salió bien | El modelo la repite igual en el turno / con otros argumentos, en otro turno o después de un error | Devuelve `llamada_repetida` sin ejecutarla, y a la tercera cierra / se ejecuta | `tests/test_agent_graph.py::test_llamada_repetida_no_se_ejecuta`, `::test_tres_repetidas_cierran_el_turno`, `::test_lo_que_no_es_repetir` |
 | CA-162 | Una lista que abre con «Buenas! Para el salón necesito:» y un catálogo con un producto que dice «salón» | Se numera | La línea de introducción no es un renglón: el primer producto es el renglón 1 | `tests/test_interpretation.py::test_la_introduccion_no_es_un_renglon` |
 | CA-123 | 30 renglones | Se llama a `buscar_renglones` | Devuelve 30 resultados con estado y, como mucho, 3 candidatos de 4 campos | `tests/test_busqueda.py::test_busqueda_por_lote` |
 | CA-124 | Un renglón de coloración con `tono` | Se busca | Encuentra la coloración de la marca y el tono no baja el puntaje | `tests/test_busqueda.py::test_tono_no_participa` |
@@ -708,6 +711,7 @@ Todos están implementados en las ramas de [§10.1](#101-estado-de-implementaci�
 | D-48 | Qué cuenta como evidencia de un SKU: lo que el LLM vio. Que exista en el catálogo no alcanza: uno elegido de memoria existe y puede ser otro producto. No se tolera por insistencia, porque siempre se puede sacar o buscar | Implementada |
 | D-49 | `opcion_sin_elegir` y `cantidad_distinta` se toleran (a la tercera y a la segunda): el control puede equivocarse con lo que dijo el cliente, y todavía falta que confirme una propuesta que muestra cada línea. No controla si una búsqueda del modelo le sumó un dato que el cliente no dijo: eso se mide con la evaluación | Implementada; se revisa contando los códigos en las trazas |
 | D-50 | Los sets `mensajes` y `pedidos` ya se usaron para ajustar prompts: su resultado es optimista. El grupo `reservado` de los adversariales es la medida honesta, y deja de serlo si se ajusta algo mirando sus casos: ahí pasan a `desarrollo` y se escriben otros | Implementada |
+| D-51 | El tope de 50 iteraciones es muy alto: en 28 turnos locales el loop principal dio p50 2, p95 5 y máximo 8. Bajarlo sin medir repite el problema del tope de 8 (un pedido de 7 renglones no llegaba a responder). Se decide con la corrida de la evaluación; mientras, el gasto lo acota el tope de tokens (p95 de esos turnos: 49.000) | Abierta |
 
 ## 10. Plan de implementación
 

@@ -14,6 +14,7 @@ from sqlalchemy import delete, func, select
 from internal.agent import context, graph, norma_agent, tool_registry
 from internal.agent.graph import FAILURE_MESSAGE, HANDOFF_MESSAGE
 from internal.agent.norma_agent import NormaAgent
+from internal.config import get_settings
 from internal.database.connection import SessionLocal, init_db
 from internal.database.models import ConversationRecord, DraftRecord, OrderRecord
 from internal.schemas.agent_schema import RespondToCustomerInput
@@ -702,6 +703,100 @@ def test_plazo_del_turno(catalogo, monkeypatch):
     assert resultado.kind == "propuesta"
     assert len(modelo.ofrecidas) == 2
     assert modelo.ofrecidas[1] == ["respond_to_customer"]
+
+
+def _con_uso(mensaje, entrada, salida=0):
+    uso = {"input_tokens": entrada, "output_tokens": salida, "total_tokens": entrada + salida}
+    return mensaje.model_copy(update={"usage_metadata": uso})
+
+
+def _cerrar(mensaje="Encontré la crema. ¿Cuántas querés?"):
+    return _ai(_call("respond_to_customer", kind="aclaracion", message=mensaje))
+
+
+@pytest.fixture
+def tope_de_tokens(monkeypatch):
+    def fijar(tope):
+        monkeypatch.setenv("AGENT_MAX_TOKENS_PER_TURN", str(tope))
+        get_settings.cache_clear()
+
+    yield fijar
+    get_settings.cache_clear()
+
+
+@pytest.mark.parametrize(("tope", "cierra"), [(1000, True), (1001, False), (0, False)])
+def test_tope_de_tokens(catalogo, tope_de_tokens, tope, cierra):
+    """CA-209: cuenta entrada y salida de todo el turno; al llegar al tope solo queda responder."""
+    tope_de_tokens(tope)
+    buscar = _ai(_call("leer_skill", nombre="tomar_pedido"), _call("search_products", query="crema"))
+    agent, modelo = _agente(_con_uso(buscar, 900, 100), _cerrar())
+
+    agent.handle("1", text="quiero algo", **CLIENTE)
+
+    assert (modelo.ofrecidas[1] == ["respond_to_customer"]) is cierra
+
+
+def test_el_tope_de_tokens_es_por_turno(catalogo, tope_de_tokens):
+    """CA-209: lo que gastó el turno anterior no cuenta."""
+    tope_de_tokens(1000)
+    leer = _call("leer_skill", nombre="tomar_pedido")
+    agent, modelo = _agente(_con_uso(_ai(leer), 1), _con_uso(_cerrar(), 5000), _ai(leer), _cerrar("¿Cuál de las dos?"))
+    agent.handle("1", text="quiero algo", **CLIENTE)
+    agent.handle("1", text="una crema", **CLIENTE)
+    assert "search_products" in modelo.ofrecidas[3]
+
+
+def test_los_tokens_de_los_sub_loops_cuentan():
+    """CA-209: lo que gastó un sub-loop está en su nota."""
+    notas = [{"tipo": "busqueda"}, {"tipo": "sub_loop", "tokens_entrada": 700, "tokens_salida": 50}]
+    mensajes = [HumanMessage(content="hola"), _con_uso(_ai(), 100, 10)]
+    assert graph._tokens_del_turno({"messages": mensajes, "inicio_turno": 0, "notas_turno": notas}) == 860
+
+
+def _busca(n, **args):
+    return _ai({**_call("search_products", **args), "id": f"busca-{n}"})
+
+
+def test_llamada_repetida_no_se_ejecuta(catalogo, monkeypatch):
+    """CA-210: el modelo recibe que ya la hizo, y la búsqueda no corre de nuevo."""
+    buscadas = []
+    original = tool_registry.catalog_tools.buscar_productos
+    monkeypatch.setattr(
+        tool_registry.catalog_tools, "buscar_productos", lambda *a: buscadas.append(a[0]) or original(*a)
+    )
+    agent, _ = _agente(
+        _busca(1, query="crema", limit=3), _busca(2, limit=3, query="crema"),  # el orden de los argumentos no importa
+        _ai(_call("leer_skill", nombre="tomar_pedido")), _cerrar(),
+    )  # fmt: skip
+    agent.handle("1", text="quiero algo", **CLIENTE)
+
+    codigos = [r["ok"] or r["error"]["code"] for r in _resultados(agent, "search_products")]
+    assert codigos == [True, "llamada_repetida"]
+    assert buscadas == ["crema"]
+
+
+def test_tres_repetidas_cierran_el_turno(catalogo):
+    """CA-210: insistir con lo mismo no avanza: responde con lo encontrado en vez de llegar al tope de iteraciones."""
+    agent, modelo = _agente(*[_busca(n, query="crema") for n in range(4)], _cerrar())
+    resultado = agent.handle("1", text="quiero algo", **CLIENTE)
+    assert modelo.ofrecidas[-1] == ["respond_to_customer"]
+    assert (resultado.kind, resultado.iterations) == ("aclaracion", 5)
+
+
+def test_lo_que_no_es_repetir(catalogo):
+    """CA-210: otros argumentos, una que falló, una tool que no es de lectura y el turno siguiente se ejecutan."""
+    leer = _call("leer_skill", nombre="tomar_pedido")
+    agent, _ = _agente(
+        _busca(1, query="crema"), _busca(2, query="crema nivea"),
+        _ai(_call("check_stock", sku="NO-EXISTE", quantity=1)), _ai(_call("check_stock", sku="NO-EXISTE", quantity=1)),
+        _ai(leer), _ai({**leer, "id": "otra"}), _cerrar(),
+        _busca(3, query="crema"), _ai(leer), _cerrar("¿Cuántas?"),
+    )  # fmt: skip
+    agent.handle("1", text="quiero algo", **CLIENTE)
+    agent.handle("1", text="una crema", **CLIENTE)
+    for tool in ("search_products", "check_stock", "leer_skill"):
+        assert "llamada_repetida" not in str(_resultados(agent, tool))
+    assert all(r["ok"] for r in _resultados(agent, "search_products"))
 
 
 def test_presupuesto_por_defecto():

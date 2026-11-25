@@ -331,13 +331,13 @@ def _controlar_evidencia(data: RespondToCustomerInput, ctx: TurnContext) -> None
             "el SKU que devuelve la tool, o sacalos de la respuesta",
             skus=no_vistos,
         )
-    if error := error_sin_elegir([(item.sku, item.renglon) for item in items], ctx):
+    if falla := error_sin_elegir([(item.sku, item.renglon) for item in items], ctx):
         if ctx.opciones_rechazadas < MAX_OPCIONES_RECHAZADAS and not ctx.cierre:
-            raise error
+            raise falla
         _tolerar(CODIGO_OPCION)
-    if error := _error_cantidad(data, ctx):
+    if falla := _error_cantidad(data, ctx):
         if ctx.cantidades_rechazadas < MAX_CANTIDADES_RECHAZADAS and not ctx.cierre:
-            raise error
+            raise falla
         _tolerar(CODIGO_CANTIDAD)
 
 
@@ -792,7 +792,7 @@ def _tool_no_permitida(name: str, ctx: TurnContext) -> str:
     return f"La tool {name!r} no está disponible en este turno: usá las que tenés"
 
 
-def _failure(code: str, message: str, **details: Any) -> dict[str, Any]:
+def error(code: str, message: str, **details: Any) -> dict[str, Any]:
     return {"ok": False, "error": {"code": code, "message": message, "details": details}}
 
 
@@ -868,25 +868,25 @@ def execute(name: str, arguments: dict[str, Any], ctx: TurnContext) -> dict[str,
 def _run(name: str, arguments: dict[str, Any], ctx: TurnContext) -> dict[str, Any]:
     """Ejecuta una tool y devuelve el sobre común. Un error vuelve al LLM para que lo corrija."""
     if name not in ctx.disponibles or name not in TOOLS:
-        return _failure("tool_no_permitida", _tool_no_permitida(name, ctx))
+        return error("tool_no_permitida", _tool_no_permitida(name, ctx))
     spec = TOOLS[name]
     try:
         data = spec.input_model.model_validate(arguments)
         return {"ok": True, "data": spec.run(data, ctx)}
     except ValidationError as exc:
         errors = exc.errors(include_url=False, include_input=False, include_context=False)
-        return _failure(
+        return error(
             "argumentos_invalidos",
             "Los argumentos no cumplen el esquema: corregilos según `errores` y volvé a llamar a la tool",
             errores=errors,
         )
     except ToolFailure as exc:
-        return _failure(exc.code, exc.message, **exc.details)
+        return error(exc.code, exc.message, **exc.details)
     except FallaSubLoop:
         raise  # no es un error de la tool: el turno falla, como cuando falla el LLM del orquestador
     except OSError:
         logger.exception("Tool %s: no se pudo leer el catálogo", name)
-        return _failure("catalogo_no_disponible", _CATALOGO_NO_DISPONIBLE)
+        return error("catalogo_no_disponible", _CATALOGO_NO_DISPONIBLE)
     except Exception:
         logger.exception("Tool %s: error inesperado", name)
-        return _failure("error_interno", _ERROR_INTERNO)
+        return error("error_interno", _ERROR_INTERNO)

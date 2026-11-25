@@ -46,6 +46,8 @@ logger = logging.getLogger(__name__)
 # se controla entre una iteración y la siguiente. Al agotarse, el turno no falla: cierra respondiendo
 ITERACIONES_CIERRE = 2  # para responder con lo encontrado; la segunda es por si el validador rechaza la primera
 TOOL_CIERRE = "respond_to_customer"
+MAX_LLAMADAS_REPETIDAS = 3  # en un turno: insistir con lo mismo no avanza, y el turno cierra con lo encontrado (RF-122)
+CODIGO_REPETIDA = "llamada_repetida"
 MAX_FAILURES = 2  # D-07
 # Con una propuesta vigente, un mensaje así de corto y sin números casi siempre la acepta, la rechaza o duda
 MAX_PALABRAS_RESPUESTA_A_PROPUESTA = 3
@@ -257,6 +259,12 @@ def descubrir_tools(state: EstadoNorma, config: RunnableConfig) -> dict[str, Any
     elif _reloj() - state.get("turno_desde", _reloj()) > max_segundos_turno():
         motivo = "plazo"
         logger.warning("Agente: el turno pasó el plazo de %d s, cierra con lo encontrado", max_segundos_turno())
+    elif 0 < get_settings().agent_max_tokens_per_turn <= (tokens := _tokens_del_turno(state)):
+        motivo = "tokens"
+        logger.warning("Agente: el turno gastó %d tokens, cierra con lo encontrado", tokens)
+    elif _rechazos(_del_turno(state), CODIGO_REPETIDA) >= MAX_LLAMADAS_REPETIDAS:
+        motivo = "sin_progreso"
+        logger.warning("Agente: %d llamadas repetidas, cierra con lo encontrado", MAX_LLAMADAS_REPETIDAS)
     if motivo:
         # En vez de cortar con el mensaje de falla, el modelo responde con lo que ya averiguó (RNF-16)
         with observabilidad.paso("cierre", "CHAIN", motivo=motivo, iteraciones=iteraciones):
@@ -264,6 +272,37 @@ def descubrir_tools(state: EstadoNorma, config: RunnableConfig) -> dict[str, Any
         return {"cierre_desde": iteraciones, "tools_disponibles": [TOOL_CIERRE]}
     orquestador = tool_registry.orquestador_activo()
     return {"tools_disponibles": tool_registry.available(state.get("skills_activas", []), orquestador)}
+
+
+def _del_turno(state: EstadoNorma) -> list[Any]:
+    return state["messages"][state.get("inicio_turno", 0) :]
+
+
+def _tokens_del_turno(state: EstadoNorma) -> int:
+    """Lo que gastó el turno hasta acá: el loop principal y los sub-loops (RF-122)."""
+    usos = [m.usage_metadata for m in _del_turno(state) if isinstance(m, AIMessage) and m.usage_metadata]
+    notas = state.get("notas_turno") or []
+    return sum(uso.get("input_tokens", 0) + uso.get("output_tokens", 0) for uso in usos) + sum(
+        nota.get("tokens_entrada", 0) + nota.get("tokens_salida", 0) for nota in notas
+    )
+
+
+def _ya_llamadas(messages: list[Any]) -> set[str]:
+    """Las llamadas a tools de lectura del turno que salieron bien, para no repetirlas iguales (RF-122)."""
+    hechas = set()
+    pendientes: list[dict[str, Any]] = []
+    for message in messages:
+        if isinstance(message, AIMessage) and message.tool_calls:
+            pendientes = list(message.tool_calls)
+        elif isinstance(message, ToolMessage) and pendientes:
+            llamada = pendientes.pop(0)  # cada llamada tiene su resultado, en el mismo orden
+            if llamada["name"] in evidencia.TOOLS and json.loads(message.content).get("ok"):
+                hechas.add(_clave_llamada(llamada))
+    return hechas
+
+
+def _clave_llamada(call: dict[str, Any]) -> str:
+    return f"{call['name']} {json.dumps(call['args'], ensure_ascii=False, sort_keys=True)}"
 
 
 def _conversation_id(config: RunnableConfig) -> int | None:
@@ -445,8 +484,17 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
         if ctx.orquestador:
             ctx.delegar = delegador(state)
         messages: list[Any] = []
+        ya_llamadas = _ya_llamadas(del_turno)
         for call in state["messages"][-1].tool_calls:
-            if ctx.resultado == "continuar":
+            if ctx.resultado == "continuar" and _clave_llamada(call) in ya_llamadas:
+                with observabilidad.paso(call["name"], "TOOL", iteracion=state.get("iteraciones")) as paso:
+                    result = tool_registry.error(
+                        CODIGO_REPETIDA,
+                        f"Ya llamaste a {call['name']} con estos argumentos en este turno y el resultado es el mismo: "
+                        "usá ese. Si no alcanza, buscá de otra forma o respondele al cliente con lo que tenés",
+                    )
+                    paso.resultado_tool(call["args"], result)
+            elif ctx.resultado == "continuar":
                 with observabilidad.paso(call["name"], "TOOL", iteracion=state.get("iteraciones")) as paso:
                     try:
                         result = tool_registry.execute(call["name"], call["args"], ctx)
