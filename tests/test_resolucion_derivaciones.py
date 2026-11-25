@@ -474,6 +474,7 @@ def test_confirmacion_con_borrador_actualizado_muestra_total_antes_de_crear_orde
     call_propuesta = AIMessage(
         content="",
         tool_calls=[
+            {"name": "search_products", "args": {"query": "crema nivea"}, "id": "call-busca-1", "type": "tool_call"},
             {
                 "name": "respond_to_customer",
                 "args": {
@@ -615,6 +616,7 @@ def test_flujo_completo_resolucion_propuesta_confirmacion_csv_y_sheet2_sin_notas
     call_propuesta = AIMessage(
         content="",
         tool_calls=[
+            {"name": "search_products", "args": {"query": "shampoo pantene"}, "id": "call-busca", "type": "tool_call"},
             {
                 "name": "respond_to_customer",
                 "args": {
@@ -1020,6 +1022,7 @@ def test_fallo_commit_restaura_condiciones_del_agente(monkeypatch):
 def test_tool_devuelve_error_corregible_si_no_entran_las_notas(monkeypatch):
     """El modelo puede corregir las notas; nunca recibe un falso enviado ni una propuesta recortada."""
     from internal.agent import tool_registry
+    from internal.agent.evidencia import Evidencia
     from internal.schemas.catalog_schema import Product
     from internal.services import sheets_service
 
@@ -1033,6 +1036,7 @@ def test_tool_devuelve_error_corregible_si_no_entran_las_notas(monkeypatch):
         channel=Channel.TELEGRAM,
         disponibles=["respond_to_customer"],
         acuerdo_operativo="Retiro de 9 a 12",
+        evidencia=Evidencia(vistos={"SKU-SINT"}),
     )
     result = tool_registry.execute(
         "respond_to_customer",

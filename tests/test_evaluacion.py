@@ -177,7 +177,7 @@ def _proponer(cantidad: int = 2) -> AIMessage:
     )
 
 
-LEER_TOMAR = _ai(_call("leer_skill", nombre="tomar_pedido"))
+LEER_TOMAR = _ai(_call("leer_skill", nombre="tomar_pedido"), _call("search_products", query="shampoo pantene 400"))
 LEER_CONFIRMAR = _ai(_call("leer_skill", nombre="confirmar_pedido"))
 
 

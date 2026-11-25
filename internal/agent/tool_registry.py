@@ -8,6 +8,7 @@ from typing import Any
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import BaseModel, ValidationError
 
+from internal.agent import evidencia as ev
 from internal.agent import guardrails, nota, observabilidad
 from internal.agent.state import Resultado
 from internal.config import get_settings
@@ -31,7 +32,7 @@ from internal.schemas.agent_schema import (
 )
 from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import Channel, OrderDraft
-from internal.services import inventory_service, order_service, validation_service
+from internal.services import interpretation_service, inventory_service, order_service, validation_service
 from internal.services.palabras_clave import es_aceptacion_explicita, es_aceptacion_pura
 from internal.services.skill_service import TOOL_RESPUESTA, Skill, SkillError, get_skills
 from internal.tools import catalog_tools, inventory_tools, order_tools, reply_tools, skill_tools
@@ -81,8 +82,14 @@ class TurnContext:
     # Con qué se comprueba la aceptación antes de registrar (RF-111). Sin el mensaje no hay aceptación: falla cerrado
     mensaje_cliente: str = ""
     kind_anterior: str | None = None
-    hay_opciones_previas: bool = False
+    opciones_previas: list[str] = field(default_factory=list)  # las `options` de la respuesta anterior
     confirmaciones_frenadas: int = 0  # `aceptacion_no_clara` de este turno
+    # Con qué se comprueba la propuesta (RF-112 a RF-114). Sin evidencia no hay producto que proponer: falla cerrado
+    evidencia: ev.Evidencia = field(default_factory=ev.Evidencia)
+    skus_pedidos: set[str] = field(default_factory=set)  # los de los pedidos anteriores que ve el LLM en su prompt
+    opciones_rechazadas: int = 0  # `opcion_sin_elegir` de este turno
+    cantidades_rechazadas: int = 0  # `cantidad_distinta` de este turno
+    cierre: bool = False  # se agotó el presupuesto: el LLM ya no puede volver a buscar (RNF-16)
     turno: guardrails.ContextoTurno = field(default_factory=guardrails.ContextoTurno)  # para validar la salida
     orquestador: bool = False  # con el orquestador, `leer_skill` de una skill sub_loop dice cómo delegarla
     notas_turno: list[dict[str, Any]] = field(default_factory=list)  # la nota de búsqueda y las de los sub-loops
@@ -249,6 +256,91 @@ def _leer_br(data: LeerBrInput, ctx: TurnContext) -> dict[str, Any]:
 MAX_COBERTURAS_FALLIDAS = 2
 
 
+# Después de esta cantidad, la siguiente se acepta: el control puede no entender lo que dijo el cliente (D-49)
+MAX_OPCIONES_RECHAZADAS = 2
+MAX_CANTIDADES_RECHAZADAS = 1
+CODIGO_OPCION = "opcion_sin_elegir"
+CODIGO_CANTIDAD = "cantidad_distinta"
+
+
+def elegidos(ctx: TurnContext) -> ev.Elegidos:
+    """Lo que el cliente ya eligió o tenía a la vista antes de este mensaje."""
+    siempre = set(ctx.opciones_previas) | ({item.sku for item in ctx.propuesta.items} if ctx.propuesta else set())
+    if interpretation_service.depende_de_otra_cosa(ctx.mensaje_cliente):
+        siempre |= ctx.skus_pedidos  # «lo de siempre» se elige entre sus pedidos, aunque la búsqueda traiga más (BR-11)
+    return ev.Elegidos(siempre, ev.de_los_renglones(ctx.renglones))
+
+
+def error_sin_elegir(lineas: list[tuple[str, int | None]], ctx: TurnContext) -> ToolFailure | None:
+    """El error de las líneas que el modelo eligió por el cliente, o None (RF-113). Lo usan la respuesta y la nota."""
+    if not (faltan := ctx.evidencia.sin_elegir(lineas, elegidos(ctx))):
+        return None
+    detalle = ", ".join(sku if n is None else f"{sku} (renglón {n})" for sku, n in faltan)
+    return ToolFailure(
+        CODIGO_OPCION,
+        f"La búsqueda no definió estos productos: {detalle}. Había varias opciones, era aproximado o es de otro "
+        "renglón. Si el cliente dio más datos, buscá otra vez con todos; si no, dejalo en `pendientes` o en `options` "
+        "y preguntale cuál quiere (BR-03, BR-09)",
+        skus=[sku for sku, _ in faltan],
+    )
+
+
+def _error_cantidad(data: RespondToCustomerInput, ctx: TurnContext) -> ToolFailure | None:
+    """Un renglón nuevo propuesto con otra cantidad que la que escribió el cliente (RF-114)."""
+    por_renglon: dict[int, list[Any]] = {}
+    for item in data.propuesta or []:
+        if item.renglon is not None:
+            por_renglon.setdefault(item.renglon, []).append(item)
+    distintas = []
+    for renglon in ctx.renglones:
+        items = por_renglon.get(renglon["n"])
+        if renglon["estado"] != "sin_resolver" or not items or len({item.sku for item in items}) > 1:
+            continue
+        pedida, propuesta = interpretation_service.cantidad_inequivoca(renglon), sum(item.quantity for item in items)
+        menos_por_stock = items[0].sku in ctx.turno.faltantes and pedida is not None and propuesta < pedida
+        if pedida is not None and propuesta != pedida and not menos_por_stock:
+            distintas.append((renglon["n"], pedida, propuesta))
+    if not distintas:
+        return None
+    detalle = ", ".join(f"el renglón {n} pide {pedida} y propusiste {propuesta}" for n, pedida, propuesta in distintas)
+    return ToolFailure(
+        CODIGO_CANTIDAD,
+        f"La cantidad no es la que escribió el cliente: {detalle}. Corregila; si el cliente la pidió de otra forma, "
+        "volvé a mandar la misma respuesta y se acepta",
+        renglones=[n for n, _, _ in distintas],
+    )
+
+
+def _tolerar(motivo: str) -> None:
+    logger.warning("Guardrail: se acepta una propuesta después de insistir (motivo=%s)", motivo)
+    with observabilidad.paso("control_evidencia", "GUARDRAIL", motivo=motivo, tolerado=True):
+        pass
+
+
+def _controlar_evidencia(data: RespondToCustomerInput, ctx: TurnContext) -> None:
+    """La propuesta sale de lo que el LLM vio, sin elegir por el cliente ni cambiar sus cantidades (RF-112 a RF-114)."""
+    items = data.propuesta or []
+    del_prompt = set(ctx.opciones_previas) | ctx.skus_pedidos
+    del_prompt |= {item.sku for item in ctx.propuesta.items} if ctx.propuesta else set()
+    del_prompt = del_prompt.union(*ev.de_los_renglones(ctx.renglones).values())
+    usados = [item.sku for item in items] + data.options + [sku for p in data.pendientes for sku in p.opciones]
+    if no_vistos := [sku for sku in dict.fromkeys(usados) if sku not in ctx.evidencia.vistos | del_prompt]:
+        raise ToolFailure(
+            "sku_no_buscado",
+            f"Estos SKU no salieron de ninguna búsqueda: {', '.join(no_vistos)}. Buscá lo que pidió el cliente y usá "
+            "el SKU que devuelve la tool, o sacalos de la respuesta",
+            skus=no_vistos,
+        )
+    if error := error_sin_elegir([(item.sku, item.renglon) for item in items], ctx):
+        if ctx.opciones_rechazadas < MAX_OPCIONES_RECHAZADAS and not ctx.cierre:
+            raise error
+        _tolerar(CODIGO_OPCION)
+    if error := _error_cantidad(data, ctx):
+        if ctx.cantidades_rechazadas < MAX_CANTIDADES_RECHAZADAS and not ctx.cierre:
+            raise error
+        _tolerar(CODIGO_CANTIDAD)
+
+
 def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict[str, Any]:
     data = reply_tools.con_tonos(data, ctx.renglones)
     propuesta = reply_tools.respond_to_customer(
@@ -260,6 +352,7 @@ def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict
     renglones = reply_tools.cubrir_renglones(
         data, ctx.renglones, tolerar=ctx.coberturas_fallidas >= MAX_COBERTURAS_FALLIDAS
     )
+    _controlar_evidencia(data, ctx)
     if propuesta:
         # Lo que quedó afuera viaja con la propuesta: si el cliente la acepta, la orden lo guarda (RF-76).
         # También conservamos el descuento autorizado y el acuerdo operativo confirmado sin duplicarlo.
@@ -395,7 +488,7 @@ def _controlar_aceptacion(ctx: TurnContext) -> bool:
     """
     pura = es_aceptacion_pura(ctx.mensaje_cliente)
     mostro_propuesta = ctx.kind_anterior in KINDS_CON_PROPUESTA
-    pregunto = ctx.hay_opciones_previas or ctx.kind_anterior == "aclaracion"
+    pregunto = bool(ctx.opciones_previas) or ctx.kind_anterior == "aclaracion"
     if pura and (not pregunto or (mostro_propuesta and es_aceptacion_explicita(ctx.mensaje_cliente))):
         return True
     motivo = "contesta_una_pregunta" if pura else "dice_algo_mas"
@@ -761,7 +854,14 @@ def reglas_que_dispara(
 
 def execute(name: str, arguments: dict[str, Any], ctx: TurnContext) -> dict[str, Any]:
     """Ejecuta una tool y devuelve el sobre común, con la BR que dispara el resultado si corresponde (RF-63)."""
-    return _adjuntar_br(name, _run(name, arguments, ctx), ctx)
+    result = _run(name, arguments, ctx)
+    if result["ok"]:
+        ctx.evidencia.sumar(name, result["data"])
+    elif result["error"]["code"] == CODIGO_OPCION:
+        ctx.opciones_rechazadas += 1
+    elif result["error"]["code"] == CODIGO_CANTIDAD:
+        ctx.cantidades_rechazadas += 1
+    return _adjuntar_br(name, result, ctx)
 
 
 def _run(name: str, arguments: dict[str, Any], ctx: TurnContext) -> dict[str, Any]:

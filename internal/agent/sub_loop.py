@@ -16,7 +16,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, ToolMessage
 from pydantic import ValidationError
 
-from internal.agent import contexto_cliente, guardrails, nota, observabilidad, precarga, tool_registry
+from internal.agent import contexto_cliente, evidencia, guardrails, nota, observabilidad, precarga, tool_registry
 from internal.schemas.agent_schema import EntregarNotaInput
 from internal.services.skill_service import Skill
 
@@ -198,6 +198,10 @@ def correr(
         origen=ctx.origen,
         comprados=ctx.comprados,
         propuesta=ctx.propuesta,
+        mensaje_cliente=ultimo_mensaje,
+        opciones_previas=opciones_previas,
+        skus_pedidos=ctx.skus_pedidos,
+        evidencia=evidencia.del_turno([], ctx.notas_turno),
     )
     prompt = construir_prompt(
         skill, encargo, numeros, ctx.renglones, contexto, opciones_texto, ctx.notas_turno, ultimo_mensaje
@@ -252,7 +256,7 @@ def correr(
                 elif call["name"] == tool_registry.TERMINAL_SUB_LOOP:
                     resultado, entregada, rechazos = _entregar(
                         call["args"], numeros, vistos, rechazos, busquedas, datos.faltantes, avisados,
-                        {renglon["n"] for renglon in ctx.renglones if renglon.get("duda")},
+                        {renglon["n"] for renglon in ctx.renglones if renglon.get("duda")}, sub_ctx,
                     )  # fmt: skip
                     if entregada is not None:
                         cerrada_por = "nota" if rechazos <= nota.MAX_RECHAZOS else "forzada"
@@ -399,6 +403,14 @@ def _stock_sin_renglon(
     )
 
 
+def _sin_elegir(data: EntregarNotaInput, ctx: tool_registry.TurnContext | None) -> dict[str, Any] | None:
+    """Un resuelto que el sub-loop eligió por el cliente entre varias opciones (RF-113)."""
+    if ctx is None:
+        return None
+    error = tool_registry.error_sin_elegir([(r.sku, r.renglon) for r in data.resueltos], ctx)
+    return nota._error(error.code, error.message, **error.details) if error else None
+
+
 def _entregar(
     args: dict[str, Any],
     numeros: list[int],
@@ -408,6 +420,7 @@ def _entregar(
     faltantes: dict[str, int] | None = None,
     avisados: set[str] | None = None,
     con_duda: set[int] | None = None,
+    ctx: tool_registry.TurnContext | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None, int]:
     """Valida una nota. Devuelve el resultado para el sub-loop, la nota aceptada (o None) y los rechazos."""
     with observabilidad.paso("nota", "PARSER", renglones=len(numeros), entrega=rechazos + 1) as paso:
@@ -422,8 +435,10 @@ def _entregar(
             }
             data = None
         else:
-            error = nota.validar(data, numeros, vistos, _disponibles(busquedas), con_duda) or _stock_sin_renglon(
-                data, busquedas, faltantes or {}, avisados if avisados is not None else set()
+            error = (
+                nota.validar(data, numeros, vistos, _disponibles(busquedas), con_duda)
+                or _stock_sin_renglon(data, busquedas, faltantes or {}, avisados if avisados is not None else set())
+                or _sin_elegir(data, ctx)
             )
         paso.texto(entrada=args, salida=error)
         if error is None:

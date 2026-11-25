@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from internal.agent import (
     context,
     contexto_cliente,
+    evidencia,
     guardrails,
     observabilidad,
     precarga,
@@ -304,8 +305,19 @@ def _turn_context(state: EstadoNorma, config: RunnableConfig, disponibles: list[
         propuesta_pendiente_mostrar=bool(state.get("propuesta_pendiente_mostrar", False)),
         mensaje_cliente=_mensaje_cliente(state),
         kind_anterior=state.get("kind_anterior"),
-        hay_opciones_previas=bool(state.get("opciones_previas")),
+        opciones_previas=list(state.get("opciones_previas") or []),
+        skus_pedidos={
+            linea["sku"]
+            for pedido in (state.get("contexto_cliente") or {}).get("pedidos") or []
+            for linea in pedido["lineas"]
+        },
+        cierre=state.get("cierre_desde") is not None,
     )
+
+
+def _rechazos(messages: list[Any], codigo: str) -> int:
+    """Cuántas veces una tool devolvió este error en el turno."""
+    return sum(isinstance(m, ToolMessage) and f'"code": "{codigo}"' in m.content for m in messages)
 
 
 def _mensaje_cliente(state: EstadoNorma) -> str:
@@ -413,10 +425,10 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             and ('"code": "renglones_sin_cuenta"' in m.content or '"code": "duda_de_lectura"' in m.content)
             for m in del_turno
         )
-        ctx.confirmaciones_frenadas = sum(
-            isinstance(m, ToolMessage) and f'"code": "{tool_registry.CODIGO_ACEPTACION}"' in m.content
-            for m in del_turno
-        )
+        ctx.confirmaciones_frenadas = _rechazos(del_turno, tool_registry.CODIGO_ACEPTACION)
+        ctx.opciones_rechazadas = _rechazos(del_turno, tool_registry.CODIGO_OPCION)
+        ctx.cantidades_rechazadas = _rechazos(del_turno, tool_registry.CODIGO_CANTIDAD)
+        ctx.evidencia = evidencia.del_turno(del_turno, state.get("notas_turno") or [])
         ctx.orquestador = tool_registry.orquestador_activo()
         ctx.notas_turno = list(state.get("notas_turno") or [])
         ctx.iteraciones_sub_loop = state.get("iteraciones_sub_loop", 0)

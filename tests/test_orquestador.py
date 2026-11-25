@@ -14,7 +14,8 @@ from internal.services import order_service, sheets_service, skill_service
 from internal.tools import order_tools
 from tests.test_agent_graph import CLIENTE, _agente, _ai, _call, _resultados, base_limpia  # noqa: F401
 
-LISTA = "2 shampoo keratina\n3 mascara argan"
+LISTA = "2 shampoo keratina\n3 mascara argan"  # los dos tienen dos medidas
+LISTA_CON_MEDIDA = "2 shampoo keratina 900\n3 mascara argan"  # el primero queda definido (RF-113)
 MASCARAS = ["MAS-ARG-250", "MAS-ARG-1K"]
 
 
@@ -94,7 +95,7 @@ def test_pedido_delegado_en_un_sub_loop(catalogo):
     """El camino feliz: el orquestador delega, el sub-loop entrega la nota y el orquestador responde con ella."""
     agent, modelo = _agente(_delegar(), _nota(), _responder())
 
-    resultado = agent.handle("1", text=LISTA, **CLIENTE)
+    resultado = agent.handle("1", text=LISTA_CON_MEDIDA, **CLIENTE)
 
     assert resultado.kind == "propuesta"
     assert [(item.sku, item.quantity) for item in resultado.draft.items] == [("SH-KER-900", 2)]
@@ -133,11 +134,11 @@ def test_el_sub_loop_tiene_contexto_propio(catalogo):
         _responder(),
     )
     agent.handle("1", text="hola", **CLIENTE)
-    agent.handle("1", text=LISTA, **CLIENTE)
+    agent.handle("1", text=LISTA_CON_MEDIDA, **CLIENTE)
 
     (indice,) = [i for i, mensajes in enumerate(modelo.recibidos) if _es_sub_loop(mensajes)]
     sistema, cliente = modelo.recibidos[indice]
-    assert isinstance(cliente, HumanMessage) and cliente.content.endswith(LISTA)  # solo el último mensaje
+    assert isinstance(cliente, HumanMessage) and cliente.content.endswith(LISTA_CON_MEDIDA)  # solo el último mensaje
     assert cliente.content.startswith("Resolvé solo los renglones 1, 2 del encargo")
     assert "Qué te preparo hoy" not in sistema.content
     assert "## Nota de búsqueda" not in sistema.content  # la precarga entra como «ya buscados» de su encargo
@@ -157,7 +158,7 @@ def test_nota_con_sku_inventado_se_rechaza(catalogo):
         _responder(),
     )
 
-    resultado = agent.handle("1", text=LISTA, **CLIENTE)
+    resultado = agent.handle("1", text=LISTA_CON_MEDIDA, **CLIENTE)
 
     rechazo = json.loads(modelo.recibidos[2][-1].content)
     assert rechazo["error"]["code"] == "sku_no_buscado"
@@ -221,7 +222,7 @@ def test_las_notas_no_pasan_al_turno_siguiente(catalogo):
         _ai(_call("respond_to_customer", kind="propuesta", message="Dale, te lo dejo así. ¿Lo confirmo?",
                   propuesta=[{"sku": "SH-KER-900", "quantity": 2}])),
     )  # fmt: skip
-    agent.handle("1", text=LISTA, **CLIENTE)
+    agent.handle("1", text=LISTA_CON_MEDIDA, **CLIENTE)
 
     agent.handle("1", text="¿cuánto tarda en llegar?", **CLIENTE)
 
@@ -229,7 +230,7 @@ def test_las_notas_no_pasan_al_turno_siguiente(catalogo):
     assert not any(observacion in str(m.content) for m in recibidos)
     assert not any(isinstance(m, ToolMessage) for m in recibidos)
     sistema = recibidos[0].content
-    assert "1. 2 shampoo keratina → resuelto: 2 x SH-KER-900" in sistema
+    assert "1. 2 shampoo keratina 900 → resuelto: 2 x SH-KER-900" in sistema
     assert "2. 3 mascara argan → pendiente" in sistema
     assert _estado(agent)["notas_turno"] == []
 
@@ -267,7 +268,7 @@ def test_sub_loop_con_texto_suelto_recibe_aviso(catalogo):
     suelto = "TEXTO-SUELTO: ya casi lo tengo"
     agent, modelo = _agente(_delegar(), AIMessage(content=suelto), _nota(), _responder())
 
-    resultado = agent.handle("1", text=LISTA, **CLIENTE)
+    resultado = agent.handle("1", text=LISTA_CON_MEDIDA, **CLIENTE)
 
     segunda = modelo.recibidos[2]
     assert _es_sub_loop(segunda)
@@ -286,12 +287,13 @@ def test_redelegar_trae_los_intentos_anteriores(catalogo):
         _delegar(renglones=(2,)),
         _ai(_call_id("search_products", 1, query="mascara argan rulos")),
         _nota(1, resueltos=(), pendientes=((2, MASCARAS),)),
-        _delegar(renglones=(2,), n=2, encargo="Probá por la medida que suele llevar"),
+        _delegar(renglones=(2,), n=2, encargo="Probá con la medida"),
+        _ai(_call_id("search_products", 2, query="mascara argan 1 kg")),
         _nota(2, resueltos=((2, "MAS-ARG-1K", 3),), pendientes=()),
         _responder(resueltos=((1, "SH-KER-900", 2), (2, "MAS-ARG-1K", 3)), pendientes=()),
     )
 
-    agent.handle("1", text=LISTA, **CLIENTE)
+    agent.handle("1", text=LISTA_CON_MEDIDA, **CLIENTE)
 
     sub_loops = [mensajes for mensajes in modelo.recibidos if _es_sub_loop(mensajes)]
     segundo = sub_loops[-1][0].content
@@ -314,7 +316,7 @@ def test_el_orquestador_ve_solo_la_nota(catalogo):
         _responder(),
     )
 
-    agent.handle("1", text=LISTA, **CLIENTE)
+    agent.handle("1", text=LISTA_CON_MEDIDA, **CLIENTE)
 
     orquestador = modelo.recibidos[-1]
     assert not _es_sub_loop(orquestador)
@@ -373,7 +375,7 @@ def test_el_orquestador_puede_decir_lo_que_quedo(catalogo):
                   pendientes=[{"renglon": 1, "opciones": ["SH-KER-900", "SH-KER-300"]}])),
     )  # fmt: skip
 
-    resultado = agent.handle("1", text=LISTA, **CLIENTE)
+    resultado = agent.handle("1", text="2 shampoo keratina\n3 mascara argan 250", **CLIENTE)
 
     (delegacion,) = _resultados(agent, "delegar_skill")
     assert delegacion["data"]["disponibles"] == {"MAS-ARG-250": 2}
@@ -410,7 +412,7 @@ def test_el_sub_loop_sabe_que_tools_tiene(catalogo):
         _responder(),
     )
 
-    agent.handle("1", text=LISTA, **CLIENTE)
+    agent.handle("1", text=LISTA_CON_MEDIDA, **CLIENTE)
 
     error = json.loads(modelo.recibidos[2][-1].content)["error"]
     assert error["code"] == "tool_no_permitida"
@@ -608,7 +610,7 @@ def test_las_dudas_de_la_nota_traen_el_nombre_de_sus_opciones(catalogo):
     """Con solo los SKU de las opciones, el orquestador los copiaba en el mensaje al cliente."""
     agent, _ = _agente(_delegar(), _nota(), _responder())
 
-    agent.handle("1", text=LISTA, **CLIENTE)
+    agent.handle("1", text=LISTA_CON_MEDIDA, **CLIENTE)
 
     (delegacion,) = _resultados(agent, "delegar_skill")
     (duda,) = delegacion["data"]["pendientes"]

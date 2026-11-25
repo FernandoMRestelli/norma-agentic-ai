@@ -781,7 +781,7 @@ def test_saludo_cierra_en_una_llamada(catalogo):
 def test_la_skill_preactivada_no_sigue_en_el_turno_siguiente(catalogo):
     """RF-62: cada turno se encamina de nuevo; si el mensaje no es claro, vuelve a elegir el modelo."""
     agent, modelo = _agente(
-        _ai(_propuesta("Listo, te armé las cremas. ¿Lo confirmo?", SKU, 2)),
+        _ai(_call("get_product", sku=SKU), _propuesta("Listo, te armé las cremas. ¿Lo confirmo?", SKU, 2)),
         _ai(_call("leer_skill", nombre="tomar_pedido")),
         _ai(_propuesta("Ahora son 3. ¿Lo dejamos así?", SKU, 3)),
     )
@@ -1286,7 +1286,9 @@ def test_aclaracion_sin_volver_a_buscar(catalogo_pantene):
         message="El shampoo Pantene lo tengo en 200 y en 400. ¿Cuál te mando?",
         options=["SH-200", "SH-400"],
     )
-    agent, modelo = _agente(_ai(preguntar), _ai(_propuesta("Listo, van los 2 de 400. ¿Lo confirmo?", "SH-400", 2)))
+    vio = (_call("get_product", sku="SH-200"), _call("get_product", sku="SH-400"))
+    elegir = _ai(_propuesta("Listo, van los 2 de 400. ¿Lo confirmo?", "SH-400", 2))
+    agent, modelo = _agente(_ai(*vio, preguntar), elegir)
     agent.handle("1", text="2 shampoo pantene", **CLIENTE)  # una cantidad: preactiva `tomar_pedido`
 
     resultado = agent.handle("1", text="el de 400", **CLIENTE)
@@ -1307,7 +1309,8 @@ def test_las_opciones_son_las_de_la_ultima_respuesta(catalogo_pantene):
     preguntar = _call("respond_to_customer", kind="aclaracion", message="¿De 200 o de 400?", options=opciones)
     proponer = _ai(_propuesta("Van los 2 de 400. ¿Lo confirmo?", "SH-400", 2))
     otra = _ai(_propuesta("Ahora son 3 de 400. ¿Lo dejamos así?", "SH-400", 3))
-    agent, modelo = _agente(_ai(preguntar), proponer, otra)
+    vio = (_call("get_product", sku="SH-200"), _call("get_product", sku="SH-400"))
+    agent, modelo = _agente(_ai(*vio, preguntar), proponer, otra)
     agent.handle("1", text="2 shampoo pantene", **CLIENTE)
     agent.handle("1", text="2 del de 400", **CLIENTE)
     agent.handle("1", text="mejor 3 de esos", **CLIENTE)

@@ -9,7 +9,7 @@
 | Estado | Implementado en cinco ramas, una por mejora ([§10.1](#101-estado-de-implementación)). Falta medirlo con un LLM real |
 | Responsable | Federico Picado |
 | Requisitos de la spec del MVP | RF-07, RF-11, RF-13, RF-19, RF-21, RF-28, RF-36 a RF-39, RNF-03, RNF-06, RNF-07 |
-| IDs que reserva | RF-59 a RF-79, RF-98, RF-99, RF-111, RNF-15 y RNF-16, CA-113 a CA-134, CA-162 a CA-164, CA-183 a CA-188, D-21 a D-29, D-47, BR-11 |
+| IDs que reserva | RF-59 a RF-79, RF-98, RF-99, RF-111 a RF-114, RNF-15 y RNF-16, CA-113 a CA-134, CA-162 a CA-164, CA-183 a CA-198, D-21 a D-29, D-47 a D-49, BR-11 |
 
 **Índice**
 
@@ -611,6 +611,9 @@ Todos están implementados en las ramas de [§10.1](#101-estado-de-implementaci�
 | RF-98 | M4 | Una respuesta sin `propuesta` deja la vigente como estaba; solo `descartar_propuesta` la descarta, cuando el cliente la rechaza o saca todo |
 | RF-99 | M2 | El atajo de RF-64 corre solo si la respuesta anterior cerró con la propuesta (`kind` `propuesta` o `sin_stock`) sin opciones ofrecidas. Después de una aclaración, una consulta, un error o una pregunta con opciones, el mensaje va al LLM |
 | RF-111 | M2 | Cuando el LLM llama a `armar_pedido`, el backend registra solo si el último mensaje del cliente es una aceptación pura: todas sus palabras son de aceptar o de cortesía. Después de una aclaración o con opciones ofrecidas, ni siquiera una aceptación pura alcanza, salvo que sea explícita («confirmalo así») y la respuesta anterior haya mostrado la propuesta. Si no se cumple, la tool devuelve `aceptacion_no_clara`; si el LLM insiste en el mismo turno, el sistema vuelve a mostrar la propuesta y pide la confirmación |
+| RF-112 | M3 | Todo SKU de `propuesta`, `options` y `pendientes` tiene que haber llegado al LLM en el turno: por el resultado de una tool, una nota, las opciones de su respuesta anterior, la propuesta vigente, los pedidos anteriores o los renglones del estado. Si no, la respuesta falla con `sku_no_buscado` |
+| RF-113 | M3 | Entre varias opciones elige el cliente: un producto que solo apareció en búsquedas con varias coincidencias, aproximadas o de otro renglón no va en `propuesta` (`opcion_sin_elegir`), salvo que sea una de las opciones ya ofrecidas, esté en la propuesta vigente, sea lo que compró y pide «lo de siempre», o se propongan todas las coincidencias («uno de cada»). Vale también para la nota de un sub-loop |
+| RF-114 | M3 | Un renglón nuevo con una cantidad escrita de forma inequívoca se propone con esa cantidad (`cantidad_distinta`). Es un aviso: la misma respuesta enviada de nuevo se acepta |
 | RNF-15 | M1 | Umbral de release sobre el set de RF-59: recall por línea ≥ 95 %, precisión ≥ 98 %, 0 registros indebidos y 0 líneas perdidas. Los números se ajustan con la primera corrida (D-28) |
 | RNF-16 | M2 | Presupuesto del turno: hasta 2 llamadas al LLM en el camino normal, tope de 50 iteraciones y 300 s en total (configurables); al agotarse, el turno cierra respondiendo con lo encontrado |
 
@@ -636,6 +639,16 @@ Todos están implementados en las ramas de [§10.1](#101-estado-de-implementaci�
 | CA-186 | Un pedido largo propuesto con dudas pendientes | El cliente escribe «dale» y el modelo llama a `armar_pedido` | El sistema muestra la propuesta y pide la confirmación, sin otra llamada al LLM. Con «confirmalo así» registra | `tests/test_agent_graph.py::test_pedido_con_dudas_pide_una_confirmacion_explicita` |
 | CA-187 | Frases de los clientes | Se clasifican | «sí, dale», «perfecto, mandalo», «ok gracias» y «👍» son aceptaciones puras; un número, una pregunta, puntos suspensivos, una negación, una condición o un producto no | `tests/test_palabras_clave.py::test_aceptacion_pura`, `::test_lo_que_no_es_una_aceptacion_pura` |
 | CA-188 | Un contexto de tools sin el mensaje del cliente | Se llama a `armar_pedido` con una propuesta vigente | No registra: sin el mensaje no hay aceptación | `tests/test_tools.py::test_armar_pedido_sin_el_mensaje_del_cliente_no_registra` |
+| CA-189 | Un SKU del catálogo que no salió de ninguna tool | El modelo lo propone, lo ofrece en `options` o en `pendientes` | Falla con `sku_no_buscado`, aunque insista, y la propuesta vigente no cambia | `tests/test_evidencia.py::test_sku_que_no_se_busco` |
+| CA-190 | Un SKU de las opciones anteriores, de la propuesta vigente, de los pedidos anteriores o de una búsqueda del turno | El modelo lo propone | Se acepta | `tests/test_evidencia.py::test_sku_que_el_modelo_ya_tenia` |
+| CA-191 | Un resultado con `ok: false` que nombra el SKU que mandó el modelo | El modelo lo propone de nuevo | Sigue fallando: un error no es evidencia | `tests/test_evidencia.py::test_un_error_no_es_evidencia` |
+| CA-192 | «2 shampoo keratina» con varias coincidencias | El modelo propone una sin preguntar | Falla con `opcion_sin_elegir`; si busca con más datos y queda una, se acepta | `tests/test_evidencia.py::test_varias_opciones_las_elige_el_cliente`, `::test_una_busqueda_mas_precisa_define` |
+| CA-193 | Una coincidencia aproximada | El modelo la propone sin confirmarla | Falla con `opcion_sin_elegir` | `tests/test_evidencia.py::test_un_aproximado_se_confirma` |
+| CA-194 | Un renglón con una coincidencia única | El modelo le pone el producto de otro renglón | Falla con `opcion_sin_elegir` y nombra el renglón | `tests/test_evidencia.py::test_el_producto_de_otro_renglon` |
+| CA-195 | Varias coincidencias, todas a la vista | El cliente pide «una de cada» y el modelo las propone todas | Se acepta | `tests/test_evidencia.py::test_uno_de_cada` |
+| CA-196 | Dos `opcion_sin_elegir` en el turno | El modelo insiste | Se acepta y queda un aviso en el log y en la traza | `tests/test_evidencia.py::test_insistir_se_acepta_y_queda_registrado` |
+| CA-197 | Un renglón «1 mascara argan 1k» | El modelo propone 9 | Falla con `cantidad_distinta` una vez por turno; con menos por falta de stock, docenas, cajas o un renglón ya tratado no se controla | `tests/test_evidencia.py::test_cantidad_del_renglon`, `::test_cantidades_que_no_se_controlan` |
+| CA-198 | Un sub-loop cuya búsqueda dio varias | Entrega una nota con una en `resueltos` | La nota se rechaza con `opcion_sin_elegir` | `tests/test_evidencia.py::test_la_nota_de_un_sub_loop_tampoco_elige` |
 | CA-162 | Una lista que abre con «Buenas! Para el salón necesito:» y un catálogo con un producto que dice «salón» | Se numera | La línea de introducción no es un renglón: el primer producto es el renglón 1 | `tests/test_interpretation.py::test_la_introduccion_no_es_un_renglon` |
 | CA-123 | 30 renglones | Se llama a `buscar_renglones` | Devuelve 30 resultados con estado y, como mucho, 3 candidatos de 4 campos | `tests/test_busqueda.py::test_busqueda_por_lote` |
 | CA-124 | Un renglón de coloración con `tono` | Se busca | Encuentra la coloración de la marca y el tono no baja el puntaje | `tests/test_busqueda.py::test_tono_no_participa` |
@@ -684,6 +697,8 @@ Todos están implementados en las ramas de [§10.1](#101-estado-de-implementaci�
 | D-28 | Los números de RNF-15 son un punto de partida. Se fijan con la primera corrida completa de M1 | Abierta |
 | D-29 | Búsqueda semántica con embeddings como complemento de la búsqueda por palabras, para pedidos descriptivos («algo para rulos»). No se decide hasta medir con M1 cuántos renglones falla la búsqueda actual | Abierta |
 | D-47 | Cómo se controla la aceptación en `armar_pedido`: lista de palabras permitidas (lo que no se reconoce no registra) en vez de lista de palabras prohibidas. El error de una lista corta es pedir otra confirmación; el de una lista de prohibidas, registrar algo que no se pidió. No se frena después de `informacion` o `fuera_de_catalogo` sin opciones («Shampoo no trabajamos. ¿Lo otro va?»), por CA-163: ahí sigue decidiendo el LLM | Implementada; las palabras se revisan con uso real, contando `aceptacion_no_clara` en las trazas |
+| D-48 | Qué cuenta como evidencia de un SKU: lo que el LLM vio. Que exista en el catálogo no alcanza: uno elegido de memoria existe y puede ser otro producto. No se tolera por insistencia, porque siempre se puede sacar o buscar | Implementada |
+| D-49 | `opcion_sin_elegir` y `cantidad_distinta` se toleran (a la tercera y a la segunda): el control puede equivocarse con lo que dijo el cliente, y todavía falta que confirme una propuesta que muestra cada línea. No controla si una búsqueda del modelo le sumó un dato que el cliente no dijo: eso se mide con la evaluación | Implementada; se revisa contando los códigos en las trazas |
 
 ## 10. Plan de implementación
 

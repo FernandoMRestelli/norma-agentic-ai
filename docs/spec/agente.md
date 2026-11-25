@@ -385,8 +385,8 @@ Solo se usa cuando el cliente lo pide de forma explícita. Resultado del turno: 
 |---|---|---|
 | `kind` | `propuesta \| aclaracion \| sin_stock \| fuera_de_catalogo \| informacion` | Ver tabla de abajo |
 | `message` | `str` | El texto para el cliente. No vacío, máx. 600 caracteres. Con `propuesta`, no repite las líneas: el backend agrega el detalle debajo |
-| `options` | `list[str]` | SKU que se le ofrecen al cliente. Cada uno tiene que existir (`sku_inexistente` si no) |
-| `propuesta` | `list[{sku: str, quantity: int}] \| None` | Solo con `kind` `propuesta` o `sin_stock`. El backend valida cada SKU y el stock (`sku_inexistente`, `stock_insuficiente`) |
+| `options` | `list[str]` | SKU que se le ofrecen al cliente. Cada uno tiene que existir (`sku_inexistente` si no) y haber salido de lo que vio el LLM (`sku_no_buscado`) |
+| `propuesta` | `list[{sku: str, quantity: int}] \| None` | Solo con `kind` `propuesta` o `sin_stock`. El backend valida cada SKU y el stock (`sku_inexistente`, `stock_insuficiente`), y que haya salido de lo que vio el LLM, sin elegir por el cliente ni cambiar la cantidad del renglón (`sku_no_buscado`, `opcion_sin_elegir`, `cantidad_distinta`; RF-112 a RF-114) |
 | `descartar_propuesta` | `bool` | Por defecto `false`. `true` solo cuando el cliente rechaza la propuesta vigente o saca todo (BR-05, BR-06). Va sin `propuesta` |
 
 Con `propuesta`, el backend completa los datos desde el catálogo y guarda un `OrderDraft`. Si ya había una, conserva

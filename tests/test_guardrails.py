@@ -78,6 +78,16 @@ def _draft(*lineas):
 # Cada regla: el mensaje rechazado vuelve al LLM y el reintento llega al cliente
 # ---------------------------------------------------------------------------------------------------------------------
 
+
+def _leer_y_ver():
+    """Lee la skill y ve los productos: lo que se propone tiene que haber salido de una tool (RF-112)."""
+    return _ai(
+        _call("leer_skill", nombre="tomar_pedido"),
+        _call("get_product", sku=SKU_SHAMPOO),
+        _call("get_product", sku=SKU),
+    )
+
+
 PROPUESTA_SHAMPOO = {"kind": "propuesta", "propuesta": [{"sku": SKU_SHAMPOO, "quantity": 2}]}
 REINTENTOS = [
     ("stock_revelado", "Tenemos 50 disponibles, ¿te armo los 2?", "Tenemos stock, ¿te armo los 2?", PROPUESTA_SHAMPOO),
@@ -99,7 +109,7 @@ REINTENTOS = [
 def test_cada_regla_rechaza_y_el_llm_reintenta(regla, malo, bueno, args):
     """CA-69 a CA-75: el error vuelve al LLM con la regla y qué corregir, y el mensaje corregido sale."""
     agent, modelo = _agente(
-        _ai(_call("leer_skill", nombre="tomar_pedido")), _responder(malo, **args), _responder(bueno, **args)
+        _leer_y_ver(), _responder(malo, **args), _responder(bueno, **args)
     )
     resultado = agent.handle("1", text="quiero shampoo", **CLIENTE)
 
@@ -116,7 +126,7 @@ def test_cada_regla_rechaza_y_el_llm_reintenta(regla, malo, bueno, args):
 def test_stock_revelado_se_rechaza_y_reintenta():
     """CA-69: un rechazo no toca la propuesta vigente: el reintento la reemplaza con la versión siguiente."""
     agent, _ = _agente(
-        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _leer_y_ver(),
         _responder("¿Te armo 2?", **PROPUESTA_SHAMPOO),
         _ai(_call("leer_skill", nombre="tomar_pedido")),
         _responder("Tenemos 50 unidades disponibles, te armo 3", kind="propuesta",
@@ -135,7 +145,7 @@ def test_stock_revelado_se_rechaza_y_reintenta():
 def test_mensaje_rechazado_no_registra_el_borrador():
     """CA-69 / RF-46: la versión de un mensaje rechazado no llega a `drafts`; solo lo que vio el cliente."""
     agent, _ = _agente(
-        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _leer_y_ver(),
         _responder("¿Te armo 2?", **PROPUESTA_SHAMPOO),
         _ai(_call("leer_skill", nombre="tomar_pedido")),
         _responder("Tenemos 50, te armo 5", kind="propuesta", propuesta=[{"sku": SKU_SHAMPOO, "quantity": 5}]),
@@ -251,7 +261,7 @@ def test_palabra_interna_en_una_marca_del_catalogo(catalogo):
 def test_pedido_hecho_sin_armar_pedido_se_rechaza():
     """CA-72: «quedó registrado» sin armar_pedido vuelve al LLM; el pedido lo registra y lo anuncia el sistema."""
     agent, _ = _agente(
-        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _leer_y_ver(),
         _responder("¿Te armo 2?", **PROPUESTA_SHAMPOO),
         _ai(_call("leer_skill", nombre="confirmar_pedido")),
         _responder("Listo, tu pedido quedó registrado. Tu número de pedido es ORD-0001"),
@@ -407,7 +417,7 @@ def test_aclaracion_con_options_se_reintenta():
     malo = "Elegí el shampoo que querés. Tenés estas opciones para 2 unidades:"
     bueno = "Tenés estas opciones:\n• Shampoo Pantene 400 ml\n• Crema Nivea 100 ml\n¿Cuál preferís?"
     agent, _ = _agente(
-        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _leer_y_ver(),
         _responder(malo, kind="aclaracion", options=opciones),
         _responder(bueno, kind="aclaracion", options=opciones),
     )
@@ -425,7 +435,7 @@ def test_aclaracion_con_options_intentos_agotados_inyecta_catalogo():
     opciones = [SKU_SHAMPOO, SKU]
     cortado = "Elegí el shampoo que querés. Tenés estas opciones para 2 unidades:"
     malos = [_responder(cortado, kind="aclaracion", options=opciones) for _ in range(3)]
-    agent, _ = _agente(_ai(_call("leer_skill", nombre="tomar_pedido")), *malos)
+    agent, _ = _agente(_leer_y_ver(), *malos)
 
     resultado = agent.handle("1", text="dos shampoo", **CLIENTE)
 
@@ -467,7 +477,7 @@ def test_aclaracion_con_pendientes_intentos_agotados_usa_mensaje_seguro():
 def test_intentos_agotados_con_propuesta():
     """CA-76: al tercer rechazo sale el mensaje fijo con el detalle del sistema; la propuesta queda y no hay falla."""
     malos = [_responder("Tenemos 50 disponibles", **PROPUESTA_SHAMPOO) for _ in range(3)]
-    agent, modelo = _agente(_ai(_call("leer_skill", nombre="tomar_pedido")), *malos)
+    agent, modelo = _agente(_leer_y_ver(), *malos)
     resultado = agent.handle("1", text="2 shampoo", **CLIENTE)
 
     assert len(_resultados(agent, "respond_to_customer")) == 3
