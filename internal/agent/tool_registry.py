@@ -857,6 +857,7 @@ def execute(name: str, arguments: dict[str, Any], ctx: TurnContext) -> dict[str,
     result = _run(name, arguments, ctx)
     if result["ok"]:
         ctx.evidencia.sumar(name, result["data"])
+        ctx.turno.ver(result["data"])
     elif result["error"]["code"] == CODIGO_OPCION:
         ctx.opciones_rechazadas += 1
     elif result["error"]["code"] == CODIGO_CANTIDAD:

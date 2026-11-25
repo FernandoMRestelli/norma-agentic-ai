@@ -337,6 +337,16 @@ def _contexto_validacion(state: EstadoNorma) -> guardrails.ContextoTurno:
     turno = guardrails.contexto_turno(state["messages"][state.get("inicio_turno", 0) :])
     guardrails.sumar_notas(turno, state.get("notas_turno") or [])
     turno.skus_del_prompt |= set(state.get("opciones_previas") or [])
+    # La charla que le llega al LLM: un texto rechazado no está, así que no vuelve válido lo que decía
+    for anterior in context.historial_previo(state["messages"][: state.get("inicio_turno", 0)]):
+        if isinstance(anterior, AIMessage):
+            turno.dicho_antes.append(anterior.text)
+        else:
+            turno.ver(anterior.text)
+    for renglon in state.get("renglones") or []:
+        turno.ver(renglon["texto"])
+        turno.skus_del_prompt |= {linea["sku"] for linea in renglon.get("lineas") or []}
+        turno.skus_del_prompt |= set(renglon.get("opciones") or [])
     for pedido in (state.get("contexto_cliente") or {}).get("pedidos") or []:
         turno.skus_del_prompt |= {linea["sku"] for linea in pedido["lineas"]}
     return turno

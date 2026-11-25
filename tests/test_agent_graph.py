@@ -846,7 +846,7 @@ def test_nombre_del_cliente_llega_como_dato(catalogo):
 
 def test_historial_previo_empieza_con_el_cliente():
     previo = [AIMessage(content="suelto"), HumanMessage(content="hola"), _ai(_call("get_product", sku=SKU))]
-    assert [m.text for m in context._previous_history(previo)] == ["hola"]
+    assert [m.text for m in context.historial_previo(previo)] == ["hola"]
 
 
 def test_orquestador_abre_y_cierra_conversaciones(catalogo, monkeypatch):
