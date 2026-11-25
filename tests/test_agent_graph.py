@@ -351,6 +351,130 @@ def test_si_que_contesta_una_pregunta_va_al_agente(catalogo, kind, options, prop
     assert _ordenes() == 0
 
 
+PIDE_CONFIRMACION = "Antes de registrarlo, te paso el pedido como está hasta ahora"
+
+
+def _reoferta(mensaje="Te lo dejo así. ¿Lo confirmás?"):
+    return _ai(_propuesta(mensaje, SKU, 3))
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        *("dale, pero que sean 2", "dale pero que sean dos", "ok?", "sí...", "dale si llega el lunes"),
+        *("sí, sumale un shampoo", "no, mejor no", "dejame pensarlo", "dale, pago como siempre"),
+        "[audio transcripto]\ndale, pero mandame dos",
+    ],
+)
+def test_armar_pedido_exige_una_aceptacion_pura(catalogo, texto):
+    """CA-183: aunque el modelo llame a `armar_pedido`, lo que no es solo aceptar no registra nada (RF-111)."""
+    agent, _ = _agente(*GUION_OFERTA, *GUION_ACEPTA, _ai(_call("leer_skill", nombre="tomar_pedido")), _reoferta())
+    agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+
+    respuesta = agent.handle("1", text=texto, **CLIENTE)
+
+    assert _resultados(agent, "armar_pedido")[0]["error"]["code"] == "aceptacion_no_clara"
+    assert respuesta.kind == "propuesta" and not respuesta.cerrada
+    assert _ordenes() == 0
+
+
+@pytest.mark.parametrize(
+    "texto", ["sí, dale", "perfecto, mandalo", "ok gracias", "[audio transcripto]\nsí, confirmalo"]
+)
+def test_armar_pedido_registra_una_aceptacion_dicha_de_otra_forma(catalogo, texto):
+    """RF-111: el control no frena a quien acepta con otras palabras."""
+    agent, _ = _agente(*GUION_OFERTA, *GUION_ACEPTA)
+    agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+
+    assert agent.handle("1", text=texto, **CLIENTE).kind == "pedido"
+    assert _ordenes() == 1
+
+
+@pytest.mark.parametrize(("kind", "options"), [("aclaracion", [SKU]), ("aclaracion", []), ("fuera_de_catalogo", [SKU])])
+@pytest.mark.parametrize("texto", ["sí", "dale", "sí, confirmo"])
+def test_armar_pedido_no_toma_una_respuesta_como_aceptacion(catalogo, kind, options, texto):
+    """CA-184: un «sí» que contesta la pregunta del asistente no registra, aunque el modelo se confunda (RF-111)."""
+    agent, _ = _agente(
+        *GUION_OFERTA,
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _ai(_call("respond_to_customer", kind=kind, message="¿Es la Crema Nivea de 100?", options=options)),
+        *GUION_ACEPTA,
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _reoferta(),
+    )
+    agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+    agent.handle("1", text="y una crema más", **CLIENTE)
+
+    respuesta = agent.handle("1", text=texto, **CLIENTE)
+
+    error = _resultados(agent, "armar_pedido")[0]["error"]
+    assert error["code"] == "aceptacion_no_clara" and "pregunta" in error["message"]
+    assert respuesta.kind == "propuesta"
+    assert _ordenes() == 0
+
+
+def test_si_el_modelo_insiste_el_sistema_vuelve_a_mostrar_la_propuesta(catalogo):
+    """CA-185: dos llamadas en el turno no registran; el cliente ve la propuesta y su «dale» la cierra sin LLM."""
+    agent, modelo = _agente(*GUION_OFERTA, *GUION_ACEPTA, _ai({**_call("armar_pedido"), "id": "otra"}))
+    oferta = agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+
+    respuesta = agent.handle("1", text="dale, pero que sean dos", **CLIENTE)
+
+    assert respuesta.kind == "propuesta" and not respuesta.cerrada and respuesta.options == []
+    assert respuesta.message.startswith(PIDE_CONFIRMACION)
+    assert "• 3 x Crema Nivea 100 ml ($1000.00 c/u = $3000.00)" in respuesta.message
+    assert respuesta.draft == oferta.draft
+    assert _ordenes() == 0
+
+    llamadas = len(modelo.recibidos)
+    final = agent.handle("1", text="dale", **CLIENTE)
+    assert final.kind == "pedido" and len(modelo.recibidos) == llamadas
+    assert _ordenes() == 1
+
+
+def test_el_freno_vale_por_turno(catalogo):
+    """CA-185: un rechazo de un turno anterior no cuenta como insistencia en el siguiente."""
+
+    def turno(mensaje):  # mensajes distintos: add_messages reemplaza a uno con el mismo id
+        return (
+            _ai(_call("leer_skill", nombre="confirmar_pedido")),
+            _ai(_call("armar_pedido")),
+            _ai(_call("leer_skill", nombre="tomar_pedido")),
+            _reoferta(mensaje),
+        )
+
+    agent, _ = _agente(*GUION_OFERTA, *turno("Te lo dejo así. ¿Lo confirmás?"), *turno("Sigue igual. ¿Va?"))
+    agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+    agent.handle("1", text="dale, pero que sean dos", **CLIENTE)
+
+    respuesta = agent.handle("1", text="dale, pero que sean una", **CLIENTE)
+
+    assert respuesta.message.startswith("Sigue igual. ¿Va?")
+    assert _ordenes() == 0
+
+
+@pytest.mark.parametrize(("texto", "registra"), [("dale", False), ("sí", False), ("confirmalo así", True)])
+def test_pedido_con_dudas_pide_una_confirmacion_explicita(catalogo, texto, registra):
+    """CA-186: con dudas a la vista, «dale» puede contestar cualquiera de las dos cosas; «confirmalo así», no."""
+    agent, modelo = _agente(
+        *GUION_OFERTA,
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _ai(_call("respond_to_customer", kind="propuesta", message="Van 3. La otra, ¿es la de 100? ¿O lo confirmo así?",
+                  options=[SKU], propuesta=[{"sku": SKU, "quantity": 3}])),
+        *GUION_ACEPTA,
+    )
+    agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+    agent.handle("1", text="y una crema más", **CLIENTE)
+
+    respuesta = agent.handle("1", text=texto, **CLIENTE)
+
+    assert _ordenes() == int(registra)
+    if not registra:
+        assert respuesta.kind == "propuesta" and respuesta.message.startswith(PIDE_CONFIRMACION)
+        assert modelo.guion == []  # lo resolvió el sistema, sin otra llamada al LLM
+        assert agent.handle("1", text="dale", **CLIENTE).kind == "pedido"
+
+
 def test_pregunta_abierta_de_un_checkpoint_anterior():
     """RF-99: un checkpoint sin `kind_anterior` decide solo por las opciones ofrecidas."""
     assert not graph.pregunta_abierta({"propuesta": {"items": []}})

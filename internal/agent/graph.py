@@ -302,7 +302,16 @@ def _turn_context(state: EstadoNorma, config: RunnableConfig, disponibles: list[
         condicion_comercial=state.get("condicion_comercial"),
         acuerdo_operativo=state.get("acuerdo_operativo"),
         propuesta_pendiente_mostrar=bool(state.get("propuesta_pendiente_mostrar", False)),
+        mensaje_cliente=_mensaje_cliente(state),
+        kind_anterior=state.get("kind_anterior"),
+        hay_opciones_previas=bool(state.get("opciones_previas")),
     )
+
+
+def _mensaje_cliente(state: EstadoNorma) -> str:
+    """El mensaje que abrió el turno, sin la marca de audio. Vacío si el turno no lo abrió el cliente."""
+    entrada = state["messages"][state.get("inicio_turno", 0)]
+    return message_service.sin_marca_audio(entrada.text) if isinstance(entrada, HumanMessage) else ""
 
 
 def _tras_registrar(order_id: str | None) -> dict[str, Any]:
@@ -402,6 +411,10 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
         ctx.coberturas_fallidas = sum(
             isinstance(m, ToolMessage)
             and ('"code": "renglones_sin_cuenta"' in m.content or '"code": "duda_de_lectura"' in m.content)
+            for m in del_turno
+        )
+        ctx.confirmaciones_frenadas = sum(
+            isinstance(m, ToolMessage) and f'"code": "{tool_registry.CODIGO_ACEPTACION}"' in m.content
             for m in del_turno
         )
         ctx.orquestador = tool_registry.orquestador_activo()

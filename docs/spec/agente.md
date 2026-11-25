@@ -365,8 +365,12 @@ No recibe nada del LLM. Inyectados: `customer_id`, `channel` y la propuesta vige
 Validaciones del backend, en este orden:
 
 1. Hay una propuesta vigente → si no, `sin_propuesta`.
-2. Si ya existe una orden con ese `draft_id`, la devuelve sin crear otra.
-3. Alcanza el stock de cada línea, con una lectura fresca → si no, `stock_insuficiente` y no se crea nada.
+2. El último mensaje del cliente es una aceptación pura y no contesta una pregunta del asistente (RF-111) → si no,
+   `aceptacion_no_clara`. Si el LLM insiste en el turno, o si el cliente aceptó una propuesta que salió con dudas, el
+   sistema vuelve a mostrar la propuesta y pide la confirmación (`kind` `propuesta`). El atajo sin LLM lo
+   cumple siempre: ya exige una aceptación exacta y sin una pregunta abierta.
+3. Si ya existe una orden con ese `draft_id`, la devuelve sin crear otra.
+4. Alcanza el stock de cada línea, con una lectura fresca → si no, `stock_insuficiente` y no se crea nada.
 
 Si todo pasa, crea la orden (§5) y cierra la conversación. Resultado del turno: `pedido`.
 
@@ -486,7 +490,8 @@ Reglas:
 - **BR permitidas:** son las que están en la carpeta `BR/` de la skill. No se listan en el encabezado.
 - **Elegir la skill:** no hay una skill selectora, porque habría que leerla en todos los turnos. El agente elige del
   índice del system prompt (§8). El índice no muestra las skills con `requiere_propuesta: true` si no hay una propuesta
-  vigente (CA-54). Es solo una ayuda para elegir: lo que protege la orden sigue siendo `sin_propuesta` (CA-42).
+  vigente (CA-54). Es solo una ayuda para elegir: lo que protege la orden es `sin_propuesta` (CA-42) y
+  `aceptacion_no_clara` (RF-111).
 - **Validación al arrancar:** `skill_service` carga los archivos y `tool_registry` verifica que toda tool
   nombrada exista. Si algo no coincide, la aplicación no arranca.
 
@@ -514,7 +519,7 @@ hace cumplir el backend, aunque el agente no la haya leído.
 | BR-03 | Ante una ambigüedad, hacer una sola pregunta con opciones del catálogo | LLM | RF-09 |
 | BR-04 | Si el producto no está en el catálogo, decirlo sin ofrecer un SKU inventado; lo demás del pedido se propone igual | LLM y backend | RF-08, RF-10 |
 | BR-05 | Una corrección vuelve a enviar la propuesta completa, en el mismo borrador y con otra versión | LLM arma las líneas, backend versiona | RF-12 |
-| BR-06 | Armar el pedido solo si el cliente acepta la propuesta vigente sin cambios ni condiciones; si cambia algo, proponer de nuevo; si pone una condición, duda o pregunta, responder y volver a ofrecerla | LLM interpreta, backend registra solo la propuesta | RF-13 |
+| BR-06 | Armar el pedido solo si el cliente acepta la propuesta vigente sin cambios ni condiciones; si cambia algo, proponer de nuevo; si pone una condición, duda o pregunta, responder y volver a ofrecerla | LLM interpreta, backend bloquea con `aceptacion_no_clara` y registra solo la propuesta | RF-13, RF-111 |
 | BR-07 | Revalidar el stock al crear la orden | Backend. No la permite ninguna skill | RF-14 |
 | BR-08 | Derivar si el cliente lo pide, tras 2 fallas o tras 3 aclaraciones seguidas | LLM y backend | RF-27 |
 | BR-09 | Ante una coincidencia aproximada (`sugerencias` o `aproximado`), preguntar si se refería a ese producto antes de proponerlo; decir que no está en el catálogo solo sin `matches` ni `sugerencias` | LLM | RF-56 |
@@ -532,7 +537,9 @@ El cliente confirma conversando (RF-13). El LLM interpreta si aceptó, pero **no
 2. El cliente responde. Si el mensaje completo es una aceptación exacta (§2.1), el backend sigue en el paso 3 sin
    llamar al LLM. Con otra respuesta decide el agente: si acepta sin cambios («sí, dale», «perfecto»), usa la skill
    `confirmar_pedido` y llama a la tool. Si cambia algo, pone una condición o duda, propone de nuevo o pregunta (BR-06).
-3. `armar_pedido` solo puede crear lo que está en la propuesta vigente.
+3. `armar_pedido` solo puede crear lo que está en la propuesta vigente, y si la llamó el LLM comprueba que el mensaje
+   del cliente sea una aceptación pura (RF-111). Si no, devuelve `aceptacion_no_clara` y, si el LLM insiste en el
+   turno, el sistema vuelve a mostrar la propuesta y pide la confirmación.
 4. Si ya hay una orden con ese `draft_id`, devuelve la existente (idempotencia, CA-15).
 5. **Revalida el stock disponible** de cada línea con una lectura fresca descontando las órdenes activas previas
    (`stock_disponible = max(0, stock_base - unidades_comprometidas)`). Si alguna no alcanza, no crea nada, y el agente

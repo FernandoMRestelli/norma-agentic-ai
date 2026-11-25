@@ -8,6 +8,10 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Sin publicar]
 
+### Corregido
+
+- Un pedido se registra solo si el cliente lo aceptó de verdad, aunque el modelo se confunda (RF-111, CA-183 a CA-188). Antes, si el modelo llamaba a `armar_pedido` con un «dale, pero que sean 3 y solo si llega el lunes», o con el «sí» que contestaba «¿la de 1 kilo?», la propuesta anterior quedaba registrada: la regla estaba solo en BR-06. Ahora el backend comprueba el mensaje antes de crear la orden y, si dice algo más que aceptar o contesta una pregunta, no registra: el modelo responde, o el sistema vuelve a mostrar la propuesta y pide la confirmación. Puede sumar una confirmación cuando el cliente acepta con palabras que no están en la lista. En las trazas aparece como `aceptacion_no_clara`. No hay nada que migrar al desplegar.
+
 ## [0.2.0] - 2026-11-23
 
 El asistente toma pedidos por texto, foto y audio contra el catálogo real. Suma pedidos largos renglón por renglón, búsqueda que tolera errores de tipeo, guardrails en código, memoria entre mensajes, consulta del estado de los pedidos, derivación a una persona, vencimiento de conversaciones, dashboard operativo, Google Sheets y Excel. Producción suma MLflow, con una traza de cada turno, foto y audio, sin el texto de los mensajes.

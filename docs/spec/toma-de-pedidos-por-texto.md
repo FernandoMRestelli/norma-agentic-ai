@@ -9,7 +9,7 @@
 | Estado | Implementado en cinco ramas, una por mejora ([§10.1](#101-estado-de-implementación)). Falta medirlo con un LLM real |
 | Responsable | Federico Picado |
 | Requisitos de la spec del MVP | RF-07, RF-11, RF-13, RF-19, RF-21, RF-28, RF-36 a RF-39, RNF-03, RNF-06, RNF-07 |
-| IDs que reserva | RF-59 a RF-79, RF-98, RF-99, RNF-15 y RNF-16, CA-113 a CA-134, CA-162 a CA-164, D-21 a D-29, BR-11 |
+| IDs que reserva | RF-59 a RF-79, RF-98, RF-99, RF-111, RNF-15 y RNF-16, CA-113 a CA-134, CA-162 a CA-164, CA-183 a CA-188, D-21 a D-29, D-47, BR-11 |
 
 **Índice**
 
@@ -254,6 +254,8 @@ directo al cliente. Los guardrails atajan ese texto, pero cada rechazo es otra l
    lista otras que son aceptación pura: «dale», «sí», «listo», «de una», «mandale». Si el mensaje completo,
    normalizado, es una de esas, el backend registra la propuesta. La lista vive en un solo lugar,
    `palabras_clave.py`, y la BR-06 la cita. «¡Dale!» y «listo.» cuentan; «ok?» y «sí...» no, porque dudan.
+   Una aceptación dicha de otra forma la interpreta el LLM, pero la **confirma el backend** (RF-111, D-47): la BR-06
+   aconseja, y el control de `armar_pedido` impide que se registre lo que el cliente no aceptó.
 5. **Presupuesto del turno (RNF-16).** Tope de 50 iteraciones y un plazo total de 300 s por turno, configurables
    (`AGENT_MAX_ITERATIONS`, `AGENT_MAX_SECONDS_PER_TURN`). El plazo se controla entre una iteración y la siguiente: no
    corta una llamada al LLM que ya empezó. Al agotarse, el turno cierra respondiendo con lo encontrado en vez de
@@ -608,6 +610,7 @@ Todos están implementados en las ramas de [§10.1](#101-estado-de-implementaci�
 | RF-79 | M5 | El origen del mensaje (`texto`, `audio`, `imagen`) viaja del canal a la orden |
 | RF-98 | M4 | Una respuesta sin `propuesta` deja la vigente como estaba; solo `descartar_propuesta` la descarta, cuando el cliente la rechaza o saca todo |
 | RF-99 | M2 | El atajo de RF-64 corre solo si la respuesta anterior cerró con la propuesta (`kind` `propuesta` o `sin_stock`) sin opciones ofrecidas. Después de una aclaración, una consulta, un error o una pregunta con opciones, el mensaje va al LLM |
+| RF-111 | M2 | Cuando el LLM llama a `armar_pedido`, el backend registra solo si el último mensaje del cliente es una aceptación pura: todas sus palabras son de aceptar o de cortesía. Después de una aclaración o con opciones ofrecidas, ni siquiera una aceptación pura alcanza, salvo que sea explícita («confirmalo así») y la respuesta anterior haya mostrado la propuesta. Si no se cumple, la tool devuelve `aceptacion_no_clara`; si el LLM insiste en el mismo turno, el sistema vuelve a mostrar la propuesta y pide la confirmación |
 | RNF-15 | M1 | Umbral de release sobre el set de RF-59: recall por línea ≥ 95 %, precisión ≥ 98 %, 0 registros indebidos y 0 líneas perdidas. Los números se ajustan con la primera corrida (D-28) |
 | RNF-16 | M2 | Presupuesto del turno: hasta 2 llamadas al LLM en el camino normal, tope de 50 iteraciones y 300 s en total (configurables); al agotarse, el turno cierra respondiendo con lo encontrado |
 
@@ -627,6 +630,12 @@ Todos están implementados en las ramas de [§10.1](#101-estado-de-implementaci�
 | CA-122 | Una lista con dos encabezados de marca y diez renglones | Se numera | Cada renglón de producto tiene su número y la marca de su encabezado | `tests/test_interpretation.py::test_numera_renglones_por_marca` |
 | CA-163 | Una propuesta vigente | El cliente pregunta por algo que no se trabaja y el agente responde sin `propuesta` | La propuesta sigue vigente y un «dale» posterior la registra. `descartar_propuesta` con `propuesta` no pasa el esquema | `tests/test_agent_graph.py::test_aclaracion_mantiene_la_propuesta_vigente`, `::test_descartar_propuesta_va_sin_propuesta`, `::test_texto_sin_tools_mantiene_la_propuesta` |
 | CA-164 | Una propuesta vigente y una respuesta anterior que preguntó algo (con opciones o sin ellas) | El cliente escribe «sí» | El mensaje va al LLM y no se registra sin él | `tests/test_agent_graph.py::test_si_que_contesta_una_pregunta_va_al_agente` |
+| CA-183 | Una propuesta vigente y un modelo que llama a `armar_pedido` | El cliente escribe «dale, pero que sean 2», «ok?», «dale si llega el lunes» u otra cosa que no es solo aceptar | No se crea la orden y la tool devuelve `aceptacion_no_clara` | `tests/test_agent_graph.py::test_armar_pedido_exige_una_aceptacion_pura` |
+| CA-184 | Una respuesta anterior que fue una aclaración, o que ofreció opciones | El cliente escribe «sí» y el modelo llama a `armar_pedido` | No se crea la orden, y el modelo recibe que el mensaje contesta su pregunta | `tests/test_agent_graph.py::test_armar_pedido_no_toma_una_respuesta_como_aceptacion` |
+| CA-185 | Un `aceptacion_no_clara` en el turno | El modelo vuelve a llamar a `armar_pedido` | El sistema muestra la propuesta sin cambios y pide la confirmación; un «dale» posterior la registra sin el LLM | `tests/test_agent_graph.py::test_si_el_modelo_insiste_el_sistema_vuelve_a_mostrar_la_propuesta` |
+| CA-186 | Un pedido largo propuesto con dudas pendientes | El cliente escribe «dale» y el modelo llama a `armar_pedido` | El sistema muestra la propuesta y pide la confirmación, sin otra llamada al LLM. Con «confirmalo así» registra | `tests/test_agent_graph.py::test_pedido_con_dudas_pide_una_confirmacion_explicita` |
+| CA-187 | Frases de los clientes | Se clasifican | «sí, dale», «perfecto, mandalo», «ok gracias» y «👍» son aceptaciones puras; un número, una pregunta, puntos suspensivos, una negación, una condición o un producto no | `tests/test_palabras_clave.py::test_aceptacion_pura`, `::test_lo_que_no_es_una_aceptacion_pura` |
+| CA-188 | Un contexto de tools sin el mensaje del cliente | Se llama a `armar_pedido` con una propuesta vigente | No registra: sin el mensaje no hay aceptación | `tests/test_tools.py::test_armar_pedido_sin_el_mensaje_del_cliente_no_registra` |
 | CA-162 | Una lista que abre con «Buenas! Para el salón necesito:» y un catálogo con un producto que dice «salón» | Se numera | La línea de introducción no es un renglón: el primer producto es el renglón 1 | `tests/test_interpretation.py::test_la_introduccion_no_es_un_renglon` |
 | CA-123 | 30 renglones | Se llama a `buscar_renglones` | Devuelve 30 resultados con estado y, como mucho, 3 candidatos de 4 campos | `tests/test_busqueda.py::test_busqueda_por_lote` |
 | CA-124 | Un renglón de coloración con `tono` | Se busca | Encuentra la coloración de la marca y el tono no baja el puntaje | `tests/test_busqueda.py::test_tono_no_participa` |
@@ -674,6 +683,7 @@ Todos están implementados en las ramas de [§10.1](#101-estado-de-implementaci�
 | D-27 | El tono de coloración: depende de V-01 y V-02. Hasta confirmarlo, el tono va en la nota de la línea y no cambia el SKU | Abierta, depende del negocio |
 | D-28 | Los números de RNF-15 son un punto de partida. Se fijan con la primera corrida completa de M1 | Abierta |
 | D-29 | Búsqueda semántica con embeddings como complemento de la búsqueda por palabras, para pedidos descriptivos («algo para rulos»). No se decide hasta medir con M1 cuántos renglones falla la búsqueda actual | Abierta |
+| D-47 | Cómo se controla la aceptación en `armar_pedido`: lista de palabras permitidas (lo que no se reconoce no registra) en vez de lista de palabras prohibidas. El error de una lista corta es pedir otra confirmación; el de una lista de prohibidas, registrar algo que no se pidió. No se frena después de `informacion` o `fuera_de_catalogo` sin opciones («Shampoo no trabajamos. ¿Lo otro va?»), por CA-163: ahí sigue decidiendo el LLM | Implementada; las palabras se revisan con uso real, contando `aceptacion_no_clara` en las trazas |
 
 ## 10. Plan de implementación
 

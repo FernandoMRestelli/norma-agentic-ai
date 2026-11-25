@@ -8,7 +8,7 @@ from typing import Any
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import BaseModel, ValidationError
 
-from internal.agent import guardrails, nota
+from internal.agent import guardrails, nota, observabilidad
 from internal.agent.state import Resultado
 from internal.config import get_settings
 from internal.schemas.agent_schema import (
@@ -32,6 +32,7 @@ from internal.schemas.agent_schema import (
 from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import Channel, OrderDraft
 from internal.services import inventory_service, order_service, validation_service
+from internal.services.palabras_clave import es_aceptacion_explicita, es_aceptacion_pura
 from internal.services.skill_service import TOOL_RESPUESTA, Skill, SkillError, get_skills
 from internal.tools import catalog_tools, inventory_tools, order_tools, reply_tools, skill_tools
 
@@ -77,6 +78,11 @@ class TurnContext:
     condicion_comercial: str | None = None
     acuerdo_operativo: str | None = None
     propuesta_pendiente_mostrar: bool = False
+    # Con qué se comprueba la aceptación antes de registrar (RF-111). Sin el mensaje no hay aceptación: falla cerrado
+    mensaje_cliente: str = ""
+    kind_anterior: str | None = None
+    hay_opciones_previas: bool = False
+    confirmaciones_frenadas: int = 0  # `aceptacion_no_clara` de este turno
     turno: guardrails.ContextoTurno = field(default_factory=guardrails.ContextoTurno)  # para validar la salida
     orquestador: bool = False  # con el orquestador, `leer_skill` de una skill sub_loop dice cómo delegarla
     notas_turno: list[dict[str, Any]] = field(default_factory=list)  # la nota de búsqueda y las de los sub-loops
@@ -367,6 +373,44 @@ CONDICIONES_ACTUALIZADAS = (
 )
 
 
+CODIGO_ACEPTACION = "aceptacion_no_clara"
+KINDS_CON_PROPUESTA = ("propuesta", "sin_stock")  # las respuestas que le muestran la propuesta al cliente
+PEDIR_CONFIRMACION = "Antes de registrarlo, te paso el pedido como está hasta ahora. ¿Lo confirmo así?"
+_ACEPTACION_CON_ALGO_MAS = (
+    "No se registró nada: el último mensaje del cliente no es solo una aceptación. Si cambia algo, leé tomar_pedido y "
+    "BR-05; si pone una condición o una observación, BR-10; si duda o pregunta, contestale. Después volvé a mostrarle "
+    "la propuesta con kind propuesta, para que la confirme"
+)
+_ACEPTACION_DE_UNA_PREGUNTA = (
+    "No se registró nada: tu mensaje anterior le hizo una pregunta y esto la contesta. Leé tomar_pedido, resolvé esa "
+    "duda y mostrale la propuesta con kind propuesta, para que la confirme"
+)
+
+
+def _controlar_aceptacion(ctx: TurnContext) -> bool:
+    """True si el cliente aceptó la propuesta vigente. Si no, el LLM recibe el error para responderle (RF-111).
+
+    Devuelve False cuando otra vuelta del LLM no ayuda y el sistema vuelve a mostrar la propuesta: si insistió en el
+    turno, o si el cliente aceptó una propuesta que salió con dudas y no se sabe a cuál de las dos cosas dijo que sí.
+    """
+    pura = es_aceptacion_pura(ctx.mensaje_cliente)
+    mostro_propuesta = ctx.kind_anterior in KINDS_CON_PROPUESTA
+    pregunto = ctx.hay_opciones_previas or ctx.kind_anterior == "aclaracion"
+    if pura and (not pregunto or (mostro_propuesta and es_aceptacion_explicita(ctx.mensaje_cliente))):
+        return True
+    motivo = "contesta_una_pregunta" if pura else "dice_algo_mas"
+    muestra_el_sistema = ctx.confirmaciones_frenadas > 0 or (pura and mostro_propuesta)
+    logger.warning("Guardrail: armar_pedido sin una aceptación clara (motivo=%s)", motivo)
+    with observabilidad.paso(
+        "control_aceptacion", "GUARDRAIL", motivo=motivo, vuelve_a_mostrar=muestra_el_sistema
+    ) as paso:
+        paso.fallo(CODIGO_ACEPTACION)
+    if muestra_el_sistema:
+        return False
+    ctx.confirmaciones_frenadas += 1
+    raise ToolFailure(CODIGO_ACEPTACION, _ACEPTACION_DE_UNA_PREGUNTA if pura else _ACEPTACION_CON_ALGO_MAS)
+
+
 def _armar_pedido(_: ArmarPedidoInput, ctx: TurnContext) -> dict[str, Any]:
     if ctx.propuesta and ctx.propuesta_pendiente_mostrar:
         # No se confirma una propuesta modificada por el operador sin que el cliente vea antes el total y acuerdos
@@ -378,6 +422,12 @@ def _armar_pedido(_: ArmarPedidoInput, ctx: TurnContext) -> dict[str, Any]:
         ctx.kind = "propuesta"
         ctx.resultado = "pausar"
         return {"condiciones_actualizadas": True}
+    if ctx.propuesta and not _controlar_aceptacion(ctx):
+        # La misma propuesta, sin cambios: lo último que lee el cliente vuelve a ser qué está confirmando
+        ctx.respuesta = f"{PEDIR_CONFIRMACION}\n\n{validation_service.build_proposal_detail(ctx.propuesta)}"
+        ctx.kind = "propuesta"
+        ctx.resultado = "pausar"
+        return {"confirmacion_pedida": True}
     try:
         order = order_tools.armar_pedido(ctx.propuesta)
     except order_service.PriceChangedError as exc:
@@ -543,7 +593,8 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             "armar_pedido",
             "Registra la propuesta vigente y termina el turno. El sistema le responde al cliente con el detalle y el "
-            "número. Usala solo si el cliente aceptó la propuesta sin cambios.",
+            "número. Usala solo si el cliente aceptó la propuesta sin cambios: si su mensaje dice algo más, no se "
+            "registra.",
             ArmarPedidoInput,
             _armar_pedido,
         ),

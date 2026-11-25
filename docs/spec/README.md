@@ -459,7 +459,7 @@ Esta versión de la spec está en revisión: todo lo que no está implementado f
 |---|---|---|---|
 | RF-11 | Con el pedido claro, el agente le propone al cliente lo que entendió y el backend lo guarda validado; al registrarlo, el backend responde con el detalle de producto, presentación, cantidad, precios y total de cada línea (D-04) | 04 | I |
 | RF-12 | Una corrección actualiza el mismo borrador, sube su versión y muestra un resumen nuevo | 04 | I |
-| RF-13 | Se registra un pedido solo si el cliente acepta la propuesta vigente, aunque sea conversando («dale»); el agente interpreta la aceptación, pero `armar_pedido` solo puede crear lo que el backend guardó como propuesta. Una aceptación exacta (`OK`, `CONFIRMAR`, «dale», «sí», «listo», «de una» o «mandale») se registra sin llamar al LLM (RF-64), salvo que la respuesta anterior haya dejado una pregunta abierta (RF-99) | 04 | I |
+| RF-13 | Se registra un pedido solo si el cliente acepta la propuesta vigente, aunque sea conversando («dale»); el agente interpreta la aceptación, pero `armar_pedido` solo puede crear lo que el backend guardó como propuesta. Una aceptación exacta (`OK`, `CONFIRMAR`, «dale», «sí», «listo», «de una» o «mandale») se registra sin llamar al LLM (RF-64), salvo que la respuesta anterior haya dejado una pregunta abierta (RF-99). Con cualquier otra frase decide el agente, y el backend registra solo si es una aceptación pura (RF-111) | 04 | I |
 | RF-14 | Al confirmar se revalida el stock neto de cada línea descontando órdenes activas; si no alcanza, no se crea la orden | 04 | I |
 | RF-15 | Un borrador produce como máximo una orden, aunque la confirmación llegue repetida | 05 | I |
 | RF-16 | Solo se puede registrar la última versión de la propuesta | 04 | I |

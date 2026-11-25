@@ -194,8 +194,11 @@ def _caso(id: str, resultado: str, texto: str = "2 shampoos pantene 400", **extr
 
 
 def test_registro_indebido():
-    """CA-114: un caso que esperaba `sin_pedido` y terminó en una orden suma un registro indebido."""
-    caso = _caso("eval-indebido", "sin_pedido", "mmm no sé, dejame pensarlo", previo=["2 shampoos pantene 400"])
+    """CA-114: un caso que esperaba `sin_pedido` y terminó en una orden suma un registro indebido.
+
+    El mensaje acepta: con uno que no acepta, `armar_pedido` no registra aunque el modelo la llame (RF-111).
+    """
+    caso = _caso("eval-indebido", "sin_pedido", "sí, dale", previo=["2 shampoos pantene 400"])
     modelo = _Modelo(responses=[LEER_TOMAR, _proponer(), LEER_CONFIRMAR, _ai(_call("armar_pedido"))])
 
     fila, _ = evaluar_agente._evaluar(NormaAgent(modelo, InMemorySaver()), caso)
