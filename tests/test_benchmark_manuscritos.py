@@ -31,7 +31,7 @@ def test_listas_reproducibles(pool):
 
 
 def test_lista_cubre_las_dificultades(pool, listas):
-    """CA-220: núcleo en 1 a 5, 10 sorteados que cubren todos los tipos, posiciones 1 a 16 y SKU sin repetir."""
+    """CA-220: núcleo en 1 a 5, 10 sorteados que cubren todos los tipos, posiciones 1 a 15 y SKU sin repetir."""
     nucleo = [renglon.id for renglon in pool if renglon.origen == "nucleo"]
     for lista in listas:
         renglones = lista["renglones"]
@@ -41,21 +41,16 @@ def test_lista_cubre_las_dificultades(pool, listas):
         assert len(variables) == 10 and all(r["origen"] == "pool" for r in variables)
         cubiertos = {tipo for r in variables for tipo in r["dificultad"]}
         assert set(bm.TIPOS) <= cubiertos, lista["id"]
-        posiciones = [r["n"] for r in renglones] + [lista["tachado"]["n"]]
-        assert sorted(posiciones) == list(range(1, 17))
-        skus = [r["sku"] for r in renglones]
-        tachado_sku = next(r.sku for r in pool if r.id == lista["tachado"]["id"])
-        assert len(set(skus + [tachado_sku])) == 16
+        assert [r["n"] for r in renglones] == list(range(1, 16))
+        assert len({r["sku"] for r in renglones}) == 15
 
 
-def test_tachado_fuera_de_los_esperados(pool, listas):
-    """CA-221: el tachado es del pool, no está entre los esperados y va entre la posición 6 y la 16."""
-    sorteables = {renglon.id for renglon in pool if renglon.origen == "pool"}
+def test_sin_renglon_para_tachar(listas):
+    """CA-221: ninguna lista asigna un renglón para tachar, y el inicio dice que se puede tachar si se equivocan."""
     for lista in listas:
-        tachado = lista["tachado"]
-        assert tachado["id"] in sorteables
-        assert tachado["id"] not in {r["id"] for r in lista["renglones"]}
-        assert 6 <= tachado["n"] <= 16
+        assert "tachado" not in lista
+        assert not any("TACHAR" in linea.upper() for linea in bm.lineas_de_la_hoja(lista))
+    assert "Si te equivocás al escribir, tachalo" in bm.INICIO
 
 
 def _renglon(id_: str, origen: str, sku: str, dificultad: tuple[str, ...]) -> bm.Renglon:
@@ -72,25 +67,29 @@ def test_pool_sin_un_tipo_falla():
 
 
 def test_script_del_form(pool):
-    """CA-223: una sección por lista con sus 16 renglones, desplegable, salto a la final, sin mails y JSON válido."""
+    """CA-223: una sección por lista con el encabezado fijo y sus 15 renglones, desplegable, salto a la final,
+    sin mails ni ángulo, JSON válido y solo ASCII."""
     listas = bm.sortear_listas(pool, 2, 116)
-    listas["listas"][0]["encabezado"]["cliente"] = 'Salón "La Comilla"'
+    listas["listas"][0]["renglones"][5]["texto"] = 'Kapris sh "matizador" 300'
     script = bm.script_del_form(listas)
 
     datos = json.loads(re.search(r"^const LISTAS = (\[.*?^\]);$", script, re.S | re.M).group(1))
     assert [seccion["id"] for seccion in datos] == ["L01", "L02"]
     for seccion, lista in zip(datos, listas["listas"], strict=True):
         lineas = bm.lineas_de_la_hoja(lista)
-        assert len(lineas) == 16
-        assert sum("← TACHAR" in linea for linea in lineas) == 1
+        assert len(lineas) == 15
         assert seccion["texto"].endswith("\n".join(lineas))
-        assert f"{lista['encabezado']['cliente']} — {lista['encabezado']['fecha']}" in seccion["texto"]
-    assert "elegir.createChoice(lista.id, secciones[i])" in script
+        assert "\n\nPedido para Norma\n\n" in seccion["texto"]
+    assert [seccion["nombre"] for seccion in datos] == ["Pedido 01", "Pedido 02"]
+    assert "elegir.createChoice(lista.nombre, secciones[i])" in script
     assert "seccion.setGoToPage(final)" in script
     assert "setCollectEmail(false)" in script
     assert "addTextItem" not in script  # no pide nombre ni mail
     # Solo ASCII, para que copiar y pegar no rompa los acentos; el JSON los recupera.
     assert script.isascii()
     textos = json.loads(re.search(r"^const TEXTOS = (\{.*?^\});$", script, re.S | re.M).group(1))
-    assert textos["elegir_lista"] == "¿Qué número de lista te tocó?"
-    assert "Copiá esta lista" in datos[0]["texto"]
+    assert textos["elegir_lista"] == "Elegí un pedido"
+    assert datos[0]["texto"].startswith("Escribí este pedido en un papel e incluí el encabezado.")
+    assert textos["sexos"] == ["Masculino", "Femenino", "Prefiero no responder"]
+    assert "setTitle(TEXTOS.sexo)" in script
+    assert "ngulo" not in script  # la pregunta del ángulo se sacó

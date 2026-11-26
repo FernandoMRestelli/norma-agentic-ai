@@ -120,15 +120,16 @@ modelo en producción.
 En vez de que cada amigo invente un pedido y después transcribirlo, **a cada uno le toca una lista numerada ya
 tipeada** (productos y cantidades del catálogo ficticio), que ve en un Google Form (§5), y la copia a mano «como haría
 un pedido real». La respuesta correcta se conoce de antemano y sale de la misma planilla que genera las listas: no hay
-que transcribir nada ni hay desacuerdo entre anotadores. Nadie elige productos: la única respuesta del Form que
+que transcribir nada ni hay desacuerdo entre anotadores. Nadie elige productos, solo el número de lista, y es la única respuesta del Form que
 importa para el puntaje es el número de lista.
 
 - Cada amigo copia **las mismas palabras y números** de cada renglón. Mayúsculas, letra, espaciado y si usa un
   renglón o dos son suyos.
 - La **forma de la cantidad** (adelante, al final, entre paréntesis, «x3», «media docena») viene variada en la lista
   tipeada, así controlamos que aparezcan todas.
-- Algunas listas piden **tachar un renglón** y **poner un encabezado** (nombre de negocio inventado y fecha), para
-  medir lo que separa `ImagenLeida`.
+- Todas las listas piden **poner el mismo encabezado**, «Pedido para Norma», para medir lo que separa `ImagenLeida`:
+  el encabezado no se pide. Ningún renglón está asignado para tachar: si la persona se equivoca, tacha y sigue, como en un pedido
+  real, y lo tachado se anota al revisar la foto.
 - La foto la saca cada uno **como un cliente**: con su celular, la luz que tenga, en el papel que tenga a mano
   (cuaderno, hoja lisa, papel de almacén), sin escanear ni recortar. Anotamos las condiciones para poder cortar los
   resultados después.
@@ -151,9 +152,9 @@ Hay dos opciones y cada una mide otra cosa:
   `catalogo_evaluacion.csv`. **Se asignan al azar, no se eligen**: es reproducible y no tiene sesgo de selección. El
   sorteo es estratificado para que cada hoja tenga al menos un renglón de cada tipo difícil.
 - **Listas numeradas:** Google Forms no puede sortear contenido distinto para cada persona, así que el sorteo se hace
-  antes: se generan unas 30 listas (`L01`…`L30`), cada una con el núcleo, sus 10 renglones sorteados, cuál tachar y
-  un encabezado inventado. A cada persona se le asigna un número de lista por adelantado (y otro si escribe una
-  segunda hoja), así no se repiten.
+  antes: se generan unas 30 listas (`L01`…`L30`), cada una con el núcleo, sus 10 renglones sorteados y el encabezado
+  «Pedido para Norma». Cada persona elige una lista en el Form (y otra si escribe una segunda hoja). Puede
+  repetirse una lista entre personas: sigue siendo un dato válido, con otra letra.
 - **Cada renglón del pool ya trae su cantidad escrita** («4 Belkor sh matizador 900», «media docena masc argan Lumine
   250»): la lista dice exactamente qué copiar, y la forma de la cantidad la controlamos nosotros.
 
@@ -226,9 +227,10 @@ falta para (b) y (c) y para cortar resultados:
   "hoja": "A",
   "lista": "L07",
   "grupo": "reservado",
-  "condiciones": {"luz": "artificial", "papel": "cuaderno rayado", "angulo": "de costado"},
+  "condiciones": {"luz": "artificial", "papel": "cuaderno rayado"},
+  "sexo": "prefiero no responder",
   "legible": true,
-  "encabezado": {"cliente": "Peluquería Los Álamos", "fecha": "12/11"},
+  "encabezado": "Pedido para Norma",
   "renglones": [
     {"n": 1, "origen": "nucleo", "texto": "2 sh keratina Nordika x900",
      "palabras": ["keratina", "nordika", "900"], "cantidad": 2,
@@ -249,7 +251,8 @@ falta para (b) y (c) y para cortar resultados:
 ## 5. El Google Form para los participantes
 
 Un solo Form para todos, generado con un Google Apps Script a partir de `listas.json` (crear 30 secciones a mano es
-lento y fácil de errarle). A cada persona se le manda el mismo link con su número de lista. El detalle está en la
+lento y fácil de errarle). Se manda **un solo link para todos** y cada persona elige su lista en el desplegable.
+El detalle está en la
 [spec de las listas y el Form](spec/benchmark-manuscritos.md).
 
 ```bash
@@ -263,33 +266,39 @@ pregunta «Subir archivo» (solo imágenes, un archivo, obligatoria): ni Apps Sc
 
 **Estructura del Form:**
 
-1. **Inicio.** La explicación de abajo, la casilla obligatoria de consentimiento y la pregunta «¿Qué número de lista te
-   tocó?» (desplegable `L01`…`L30`) con «ir a la sección según la respuesta».
-2. **Una sección por lista.** Solo texto: el encabezado inventado y los 15 renglones a copiar, con el que hay que
-   tachar marcado. Cada una sigue a la sección final.
+1. **Inicio.** La explicación de abajo, la casilla obligatoria de consentimiento y la pregunta «Elegí un pedido»
+   (desplegable «Pedido 01»…«Pedido 30», que son las listas `L01`…`L30`) con «ir a la sección según la respuesta». Conviene activar «Mezclar orden de las
+   opciones» para que no gane siempre `L01`.
+2. **Una sección por lista.** Solo texto: el encabezado «Pedido para Norma» y los 15 renglones a copiar. Cada una sigue a la
+   sección final.
 3. **Sección final, común a todas:**
    - la foto (subir archivo, una imagen);
-   - control: «¿Copiaste los 15 renglones tal cual?» (sí / no) y, si no, «¿Cuáles cambiaste o salteaste?»;
-   - condiciones: luz (natural / artificial / poca), papel (cuaderno rayado / hoja lisa / otro) y ángulo (de frente /
-     de costado).
+   - control: «¿Escribiste todos los renglones tal cual?» (sí / no) y, si no, «¿Cuáles cambiaste o salteaste?»;
+   - condiciones: luz (natural / artificial / poca), y papel (cuaderno rayado / hoja lisa / otro). No se pregunta el
+     ángulo: quien manda la foto de un pedido la saca lo mejor que puede;
+   - sexo: masculino / femenino / prefiero no responder.
 
 **Al recibir cada respuesta:**
 
 - Se mira la foto contra su lista (15 renglones, menos de un minuto). Un renglón que la persona salteó o cambió no se
-  le cuenta al modelo: se corrige en el esperado de esa foto o se descarta la hoja.
+  le cuenta al modelo: se corrige en el esperado de esa foto o se descarta la hoja. Lo que la persona tachó se anota
+  en `tachados`.
+- Si dos respuestas traen la misma lista (dos personas eligieron el mismo pedido), las dos valen: es la misma lista
+  con otra letra. Solo se cubre menos vocabulario.
 - Para subir archivos el Form obliga a entrar con una cuenta de Google, y la foto queda en el Drive de quien armó el
   Form con el nombre de la persona (`foto - Nombre Apellido.jpg`). Al bajarla se renombra a `pNN-A.jpg`, y del CSV se
-  borran el mail y el nombre antes de guardarlo como `respuestas.csv`. No se guarda nada más de la persona.
+  borran el mail y el nombre antes de guardarlo como `respuestas.csv`. De la persona solo queda el sexo que eligió (o «prefiero no responder»), para cortar
+  los resultados; `respuestas.csv` vive en `data/` y no se versiona.
 
 **Texto de inicio del Form:**
 
 > ¡Hola! Te pido una mano para un trabajo de la facu: estoy midiendo qué tan bien una IA lee pedidos escritos a mano.
 >
-> 1. Elegí abajo **el número de lista que te pasé** y vas a ver tu lista.
-> 2. **Copiala a mano en un papel**, con tu letra de siempre, como si le hicieras un pedido a tu proveedor. Copiá las
->    mismas palabras y números de cada renglón; mayúsculas, letra y espacios como te salgan.
-> 3. Arriba poné el nombre del negocio y la fecha que figuran en la lista (son inventados).
-> 4. **Tachá el renglón que dice «tachar»** con una línea, como si te hubieras arrepentido.
+> 1. **Elegí abajo el pedido que quieras** y tocá «Siguiente»: vas a ver los renglones que tenés que copiar.
+> 2. **Copialo a mano en un papel**, con tu letra de siempre, como si se lo hicieras a tu proveedor.
+> 3. Arriba, como encabezado, poné «Pedido para Norma».
+> 4. **Si te equivocás al escribir, tachalo con una línea y seguí**, como harías en un pedido de verdad. No hace
+>    falta empezar de nuevo.
 > 5. **Sacale una foto con el celu** como la mandarías por WhatsApp: sin escanear, sin recortar, con la luz que
 >    tengas, y subila al final del Form.
 >
@@ -299,7 +308,7 @@ pregunta «Subir archivo» (solo imágenes, un archivo, obligatoria): ni Apps Sc
 **Ejemplo de la sección de una lista** (ilustrativo: las 30 listas sorteadas están en
 `data_example/benchmark_manuscritos/listas.json`):
 
-> **Peluquería Los Álamos — 12/11**
+> **Pedido para Norma**
 >
 > 2 sh keratina Nordika x900
 > Kapris oxidante 20 vol x900 — (1)
@@ -310,7 +319,6 @@ pregunta «Subir archivo» (solo imágenes, un archivo, obligatoria): ni Apps Sc
 > Fiorela gel fijador x500 — 3
 > 1 baño de crema coco Trevia 1k
 > 10 serum puntas Orkidea
-> 2 Belkor crema de peinar rulos ← **tachar**
 > Duomo decolorante sachet x24
 > 2 acond keratina Nordika 900
 > Brisa acond color 900 x 2
@@ -318,7 +326,7 @@ pregunta «Subir archivo» (solo imágenes, un archivo, obligatoria): ni Apps Sc
 > 1 Fiorela sh nutrición 5 L
 > 5 Lumine sh nutrición 900
 
-Las `condiciones` (luz, papel, ángulo) salen de la sección final del Form.
+Las `condiciones` (luz y papel) salen de la sección final del Form.
 
 ## 6. Scoring function
 
@@ -392,7 +400,8 @@ tilde ya no importan.
 
 ### 6.4 Ejemplo calculado
 
-Hoja `p03-A` de la §5 (15 renglones esperados, uno tachado), nivel (b). Supongamos que la lectura + búsqueda da:
+Hoja `p03-A` de la §5 (15 renglones esperados), en la que la persona escribió de más «2 Belkor crema de peinar
+rulos» y lo tachó, nivel (b). Supongamos que la lectura + búsqueda da:
 
 | Renglones | Qué pasó | s |
 |---|---|---|
@@ -455,8 +464,7 @@ El mismo benchmark sirve para comparar un modelo solo, modelo + prompt (con y si
 
 1. ~~Spec, pool, listas y Form~~: hecho en [`docs/spec/benchmark-manuscritos.md`](spec/benchmark-manuscritos.md)
    (RF-126 a RF-129) e `internal/benchmark_manuscritos.py`. Los RF y CA del runner van en esa misma spec.
-2. Crear el Form con `crear_form.gs`, agregar la pregunta de la foto y mandar el link con el número de lista de cada
-   persona.
+2. Crear el Form con `crear_form.gs`, agregar la pregunta de la foto y mandar el link.
 3. Juntar las fotos con el Form, revisarlas contra su lista y armar `casos.json` cruzando `respuestas.csv` con
    `listas.json`.
 4. Correr el nivel (a) con `comparar_vision --casos` (sin código nuevo).

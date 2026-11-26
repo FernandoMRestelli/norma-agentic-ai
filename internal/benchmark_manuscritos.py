@@ -3,9 +3,9 @@
     python -m internal.benchmark_manuscritos listas --cantidad 30 --semilla 116
     python -m internal.benchmark_manuscritos form
 
-`listas` sortea las listas numeradas desde `pool.csv` (núcleo fijo + 10 renglones estratificados por dificultad + un
-tachado) y las guarda en `listas.json`. `form` arma `crear_form.gs`, un Google Apps Script que crea el Form con una
-sección por lista: se pega en script.google.com y se corre una vez.
+`listas` sortea las listas numeradas desde `pool.csv` (núcleo fijo + 10 renglones estratificados por dificultad) y las
+guarda en `listas.json`. `form` arma `crear_form.gs`, un Google Apps Script que crea el Form con una sección por lista:
+se pega en script.google.com y se corre una vez.
 """
 
 import argparse
@@ -39,21 +39,8 @@ UNIDADES = {"unidades", "cajas", "cada_uno"}
 MINIMO_POR_TIPO = 5
 MINIMO_SORTEABLES = 100
 
-# Negocios inventados para el encabezado de la hoja (no se pide).
-NEGOCIOS = (
-    "Peluquería Los Álamos",
-    "Estética La Glorieta",
-    "Salón Margarita",
-    "Peluquería El Ceibo",
-    "Barbería Don Tito",
-    "Estética Las Moras",
-    "Salón Arcoíris",
-    "Peluquería San Telmito",
-    "Estudio Clara Luz",
-    "Peluquería La Esquina",
-    "Salón Los Tilos",
-    "Estética Vía Bella",
-)
+# El encabezado de la hoja, igual en todas las listas: no es pedido y la lectura lo tiene que separar.
+ENCABEZADO = "Pedido para Norma"
 
 
 @dataclass(frozen=True)
@@ -183,26 +170,11 @@ def sortear_lista(pool: list[Renglon], numero: int, rng: random.Random, usos: Co
     sorteables = [renglon for renglon in pool if renglon.origen == "pool"]
     usados = {renglon.sku for renglon in nucleo}
     variables = _sortear_variables(sorteables, usados, usos, rng)
-    candidatos_tachado = [renglon for renglon in sorteables if renglon.sku not in usados]
-    if not candidatos_tachado:
-        raise ValueError("El pool no alcanza para el renglón tachado")
-    [tachado] = _menos_usados(candidatos_tachado, usos, rng, 1)
-    usos.update(renglon.id for renglon in [*variables, tachado])
-    posicion_tachado = rng.randint(len(nucleo) + 1, len(nucleo) + len(variables) + 1)
-
-    renglones = [renglon.como_dict(n) for n, renglon in enumerate(nucleo, start=1)]
-    posiciones = [n for n in range(len(nucleo) + 1, len(nucleo) + len(variables) + 2) if n != posicion_tachado]
-    renglones += [renglon.como_dict(n) for n, renglon in zip(posiciones, variables, strict=True)]
+    usos.update(renglon.id for renglon in variables)
     return {
         "id": f"L{numero:02d}",
-        "encabezado": {"cliente": rng.choice(NEGOCIOS), "fecha": f"{rng.randint(1, 28)}/{rng.choice((11, 12))}"},
-        "renglones": renglones,
-        "tachado": {
-            "n": posicion_tachado,
-            "id": tachado.id,
-            "texto": tachado.texto,
-            "palabras": list(tachado.palabras),
-        },
+        "encabezado": ENCABEZADO,
+        "renglones": [renglon.como_dict(n) for n, renglon in enumerate([*nucleo, *variables], start=1)],
     }
 
 
@@ -216,20 +188,18 @@ def sortear_listas(pool: list[Renglon], cantidad: int, semilla: int = SEMILLA) -
 
 
 def lineas_de_la_hoja(lista: dict) -> list[str]:
-    """Los renglones en el orden de la hoja, con el tachado marcado."""
-    filas = [(renglon["n"], renglon["texto"]) for renglon in lista["renglones"]]
-    filas.append((lista["tachado"]["n"], f"{lista['tachado']['texto']}   ← TACHAR"))
-    return [texto for _, texto in sorted(filas)]
+    """Los renglones en el orden de la hoja."""
+    return [renglon["texto"] for renglon in sorted(lista["renglones"], key=lambda renglon: renglon["n"])]
 
 
 INICIO = """¡Hola! Te pido una mano para un trabajo de la facu: estoy midiendo qué tan bien una IA lee pedidos \
 escritos a mano.
 
-1. Elegí abajo el número de lista que te pasé y vas a ver tu lista.
-2. Copiala a mano en un papel, con tu letra de siempre, como si le hicieras un pedido a tu proveedor. Copiá las \
-mismas palabras y números de cada renglón; mayúsculas, letra y espacios como te salgan.
-3. Arriba poné el nombre del negocio y la fecha que figuran en la lista (son inventados).
-4. Tachá con una línea el renglón que dice «TACHAR», como si te hubieras arrepentido.
+1. Elegí abajo el pedido que quieras y tocá «Siguiente»: vas a ver los renglones que tenés que copiar.
+2. Copialo a mano en un papel, con tu letra de siempre, como si se lo hicieras a tu proveedor.
+3. Arriba, como encabezado, poné «Pedido para Norma».
+4. Si te equivocás al escribir, tachalo con una línea y seguí, como harías en un pedido de verdad. No hace falta \
+empezar de nuevo.
 5. Sacale una foto con el celu como la mandarías por WhatsApp: sin escanear, sin recortar, con la luz que tengas, y \
 subila al final.
 
@@ -245,19 +215,18 @@ TEXTOS = {
     "inicio": INICIO,
     "consentimiento_titulo": "Consentimiento",
     "consentimiento": CONSENTIMIENTO,
-    "elegir_lista": "¿Qué número de lista te tocó?",
-    "lista": "Lista ",
+    "elegir_lista": "Elegí un pedido",
     "final_titulo": "La foto y unas preguntas",
     "final_ayuda": "Subí la foto de la hoja y contanos cómo la sacaste.",
-    "copio_todo": "¿Copiaste todos los renglones tal cual?",
+    "copio_todo": "¿Escribiste todos los renglones tal cual?",
     "si_no": ["Sí", "No"],
     "cambios": "Si no, ¿cuáles cambiaste o salteaste?",
     "luz": "Luz",
     "luces": ["Natural", "Artificial", "Poca luz"],
     "papel": "Papel",
     "papeles": ["Cuaderno rayado", "Hoja lisa", "Otro"],
-    "angulo": "Ángulo de la foto",
-    "angulos": ["De frente", "De costado"],
+    "sexo": "Sexo",
+    "sexos": ["Masculino", "Femenino", "Prefiero no responder"],
 }
 
 # Solo ASCII: el portapapeles de macOS (pbcopy) y algunos editores leen el archivo como Mac Roman y rompen los acentos
@@ -269,7 +238,7 @@ PLANTILLA_FORM = """// Generado con `python -m internal.benchmark_manuscritos fo
 //    las fotos (pide permiso para crear Forms).
 // 2. Abri el link de edicion que queda en el log y, en la seccion final, agrega la pregunta "Subir archivo":
 //    "Foto del pedido", solo imagenes, un archivo, obligatoria. Apps Script no puede crear esa pregunta.
-// 3. Manda el link publico con el numero de lista de cada persona.
+// 3. Manda el link publico: cada persona elige el pedido que quiera en el desplegable.
 
 const TEXTOS = {textos};
 const LISTAS = {listas};
@@ -290,7 +259,7 @@ function crearForm() {{
 
   const secciones = LISTAS.map(function (lista) {{
     return form.addPageBreakItem()
-      .setTitle(TEXTOS.lista + lista.id)
+      .setTitle(lista.nombre)
       .setHelpText(lista.texto);
   }});
 
@@ -301,7 +270,7 @@ function crearForm() {{
     seccion.setGoToPage(final);
   }});
   elegir.setChoices(LISTAS.map(function (lista, i) {{
-    return elegir.createChoice(lista.id, secciones[i]);
+    return elegir.createChoice(lista.nombre, secciones[i]);
   }}));
 
   form.addMultipleChoiceItem()
@@ -319,14 +288,19 @@ function crearForm() {{
     .setChoiceValues(TEXTOS.papeles)
     .setRequired(true);
   form.addMultipleChoiceItem()
-    .setTitle(TEXTOS.angulo)
-    .setChoiceValues(TEXTOS.angulos)
+    .setTitle(TEXTOS.sexo)
+    .setChoiceValues(TEXTOS.sexos)
     .setRequired(true);
 
   Logger.log('Para editar (agrega la pregunta de la foto): ' + form.getEditUrl());
   Logger.log('Para mandar: ' + form.getPublishedUrl());
 }}
 """
+
+
+def nombre_del_pedido(id_lista: str) -> str:
+    """Cómo ve la lista quien participa: «L07» es «Pedido 07». Es lo que queda en las respuestas del Form."""
+    return f"Pedido {id_lista.removeprefix('L')}"
 
 
 def script_del_form(listas: dict) -> str:
@@ -337,17 +311,16 @@ def script_del_form(listas: dict) -> str:
     """
     secciones = []
     for lista in listas["listas"]:
-        encabezado = lista["encabezado"]
         texto = "\n".join(
             [
-                "Copiá esta lista en un papel, con el encabezado arriba.",
+                "Escribí este pedido en un papel e incluí el encabezado.",
                 "",
-                f"{encabezado['cliente']} — {encabezado['fecha']}",
+                lista["encabezado"],
                 "",
                 *lineas_de_la_hoja(lista),
             ]
         )
-        secciones.append({"id": lista["id"], "texto": texto})
+        secciones.append({"id": lista["id"], "nombre": nombre_del_pedido(lista["id"]), "texto": texto})
     return PLANTILLA_FORM.format(
         semilla=listas["semilla"],
         textos=json.dumps(TEXTOS, ensure_ascii=True, indent=2),
