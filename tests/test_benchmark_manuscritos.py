@@ -89,3 +89,8 @@ def test_script_del_form(pool):
     assert "seccion.setGoToPage(final)" in script
     assert "setCollectEmail(false)" in script
     assert "addTextItem" not in script  # no pide nombre ni mail
+    # Solo ASCII, para que copiar y pegar no rompa los acentos; el JSON los recupera.
+    assert script.isascii()
+    textos = json.loads(re.search(r"^const TEXTOS = (\{.*?^\});$", script, re.S | re.M).group(1))
+    assert textos["elegir_lista"] == "¿Qué número de lista te tocó?"
+    assert "Copiá esta lista" in datos[0]["texto"]

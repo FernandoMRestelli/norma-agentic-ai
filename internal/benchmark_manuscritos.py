@@ -238,42 +238,65 @@ API del modelo que la lee (OpenAI o Google) para medir. Si preferís que no, no 
 
 CONSENTIMIENTO = "Acepto que la foto se use para este trabajo y se mande a la API del modelo que la lee"
 
+# Los textos que muestra el Form, fuera de la plantilla: van al script como JSON con escapes \uXXXX (ver
+# `script_del_form`).
+TEXTOS = {
+    "titulo": "Pedidos escritos a mano",
+    "inicio": INICIO,
+    "consentimiento_titulo": "Consentimiento",
+    "consentimiento": CONSENTIMIENTO,
+    "elegir_lista": "¿Qué número de lista te tocó?",
+    "lista": "Lista ",
+    "final_titulo": "La foto y unas preguntas",
+    "final_ayuda": "Subí la foto de la hoja y contanos cómo la sacaste.",
+    "copio_todo": "¿Copiaste todos los renglones tal cual?",
+    "si_no": ["Sí", "No"],
+    "cambios": "Si no, ¿cuáles cambiaste o salteaste?",
+    "luz": "Luz",
+    "luces": ["Natural", "Artificial", "Poca luz"],
+    "papel": "Papel",
+    "papeles": ["Cuaderno rayado", "Hoja lisa", "Otro"],
+    "angulo": "Ángulo de la foto",
+    "angulos": ["De frente", "De costado"],
+}
+
+# Solo ASCII: el portapapeles de macOS (pbcopy) y algunos editores leen el archivo como Mac Roman y rompen los acentos
+# («Copiá» → «Copi√°»). Los acentos de los textos van como \uXXXX, que JavaScript entiende igual.
 PLANTILLA_FORM = """// Generado con `python -m internal.benchmark_manuscritos form` (semilla {semilla}).
 // No se edita a mano: se cambia el pool o la semilla y se vuelve a generar.
 //
-// 1. Pegalo en un proyecto nuevo de https://script.google.com y corré crearForm() con la cuenta que va a recibir las
-//    fotos (pide permiso para crear Forms).
-// 2. Abrí el link de edición que queda en el log y, en la sección final, agregá la pregunta «Subir archivo»: «Foto
-//    del pedido», solo imágenes, un archivo, obligatoria. Apps Script no puede crear esa pregunta.
-// 3. Mandá el link público con el número de lista de cada persona.
+// 1. Pegalo en un proyecto nuevo de https://script.google.com y corre crearForm() con la cuenta que va a recibir
+//    las fotos (pide permiso para crear Forms).
+// 2. Abri el link de edicion que queda en el log y, en la seccion final, agrega la pregunta "Subir archivo":
+//    "Foto del pedido", solo imagenes, un archivo, obligatoria. Apps Script no puede crear esa pregunta.
+// 3. Manda el link publico con el numero de lista de cada persona.
 
-const INICIO = {inicio};
-const CONSENTIMIENTO = {consentimiento};
+const TEXTOS = {textos};
 const LISTAS = {listas};
 
 function crearForm() {{
-  const form = FormApp.create('Pedidos escritos a mano');
-  form.setDescription(INICIO);
+  const form = FormApp.create(TEXTOS.titulo);
+  form.setDescription(TEXTOS.inicio);
   form.setCollectEmail(false);
   form.setProgressBar(true);
 
   form.addCheckboxItem()
-    .setTitle('Consentimiento')
-    .setChoiceValues([CONSENTIMIENTO])
+    .setTitle(TEXTOS.consentimiento_titulo)
+    .setChoiceValues([TEXTOS.consentimiento])
     .setRequired(true);
   const elegir = form.addListItem()
-    .setTitle('¿Qué número de lista te tocó?')
+    .setTitle(TEXTOS.elegir_lista)
     .setRequired(true);
 
   const secciones = LISTAS.map(function (lista) {{
     return form.addPageBreakItem()
-      .setTitle('Lista ' + lista.id)
+      .setTitle(TEXTOS.lista + lista.id)
       .setHelpText(lista.texto);
   }});
 
   const final = form.addPageBreakItem()
-    .setTitle('La foto y unas preguntas')
-    .setHelpText('Subí la foto de la hoja y contanos cómo la sacaste.');
+    .setTitle(TEXTOS.final_titulo)
+    .setHelpText(TEXTOS.final_ayuda);
   secciones.forEach(function (seccion) {{
     seccion.setGoToPage(final);
   }});
@@ -282,32 +305,36 @@ function crearForm() {{
   }}));
 
   form.addMultipleChoiceItem()
-    .setTitle('¿Copiaste todos los renglones tal cual?')
-    .setChoiceValues(['Sí', 'No'])
+    .setTitle(TEXTOS.copio_todo)
+    .setChoiceValues(TEXTOS.si_no)
     .setRequired(true);
   form.addParagraphTextItem()
-    .setTitle('Si no, ¿cuáles cambiaste o salteaste?');
+    .setTitle(TEXTOS.cambios);
   form.addMultipleChoiceItem()
-    .setTitle('Luz')
-    .setChoiceValues(['Natural', 'Artificial', 'Poca luz'])
+    .setTitle(TEXTOS.luz)
+    .setChoiceValues(TEXTOS.luces)
     .setRequired(true);
   form.addMultipleChoiceItem()
-    .setTitle('Papel')
-    .setChoiceValues(['Cuaderno rayado', 'Hoja lisa', 'Otro'])
+    .setTitle(TEXTOS.papel)
+    .setChoiceValues(TEXTOS.papeles)
     .setRequired(true);
   form.addMultipleChoiceItem()
-    .setTitle('Ángulo de la foto')
-    .setChoiceValues(['De frente', 'De costado'])
+    .setTitle(TEXTOS.angulo)
+    .setChoiceValues(TEXTOS.angulos)
     .setRequired(true);
 
-  Logger.log('Para editar (agregá la pregunta de la foto): ' + form.getEditUrl());
+  Logger.log('Para editar (agrega la pregunta de la foto): ' + form.getEditUrl());
   Logger.log('Para mandar: ' + form.getPublishedUrl());
 }}
 """
 
 
 def script_del_form(listas: dict) -> str:
-    """El Apps Script que crea el Form (RF-129). Los textos van como JSON, que también es JavaScript válido."""
+    """El Apps Script que crea el Form (RF-129).
+
+    Los textos van como JSON, que también es JavaScript válido, con `ensure_ascii=True`: el archivo sale solo en
+    ASCII y se puede copiar y pegar sin que se rompan los acentos.
+    """
     secciones = []
     for lista in listas["listas"]:
         encabezado = lista["encabezado"]
@@ -323,9 +350,8 @@ def script_del_form(listas: dict) -> str:
         secciones.append({"id": lista["id"], "texto": texto})
     return PLANTILLA_FORM.format(
         semilla=listas["semilla"],
-        inicio=json.dumps(INICIO, ensure_ascii=False),
-        consentimiento=json.dumps(CONSENTIMIENTO, ensure_ascii=False),
-        listas=json.dumps(secciones, ensure_ascii=False, indent=2),
+        textos=json.dumps(TEXTOS, ensure_ascii=True, indent=2),
+        listas=json.dumps(secciones, ensure_ascii=True, indent=2),
     )
 
 

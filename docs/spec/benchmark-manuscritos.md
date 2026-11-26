@@ -92,7 +92,9 @@ Los campos de cada renglón son los de `casos.json` del diseño (§4), así arma
 
 ### 4.3 `data_example/benchmark_manuscritos/crear_form.gs`
 
-Un Google Apps Script con una función `crearForm()` y las listas embebidas como JSON. Se pega en un proyecto nuevo
+Un Google Apps Script con una función `crearForm()` y los textos y las listas embebidos como JSON. Sale solo en
+ASCII (los acentos van como `\uXXXX`): el portapapeles de macOS y algunos editores leen el archivo como Mac Roman y
+rompen los acentos al copiarlo («Copiá» → «Copi√°»). Se pega en un proyecto nuevo
 de script.google.com y se corre una vez con la cuenta que va a recibir las fotos.
 
 ## 5. Requisitos
@@ -113,7 +115,7 @@ de script.google.com y se corre una vez con la cuenta que va a recibir las fotos
 | CA-220 | 30 listas sorteadas | Se mira cada una | El núcleo está en 1 a 5, hay 10 sorteados que cubren todos los tipos, las posiciones son 1 a 16 sin repetir y no se repite ningún SKU | `tests/test_benchmark_manuscritos.py::test_lista_cubre_las_dificultades` |
 | CA-221 | 30 listas sorteadas | Se mira el tachado | Es un renglón del pool, no está entre los esperados y su posición está entre la 6 y la 16 | `tests/test_benchmark_manuscritos.py::test_tachado_fuera_de_los_esperados` |
 | CA-222 | Un pool sintético sin renglones de `tono` | Se sortea una lista | Falla con un error que dice `tono` | `tests/test_benchmark_manuscritos.py::test_pool_sin_un_tipo_falla` |
-| CA-223 | Dos listas, una con comillas en el encabezado | Se genera el script | Trae una sección por lista con sus 16 renglones y el «tachar», el desplegable con las dos, el salto a la sección final, `setCollectEmail(false)` y las listas como JSON válido | `tests/test_benchmark_manuscritos.py::test_script_del_form` |
+| CA-223 | Dos listas, una con comillas en el encabezado | Se genera el script | Trae una sección por lista con sus 16 renglones y el «tachar», el desplegable con las dos, el salto a la sección final, `setCollectEmail(false)` y las listas como JSON válido; el archivo es solo ASCII y los acentos vuelven al leer el JSON | `tests/test_benchmark_manuscritos.py::test_script_del_form` |
 
 ## 7. Errores y casos borde
 
