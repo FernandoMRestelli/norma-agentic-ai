@@ -1,0 +1,106 @@
+id,origen,texto,sku,cantidad,tono,unidad,palabras,dificultad
+N1,nucleo,2 sh keratina Nordika x900,NOR-SH-KER-900,2,,,keratina nordika 900,abreviatura x_medida casi_iguales
+N2,nucleo,Kapris oxidante 20 vol x900 — (1),KAP-OX-20-900,1,,,kapris oxidante 20 900,numero_en_producto x_medida cantidad_al_final numeros_confusos
+N3,nucleo,Kapris tintura 7.1 x3,KAP-CO-60,3,7.1,,kapris tintura,tono numero_en_producto cantidad_al_final
+N4,nucleo,media docena masc argan Lumine 250,LUM-MA-ARG-250,6,,,argan lumine 250,cantidad_en_palabras abreviatura
+N5,nucleo,Silkara protector térmico (7),SIL-CU-PRO-250,7,,,silkara protector,cantidad_al_final numeros_confusos
+P001,pool,4 Belkor sh matizador 900,BEL-SH-MAT-900,4,,,belkor matizador 900,abreviatura casi_iguales
+P002,pool,Kapris sh matizador 300 x 2,KAP-SH-MAT-300,2,,,kapris matizador 300,abreviatura cantidad_al_final casi_iguales
+P003,pool,Trevia shampoo matizador 900 (3),TRE-SH-MAT-900,3,,,trevia matizador 900,cantidad_al_final casi_iguales
+P004,pool,Fiorela gel fijador x500 — 3,FIO-FI-GEL-500,3,,,fiorela gel 500,x_medida cantidad_al_final
+P005,pool,1 baño de crema coco Trevia 1k,TRE-BA-COC-1K,1,,,coco trevia,numero_en_producto numeros_confusos casi_iguales
+P006,pool,2 baño de crema karité Trevia 1 kg,TRE-BA-KAR-1K,2,,,karite trevia,numero_en_producto casi_iguales
+P007,pool,10 serum puntas Orkidea,ORK-FI-SER-60,10,,,serum orkidea,numeros_confusos
+P008,pool,2 Belkor crema de peinar rulos,BEL-FI-CPR-300,2,,,belkor rulos,
+P009,pool,24 sachets decolorante Duomo,DUO-DE-50,24,,,sachet decolorante duomo,
+P010,pool,2 acond keratina Nordika 900,NOR-AC-KER-900,2,,,keratina nordika 900,abreviatura casi_iguales
+P011,pool,Brisa acond color 900 x 2,BRI-AC-COL-900,2,,,brisa color 900,abreviatura cantidad_al_final
+P012,pool,3 Kapris acond color 300,KAP-AC-COL-300,3,,,kapris color 300,abreviatura casi_iguales
+P013,pool,1 Kapris sh color 300,KAP-SH-COL-300,1,,,kapris color 300,abreviatura numeros_confusos casi_iguales
+P014,pool,1 Fiorela sh nutrición 5 L,FIO-SH-NUT-5L,1,,,fiorela nutricion,abreviatura numero_en_producto numeros_confusos
+P015,pool,5 Lumine sh nutrición 900,LUM-SH-NUT-900,5,,,lumine nutricion 900,abreviatura casi_iguales
+P016,pool,Lumine sh nutrición 300 — 6,LUM-SH-NUT-300,6,,,lumine nutricion 300,abreviatura cantidad_al_final casi_iguales
+P017,pool,3 cajas ampolla reparadora Kapris,KAP-CU-AMP-15,3,,cajas,ampolla kapris,unidad
+P018,pool,2 cajas ampollas Nordika,NOR-CU-AMP-15,2,,cajas,ampolla nordika,unidad
+P019,pool,Belkor ampolla reparadora 12 u,BEL-CU-AMP-15,12,,unidades,belkor ampolla,unidad cantidad_al_final
+P020,pool,12 u Fiorela ampolla reparadora,FIO-CU-AMP-15,12,,unidades,fiorela ampolla,unidad
+P021,pool,doce oxidante Belkor 20 vol x90,BEL-OX-20-90,12,,,oxidante belkor 20 90,cantidad_en_palabras numero_en_producto x_medida
+P022,pool,Fiorela ox 30 vol 900 (2),FIO-OX-30-900,2,,,fiorela ox 30 900,abreviatura numero_en_producto cantidad_al_final
+P023,pool,6 ox 40 vol Duomo x900,DUO-OX-40-900,6,,,ox 40 duomo 900,abreviatura numero_en_producto x_medida
+P024,pool,Argania oxidante 10 vol x 90 — 7,ARG-OX-10-90,7,,,argania oxidante 10 90,numero_en_producto x_medida cantidad_al_final numeros_confusos
+P025,pool,11 Nordika oxidante 20 vol 90,NOR-OX-20-90,11,,,nordika oxidante 20 90,numero_en_producto numeros_confusos casi_iguales
+P026,pool,Nordika oxidante 20 vol 900 x 4,NOR-OX-20-900,4,,,nordika oxidante 20 900,numero_en_producto cantidad_al_final casi_iguales
+P027,pool,Belkor tintura 6.0 x2,BEL-CO-60,2,6.0,,belkor tintura,tono numero_en_producto cantidad_al_final
+P028,pool,Fiorela coloración 8.1 x 4,FIO-CO-60,4,8.1,,fiorela coloracion,tono numero_en_producto cantidad_al_final
+P029,pool,2 Nordika tintura 5.0,NOR-CO-60,2,5.0,,nordika tintura,tono numero_en_producto casi_iguales
+P030,pool,Duomo coloración 9.1 (1),DUO-CO-60,1,9.1,,duomo coloracion,tono numero_en_producto cantidad_al_final numeros_confusos
+P031,pool,Argania tintura 4.0 — 3,ARG-CO-60,3,4.0,,argania tintura,tono numero_en_producto cantidad_al_final
+P032,pool,Kapris coloración 7.3 x 7,KAP-CO-60,7,7.3,,kapris coloracion,tono numero_en_producto cantidad_al_final numeros_confusos
+P033,pool,3 Belkor coloración 10.1,BEL-CO-60,3,10.1,,belkor coloracion,tono numero_en_producto
+P034,pool,media docena acond argan Orkidea 300,ORK-AC-ARG-300,6,,,argan orkidea 300,cantidad_en_palabras abreviatura
+P035,pool,una masc keratina Belkor 1 kg,BEL-MA-KER-1K,1,,,keratina belkor,cantidad_en_palabras abreviatura numero_en_producto numeros_confusos
+P036,pool,dos Fiorela máscara nutrición 250,FIO-MA-NUT-250,2,,,fiorela mascara nutricion 250,cantidad_en_palabras
+P037,pool,una docena spray brillo Silkara,SIL-FI-SPR-250,12,,,spray silkara,cantidad_en_palabras
+P038,pool,tres serum puntas Lumine,LUM-FI-SER-60,3,,,serum lumine,cantidad_en_palabras
+P039,pool,Orkidea óleo argan x60 — cuatro,ORK-FI-OLE-60,4,,,orkidea oleo 60,cantidad_en_palabras x_medida cantidad_al_final
+P040,pool,diez gel fijador Kapris 500,KAP-FI-GEL-500,10,,,gel kapris 500,cantidad_en_palabras numeros_confusos
+P041,pool,1 decol Belkor 700,BEL-DE-700,1,,,decol belkor 700,abreviatura numeros_confusos casi_iguales
+P042,pool,Belkor decol sachet — 10,BEL-DE-50,10,,,belkor decol sachet,abreviatura cantidad_al_final numeros_confusos casi_iguales
+P043,pool,Argania polvo decolorante 700 g (2),ARG-DE-700,2,,,argania decolorante 700,cantidad_al_final
+P044,pool,17 sachets decolorante Fiorela,FIO-DE-50,17,,,sachet decolorante fiorela,numeros_confusos
+P045,pool,Silkara sh argan x900 — 2,SIL-SH-ARG-900,2,,,silkara argan 900,abreviatura x_medida cantidad_al_final casi_iguales
+P046,pool,1 Silkara sh keratina 900,SIL-SH-KER-900,1,,,silkara keratina 900,abreviatura numeros_confusos casi_iguales
+P047,pool,Orkidea shampoo keratina 5 L x 1,ORK-SH-KER-5L,1,,,orkidea keratina,numero_en_producto cantidad_al_final numeros_confusos
+P048,pool,2 Trevia sh argan 5L,TRE-SH-ARG-5L,2,,,trevia argan,abreviatura numero_en_producto
+P049,pool,4 Brisa shampoo nutrición 5 L,BRI-SH-NUT-5L,4,,,brisa nutricion,numero_en_producto casi_iguales
+P050,pool,Brisa sh nutrición 900 (5),BRI-SH-NUT-900,5,,,brisa nutricion 900,abreviatura cantidad_al_final casi_iguales
+P051,pool,3 Lumine acond keratina 300,LUM-AC-KER-300,3,,,lumine keratina 300,abreviatura casi_iguales
+P052,pool,Lumine acond argan 300 x 3,LUM-AC-ARG-300,3,,,lumine argan 300,abreviatura cantidad_al_final casi_iguales
+P053,pool,7 Fiorela acond color 900,FIO-AC-COL-900,7,,,fiorela color 900,abreviatura numeros_confusos
+P054,pool,Silkara masc nutrición 1k — 2,SIL-MA-NUT-1K,2,,,silkara nutricion,abreviatura numero_en_producto cantidad_al_final
+P055,pool,Orkidea máscara keratina x250 (3),ORK-MA-KER-250,3,,,orkidea mascara keratina 250,x_medida cantidad_al_final
+P056,pool,5 Kapris masc argan 1 kg,KAP-MA-ARG-1K,5,,,kapris argan,abreviatura numero_en_producto
+P057,pool,Nordika baño de crema karité 1k x 2,NOR-BA-KAR-1K,2,,,nordika karite,numero_en_producto cantidad_al_final
+P058,pool,1 Belkor baño de crema coco,BEL-BA-COC-1K,1,,,belkor coco,numeros_confusos
+P059,pool,Lumine crema de peinar rulos x300 — 4,LUM-FI-CPR-300,4,,,lumine rulos 300,x_medida cantidad_al_final
+P060,pool,6 Silkara crema de peinar rulos,SIL-FI-CPR-300,6,,,silkara rulos,
+P061,pool,Trevia serum puntas x60 (11),TRE-FI-SER-60,11,,,trevia serum 60,x_medida cantidad_al_final numeros_confusos
+P062,pool,2 Kapris óleo argan 60,KAP-FI-OLE-60,2,,,kapris oleo,
+P063,pool,Nordika spray brillo 250 x 3,NOR-FI-SPR-250,3,,,nordika spray 250,cantidad_al_final
+P064,pool,8 Orkidea gel fijador,ORK-FI-GEL-500,8,,,orkidea gel,
+P065,pool,Belkor protector térmico x250 — 1,BEL-CU-PRO-250,1,,,belkor protector 250,x_medida cantidad_al_final numeros_confusos
+P066,pool,4 protector térmico Lumine,LUM-CU-PRO-250,4,,,protector lumine,
+P067,pool,Trevia ampolla reparadora x15 — 2 cajas,TRE-CU-AMP-15,2,,cajas,trevia ampolla 15,x_medida unidad cantidad_al_final
+P068,pool,3 Montello pincel para tintura,MON-AX-PIN,3,,,montello pincel,
+P069,pool,2 bowl para tintura Montello,MON-AX-BOW,2,,,bowl montello,
+P070,pool,Montello peine de corte (10),MON-AX-PEI,10,,,montello peine,cantidad_al_final numeros_confusos
+P071,pool,1 capa de corte Montello,MON-AX-CAP,1,,,capa montello,numeros_confusos
+P072,pool,Montello papel aluminio 5 kg x 1,MON-AX-ALU-5K,1,,,montello aluminio,numero_en_producto cantidad_al_final numeros_confusos
+P073,pool,Kapris sh keratina 900 x 2,KAP-SH-KER-900,2,,,kapris keratina 900,abreviatura cantidad_al_final casi_iguales
+P074,pool,3 Kapris acond keratina 900,KAP-AC-KER-900,3,,,kapris keratina 900,abreviatura casi_iguales
+P075,pool,Fiorela sh matizador 5 L (1),FIO-SH-MAT-5L,1,,,fiorela matizador,abreviatura numero_en_producto cantidad_al_final numeros_confusos
+P076,pool,2 Orkidea sh color 900,ORK-SH-COL-900,2,,,orkidea color 900,abreviatura casi_iguales
+P077,pool,Orkidea acond color 900 — 2,ORK-AC-COL-900,2,,,orkidea color 900,abreviatura cantidad_al_final casi_iguales
+P078,pool,media docena Nordika ox 30 vol x90,NOR-OX-30-90,6,,,nordika ox 30 90,cantidad_en_palabras abreviatura numero_en_producto x_medida
+P079,pool,Belkor oxidante 40 vol 900 x 3,BEL-OX-40-900,3,,,belkor oxidante 40 900,numero_en_producto cantidad_al_final
+P080,pool,Kapris ox 10 vol x90 — doce,KAP-OX-10-90,12,,,kapris ox 10 90,cantidad_en_palabras abreviatura numero_en_producto x_medida cantidad_al_final
+P081,pool,Duomo oxidante 30 vol 90 (17),DUO-OX-30-90,17,,,duomo oxidante 30 90,numero_en_producto cantidad_al_final numeros_confusos
+P082,pool,Argania ox 20 vol x900 — 1,ARG-OX-20-900,1,,,argania ox 20 900,abreviatura numero_en_producto x_medida cantidad_al_final numeros_confusos
+P083,pool,Nordika coloración 7.0 con oxidante x 2,NOR-CO-60OX,2,7.0,,nordika coloracion oxidante,tono numero_en_producto cantidad_al_final casi_iguales
+P084,pool,Kapris coloración 6.1 con oxidante — 1,KAP-CO-60OX,1,6.1,,kapris coloracion oxidante,tono numero_en_producto cantidad_al_final numeros_confusos casi_iguales
+P085,pool,Lumine masc keratina x1k — 2,LUM-MA-KER-1K,2,,,lumine keratina,abreviatura numero_en_producto x_medida cantidad_al_final
+P086,pool,Trevia masc nutrición 250 — 7,TRE-MA-NUT-250,7,,,trevia nutricion 250,abreviatura cantidad_al_final numeros_confusos
+P087,pool,4 Belkor sh nutrición 300,BEL-SH-NUT-300,4,,,belkor nutricion 300,abreviatura
+P088,pool,Silkara acond keratina 900 (2),SIL-AC-KER-900,2,,,silkara keratina 900,abreviatura cantidad_al_final casi_iguales
+P089,pool,1 Brisa sh matizador 5 L,BRI-SH-MAT-5L,1,,,brisa matizador,abreviatura numero_en_producto numeros_confusos
+P090,pool,Belkor sh color 5L — 3,BEL-SH-COL-5L,3,,,belkor color,abreviatura numero_en_producto cantidad_al_final
+P091,pool,Trevia acond nutrición 900 x 5,TRE-AC-NUT-900,5,,,trevia nutricion 900,abreviatura cantidad_al_final
+P092,pool,cuatro Silkara sh matizador 300,SIL-SH-MAT-300,4,,,silkara matizador 300,cantidad_en_palabras abreviatura
+P093,pool,Nordika masc argan 250 (6),NOR-MA-ARG-250,6,,,nordika argan 250,abreviatura cantidad_al_final
+P094,pool,2 Fiorela serum puntas,FIO-FI-SER-60,2,,,fiorela serum,
+P095,pool,Orkidea spray brillo x250 — 3,ORK-FI-SPR-250,3,,,orkidea spray 250,x_medida cantidad_al_final
+P096,pool,Kapris crema de peinar rulos (1),KAP-FI-CPR-300,1,,,kapris rulos,cantidad_al_final numeros_confusos
+P097,pool,5 Nordika protector térmico,NOR-CU-PRO-250,5,,,nordika protector,
+P098,pool,Lumine ampolla reparadora — 4 cajas,LUM-CU-AMP-15,4,,cajas,lumine ampolla,unidad cantidad_al_final
+P099,pool,2 cajas Silkara ampolla reparadora,SIL-CU-AMP-15,2,,cajas,silkara ampolla,unidad
+P100,pool,Orkidea ampolla reparadora 20 u,ORK-CU-AMP-15,20,,unidades,orkidea ampolla,unidad cantidad_al_final

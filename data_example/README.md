@@ -11,6 +11,7 @@ El repositorio es público: acá nunca van clientes, teléfonos, precios ni stoc
 | `mensajes.json` | Mensajes de clientes con el resultado esperado del agente | Casos de prueba para la interpretación |
 | `catalogo_evaluacion.csv` | Un catálogo mayorista de unos 400 productos, con el formato del real | Catálogo de los casos de `pedidos_evaluacion.json` |
 | `pedidos_evaluacion.json` | Pedidos largos con el formato de los reales y su resultado esperado | Evaluación por línea del agente (RF-59, RF-60) |
+| `benchmark_manuscritos/` | El pool de renglones, las listas sorteadas y el script del Google Form del benchmark de pedidos escritos a mano | Ver [la spec](../docs/spec/benchmark-manuscritos.md) (RF-126 a RF-129) |
 
 ## `catalogo.csv`
 
