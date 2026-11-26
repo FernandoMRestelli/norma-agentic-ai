@@ -16,7 +16,7 @@
 
 ## 1. Qué pide la consigna para la entrega final
 
-**Exposición:** 15 minutos más preguntas, **con todos los integrantes** (6 personas, unos 2,5 min cada uno). La
+**Exposición:** 15 minutos más preguntas, **con todos los integrantes** (3 personas, unos 5 min cada uno). La
 defensa también es individual: cualquiera tiene que poder explicar el sistema completo y las alternativas que no
 tomamos.
 
@@ -179,8 +179,8 @@ No encontré nada en el repo. Hace falta (**⏳ A-19**):
 
 - **README replicable:** la consigna pide algo «símil Makefile». No hay `Makefile`: conviene sumar uno con
   `make test`, `make eval-busqueda`, `make eval-agente`, `make bot`. **⏳ A-22**
-- **Contribuciones distribuidas:** en `develop` hay commits de 3 de los 6 integrantes. Antes de la entrega, cada
-  integrante debería tener trabajo propio visible (por ejemplo, partes de esta presentación, la revisión de
+- **Contribuciones distribuidas:** el grupo quedó en 3 integrantes (Fernando, Pablo y Federico) y los tres tienen
+  commits en `develop`, pero en cantidades muy distintas. Antes de la entrega, cada integrante debería tener trabajo propio visible (por ejemplo, partes de esta presentación, la revisión de
   antecedentes, el baseline o el análisis de fallas, cada uno en su PR). **⏳ A-03, A-04**
 
 ---
@@ -231,7 +231,7 @@ Todo lo que el grupo tiene que decidir antes de armar las diapositivas o de corr
 documento cada uno aparece marcado como **⏳ A-xx**. Cuando se decida, se completa la columna *Decisión* y se saca la
 marca del texto.
 
-**Orden sugerido:** primero A-01 y A-02 (sin ellas no se sabe cuánto tiempo hay), después A-05 a A-08 (bloquean la
+**Orden sugerido:** primero A-24, A-01 y A-02 (sin ellas no se sabe cuánto tiempo hay), después A-05 a A-08 (bloquean la
 corrida, que es lo que más tarda) y el resto en paralelo.
 
 ### Calendario y organización
@@ -240,8 +240,9 @@ corrida, que es lo que más tarda) y el resto en paralelo.
 |---|---|---|---|---|
 | A-01 | Fecha real de entrega del repo e informe | La consigna dice 19/11, ya pasó: confirmar con la cátedra por Discord | Todo el calendario | |
 | A-02 | Día de la exposición | 10/12 u 11/12, a confirmar por la cátedra | Calendario | |
-| A-03 | Reparto: qué bloque de §4 presenta cada integrante | Uno o dos bloques por persona, 6 integrantes | Ensayos, §5.6 | |
+| A-03 | Reparto: qué bloque de §4 presenta cada integrante | Dos o tres bloques por persona, 3 integrantes | Ensayos, §5.6 | |
 | A-04 | Reparto: qué brecha de §5 cierra cada integrante, cada una en su PR | Ver §5.1 a §5.6 | §5.6 | |
+| A-24 | Que el grupo siga siendo válido con 3 integrantes | La consigna pide grupos de 4 a 6: avisar a la cátedra que tres se bajaron y confirmar que no cambia el alcance esperado | Todo | |
 
 ### Hipótesis y evaluación
 
