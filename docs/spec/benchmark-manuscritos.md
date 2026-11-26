@@ -9,10 +9,10 @@
 | | |
 |---|---|
 | Etapa del roadmap | 03 · Pedidos multimodales |
-| Estado | Implementado (RF-126 a RF-140); falta correrlo con las fotos |
+| Estado | Implementado: RF-126 a RF-136. Especificado: la scoring nueva (RF-137 a RF-147); el runner todavía puntúa con la anterior |
 | Responsable | Federico Picado |
 | Requisitos relacionados | RF-101 a RF-110 y RNF-18 ([lectura de imágenes](lectura-de-imagenes.md)), D-50 (desarrollo y reservado) |
-| IDs que reserva | RF-126 a RF-140, CA-218 a CA-238 |
+| IDs que reserva | RF-126 a RF-147, CA-218 a CA-248 |
 
 ## 1. Objetivo
 
@@ -34,6 +34,7 @@ volver a pagar.
 | Armar `casos.json` desde las respuestas del Form y la revisión de cada foto | Optimizar `INSTRUCCIONES` con DSPy/GEPA |
 | Correr los modelos de visión sobre las fotos y guardar cada salida | Cambiar el modelo de visión de producción: se decide con los resultados, en otra PR |
 | Puntuar los niveles (a) lectura y (b) lectura + búsqueda, con costo y latencia | |
+| Validar la scoring contra un orden hecho a mano, y congelar el reservado | |
 
 ## 3. Comportamiento
 
@@ -83,13 +84,15 @@ Antes de correr el comando, quien revisa las fotos:
 2. Exporta las respuestas del Form a CSV, borra la columna del archivo, el mail y el nombre si los hubiera, y suma
    la columna `foto` con el id de la foto de esa fila (`p03-A`). Lo guarda como `respuestas.csv`.
 3. Mira cada foto contra su lista y anota en `revision.json` lo que no coincide: los renglones que la persona no
-   copió o cambió, lo que tachó, si no se lee, o si la hoja se descarta entera.
+   copió o cambió, lo que tachó, si no se lee, o si la hoja se descarta entera. Anota también, para cortar los
+   resultados, si la letra es clara o difícil y si la foto es nítida o borrosa.
 
 `python -m internal.benchmark_manuscritos casos` arma un caso por foto:
 
 - La lista sale de «Elegí un pedido» («Pedido 07» → `L07`), y los esperados son sus 15 renglones menos los de
   `sin_copiar`. Un renglón cambiado se saca igual que uno salteado: no se le cuenta al modelo.
-- `tachados`, `legible` y las notas salen de `revision.json`; `condiciones` (luz y papel) y `sexo`, del Form.
+- `tachados`, `legible` y las notas salen de `revision.json`; `condiciones` junta la luz y el papel del Form con la
+  letra y la nitidez de la revisión («sin dato» si no se anotaron). El `sexo` sale del Form.
 - Una hoja con `descartar` no da caso, y el comando dice cuántas descartó y por qué.
 - El grupo se asigna **por persona**, con semilla: se ordenan los `pNN`, se mezclan y el 40 % (redondeado para
   arriba) va a `desarrollo` y el resto a `reservado`. Las dos hojas de una persona van al mismo grupo, y la misma
@@ -97,6 +100,9 @@ Antes de correr el comando, quien revisa las fotos:
 - **Un grupo no cambia.** Si ya hay un `casos.json`, cada persona que estaba conserva su grupo, y solo las nuevas se
   sortean, completando el 40 % de `desarrollo` sobre el total. Las fotos llegan de a poco, y alguien de `desarrollo`
   que pasara a `reservado` llevaría ahí letra que ya se miró.
+- **El reservado se congela.** `casos --congelar` guarda en `congelado.json` la fecha y las personas del reservado,
+  y se corre una vez, en la primera medición final. Desde ahí toda persona nueva va a `desarrollo`, también las que
+  se sumen por traer errores reales: sirven para mejorar, pero no cambian el reservado con el que ya se midió.
 - Antes de escribir nada valida todo y, si algo falla, lista los problemas con el id de cada foto y no escribe
   `casos.json` (§7).
 
@@ -131,14 +137,19 @@ Al terminar muestra, por modelo, cuántas salidas nuevas guardó, cuántas salte
 puntúa los dos niveles. No llama a ningún modelo ni a la red: se puede correr todas las veces que haga falta, y las
 mismas salidas dan siempre el mismo resumen.
 
-**Nivel (a), lectura.** Los renglones leídos son los de `ImagenLeida.renglones`. Un leído se empareja con un esperado
-si tiene todas sus `palabras` en `texto`, `producto`, `marca` o `presentacion`, después de normalizar (minúsculas,
-sin tildes ni signos, espacios simples). Una palabra que es marca de `catalogo_evaluacion.csv` también empareja con
-distancia de edición 1 («Nordica» con «nordika»). Cantidad, tono, unidad y duda:
+Las reglas y sus razones están en el diseño, §6. Acá van como se calculan.
+
+**Nivel (a), lectura.** Los renglones leídos son los de `ImagenLeida.renglones`. De cada esperado, sus `palabras` se
+parten en dos: las que no tienen números (marca y palabra que distingue) y las que sí (la medida, o el «20» de
+«20 vol»). Antes de comparar se normaliza: minúsculas, sin tildes, signos como espacios y espacios simples. Una
+palabra está en el leído si aparece en `texto`, `producto`, `marca` o `presentacion`, también con los espacios y
+guiones sacados («cocacola» en «Coca-Cola»), y una que es marca de `catalogo_evaluacion.csv` acepta además una letra
+de diferencia («Nordica» por «nordika»). De cada leído:
 
 - cantidad: la del renglón o, si tiene variantes, la suma de las suyas (como `comparar_vision`);
 - tono: el de su variante, con punto o coma decimal («7,1» = «7.1»);
 - unidad: la del renglón;
+- medida: si tiene todas las palabras con números del esperado;
 - duda: la del renglón o la de cualquiera de sus variantes.
 
 **Nivel (b), lectura + búsqueda.** Los renglones leídos son los de `renglones_desde_lectura`, buscados con
@@ -150,49 +161,95 @@ producto o cantidad), su `texto`. Según el estado:
 |---|---|---|
 | `unico`, `sin_stock` | el del primer candidato | la de lectura, si tiene |
 | `varias`, `aproximado` | cualquiera de los candidatos | sí: el agente pregunta o confirma |
-| `no_encontrado` | ninguno: no empareja | — |
+| `no_encontrado` | ninguno: no empareja | sí: el agente dice que no lo encontró |
 
-Un leído se empareja con un esperado si su SKU propuesto es el esperado. Un renglón sin cantidad leída se busca con
-cantidad 1 y cuenta como duda: el agente la va a preguntar.
+La medida no se puntúa aparte en (b): está en el SKU.
 
 **Emparejar.** En los dos niveles cada esperado se empareja con, como mucho, un leído y al revés: se recorren los
-esperados en el orden de la hoja y cada uno toma el primer leído libre que le corresponde. Un esperado sin pareja
-es **omitido**; un leído sin pareja es **sobrante**. Un sobrante que tiene todas las palabras de un renglón de
-`tachados` es además un **tachado pedido**.
+esperados en el orden de la hoja y cada uno toma un leído libre que le corresponde. En (a) corresponde si tiene todas
+las palabras sin números, y entre los que corresponden se prefiere el primero que también tiene la medida; en (b),
+si su SKU propuesto es el esperado. Un esperado sin pareja es **omitido**; un leído sin pareja es **sobrante**. Un
+sobrante que tiene todas las palabras de un renglón de `tachados` es además un **tachado pedido**.
 
-**Puntaje de un par** (diseño, §6.2):
+**Puntaje de un par:**
 
 ```
-s = 0,8                         si el leído tiene duda
-s = 0,5 + 0,4·C + 0,1·D         si no
-
-C = 1 si la cantidad es la esperada
-D = 1 si el tono y la unidad son los esperados (si el esperado no tiene ninguno de los dos, D = 1)
+s = 0,8                                    si el leído tiene duda o no tiene cantidad
+s = máx(0,1 ; 1 − Σ penalizaciones)        si no
 ```
 
-**Puntaje de una foto:** `S = Σ s / (esperados + sobrantes)`. Una salida sin `resultado` o con `legible: false`
-cuando la foto se lee da S = 0 con todos los esperados omitidos. Una foto que el caso marca `legible: false` no
-entra al puntaje, y se reporta si el modelo la marcó ilegible.
+| Penalización | Cuánto | Cuándo |
+|---|---|---|
+| Variante | 0,3 | El esperado tiene tono y el leído tiene otro, o ninguno; en (a), también si falta la medida |
+| Cantidad cerca | 0,4 | La cantidad no es la esperada, pero la mayor de las dos es menos del doble de la menor |
+| Cantidad lejos | 0,6 | La mayor es el doble o más de la menor (o una de las dos es 0), o la clase de unidad no coincide |
+
+Las clases de unidad son `cajas` y el resto (`unidades`, `cada_uno` o sin unidad). Se aplica una sola de las dos de
+cantidad.
+
+**Sobrantes.** Cada uno suma al denominador según su costo:
+
+| Sobrante | Costo |
+|---|---|
+| Tiene las palabras de un renglón de `tachados`, con o sin duda | 1 |
+| Silencioso: sin duda y, en (b), con la búsqueda en `unico` o `sin_stock` | 1 |
+| Dudoso: con duda o, en (b), con la búsqueda en `varias`, `aproximado` o `no_encontrado` | 0,2 |
+
+**Puntaje de una foto:** `S = Σ s / (esperados + Σ costo de los sobrantes)`. Una salida sin `resultado` o con
+`legible: false` cuando la foto se lee da S = 0 con todos los esperados omitidos. Una foto que el caso marca
+`legible: false` no entra al puntaje, y se reporta si el modelo la marcó ilegible.
+
+**Errores graves y filtro.** Son errores graves los sobrantes de costo 1 y los pares con cantidad lejos sin duda.
+Una configuración es **elegible** en un nivel y grupo si no tiene tachados pedidos y sus errores graves no pasan del
+2 % de los renglones esperados. La que decide es la del nivel (b) en `reservado`; en los demás se muestra como
+referencia.
 
 **Resumen**, por modelo y nivel, y para `desarrollo` y `reservado` por separado:
 
 | Métrica | Cómo |
 |---|---|
 | **S** (la principal) | Micro-promedio: suma de numeradores sobre suma de denominadores de todas las fotos, con su intervalo al 95 % por bootstrap sobre fotos (`intervalo_por_casos`, semilla fija) |
+| S por hoja | El promedio de los S de cada foto |
+| Peores hojas | Las 5 fotos de menor S, con su S, de menor a mayor (los empates, por id) |
+| Peores renglones | Los 10 renglones del pool (por `id`) de menor s promedio, entre los que aparecieron en al menos dos fotos, con su texto, su s promedio y cuántas veces aparecieron. Un omitido cuenta s = 0 |
+| Elegible | Sí o no, con el motivo si no |
+| Errores graves | Cantidad y porcentaje sobre los renglones esperados |
+| Errores silenciosos | Pares con alguna penalización y sin duda, más los sobrantes de costo 1 |
+| Tachados pedidos | Objetivo 0 (RNF-18) |
 | Fotos perfectas | Porcentaje de fotos con todos los pares en s = 1 y sin sobrantes |
 | Precision, recall, F1 | Un par es correcto si coinciden producto y cantidad, con o sin duda |
-| Errores silenciosos | Pares con C = 0 o D = 0 y sin duda, más los sobrantes. Objetivo 0 |
-| Tachados pedidos | Objetivo 0 (RNF-18) |
 | JSON válido | Porcentaje de salidas con `resultado` |
 | Segundos | p50 y p95 por foto |
 | USD | Por foto y por cada 1000 renglones esperados, si el modelo tiene `--precio` o es local (USD 0) |
-| Cortes | S por tipo de dificultad (sobre los pares y omitidos de ese tipo), por `origen` (`nucleo` o `pool`), por luz y por papel |
+| Cortes | S por tipo de dificultad y por `origen` (sobre los pares y omitidos de ese tipo), y por persona, letra, nitidez, luz y papel (sobre las fotos) |
+
+Cada modelo del resumen lleva la huella de su prompt. Si dos modelos de la corrida tienen huellas distintas,
+`puntuar` avisa que no se comparan entre sí, y la tabla muestra los primeros 8 caracteres de cada huella.
 
 El precio va por modelo: `--precio openai:gpt-6-luna=0.10,0.50` (USD por millón de tokens de entrada y salida), y se
 puede repetir. Un modelo de API sin precio muestra el USD como desconocido, no como 0.
 
-`puntuar` escribe `corridas/<corrida>/resumen.json` y muestra una tabla con un modelo por fila. Con `--detalle`
-muestra, por foto, cada esperado con lo que se leyó y su s.
+`puntuar` escribe `corridas/<corrida>/resumen.json` y muestra una tabla con una fila por modelo, nivel y grupo, con
+la columna de elegible. Con `--detalle` muestra, por foto, cada esperado con lo que se leyó y su s.
+
+### 3.5 Validación de la scoring
+
+Antes de comparar modelos u optimizar prompts, la scoring se valida contra el criterio de alguien que conoce el
+negocio (diseño, §6.9):
+
+1. `python -m internal.evaluar_manuscritos puntuar <corrida> --para-ordenar 15` elige al azar, con semilla, 15 pares
+   modelo + foto de `desarrollo` y escribe dos archivos en la carpeta de la corrida:
+   - `ordenar.md`: cada par con un id (`O01`…`O15`) en orden al azar, su lista y lo que quedó del nivel (b) para
+     cada renglón (producto del catálogo, cantidad y si tiene duda), más los sobrantes. No dice el modelo ni el
+     puntaje.
+   - `ordenar_clave.json`: a qué modelo y foto corresponde cada id, y su S. No se abre hasta terminar de ordenar.
+2. Quien revisa ordena los ids de mejor a peor mirando solo `ordenar.md`.
+3. `python -m internal.evaluar_manuscritos validar <corrida> --orden O07,O02,…` compara ese orden con el de S: el
+   porcentaje de pares en el mismo orden (dos con el mismo S cuentan como de acuerdo) y los pares invertidos, de
+   mayor a menor diferencia de S.
+
+La scoring es **válida** si coinciden al menos el 80 % de los pares y ningún par invertido tiene más de 0,1 de
+diferencia en S. Si no, `validar` sale con error y lista los pares para revisar los pesos.
 
 ## 4. Contratos
 
@@ -258,7 +315,8 @@ Lo escribe quien revisa las fotos. Solo llevan entrada las fotos con algo que an
 
 ```json
 {
-  "p03-A": {"sin_copiar": [11], "tachados": [["belkor", "rulos"]], "notas": "el 11 lo escribió como «2 acond»"},
+  "p03-A": {"sin_copiar": [11], "tachados": [["belkor", "rulos"]], "letra": "dificil", "nitidez": "nitida",
+            "notas": "el 11 lo escribió como «2 acond»"},
   "p04-A": {"legible": false},
   "p05-B": {"descartar": "la foto corta la mitad de la hoja"}
 }
@@ -270,6 +328,8 @@ Lo escribe quien revisa las fotos. Solo llevan entrada las fotos con algo que an
 | `tachados` | Lo que tachó, como `palabras` de cada renglón tachado | `[]` |
 | `legible` | `false` si una persona no puede leer la hoja | `true` |
 | `descartar` | Por qué la hoja no se usa | no se descarta |
+| `letra` | `clara` o `dificil` | sin dato |
+| `nitidez` | `nitida` o `borrosa` | sin dato |
 | `notas` | Texto libre | — |
 
 ### 4.6 `data/benchmark_manuscritos/casos.json`
@@ -281,7 +341,8 @@ también corre con `comparar_vision --casos`. Es una lista con un caso por foto,
 [
   {
     "id": "p03-A", "archivo": "imagenes/p03-A.jpg", "persona": "p03", "hoja": "A", "lista": "L07",
-    "grupo": "reservado", "condiciones": {"luz": "artificial", "papel": "cuaderno rayado"},
+    "grupo": "reservado",
+    "condiciones": {"luz": "artificial", "papel": "cuaderno rayado", "letra": "dificil", "nitidez": "nitida"},
     "sexo": "prefiero no responder", "legible": true, "encabezado": "Pedido para Norma",
     "renglones": [
       {"n": 1, "id": "N1", "origen": "nucleo", "texto": "2 sh keratina Nordika x900", "sku": "NOR-SH-KER-900",
@@ -321,13 +382,37 @@ Son los campos de `vision_service.Lectura`, con `resultado` como `ImagenLeida.mo
      "niveles": {
        "b": {"desarrollo": {"fotos": 8, "S": 0.84, "S_intervalo": [0.79, 0.88], "fotos_perfectas_pct": 25.0,
                             "precision": 0.8, "recall": 0.8, "f1": 0.8, "errores_silenciosos": 9,
-                            "tachados_pedidos": 1, "json_valido_pct": 100.0, "segundos_p50": 4.1,
+                            "tachados_pedidos": 1, "errores_graves": 2, "errores_graves_pct": 1.7,
+                            "elegible": false, "motivo": "pide 1 tachado", "S_por_hoja": 0.85,
+                            "peores_hojas": [{"foto": "p03-A", "S": 0.825}],
+                            "peores_renglones": [{"id": "N5", "texto": "Silkara protector térmico (7)", "s": 0.4,
+                                                  "apariciones": 4}],
+                            "json_valido_pct": 100.0, "segundos_p50": 4.1,
                             "segundos_p95": 6.3, "usd_por_foto": 0.0012, "usd_por_1000_renglones": 0.08,
                             "por_dificultad": {"tono": 0.9}, "por_origen": {"nucleo": 0.88},
-                            "por_luz": {"natural": 0.86}, "por_papel": {"hoja lisa": 0.85}},
+                            "por_luz": {"natural": 0.86}, "por_papel": {"hoja lisa": 0.85},
+                            "por_persona": {"p01": 0.9}, "por_letra": {"clara": 0.9, "dificil": 0.7},
+                            "por_nitidez": {"nitida": 0.86}},
              "reservado": {}}}}
   ]
 }
+```
+
+### 4.9 `data/benchmark_manuscritos/congelado.json`
+
+```json
+{"fecha": "2026-12-15", "reservado": ["p02", "p04", "p05", "p07", "p08", "p10"]}
+```
+
+Lo escribe `casos --congelar`. Mientras exista, las personas de `reservado` siguen ahí y toda persona que no está en
+`casos.json` va a `desarrollo`.
+
+### 4.10 `ordenar.md` y `ordenar_clave.json`
+
+En la carpeta de la corrida (§3.5). La clave:
+
+```json
+{"semilla": 145, "nivel": "b", "items": {"O01": {"modelo": "openai:gpt-6-luna", "foto": "p03-A", "S": 0.825}}}
 ```
 
 ## 5. Requisitos
@@ -345,10 +430,17 @@ Son los campos de `vision_service.Lectura`, con `resultado` como `ImagenLeida.mo
 | RF-134 | `correr` no llama a un modelo de API sin `--max-llamadas`, y con el tope no hace más llamadas nuevas que esas en toda la corrida |
 | RF-135 | Cada salida guarda la huella del prompt de visión; si no coincide con la de las salidas ya guardadas de ese modelo en la corrida, `correr` se niega a seguir |
 | RF-136 | `correr` corre solo el grupo `desarrollo` salvo que se pida `--grupo reservado` o `todos` |
-| RF-137 | El nivel (a) empareja por las `palabras` del esperado, con distancia de edición 1 en las marcas del catálogo, uno a uno y en el orden de la hoja |
+| RF-137 | El nivel (a) empareja por las `palabras` del esperado que no tienen números, con distancia de edición 1 en las marcas del catálogo y también sin espacios ni guiones, uno a uno y en el orden de la hoja; entre los que corresponden prefiere el que también tiene las palabras con números |
 | RF-138 | El nivel (b) empareja por SKU con la búsqueda contra `catalogo_evaluacion.csv`, sin red; `varias` y `aproximado` emparejan si el SKU esperado está entre los candidatos, y cuentan como duda |
-| RF-139 | El puntaje de un par es 0,8 con duda y 0,5 + 0,4·C + 0,1·D sin duda; el de una foto es Σ s / (esperados + sobrantes), y una salida sin `resultado` da S = 0 |
+| RF-139 | El puntaje de un par es 0,8 con duda o sin cantidad, y si no máx(0,1; 1 − Σ penalizaciones), con 0,3 por variante (tono, y en (a) la medida), 0,4 por cantidad cerca y 0,6 por cantidad lejos; el de una foto es Σ s / (esperados + Σ costo de los sobrantes), y una salida sin `resultado` da S = 0 |
 | RF-140 | `puntuar` reporta por modelo, nivel y grupo el S micro con intervalo por bootstrap sobre fotos, fotos perfectas, precision, recall y F1, errores silenciosos, tachados pedidos, JSON válido, segundos p50 y p95, USD con precio por modelo y los cortes por dificultad, origen, luz y papel; las mismas salidas dan el mismo resumen |
+| RF-141 | La cantidad está lejos si la mayor es el doble o más de la menor, si una es 0 o si la clase de unidad (cajas contra el resto) no coincide; si no coincide sin estar lejos, está cerca |
+| RF-142 | Un sobrante cuesta 1 en el denominador si es un tachado o es silencioso, y 0,2 si es dudoso (con duda o, en (b), con la búsqueda en `varias`, `aproximado` o `no_encontrado`) |
+| RF-143 | Los errores graves son los sobrantes de costo 1 y los pares con cantidad lejos sin duda; una configuración es elegible si no pide tachados y sus errores graves no pasan del 2 % de los renglones esperados |
+| RF-144 | El resumen suma el S por hoja, las 5 peores hojas, los 10 peores renglones del pool con al menos dos apariciones, los cortes por persona, letra y nitidez, y la huella de cada modelo; avisa si dos modelos de la corrida tienen huellas distintas |
+| RF-145 | `puntuar --para-ordenar N` escribe N pares modelo + foto de `desarrollo`, al azar con semilla, sin el modelo ni el puntaje, y su clave aparte |
+| RF-146 | `validar --orden` da el porcentaje de pares en el mismo orden que S y los invertidos; la scoring es válida con al menos 80 % y ningún invertido de más de 0,1 de S, y si no sale con error |
+| RF-147 | `casos --congelar` fija las personas del reservado; con el reservado congelado, toda persona nueva va a `desarrollo`. La letra y la nitidez de la revisión pasan a `condiciones`, y un valor que no es de la §4.5 es un problema de esa foto |
 
 ## 6. Criterios de aceptación
 
@@ -368,13 +460,23 @@ Son los campos de `vision_service.Lectura`, con `resultado` como `ImagenLeida.mo
 | CA-229 | Un modelo `openai:` falso y cinco fotos | Se corre sin `--max-llamadas` y después con `--max-llamadas 2` | La primera no llama nada y dice que serían 5 llamadas; la segunda llama 2 veces | `tests/test_evaluar_manuscritos.py::test_correr_con_tope_de_llamadas` |
 | CA-230 | Una corrida con salidas de una huella y otras `INSTRUCCIONES` | Se corre otra vez | Se niega, no llama al modelo y pide otra `--corrida` | `tests/test_evaluar_manuscritos.py::test_correr_con_otro_prompt_se_niega` |
 | CA-231 | Casos de los dos grupos | Se corre sin `--grupo` | Solo llama con las fotos de `desarrollo` | `tests/test_evaluar_manuscritos.py::test_correr_solo_desarrollo` |
-| CA-232 | Un esperado «Nordika» y un leído «Nordica 900 keratina» con otro leído antes que también tiene las palabras | Se puntúa el nivel (a) | El esperado se empareja con el primero, el otro queda sobrante, y la marca con una letra cambiada empareja | `tests/test_evaluar_manuscritos.py::test_nivel_a_empareja_por_palabras` |
+| CA-232 | Un esperado «keratina nordika 900» × 2 y los leídos «2 keratna Nordika 900» y «2 sh keratina Nordica x300»; aparte, los mismos más «2 keratina Nordika 900» al final | Se puntúa el nivel (a) | En el primero se empareja con «Nordica x300» (una letra en la marca) con la medida mal, s = 0,7, y «keratna» sobra; en el segundo se prefiere el que tiene la medida, s = 1, y sobran los otros dos | `tests/test_evaluar_manuscritos.py::test_nivel_a_empareja_por_palabras` |
 | CA-233 | Leídos que la búsqueda deja `unico`, `varias` con el SKU esperado entre los candidatos, `aproximado` y `no_encontrado` contra `catalogo_evaluacion.csv` | Se puntúa el nivel (b) | El `unico` empareja sin duda, `varias` y `aproximado` emparejan con duda y el `no_encontrado` queda sobrante con su esperado omitido | `tests/test_evaluar_manuscritos.py::test_nivel_b_empareja_por_sku` |
-| CA-234 | La hoja `p03-A` del diseño (§6.4): 12 renglones bien, N5 con la cantidad mal, uno con duda, uno omitido y un tachado pedido | Se puntúa | S = 13,4 / 16 = 0,84; precision y recall 0,80; errores silenciosos 2; tachados pedidos 1; no es perfecta | `tests/test_evaluar_manuscritos.py::test_ejemplo_del_diseno` |
+| CA-234 | La hoja `p03-A` del diseño (§6.10): 12 renglones bien, N5 con «1» por «7», uno con duda, uno omitido y un tachado pedido | Se puntúa | S = 13,2 / 16 = 0,825; precision y recall 0,80; errores silenciosos 2; errores graves 2; tachados pedidos 1; no es perfecta ni elegible | `tests/test_evaluar_manuscritos.py::test_ejemplo_del_diseno` |
 | CA-235 | Una salida sin `resultado` para una foto legible de 15 renglones, y otra sin `resultado` ni `crudo` (el modelo no contestó) | Se puntúa | La primera da S = 0, 15 omitidos, y JSON válido baja; la segunda no entra al puntaje y se avisa que hay que `--reintentar` | `tests/test_evaluar_manuscritos.py::test_json_invalido_da_cero`, `test_sin_respuesta_no_cuenta` |
-| CA-236 | Un par con tono «7,1» leído y «7.1» esperado y otro con unidad `cajas` leída y `unidades` esperada | Se puntúa | El primero da D = 1 y el segundo D = 0 | `tests/test_evaluar_manuscritos.py::test_detalle_normalizado` |
+| CA-236 | Un par con tono «7,1» leído y «7.1» esperado, otro con `cajas` leído y sin unidad esperada, y otro con `cada_uno` esperado y sin unidad leída | Se puntúa | El primero da s = 1, el segundo s = 0,4 (cantidad lejos) y el tercero s = 1 | `tests/test_evaluar_manuscritos.py::test_detalle_normalizado` |
 | CA-237 | Una corrida con dos modelos, uno de API con precio y otro local, y fotos de los dos grupos | Se puntúa dos veces | Las dos dan el mismo `resumen.json`, con desarrollo y reservado separados, el local con USD 0, el de API con su USD, y los cortes por dificultad, origen, luz y papel | `tests/test_evaluar_manuscritos.py::test_resumen_por_modelo_y_grupo` |
 | CA-238 | Una corrida guardada | Se puntúa con la red cortada y sin claves | Termina sin llamar a ningún modelo | `tests/test_evaluar_manuscritos.py::test_puntuar_sin_red` |
+| CA-239 | Pares sin duda con cantidad 3 por 2, 5 por 6, 20 por 2, 1 por 10 y 1 por 2; uno con el tono mal y cantidad 3 por 2; otro con el tono mal y 20 por 2; otro sin cantidad | Se puntúa | 0,6; 0,6; 0,4; 0,4; 0,4; 0,3; 0,1 y 0,8 | `tests/test_evaluar_manuscritos.py::test_penalizaciones_de_cantidad_y_variante` |
+| CA-240 | Sobrantes: uno sin duda, uno con duda, uno que en (b) queda `no_encontrado` y un tachado con duda | Se puntúa | Suman 1, 0,2, 0,2 y 1 al denominador, y el tachado cuenta como tachado pedido | `tests/test_evaluar_manuscritos.py::test_costo_de_los_sobrantes` |
+| CA-241 | Las salidas de la tabla de casos ambiguos del diseño (§6.5) para «2 sh keratina Nordika x900», contra `catalogo_evaluacion.csv` | Se puntúan los dos niveles | Cada fila da el puntaje de la tabla, en (a) y en (b) | `tests/test_evaluar_manuscritos.py::test_casos_ambiguos_del_diseno` |
+| CA-242 | Tres configuraciones en el reservado, nivel (b): una que pide un tachado, una con 3 errores graves en 100 renglones y otra con 2 | Se resume | La primera y la segunda no son elegibles, con su motivo; la tercera sí | `tests/test_evaluar_manuscritos.py::test_filtro_de_elegibilidad` |
+| CA-243 | Seis fotos de tres personas, con letra y nitidez anotadas, y un renglón del pool que aparece en tres | Se resume | Trae el S por hoja, las 5 peores hojas de menor a mayor, el renglón entre los peores con sus tres apariciones y los cortes por persona, letra y nitidez | `tests/test_evaluar_manuscritos.py::test_cortes_y_peores` |
+| CA-244 | Una corrida con 20 fotos de desarrollo y 10 de reservado, de dos modelos | Se pide `--para-ordenar 15` dos veces | Las dos veces los mismos 15 pares, solo de desarrollo, con ids `O01`…`O15`; `ordenar.md` no nombra ningún modelo ni trae ningún S, y la clave sí | `tests/test_evaluar_manuscritos.py::test_para_ordenar` |
+| CA-245 | La clave de cinco pares con S 0,9, 0,5, 0,45, 0,4 y 0,35 | Se valida el orden de S, uno con los dos primeros cambiados, uno con los dos últimos cambiados y uno al que le falta un id | El primero da 100 % y es válido; el segundo coincide en 90 % pero no es válido, por el par invertido de 0,4; el tercero coincide en 90 % y es válido (0,05 de diferencia); el cuarto es un error que nombra el id que falta | `tests/test_evaluar_manuscritos.py::test_validar_orden` |
+| CA-246 | Un `casos.json` con diez personas y el reservado congelado | Se suman tres personas nuevas y se arman los casos | Las tres van a `desarrollo` y las del reservado siguen ahí | `tests/test_benchmark_manuscritos.py::test_reservado_congelado` |
+| CA-247 | Una corrida con dos modelos cuyas salidas tienen huellas distintas | Se puntúa | El resumen trae la huella de cada uno y avisa que no se comparan entre sí | `tests/test_evaluar_manuscritos.py::test_huellas_distintas_se_avisan` |
+| CA-248 | Una revisión con `letra: dificil` y `nitidez: nitida` en una foto, nada en otra y `letra: regular` en una tercera | Se arman los casos | La primera trae esos valores en `condiciones`, la segunda «sin dato», y la tercera es un problema que nombra su foto | `tests/test_benchmark_manuscritos.py::test_letra_y_nitidez` |
 
 ## 7. Errores y casos borde
 
@@ -399,6 +501,12 @@ Son los campos de `vision_service.Lectura`, con `resultado` como `ImagenLeida.mo
   tienen salida; esas no entran al S de ese modelo, así que dos modelos con distinta cantidad de fotos no se
   comparan sin avisar.
 - `puntuar` con salidas de una foto que ya no está en `casos.json` (se descartó después): las ignora y lo avisa.
+- `--para-ordenar N` con menos de N pares en desarrollo: usa los que hay y lo avisa.
+- `validar` con un id que falta, uno repetido o uno que no está en la clave: es un error que nombra cada id, y no da
+  ningún porcentaje.
+- `casos --congelar` sin `casos.json`, o sin nadie en el reservado: falla, porque no hay nada que congelar.
+- Una persona que ya estaba en el reservado congelado y vuelve con una hoja nueva: la hoja nueva va al reservado,
+  con su persona. Las dos hojas de una persona nunca se separan.
 
 ## 8. Decisiones y preguntas abiertas
 
@@ -425,6 +533,23 @@ Son los campos de `vision_service.Lectura`, con `resultado` como `ImagenLeida.mo
   letras más fáciles de un lado.
 - **`comparar_vision` sigue igual.** Sirve para las 8 imágenes de `tests/fixtures/` y para mirar rápido el nivel (a)
   de `casos.json`; el benchmark se mide con `evaluar_manuscritos`.
+- **Los pesos salen de una regla: una pregunta al cliente cuesta 0,2, y un error silencioso cuesta más.** Si un
+  error silencioso valiera más que una duda (0,8), al modelo le convendría equivocarse callado. Por eso la variante
+  cuesta 0,3 y no 0,1, como en la primera versión, en la que un tono mal sin avisar (0,9) ganaba a preguntar.
+- **La unidad es cantidad, no detalle.** «2 cajas» leído «2» puede ser 24 contra 2: es cantidad lejos.
+- **La cantidad se puntúa por distancia.** «1» por «10» (un dígito perdido) cuesta más que 3 por 2. El corte en el
+  doble es simple de explicar y separa el desliz del error que obliga a devolver mercadería.
+- **Un sobrante dudoso cuesta como una pregunta.** El agente pregunta antes de pedirlo, así que no se manda: cuesta
+  0,2, no 1. Lo tachado cuesta 1 aunque tenga duda: no se tendría que ni preguntar.
+- **En (a) la medida es una variante; en (b) es otro SKU.** Leer «x300» por «x900» es un número mal leído (lectura),
+  pero lleva a otro producto (interpretación). Cada nivel lo puntúa por lo que mide.
+- **Un filtro, no un veto por hoja.** Poner en cero la hoja entera por un error grave deja un número ruidoso con
+  pocas hojas y le saca señal al optimizador. Los errores graves se cuentan aparte y deciden si una configuración se
+  puede elegir.
+- **La scoring se valida antes de usarla**, contra el orden de alguien que conoce el negocio (§3.5), y se valida en
+  desarrollo: hacerlo en el reservado sería mirarlo.
+- **El reservado se congela.** Sin congelarlo, cada foto nueva podría ir a parar al reservado después de que ya se
+  midió con él, y el número final dejaría de ser comparable.
 - **Abierta: el id exacto de GPT Terra.** Hace falta antes de correr; no cambia nada de esta spec.
 
 ## 9. Plan de implementación
@@ -437,5 +562,8 @@ Son los campos de `vision_service.Lectura`, con `resultado` como `ImagenLeida.mo
 5. ~~Tests de CA-224 a CA-226 y el comando `casos` en `internal/benchmark_manuscritos.py`.~~
 6. ~~Tests de CA-227 a CA-238 con fotos y modelos falsos, e `internal/evaluar_manuscritos.py` con `correr` y
    `puntuar`. Los tests no llaman a ningún modelo.~~
-7. Con las fotos: armar `casos.json`, correr Qwen local sobre `desarrollo` y, con permiso de quien paga la clave,
+7. RF-137 a RF-147 y CA-239 a CA-248 en esta spec, con CA-232, CA-234 y CA-236 actualizados a la scoring nueva.
+8. Adaptar `evaluar_manuscritos` y `benchmark_manuscritos` a la scoring nueva, con sus tests.
+9. Validar la scoring con el orden a mano (§3.5) sobre desarrollo.
+10. Con las fotos: armar `casos.json`, correr Qwen local sobre `desarrollo` y, con permiso de quien paga la clave,
    `gpt-6-luna` y GPT Terra con `--max-llamadas`. El reservado se corre al final, una vez, para medir.

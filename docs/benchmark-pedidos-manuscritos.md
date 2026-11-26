@@ -1,9 +1,10 @@
 # Benchmark de pedidos escritos a mano
 
 > **Estado: diseño aprobado en general (15 renglones por hoja, sorteados, juntados con un Google Form; tres
-> modelos); faltan los detalles de la §8.** Las listas, el Form, el armado de los casos, la corrida y el puntaje ya
-> están implementados (RF-126 a RF-140 en la [spec](spec/benchmark-manuscritos.md)); falta correrlo con las fotos. El comportamiento nuevo entra primero a la spec (RF y CA) y después al código, como pide
-> `CONTRIBUTING.md`.
+> modelos); faltan los detalles de la §8.** Las listas, el Form, el armado de los casos y la corrida ya están
+> implementados; la scoring de la §6 está especificada (RF-137 a RF-147 en la
+> [spec](spec/benchmark-manuscritos.md)) y falta adaptar el runner, que puntúa con la versión anterior. El
+> comportamiento nuevo entra primero a la spec (RF y CA) y después al código, como pide `CONTRIBUTING.md`.
 >
 > **Dependencias:** todo lo que se cita ya está en `develop`: `docs/spec/lectura-de-imagenes.md`, D-42, D-50 (grupos
 > `desarrollo`/`reservado`), RNF-18, el intervalo de Wilson de `evaluar_agente`, la lectura, `renglones_desde_lectura`,
@@ -334,75 +335,215 @@ Las `condiciones` (luz y papel) salen de la sección final del Form.
 
 ## 6. Scoring function
 
-### 6.1 Opciones
+### 6.1 Por qué tiene que estar escrita
+
+No hay forma de decir qué modelo es mejor sin una scoring function. Comparar lo extraído contra la respuesta correcta
+ya es una; si queda implícita, cada caso dudoso («¿«Nordika keratina» sin la medida está bien o mal?») se decide a
+ojo, y el ranking entre modelos puede cambiar según cómo se decida. Por eso cada caso ambiguo tiene su puntaje en la
+§6.5, y la spec los convierte en tests.
+
+La anatomía del benchmark tiene tres partes, y conviene no confundirlas:
+
+```
+input::type        foto del pedido escrito a mano
+output::type       el JSON de extracción: ImagenLeida y sus renglones (internal/schemas/vision_schema.py)
+scoring_function   compara ese JSON con el JSON de la respuesta correcta y devuelve un número
+```
+
+`ImagenLeida` es el **output::type**, no la scoring: dice qué forma tiene la salida, no si está bien. La respuesta
+correcta de cada foto (`casos.json`, §4) está cargada en los campos que se puntúan, para comparar campo por campo:
+
+| Campo de la respuesta correcta | Con qué se compara de `ImagenLeida` | Criterio | Nivel |
+|---|---|---|---|
+| `palabras` que no son números (marca, la palabra que distingue) | `texto`, `producto`, `marca`, `presentacion` del renglón | Normalizado (§6.6); las marcas, con una letra de tolerancia | (a): decide el emparejamiento |
+| `palabras` con números (la medida: «900», «20» de «20 vol») | Los mismos campos | Normalizado, exacto | (a): variante |
+| `cantidad` | `cantidad`, o la suma de las de sus `variantes` | Exacto después de normalizar; si no, cerca o lejos (§6.4) | (a) y (b) |
+| `unidad` | `unidad` | Exacto por clase: cajas contra todo lo demás | (a) y (b): cuenta como cantidad |
+| `tono` | `variantes[].tono` | Normalizado: coma o punto decimal | (a) y (b): variante |
+| `sku` | El SKU al que llega la búsqueda desde lo leído (`renglones_desde_lectura` → `buscar_renglones`) | Exacto, o entre las opciones si la búsqueda quedó en varias | (b): decide el emparejamiento |
+| `tachados` | Lo que sobra de la salida | Tiene todas las palabras de un tachado | (a) y (b): guardarraíl |
+
+**Una scoring, dos usos.** La misma función sirve para:
+
+- **Comparar modelos:** el mismo prompt y las mismas fotos, con distinto modelo.
+- **Mejorar el sistema:** el mismo modelo, con variantes del prompt hechas a mano o con DSPy/GEPA. Un optimizador
+  mejora exactamente lo que la scoring premia, ni más ni menos: por eso los pesos se validan (§6.9) antes de
+  optimizar nada.
+
+**Lo que se evalúa es modelo + prompt, no el modelo solo.** Cada resultado se identifica por el modelo y la huella
+del prompt de visión (`INSTRUCCIONES`, las marcas si `VISION_MARCAS` está activo y el tamaño de la imagen). Dos
+modelos se comparan solo con la misma huella. Si se optimiza el prompt para un modelo, se reporta la matriz completa,
+{prompt base, prompt optimizado} × {cada modelo}, para que no gane un modelo solo porque su prompt se trabajó más.
+
+### 6.2 Opciones que se miraron
 
 | Scoring | Cómo | A favor | En contra |
 |---|---|---|---|
 | **Boolean** por imagen | 1 si todos los renglones salen bien y no sobra ninguno | Es lo que ve el cliente: «salió perfecto» | Con 15 renglones casi siempre da 0; con 20 imágenes el intervalo es enorme; no da señal para optimizar |
 | **Por ítem**: precision / recall / F1 | Un renglón es correcto si coinciden producto y cantidad | Separa omitidos (recall) de inventados (precision); ya existe en `evaluar_agente` | Un «7» leído «1» pesa igual que un producto inventado; no premia preguntar |
-| **Por campo, con pesos** | Crédito parcial por producto, cantidad y detalle | Da gradiente (útil para DSPy/GEPA); refleja qué error es peor | Hay que elegir pesos y se puede «jugar» con las dudas si no se acota |
+| **Por campo, con penalizaciones** | Crédito parcial según qué campo salió mal y cuánto cuesta ese error | Da gradiente (útil para DSPy/GEPA); refleja qué error es peor | Hay que elegir los pesos y validarlos (§6.9), y se puede «jugar» con las dudas si no se acota |
 
-### 6.2 La elegida: puntaje por renglón con pesos y dudas
+Se usa la de **penalizaciones** como métrica principal, la que se optimiza. La boolean y la de precision/recall se
+reportan como diagnóstico, junto con los guardarraíles y el filtro de la §6.8, que no se promedian.
 
-Se usa la ponderada como **métrica principal** (la que se optimiza), y se reportan la boolean y la de
-precision/recall como diagnóstico, más dos **guardarraíles** que no se promedian.
+### 6.3 Qué se mide: lectura e interpretación
 
-**Emparejar.** Cada renglón esperado se empareja con, como mucho, un renglón de la salida **por producto**:
+Para saber si un error es de lectura o de entendimiento, la misma foto se puntúa dos veces:
 
-- nivel (a): el renglón leído tiene todas las `palabras` (en `texto`, `producto`, `marca` o `presentacion`);
-- nivel (b) y (c): el SKU coincide, o el SKU esperado está entre las opciones de un resultado `varias`.
+- **(a) Lectura:** ¿el modelo transcribió bien lo escrito? Se compara lo leído con las palabras, la cantidad, la
+  unidad y el tono de la lista. No usa el catálogo, salvo para reconocer las marcas.
+- **(b) Interpretación:** ¿lo leído lleva al producto correcto? Lo leído pasa por la misma búsqueda que en
+  producción y se compara el SKU. Es lo que le importa al negocio.
 
-Un producto mal leído no se empareja: cuenta como **omitido** y su lectura como **sobrante** (el cliente no recibe lo
-que pidió y recibe otra cosa: dos errores).
+Un renglón bien en (a) y mal en (b) es un problema de la búsqueda o del catálogo, no del modelo de visión. Uno mal
+en (a) que en (b) da bien es un error de lectura que la búsqueda absorbió (por ejemplo, «Nordica» por «Nordika»).
 
-**Puntaje de un par:**
+Límite de (a): solo ve las palabras que la lista marca como clave. «sh» contra «acond» de la misma línea no está en
+las `palabras` (la lista no exige expandir abreviaturas), así que esa confusión la mide (b), donde son dos SKU.
+
+### 6.4 El puntaje de un renglón
+
+**Emparejar.** Cada esperado se empareja con, como mucho, un renglón leído, y al revés, recorriendo los esperados en
+el orden de la hoja:
+
+- (a): el leído tiene todas las palabras del esperado que no son números. Si hay varios, se prefiere el que también
+  tiene las de números (la medida).
+- (b): el SKU al que llega el leído es el esperado, o está entre las opciones si la búsqueda quedó en `varias` o
+  `aproximado`.
+
+Un esperado sin pareja es **omitido**; un leído sin pareja es **sobrante**.
+
+**Una pregunta cuesta 0,2, y un error silencioso cuesta más que una pregunta.** Es la regla de la que salen todos los
+pesos: si el modelo duda, el agente le pregunta al cliente; eso molesta, pero el pedido no sale mal. Si el modelo se
+equivoca sin dudar, el pedido sale mal y el cliente se entera al recibirlo. Si algún error silencioso valiera más de
+0,8, al modelo le convendría equivocarse callado antes que preguntar.
 
 ```
-s = 0,8                         si el renglón tiene duda (de lectura, o quedó entre varias opciones)
-s = 0,5 + 0,4·C + 0,1·D         si no
-
-C = 1 si la cantidad es la esperada
-D = 1 si el detalle es el esperado: tono y unidad (si el esperado no tiene detalle, D = 1)
+s = 0,8                                    si el renglón leído tiene duda (o le falta la cantidad)
+s = máx(0,1 ; 1 − Σ penalizaciones)        si no
 ```
 
-- El producto vale 0,5 porque es la condición para emparejar; la cantidad 0,4 porque una cantidad mal es casi tan
-  grave como un producto mal; el detalle 0,1.
-- **Una duda vale 0,8**: el agente va a preguntar, así que no sale mal, pero cuesta una pregunta al cliente. Un
-  error silencioso de cantidad vale 0,6 (peor que preguntar) y un renglón bien sin duda vale 1 (mejor que
-  preguntar). Así marcar duda en todo no conviene: 15 renglones con duda dan 0,8, menos que un modelo que acierta
-  el 90 %.
+| Error, sin duda | Penalización | s si es el único | Por qué |
+|---|---|---|---|
+| Variante mal: el tono, o la medida en (a) | 0,3 | 0,7 | Llega otro color u otro tamaño. Es silencioso, pero el producto es el pedido |
+| Cantidad cerca: mal, pero menos del doble o la mitad (3 por 2, 6 por 5) | 0,4 | 0,6 | Llega de más o de menos y hay que corregirlo |
+| Cantidad lejos: el doble o más, la mitad o menos («1» por «10», «7» por «1»), o cajas por unidades | 0,6 | 0,4 | El error caro: devoluciones, o un cliente sin mercadería. «1» por «10» es un dígito perdido, no un desliz |
 
-**Puntaje de una imagen y del benchmark:**
+- Las penalizaciones se suman, con un piso de 0,1: el producto acertado vale algo aunque lo demás esté mal. Tono mal
+  y cantidad cerca dan 0,3; tono mal y cantidad lejos, 0,1.
+- La **unidad** se puntúa como cantidad, no como detalle: «2 cajas» leído «2» puede ser 24 contra 2. Las clases son
+  «cajas» y «el resto» (`unidades`, `cada_uno` o sin unidad, que cuentan unidades sueltas). Cambiar de clase es
+  cantidad lejos.
+- Un renglón **sin cantidad** leída cuenta como duda en los dos niveles: el agente la va a preguntar.
+- El **producto equivocado** no tiene penalización propia porque no empareja: el esperado queda omitido y lo leído
+  sobra. Son dos errores: al cliente le falta lo que pidió y le llega otra cosa.
+
+**Lo que sobra** suma al denominador, como un renglón que no puntúa:
+
+| Sobrante | Suma al denominador | Por qué |
+|---|---|---|
+| Silencioso: sin duda y, en (b), con la búsqueda en `unico` o `sin_stock` | 1 | Se mandaría algo que el cliente no pidió |
+| Dudoso: con duda o, en (b), con la búsqueda en `varias`, `aproximado` o `no_encontrado` | 0,2 | El agente pregunta antes de pedirlo: cuesta una pregunta, como una duda |
+| Un renglón tachado, con o sin duda | 1 | Lo tachado no se pide ni se pregunta (RNF-18) |
+
+**Puntaje de una hoja:**
 
 ```
-S = Σ s(pares) / (esperados + sobrantes)
+S = Σ s(pares) / (esperados + Σ costo de los sobrantes)
 ```
 
-El denominador suma los sobrantes (inventados o tachados que se pidieron): así un modelo que inventa renglones no
-puede subir el puntaje. El puntaje del benchmark es la suma de numeradores sobre la suma de denominadores de todas
-las imágenes (micro-promedio: cada renglón pesa igual), con su intervalo por bootstrap sobre imágenes.
+Una salida sin JSON válido, o que dice ilegible una foto que se lee, da S = 0 con todos los esperados omitidos. Una
+foto que quien revisa no puede leer no entra al puntaje: solo se cuenta si el modelo también la marcó ilegible.
 
-**Guardarraíles (se reportan aparte, objetivo 0):**
+### 6.5 Casos ambiguos, resueltos
 
-- **errores silenciosos**: pares con la cantidad o el detalle mal y sin duda, más los sobrantes;
-- **tachados pedidos**: renglones tachados que terminaron en el pedido (ya los mide `comparar_vision`, RNF-18).
+Renglón escrito «2 sh keratina Nordika x900» (SKU `NOR-SH-KER-900`, cantidad 2). Es el equivalente, en este
+catálogo, de «3 Coca 2.25». Lo que vale cada salida del modelo, en los dos niveles:
 
-### 6.3 Normalización antes de comparar
+| # | Salida | (a) Lectura | (b) Interpretación |
+|---|---|---|---|
+| 1 | «Nordika sh keratina 900», cantidad 2 | 1 | 1 |
+| 2 | Variantes de escritura: «NORDIKA», «nórdika», «Nordika-», «sh. keratina» | 1 (§6.6) | 1 |
+| 3 | La marca con una letra cambiada: «Nordica» | 1 | 1 si la búsqueda llega al SKU |
+| 4 | Producto bien, cantidad 3 | 0,6 | 0,6 |
+| 5 | Producto bien, cantidad 20 (o 1, si decía 10) | 0,4 | 0,4 |
+| 6 | Producto bien, «2 cajas» | 0,4 | 0,4 |
+| 7 | Producto bien, cantidad con duda «¿2 o 7?» | 0,8 | 0,8 |
+| 8 | Producto bien, sin cantidad | 0,8 | 0,8 |
+| 9 | Otra presentación: «keratina Nordika x300» | 0,7: un número mal leído | 0 y +1 al denominador: es otro SKU |
+| 10 | Sin presentación: «keratina Nordika» | 0,7 | 0,8: la búsqueda da las tres medidas y el agente pregunta |
+| 11 | Otro producto de la misma línea: «acond keratina Nordika 900» | 1: (a) no lo ve (§6.3) | 0 y +1 al denominador |
+| 12 | El renglón no está en la salida | 0 | 0 |
+| 13 | Un renglón inventado sin duda, que la búsqueda encuentra | +1 al denominador | +1 |
+| 14 | Un renglón inventado con duda, o que la búsqueda no encuentra | +0,2 | +0,2 |
+| 15 | Un renglón que la persona tachó | +1, y cuenta como tachado pedido | +1, y cuenta como tachado pedido |
+
+Para un renglón de coloración, «Kapris tintura 7.1 x3», en (a): «7,1» con 3 vale 1; el tono «7.2» con 3 vale 0,7;
+«7.1» con «1» vale 0,4 (cantidad lejos), y «7/3» leído como tono 7 y cantidad 3 vale 0,7 (variante mal). En (b)
+valen lo mismo si la búsqueda llega a un solo SKU. Con `catalogo_evaluacion.csv`, «Kapris tintura» queda entre la
+tintura sola y la que trae oxidante, así que es una duda (0,8) salvo que lo leído diga cuál: eso lo mide la
+búsqueda, no la lectura.
+
+### 6.6 Normalización antes de comparar
 
 | Qué | Regla | Ejemplos |
 |---|---|---|
-| Texto | Minúsculas, sin tildes ni signos, espacios simples, singular (`busqueda_service.normalizar`) | «Máscara», «MASCARA», «mascaras» → `mascara` |
-| Marcas | Sin apóstrofos ni guiones; distancia de edición ≤ 1 contra la lista del catálogo solo en el nivel (a) | «L'Oréal» → `loreal`; «Nordica» → `nordika` |
-| Abreviaturas | Solo en el nivel (a) y solo si la lista no la trae abreviada: sh → shampoo, acond → acondicionador, masc → mascara, trat → tratamiento, ox → oxidante, decol → decolorante | «acond.» = «acondicionador» |
+| Texto | Minúsculas, sin tildes, los signos como espacios y espacios simples. Una palabra esperada se busca dentro del texto leído, así «mascara» está en «mascaras» | «Máscara», «MASCARA» → `mascara`; «sh.» → `sh` |
+| Palabras pegadas | Una palabra esperada también vale si aparece con los espacios y guiones sacados | «CocaCola» = «Coca-Cola» = «coca cola» |
+| Marcas | Además, en (a), una letra de tolerancia (cambiada, de más o de menos) contra las marcas del catálogo | «Nordica» → `nordika` |
+| Abreviaturas | No se expanden: las `palabras` de la lista no llevan abreviaturas | La lista dice «masc argan Lumine 250» y las palabras son `argan lumine 250` |
 | Cantidades | Número; palabras a número; fracciones a decimal | «una» = 1, «media docena» = 6, «doce» = 12, «x3» = «(3)» = «3u» = 3, «1/2» = «0,5» = «½» = 0,5 |
-| Medidas | A ml o g; «x» delante es medida si va pegada a un número de presentación del catálogo | «x900» = «900ml» = «900 ml» = «0,9 L»; «1L» = «1 lt» = 1000 ml; «1k» = «1 kg» = 1000 g |
 | Tonos | Punto o coma decimal; la barra no es decimal (es tono/cantidad, como en `INSTRUCCIONES`) | «7.1» = «7,1»; «7/2» = tono 7, cantidad 2 |
-| Unidad | `unidades`, `cajas`, `cada_uno` | «u», «unid» → unidades; «cj», «cajas» → cajas; «c/u» → cada_uno |
+| Unidad | Dos clases: cajas, y el resto | «cj», «cajas» → cajas; «u», «unid», «c/u» o nada → unidades sueltas |
 
-En los niveles (b) y (c) casi toda la normalización la hace el SKU: si llegó al SKU correcto, la abreviatura o la
-tilde ya no importan.
+Las cantidades en palabras y las medidas las convierte el modelo de visión en `ImagenLeida.cantidad`: la scoring
+compara números, no vuelve a interpretar el texto. En (b) casi toda la normalización la hace el SKU: si llegó al SKU
+correcto, la abreviatura o la tilde ya no importan.
 
-### 6.4 Ejemplo calculado
+### 6.7 Agregación
+
+- **S del benchmark** (la principal): micro-promedio, la suma de numeradores sobre la suma de denominadores de todas
+  las hojas, así cada renglón pesa igual. Con intervalo al 95 % por bootstrap sobre hojas: los renglones de una
+  misma hoja no son independientes.
+- **S por hoja:** el promedio de los S de cada hoja, y las **5 peores hojas** de cada modelo con su S, para mirarlas.
+  Un promedio alto puede esconder un par de hojas desastrosas.
+- **Peores renglones:** los 10 renglones del pool con menor s promedio entre las hojas en que aparecieron (al menos
+  dos), para saber qué productos o qué forma de escribir fallan.
+- **Cortes:** S por tipo de dificultad, origen (núcleo o pool), persona, letra (clara o difícil), foto (nítida o
+  borrosa), luz y papel. La letra y la nitidez las anota quien revisa cada foto; la luz y el papel salen del Form.
+- **Diagnóstico:** fotos perfectas, precision, recall y F1, errores silenciosos, errores graves, tachados pedidos,
+  JSON válido, segundos p50 y p95, y USD por hoja y por cada 1000 renglones.
+
+Todo eso se calcula por modelo y huella del prompt, por nivel, y para desarrollo y reservado por separado.
+
+### 6.8 Errores que no se perdonan: un filtro, no un cero
+
+Poner en cero la hoja entera por un error grave parece estricto, pero con unas 20 hojas deja un número muy ruidoso, y
+al optimizador le saca la señal: un prompt que arregla tres renglones de una hoja vetada no sube nada. En cambio:
+
+- **Errores graves**, contados aparte: los sobrantes silenciosos (producto equivocado o inventado, que se mandaría) y
+  las cantidades lejos sin duda.
+- **Filtro de elegibilidad:** una configuración (modelo + prompt) **no se puede elegir**, tenga el S que tenga, si
+  en el reservado, nivel (b), pide algún tachado o tiene errores graves en más del 2 % de los renglones esperados. El
+  ranking se arma solo con las elegibles; las demás se muestran marcadas.
+
+Un producto que no existe en el catálogo no necesita veto: en (b) no puede salir en silencio, porque la búsqueda
+queda `no_encontrado` y el agente pregunta. Cuesta 0,2, como cualquier sobrante dudoso.
+
+### 6.9 Validar la scoring antes de usarla
+
+Los pesos de la §6.4 son una propuesta razonada, no una verdad. Antes de comparar modelos u optimizar prompts:
+
+1. Se toman de 15 a 20 salidas de **desarrollo** (pares modelo + hoja, al azar con semilla), del nivel (b).
+2. Se muestran sin el modelo ni el puntaje, en orden al azar: cada una con su lista y lo que extrajo el modelo.
+3. Quien conoce el negocio las ordena de mejor a peor, sin mirar los números.
+4. Se compara su orden con el de S: el porcentaje de pares que quedan en el mismo orden, y los pares invertidos.
+
+Si coinciden menos del 80 % de los pares, o se invierte algún par con más de 0,1 de diferencia en S, la scoring está
+mal definida: se mira qué tienen esos pares, se ajustan los pesos (y esta sección) y se vuelve a validar. Solo
+después se usa para comparar u optimizar.
+
+### 6.10 Ejemplo calculado
 
 Hoja `p03-A` de la §5 (15 renglones esperados), en la que la persona escribió de más «2 Belkor crema de peinar
 rulos» y lo tachó, nivel (b). Supongamos que la lectura + búsqueda da:
@@ -410,41 +551,47 @@ rulos» y lo tachó, nivel (b). Supongamos que la lectura + búsqueda da:
 | Renglones | Qué pasó | s |
 |---|---|---|
 | N1–N4, Belkor matizador, Fiorela gel, baño Trevia, Duomo, acond Nordika, Brisa, Kapris acond y Lumine (12 renglones) | SKU y cantidad bien, sin duda | 12 × 1 = **12** |
-| N5 «Silkara protector térmico (7)» | Leyó «(1)», sin duda: error silencioso | 0,5 + 0,4·0 + 0,1·1 = **0,6** |
+| N5 «Silkara protector térmico (7)» | Leyó «(1)», sin duda: cantidad lejos | 1 − 0,6 = **0,4** |
 | «10 serum puntas Orkidea» | Leyó «1» con duda «¿1 o 10?» | **0,8** |
 | «1 Fiorela sh nutrición 5 L» | No lo leyó (quedó en el pliegue) | omitido: **0** |
-| «2 Belkor crema de peinar rulos» (tachado) | Lo pidió | sobrante (+1 al denominador) |
+| «2 Belkor crema de peinar rulos» (tachado) | Lo pidió | sobrante tachado: +1 al denominador |
 
 ```
-S = (12 + 0,6 + 0,8 + 0) / (15 esperados + 1 sobrante) = 13,4 / 16 = 0,84
+S = (12 + 0,4 + 0,8 + 0) / (15 esperados + 1) = 13,2 / 16 = 0,825
 ```
 
-Las otras dos, sobre el mismo resultado:
+Lo demás, sobre el mismo resultado:
 
 - **Boolean:** 0 (no salió perfecta).
 - **Por ítem:** 12 correctos (SKU y cantidad); 15 renglones en la salida (14 de los esperados + el tachado):
   precision = 12/15 = 0,80, recall = 12/15 = 0,80, F1 = 0,80.
-- **Guardarraíles:** errores silenciosos = 2 (la cantidad de N5 y el tachado), tachados pedidos = 1.
+- **Guardarraíles:** errores silenciosos = 2 (la cantidad de N5 y el tachado), errores graves = 2 (los mismos: 13 %
+  de los renglones), tachados pedidos = 1. Con esta hoja sola, la configuración no sería elegible.
 
-La ponderada (0,84) distingue algo que el F1 (0,80) no ve: el «10» con duda no sale mal porque el agente lo pregunta,
-y el «7» leído «1» sí. Si un cambio de prompt convierte el error de N5 en una duda, S sube a 0,85 y los errores
-silenciosos bajan a 1; el F1 no se mueve.
+La ponderada distingue lo que el F1 no ve: el «10» con duda no sale mal porque el agente lo pregunta, y el «7» leído
+«1» sí, y caro. Si un cambio de prompt convierte el error de N5 en una duda, S sube a 13,6 / 16 = 0,85 y los errores
+graves bajan a 1; el F1 no se mueve. Sigue sin ser elegible mientras pida el tachado.
 
 ## 7. Costo, latencia y separación desarrollo / reservado
 
-**Por imagen** se registra: modelo, segundos, tokens de entrada y salida, USD (`--precio`), si el JSON salió
-válido y el error si lo hubo (todo eso ya está en `Lectura`). Por modelo se reporta: S con intervalo, p50 y p95 de
-segundos, USD por imagen y USD por cada 1000 renglones. Con eso se arma la **frontera puntaje vs. costo**: por
+**Por imagen** se registra: modelo, huella del prompt, segundos, tokens de entrada y salida, USD (`--precio`), si el
+JSON salió válido y el error si lo hubo (todo eso ya está en `Lectura`). Por modelo se reporta: S con intervalo, p50 y
+p95 de segundos, USD por imagen y USD por cada 1000 renglones. Con eso se arma la **frontera puntaje vs. costo**: por
 ejemplo, si Qwen local (USD 0, ~16 s) queda cerca de un modelo de API, o si `VISION_MARCAS` vale los tokens extra
 (cierra D-42).
 
 **Separación por persona, no por imagen:** las dos hojas de una persona van al mismo grupo, así lo reservado mide
-letra que el prompt nunca vio, como un cliente nuevo.
+letra que el prompt nunca vio, como un cliente nuevo. Optimizar y medir sobre las mismas fotos sube el número sin
+garantizar que el sistema mejoró (ley de Goodhart): el prompt aprende esas letras, no a leer.
 
-- `desarrollo` (≈ 40 % de las personas): se mira, se itera `INSTRUCCIONES` y se optimiza con DSPy/GEPA usando S
-  como métrica.
-- `reservado` (≈ 60 %): solo se corre para medir. No se ajusta nada mirando sus casos (misma regla que D-50 en
-  `evaluar_agente`).
+- `desarrollo` (≈ 40 % de las personas): se mira, se itera `INSTRUCCIONES`, se valida la scoring (§6.9) y se
+  optimiza con DSPy/GEPA usando S como métrica.
+- `reservado` (≈ 60 %): no se mira ni se ajusta nada con sus casos (misma regla que D-50 en `evaluar_agente`). Sobre
+  él se reporta el puntaje final y se aplica el filtro de la §6.8.
+- **Los grupos no cambian:** quien ya tiene grupo lo conserva cuando llegan fotos nuevas.
+- **El reservado se congela** en la primera medición final. Desde ahí, toda persona o foto nueva va a `desarrollo`,
+  también las que se sumen por traer errores reales: sirven para mejorar, pero no pueden cambiar el reservado con el
+  que ya se midió.
 - Opcional: partir también el pool de 100 productos (40/60), para que lo reservado tenga vocabulario no visto.
 
 El mismo benchmark sirve para comparar un modelo solo, modelo + prompt (con y sin `VISION_MARCAS`, otro
@@ -472,7 +619,9 @@ El mismo benchmark sirve para comparar un modelo solo, modelo + prompt (con y si
 3. Juntar las fotos con el Form, revisarlas contra su lista y armar `casos.json` cruzando `respuestas.csv` con
    `listas.json`.
 4. Correr el nivel (a) con `comparar_vision --casos` (sin código nuevo).
-5. ~~Runner de los niveles (a) y (b) con el puntaje de la §6~~: `python -m internal.evaluar_manuscritos correr`
-   guarda cada salida y `puntuar` la puntúa sin llamar a ningún modelo
-   ([spec](spec/benchmark-manuscritos.md#33-corrida), RF-133 a RF-140).
-6. Nivel (c) y optimización con DSPy/GEPA solo con permiso, porque llaman a un LLM pago.
+5. ~~Runner de los niveles (a) y (b)~~: `python -m internal.evaluar_manuscritos correr` guarda cada salida y
+   `puntuar` la puntúa sin llamar a ningún modelo ([spec](spec/benchmark-manuscritos.md#33-corrida), RF-133 a
+   RF-140). Falta adaptarlo a la scoring de la §6 (RF-141 a RF-147): penalizaciones, sobrantes dudosos, filtro,
+   cortes nuevos, validación y reservado congelado.
+6. Validar la scoring con el orden a mano de la §6.9, sobre desarrollo, antes de comparar modelos.
+7. Nivel (c) y optimización con DSPy/GEPA solo con permiso, porque llaman a un LLM pago.
