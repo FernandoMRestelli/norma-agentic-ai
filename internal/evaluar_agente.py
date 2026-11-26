@@ -123,13 +123,9 @@ def cierres_repetidos(respuestas: list[str]) -> bool:
 
 
 def _texto_del_agente(outcome) -> str:
-    """La respuesta sin el detalle de precios que agrega el sistema debajo: ese texto no lo escribe el LLM."""
-    from internal.services import validation_service
-
-    if outcome.draft is None:
-        return outcome.message
-    detalle = "\n\n" + validation_service.build_proposal_detail(outcome.draft)
-    return outcome.message.removesuffix(detalle)
+    """La respuesta sin lo que agrega el sistema debajo (el detalle, las dudas y lo que queda afuera, M8-2): ese
+    texto no lo escribe el LLM."""
+    return outcome.mensaje_modelo if outcome.mensaje_modelo is not None else outcome.message
 
 
 def _items(draft_or_order: list) -> dict[str, int]:

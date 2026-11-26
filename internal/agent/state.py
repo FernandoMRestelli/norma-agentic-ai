@@ -34,6 +34,7 @@ class EstadoNorma(TypedDict, total=False):
     # ([{sku, cantidad}]), opciones, motivo, tono y coincidencia
     renglones: list[dict[str, Any]]
     respuesta: str | None  # lo que va a ver el cliente
+    mensaje_modelo: str | None  # la parte de `respuesta` que escribió el LLM, sin lo que suma el sistema (M8-2)
     kind: str | None
     options: list[str]
     opciones_previas: list[str]  # las `options` de tu respuesta anterior: lo que el cliente está contestando (RF-71)

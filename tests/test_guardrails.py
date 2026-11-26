@@ -369,110 +369,66 @@ def test_varias_reglas_en_un_solo_rechazo():
     assert reglas == ["stock_revelado", "dato_interno", "promesa", "formato"]
 
 
-def test_renglones_pendientes_sin_pregunta():
-    """CA-143: con `pendientes`, un mensaje que no pregunta nada se rechaza; sin `pendientes` no hace falta."""
+def test_las_dudas_las_escribe_el_sistema():
+    """CA-143 y M8-2: con `pendientes`, cada renglón sale debajo del mensaje con sus opciones, aunque el LLM solo las
+    anuncie; antes ese mensaje se rechazaba y le llegaba al cliente cortado (#107)."""
+    pendientes = [{"renglon": 1, "opciones": [SKU_SHAMPOO]}, {"renglon": 2, "opciones": [SKU_SHAMPOO, SKU]}]
     anuncio = "Te paso las dudas y alternativas que encontré en el catálogo:"
-    assert _reglas(anuncio, "aclaracion", pendientes=[1, 3]) == ["pregunta_faltante"]
-    assert _reglas("El shampoo, ¿de 400 ml? Y la crema, ¿la de 100 ml?", "aclaracion", pendientes=[1, 3]) == []
-    assert _reglas(anuncio, "aclaracion") == []
-
-
-def test_renglones_pendientes_sin_pregunta_se_reintenta():
-    """CA-143: el anuncio de una lista que no está no le llega al cliente; el LLM reescribe con las preguntas."""
-    pendientes = [{"renglon": 1, "opciones": [SKU_SHAMPOO]}, {"renglon": 2, "opciones": [SKU]}]
-    malo = "Te paso las dudas y alternativas que encontré en el catálogo:"
-    bueno = "El shampoo Pantene, ¿te sirve el de 400 ml? Y la crema Nivea, ¿la de 100 ml?"
-    agent, _ = _agente(
-        _responder(malo, kind="aclaracion", pendientes=pendientes),
-        _responder(bueno, kind="aclaracion", pendientes=pendientes),
-    )
+    agent, _ = _agente(_leer_y_ver(), _responder(anuncio, kind="aclaracion", pendientes=pendientes))
 
     resultado = agent.handle("1", text="2 shampoo pantene\n1 crema nivea", **CLIENTE)
 
-    rechazo = _resultados(agent, "respond_to_customer")[0]
-    assert rechazo["error"]["details"]["reglas"] == ["pregunta_faltante"]
-    assert "(1, 2)" in rechazo["error"]["message"]
-    assert resultado.message == bueno
+    assert [r["ok"] for r in _resultados(agent, "respond_to_customer")] == [True]
+    assert resultado.message == (
+        f"{anuncio}\n\nMe falta que me digas:\n• 2 shampoo pantene: ¿es Shampoo Pantene 400 ml?\n"
+        "• 1 crema nivea: ¿Shampoo Pantene 400 ml o Crema Nivea 100 ml?"
+    )
+    assert resultado.mensaje_modelo == anuncio
+    assert SKU not in resultado.message and SKU_SHAMPOO not in resultado.message
 
 
-def test_aclaracion_con_options_sin_listar_opciones():
-    """Issue #107: en aclaración con `options`, un mensaje cortado o sin pregunta/viñetas se rechaza."""
+def test_las_dudas_no_salen_dos_veces():
+    """M8-2: si el LLM igual las enumera con viñetas, quedan las del sistema, que salen del catálogo."""
+    pendientes = [{"renglon": 1, "opciones": [SKU_SHAMPOO]}, {"renglon": 2, "opciones": [SKU]}]
+    mensaje = "Me quedan dos dudas:\n• El shampoo: ¿el de 400?\n• La crema: ¿la de 100?\n¿Qué te mando?"
+    agent, _ = _agente(_leer_y_ver(), _responder(mensaje, kind="aclaracion", pendientes=pendientes))
+
+    resultado = agent.handle("1", text="2 shampoo pantene\n1 crema nivea", **CLIENTE)
+
+    assert resultado.message.startswith("Me quedan dos dudas:\n¿Qué te mando?\n\nMe falta que me digas:")
+    assert "¿el de 400?" not in resultado.message
+
+
+def test_aclaracion_con_options_muestra_las_opciones():
+    """M8-2, cierra el #107: con `kind = aclaracion` y varias `options`, el cliente ve todas aunque el texto del
+    modelo no las nombre, y si el texto no pregunta nada, la pregunta la agrega el sistema."""
     opciones = [SKU_SHAMPOO, SKU]
     cortado = "Elegí el shampoo que querés. Tenés estas opciones para 2 unidades:"
-    assert _reglas(cortado, "aclaracion", options=opciones) == ["pregunta_faltante"]
-    assert _reglas("¿Cuál shampoo querés? Tenés estas opciones:", "aclaracion", options=opciones) == [
-        "pregunta_faltante"
-    ]
-    assert _reglas("Elegí el shampoo que querés.", "aclaracion", options=opciones) == ["pregunta_faltante"]
+    agent, _ = _agente(_leer_y_ver(), _responder(cortado, kind="aclaracion", options=opciones))
 
-    # Con viñetas o pregunta completa en prosa -> pasa
-    con_vinetas = "Elegí el shampoo que querés:\n• Shampoo Pantene 400 ml\n• Crema Nivea 100 ml"
-    assert _reglas(con_vinetas, "aclaracion", options=opciones) == []
-    assert _reglas("¿Querés el Shampoo Pantene 400 ml o la Crema Nivea 100 ml?", "aclaracion", options=opciones) == []
-    assert _reglas(cortado, "informacion", options=opciones) == []
+    resultado = agent.handle("1", text="dos shampoo", **CLIENTE)
+
+    assert [r["ok"] for r in _resultados(agent, "respond_to_customer")] == [True]
+    assert resultado.message == (
+        f"{cortado}\n\n• Shampoo Pantene 400 ml ($7350.00)\n• Crema Nivea 100 ml ($1000.00)\n¿Cuál preferís?"
+    )
+    assert _reglas(cortado, "aclaracion", options=opciones) == []  # no hay regla que revise este texto
 
 
-def test_aclaracion_con_options_se_reintenta():
-    """Issue #107: si el LLM corta el mensaje de aclaración con `options`, el guardrail pide reescribirlo."""
-    opciones = [SKU_SHAMPOO, SKU]
-    malo = "Elegí el shampoo que querés. Tenés estas opciones para 2 unidades:"
-    bueno = "Tenés estas opciones:\n• Shampoo Pantene 400 ml\n• Crema Nivea 100 ml\n¿Cuál preferís?"
+def test_lo_que_queda_afuera_lo_escribe_el_sistema():
+    """M8-2: cada renglón de `afuera` sale con su motivo en castellano; lo que sacó el cliente no se le repite."""
+    afuera = [{"renglon": 2, "motivo": "fuera_de_catalogo"}]
     agent, _ = _agente(
         _leer_y_ver(),
-        _responder(malo, kind="aclaracion", options=opciones),
-        _responder(bueno, kind="aclaracion", options=opciones),
+        _responder("Te armé el shampoo. ¿Lo confirmás?", kind="propuesta", afuera=afuera,
+                   propuesta=[{"sku": SKU_SHAMPOO, "quantity": 2, "renglon": 1}]),
+    )  # fmt: skip
+
+    resultado = agent.handle("1", text="2 shampoo pantene\n1 tintura igora", **CLIENTE)
+
+    assert "Total estimado: $14700.00\n\nLo que no va como lo pediste:\n• 1 tintura igora: no lo trabajamos" in (
+        resultado.message
     )
-
-    resultado = agent.handle("1", text="dos shampoo", **CLIENTE)
-
-    rechazo = _resultados(agent, "respond_to_customer")[0]
-    assert rechazo["error"]["details"]["reglas"] == ["pregunta_faltante"]
-    assert "`options`" in rechazo["error"]["message"]
-    assert resultado.message == bueno
-
-
-def test_aclaracion_con_options_intentos_agotados_inyecta_catalogo():
-    """Issue #107: si el LLM agota intentos por `pregunta_faltante`, el backend anexa las opciones del catálogo."""
-    opciones = [SKU_SHAMPOO, SKU]
-    cortado = "Elegí el shampoo que querés. Tenés estas opciones para 2 unidades:"
-    malos = [_responder(cortado, kind="aclaracion", options=opciones) for _ in range(3)]
-    agent, _ = _agente(_leer_y_ver(), *malos)
-
-    resultado = agent.handle("1", text="dos shampoo", **CLIENTE)
-
-    assert [r["ok"] for r in _resultados(agent, "respond_to_customer")] == [False, False, True]
-    assert resultado.kind == "aclaracion"
-    assert resultado.message.startswith(cortado + "\n• ")
-    assert "Shampoo Pantene 400 ml" in resultado.message
-    assert "Crema Nivea 100 ml" in resultado.message
-    assert "¿Cuál preferís?" in resultado.message
-    assert SKU_SHAMPOO not in resultado.message
-    assert SKU not in resultado.message
-
-
-def test_aclaracion_con_pendientes_intentos_agotados_usa_mensaje_seguro():
-    """Con `pendientes` (varios renglones), al agotar intentos por `pregunta_faltante` sale `MENSAJE_SEGURO`."""
-    pendientes = [
-        {"renglon": 1, "opciones": [SKU_SHAMPOO]},
-        {"renglon": 2, "opciones": [SKU]},
-    ]
-    malos = [
-        _responder("Te paso las dudas que encontré:", kind="aclaracion", pendientes=pendientes)
-        for _ in range(3)
-    ]
-    agent, _ = _agente(_ai(_call("leer_skill", nombre="tomar_pedido")), *malos)
-
-    resultado = agent.handle("1", text="2 shampoo\n1 crema", **CLIENTE)
-
-    assert [r["ok"] for r in _resultados(agent, "respond_to_customer")] == [False, False, True]
-    assert resultado.kind == "aclaracion"
-    assert resultado.message == guardrails.MENSAJE_SEGURO
-    assert "¿Cuál preferís?" not in resultado.message
-
-
-# ---------------------------------------------------------------------------------------------------------------------
-# Intentos agotados y texto suelto
-# ---------------------------------------------------------------------------------------------------------------------
 
 
 def test_intentos_agotados_con_propuesta():

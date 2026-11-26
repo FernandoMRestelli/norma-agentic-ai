@@ -22,6 +22,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Cambiado
 
+- Las dudas, lo que no entra y cuánto queda los escribe el sistema, no el modelo (M8-2, cierra el #107). Debajo del mensaje del asistente y del detalle de la propuesta, el cliente ve «Lo que no va como lo pediste:», con cada renglón que no se trabaja o está agotado y cuánto queda del que no alcanzó, y «Me falta que me digas:», con cada renglón dudoso como lo escribió y sus opciones («• 2 sh keratina: ¿300 ML, 900 ML o 5 L?»). Una aclaración de un producto suelto lista sus opciones con precio. El modelo solo escribe qué armó y la pregunta; si igual enumera con viñetas, esa lista no sale dos veces. Sale el control `pregunta_faltante`, que ya no hace falta. No hay nada que migrar al desplegar.
 - `.env.example` trae la API paga de OpenAI (`gpt-6-luna`) para el texto, sin el límite diario del free tier; OpenRouter y Gemini quedan como alternativas comentadas. Solo afecta a quien arma su `.env` de cero: los que ya existen no cambian.
 
 ### Corregido

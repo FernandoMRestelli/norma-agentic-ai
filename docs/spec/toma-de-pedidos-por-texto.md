@@ -402,8 +402,8 @@ puntaje el renglón queda `aproximado`. El resultado trae las BR de los estados 
 | Campo | Cambio |
 |---|---|
 | `propuesta[].renglon` | Nuevo, opcional: el número del renglón del cliente que resuelve esa línea |
-| `pendientes` | Nuevo: `[{"renglon": 3, "opciones": ["SKU-A", "SKU-B"]}]`, los renglones que se preguntan. El cliente no lo ve: la pregunta va escrita en `message` (si no, `pregunta_faltante`, ver [guardrails](guardrails.md)) |
-| `afuera` | Nuevo: `[{"renglon": 7, "motivo": "fuera_de_catalogo"}]`. Motivos: `fuera_de_catalogo`, `sin_stock`, `lo_saco_el_cliente`, `no_es_producto` (un título o un comentario que quedó numerado) |
+| `pendientes` | Nuevo: `[{"renglon": 3, "opciones": ["SKU-A", "SKU-B"]}]`, los renglones que se preguntan. El sistema escribe cada uno debajo de `message`, como lo escribió el cliente y con sus opciones (M8-2 de [mejoras-clase8](mejoras-clase8.md)) |
+| `afuera` | Nuevo: `[{"renglon": 7, "motivo": "fuera_de_catalogo"}]`. Motivos: `fuera_de_catalogo`, `sin_stock`, `lo_saco_el_cliente`, `no_es_producto` (un título o un comentario que quedó numerado). El sistema escribe debajo de `message` los dos primeros, con el motivo en castellano (M8-2) |
 | `options` | Se mantiene para un mensaje de un solo renglón. Con `pendientes`, se calcula a partir de ellos |
 
 Lo que ya usa `respond_to_customer` sin estos campos sigue funcionando: el control de cobertura solo corre cuando

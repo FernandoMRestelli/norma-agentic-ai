@@ -3,11 +3,11 @@
 > Documento de diseño. Lee el agente con los conceptos de la Clase 8 de Inteligencia
 > Artificial Agéntica («AI Training 2.0 and 3.0») y propone mejoras priorizadas. Cada mejora cita el concepto que
 > la motiva y la evidencia en el código. Si se aprueba, cada mejora se pasa a la [plantilla](_plantilla.md) con
-> sus IDs definitivos. M8-1 ya está implementado en esta rama (ver su sección).
+> sus IDs definitivos. M8-1 y M8-2 ya están implementados en esta rama (ver sus secciones).
 
 | | |
 |---|---|
-| Estado | M8-1 implementado; M8-2 a M8-8 propuestos |
+| Estado | M8-1 y M8-2 implementados; M8-3 a M8-8 propuestos |
 | Base | `develop` (`2b64fce`), con `feature/mejoras-del-agente` ya integrada (D-47 a D-52, grupo `reservado`, `evaluar_busqueda`, tope de tokens). Cita `feature/benchmark-pedidos-manuscritos` (`docs/benchmark-pedidos-manuscritos.md`), que todavía no está en `develop` |
 | IDs | Provisorios: `M8-1` a `M8-8`. Los RF, CA y D se reservan cuando se apruebe, después de los que usa `feature/mejoras-del-agente` |
 | Fuente de la clase | Resumen de la Clase 8, secciones 4 a 6, 10, 11.2, 11.3 y 13 |
@@ -164,6 +164,15 @@ extiende ese criterio a lo que sigue en manos del modelo.
 - En `evaluar_agente`, los chequeos de estilo `sin_sku` y los de stock no empeoran, y los rechazos del validador por
   turno bajan en `reservado`.
 - `guardrails.py` no suma reglas nuevas para estos bloques.
+
+**Implementado.** Los cuatro puntos; el criterio sobre `reservado` se mide con la primera corrida con un LLM real.
+
+| Punto | Cómo quedó |
+|---|---|
+| 1. El código renderiza | `respond_to_customer` arma la respuesta con `validation_service.armar_respuesta`: el mensaje del LLM, el detalle de la propuesta, «Lo que no va como lo pediste:» (cada renglón de `afuera` con su motivo, y cuánto queda del que se propuso con menos unidades) y «Me falta que me digas:» (cada renglón de `pendientes` como lo escribió el cliente, con sus opciones). Las opciones se nombran por lo que las distingue: «¿300 ML, 900 ML o 5 L?». Una aclaración de un producto suelto con más de una opción lista sus `options` con precio, y si el texto del modelo no pregunta nada, agrega «¿Cuál preferís?». Los bloques salen también con el mensaje fijo de los guardrails. Si el modelo igual escribe la lista con viñetas, esos renglones se sacan de su texto para que no salga dos veces |
+| 2. El modelo escribe el marco | `respuesta.md`, `skill.md`, BR-01, BR-03, el esquema de `respond_to_customer` y el aviso de cierre de turno le piden una frase con lo que armó y cuántas cosas faltan o no van, y la pregunta, sin enumerarlas. `AgentOutcome.mensaje_modelo` guarda solo lo que escribió el modelo: con eso `evaluar_agente` chequea el estilo |
+| 3. Guardrails | Se borra `pregunta_faltante` (y el respaldo del #107 que anexaba las opciones al agotar los reintentos): existía solo porque el modelo tenía que escribir las dudas. Se quedan, porque el modelo todavía escribe texto libre: `stock_revelado` y `stock_incorrecto` (un pedido de una sola línea sigue diciendo cuánto queda, BR-01), el conteo de opciones que evita confundir «tengo 2 medidas» con stock, `dato_interno` (un SKU en el mensaje) y `numero_de_renglon` |
+| 4. El stock | En un pedido numerado, el número de lo que no alcanzó lo escribe el sistema («• 5 deco 700: quedan 2, te puse esas»). En uno de una sola línea lo sigue diciendo el modelo, controlado por `stock_incorrecto` |
 
 ### M8-3 · Tono y cantidad en código
 
