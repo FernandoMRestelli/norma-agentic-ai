@@ -1,6 +1,7 @@
 [
   {
     "id": "texto-simple",
+    "grupo": "desarrollo",
     "descripcion": "Un producto con marca, cantidad y presentación claras",
     "mensaje": {
       "customer_id": "cli-001",
@@ -20,6 +21,7 @@
   },
   {
     "id": "texto-varios-productos",
+    "grupo": "desarrollo",
     "descripcion": "Dos productos en un mismo mensaje",
     "mensaje": {
       "customer_id": "cli-001",
@@ -43,6 +45,7 @@
   },
   {
     "id": "cantidad-en-palabras",
+    "grupo": "desarrollo",
     "descripcion": "La cantidad viene escrita en palabras",
     "mensaje": {
       "customer_id": "cli-002",
@@ -62,6 +65,7 @@
   },
   {
     "id": "articulo-indefinido",
+    "grupo": "desarrollo",
     "descripcion": "Cantidad implícita (\"una\", \"un\") y dos productos de la misma marca",
     "mensaje": {
       "customer_id": "cli-004",
@@ -85,6 +89,7 @@
   },
   {
     "id": "ambiguo-producto-y-presentacion",
+    "grupo": "desarrollo",
     "descripcion": "Pantene tiene shampoo y acondicionador, y el shampoo viene en 200 y 400 ml",
     "mensaje": {
       "customer_id": "cli-003",
@@ -103,6 +108,7 @@
   },
   {
     "id": "ambiguo-tono",
+    "grupo": "desarrollo",
     "descripcion": "Hay varios tonos de tintura Koleston",
     "mensaje": {
       "customer_id": "cli-001",
@@ -121,6 +127,7 @@
   },
   {
     "id": "stock-insuficiente",
+    "grupo": "desarrollo",
     "descripcion": "Piden más unidades de las que hay: avisar y ofrecer lo disponible",
     "mensaje": {
       "customer_id": "cli-005",
@@ -140,6 +147,7 @@
   },
   {
     "id": "sin-stock",
+    "grupo": "desarrollo",
     "descripcion": "Producto sin stock: ofrecer una alternativa del catálogo",
     "mensaje": {
       "customer_id": "cli-003",
@@ -159,6 +167,7 @@
   },
   {
     "id": "fuera-de-catalogo",
+    "grupo": "desarrollo",
     "descripcion": "Producto que no está en el catálogo: no inventar un SKU",
     "mensaje": {
       "customer_id": "cli-002",
@@ -172,6 +181,7 @@
   },
   {
     "id": "acepta-dale",
+    "grupo": "desarrollo",
     "descripcion": "Acepta la propuesta sin cambios",
     "previo": "2 shampoos Pantene 400 por favor",
     "mensaje": {
@@ -192,6 +202,7 @@
   },
   {
     "id": "acepta-ok",
+    "grupo": "desarrollo",
     "descripcion": "Acepta con la palabra clave",
     "previo": "2 shampoos Pantene 400 por favor",
     "mensaje": {
@@ -212,6 +223,7 @@
   },
   {
     "id": "acepta-con-cambio",
+    "grupo": "desarrollo",
     "descripcion": "Parece aceptar, pero cambia la cantidad: hay que proponer de nuevo",
     "previo": "2 shampoos Pantene 400 por favor",
     "mensaje": {
@@ -232,6 +244,7 @@
   },
   {
     "id": "duda",
+    "grupo": "desarrollo",
     "descripcion": "No acepta ni rechaza: no se arma el pedido",
     "previo": "2 shampoos Pantene 400 por favor",
     "mensaje": {
@@ -256,6 +269,7 @@
   },
   {
     "id": "rechaza",
+    "grupo": "desarrollo",
     "descripcion": "Rechaza la propuesta: no se arma el pedido",
     "previo": "2 shampoos Pantene 400 por favor",
     "mensaje": {
@@ -275,6 +289,7 @@
   },
   {
     "id": "presentacion-inexistente",
+    "grupo": "desarrollo",
     "descripcion": "Pide una presentación que no existe: no hay que elegir otra por el cliente",
     "mensaje": {
       "customer_id": "cli-011",
@@ -292,6 +307,7 @@
   },
   {
     "id": "mezcla-con-fuera-de-catalogo",
+    "grupo": "desarrollo",
     "descripcion": "Un producto está y el otro no: se propone el que está y se avisa",
     "mensaje": {
       "customer_id": "cli-012",
@@ -311,6 +327,7 @@
   },
   {
     "id": "saludo",
+    "grupo": "desarrollo",
     "descripcion": "Solo saluda",
     "mensaje": {
       "customer_id": "cli-013",
@@ -324,6 +341,7 @@
   },
   {
     "id": "acepta-sin-propuesta",
+    "grupo": "desarrollo",
     "descripcion": "Dice dale sin que haya nada propuesto",
     "mensaje": {
       "customer_id": "cli-014",
@@ -337,6 +355,7 @@
   },
   {
     "id": "pide-una-persona",
+    "grupo": "desarrollo",
     "descripcion": "Pide una persona: lo deriva al equipo",
     "mensaje": {
       "customer_id": "cli-015",
@@ -350,6 +369,7 @@
   },
   {
     "id": "corrige-sumando",
+    "grupo": "desarrollo",
     "descripcion": "Suma un producto a la propuesta: tiene que mandarla completa",
     "previo": "2 shampoos Pantene 400 por favor",
     "mensaje": {
@@ -374,6 +394,7 @@
   },
   {
     "id": "pregunta-sobre-la-propuesta",
+    "grupo": "desarrollo",
     "descripcion": "Pregunta el precio: responde y la propuesta sigue vigente",
     "previo": "2 shampoos Pantene 400 por favor",
     "mensaje": {
@@ -401,6 +422,7 @@
   },
   {
     "id": "intenta-cambiar-las-reglas",
+    "grupo": "desarrollo",
     "descripcion": "Pide ignorar las reglas: no se registra nada",
     "previo": "2 shampoos Pantene 400 por favor",
     "mensaje": {
@@ -426,6 +448,7 @@
   },
   {
     "id": "acepta-con-condicion-de-fecha",
+    "grupo": "desarrollo",
     "descripcion": "Parece aceptar, pero pone una condición: no se registra nada",
     "previo": "2 shampoos Pantene 400 por favor",
     "mensaje": {
@@ -451,6 +474,7 @@
   },
   {
     "id": "acepta-con-condicion-de-envio",
+    "grupo": "desarrollo",
     "descripcion": "Parece aceptar, pero pide algo que no se puede coordinar: no se registra nada",
     "previo": "2 shampoos Pantene 400 por favor",
     "mensaje": {
@@ -476,6 +500,7 @@
   },
   {
     "id": "conversacion-aclara-medida-y-acepta",
+    "grupo": "desarrollo",
     "descripcion": "Saluda, pide algo ambiguo, elige la medida y acepta: cuatro turnos",
     "previo": [
       "hola, buen día",
@@ -500,6 +525,7 @@
   },
   {
     "id": "conversacion-elige-tono-y-suma",
+    "grupo": "desarrollo",
     "descripcion": "Elige el tono que se le preguntó y suma otro producto en el mismo mensaje",
     "previo": [
       "3 tinturas koleston"
@@ -526,6 +552,7 @@
   },
   {
     "id": "conversacion-agotado-y-alternativa",
+    "grupo": "desarrollo",
     "descripcion": "El tono está agotado y el cliente acepta la alternativa ofrecida",
     "previo": [
       "2 koleston 7.1"
@@ -548,6 +575,7 @@
   },
   {
     "id": "conversacion-suma-a-pedido-confirmado",
+    "grupo": "desarrollo",
     "descripcion": "Después de confirmar quiere agregar algo: va en un pedido nuevo, solo con lo nuevo",
     "previo": [
       "2 shampoos Pantene 400 por favor",
@@ -571,6 +599,7 @@
   },
   {
     "id": "conversacion-pregunta-horario-con-propuesta",
+    "grupo": "desarrollo",
     "descripcion": "Con una propuesta vigente pregunta el horario: no hay dato confirmado y la propuesta sigue",
     "previo": [
       "2 shampoos Pantene 400 por favor"
@@ -601,6 +630,7 @@
   },
   {
     "id": "conversacion-corrige-dos-veces",
+    "grupo": "desarrollo",
     "descripcion": "Cambia una cantidad y después suma otro producto: cada respuesta cierra distinto",
     "previo": [
       "2 shampoos Pantene 400 por favor",
@@ -628,6 +658,7 @@
   },
   {
     "id": "pedido-largo-con-una-duda",
+    "grupo": "desarrollo",
     "descripcion": "Lista agrupada por marca con un renglón dudoso: propone lo claro y pregunta lo otro",
     "mensaje": {
       "customer_id": "cli-009",
@@ -655,6 +686,7 @@
   },
   {
     "id": "observacion-sin-bolsa",
+    "grupo": "desarrollo",
     "descripcion": "Una observación de cómo preparar el pedido no cambia las líneas",
     "mensaje": {
       "customer_id": "cli-009",
@@ -669,6 +701,382 @@
           "sku": "SH-PAN-400",
           "cantidad": 2
         }
+      ]
+    }
+  },
+  {
+    "id": "res-un-producto",
+    "grupo": "reservado",
+    "descripcion": "Un producto con marca y medida claras",
+    "mensaje": {
+      "customer_id": "cli-res-un-producto",
+      "channel": "telegram",
+      "type": "text",
+      "text": "pasame 5 acondicionadores pantene de 400"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "AC-PAN-400",
+          "cantidad": 5
+        }
+      ]
+    }
+  },
+  {
+    "id": "res-una-sola-medida",
+    "grupo": "reservado",
+    "descripcion": "El producto viene en una sola medida: no hace falta preguntarla",
+    "mensaje": {
+      "customer_id": "cli-res-una-sola-medida",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "12 shampoo sedal"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "SH-SED-340",
+          "cantidad": 12
+        }
+      ]
+    }
+  },
+  {
+    "id": "res-dos-productos",
+    "grupo": "reservado",
+    "descripcion": "Dos productos de marcas distintas en una frase",
+    "mensaje": {
+      "customer_id": "cli-res-dos-productos",
+      "channel": "telegram",
+      "type": "text",
+      "text": "necesito 9 jabones dove y 3 desodorantes rexona"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "JAB-DOV-90",
+          "cantidad": 9
+        },
+        {
+          "sku": "DES-REX-150",
+          "cantidad": 3
+        }
+      ]
+    }
+  },
+  {
+    "id": "res-tono-y-oxidante",
+    "grupo": "reservado",
+    "descripcion": "Una tintura con tono y su oxidante",
+    "mensaje": {
+      "customer_id": "cli-res-tono-y-oxidante",
+      "channel": "telegram",
+      "type": "text",
+      "text": "5 oxidantes koleston 20 vol y 4 tinturas koleston 6.0"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "OX-KOL-20",
+          "cantidad": 5
+        },
+        {
+          "sku": "TIN-KOL-60",
+          "cantidad": 4
+        }
+      ]
+    }
+  },
+  {
+    "id": "res-cantidad-en-palabras",
+    "grupo": "reservado",
+    "descripcion": "La cantidad viene en palabras",
+    "mensaje": {
+      "customer_id": "cli-res-cantidad-en-palabras",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "una docena de pastas colgate"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "PAS-COL-90",
+          "cantidad": 12
+        }
+      ]
+    }
+  },
+  {
+    "id": "res-falta-la-medida",
+    "grupo": "reservado",
+    "descripcion": "El shampoo viene en dos medidas y no dice cuál",
+    "mensaje": {
+      "customer_id": "cli-res-falta-la-medida",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "pasame 4 shampoo pantene"
+    },
+    "esperado": {
+      "resultado": "aclaracion",
+      "opciones": [
+        "SH-PAN-200",
+        "SH-PAN-400"
+      ]
+    }
+  },
+  {
+    "id": "res-falta-el-tono",
+    "grupo": "reservado",
+    "descripcion": "Pide tinturas sin decir el tono",
+    "mensaje": {
+      "customer_id": "cli-res-falta-el-tono",
+      "channel": "telegram",
+      "type": "text",
+      "text": "mandame 3 tintas koleston"
+    },
+    "esperado": {
+      "resultado": "aclaracion",
+      "opciones": [
+        "TIN-KOL-60",
+        "TIN-KOL-61",
+        "TIN-KOL-71"
+      ]
+    }
+  },
+  {
+    "id": "res-no-alcanza",
+    "grupo": "reservado",
+    "descripcion": "Pide más de lo que queda",
+    "mensaje": {
+      "customer_id": "cli-res-no-alcanza",
+      "channel": "telegram",
+      "type": "text",
+      "text": "mandame 10 algodones estrella"
+    },
+    "esperado": {
+      "resultado": "sin_stock",
+      "items": [
+        {
+          "sku": "ALG-EST-140",
+          "cantidad": 10
+        }
+      ]
+    }
+  },
+  {
+    "id": "res-agotado",
+    "grupo": "reservado",
+    "descripcion": "El tono que pide está agotado",
+    "mensaje": {
+      "customer_id": "cli-res-agotado",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "2 tinturas koleston 7.1 rubio medio"
+    },
+    "esperado": {
+      "resultado": "sin_stock",
+      "items": [
+        {
+          "sku": "TIN-KOL-71",
+          "cantidad": 2
+        }
+      ]
+    }
+  },
+  {
+    "id": "res-no-lo-trabajamos",
+    "grupo": "reservado",
+    "descripcion": "Una marca que no está en el catálogo",
+    "mensaje": {
+      "customer_id": "cli-res-no-lo-trabajamos",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "tenés shampoo Ondessa? quiero 4"
+    },
+    "esperado": {
+      "resultado": "fuera_de_catalogo"
+    }
+  },
+  {
+    "id": "res-acepta",
+    "grupo": "reservado",
+    "descripcion": "Acepta la propuesta con una palabra",
+    "previo": [
+      "4 shampoo sedal"
+    ],
+    "mensaje": {
+      "customer_id": "cli-res-acepta",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "listo"
+    },
+    "esperado": {
+      "resultado": "pedido",
+      "items": [
+        {
+          "sku": "SH-SED-340",
+          "cantidad": 4
+        }
+      ]
+    }
+  },
+  {
+    "id": "res-acepta-con-otras-palabras",
+    "grupo": "reservado",
+    "descripcion": "Acepta la propuesta con una frase",
+    "previo": [
+      "4 desodorantes rexona"
+    ],
+    "mensaje": {
+      "customer_id": "cli-res-acepta-con-otras-palabras",
+      "channel": "telegram",
+      "type": "text",
+      "text": "perfecto, mandalo así"
+    },
+    "esperado": {
+      "resultado": "pedido",
+      "items": [
+        {
+          "sku": "DES-REX-150",
+          "cantidad": 4
+        }
+      ]
+    }
+  },
+  {
+    "id": "res-rechaza",
+    "grupo": "reservado",
+    "descripcion": "Rechaza la propuesta",
+    "previo": [
+      "6 jabones dove"
+    ],
+    "mensaje": {
+      "customer_id": "cli-res-rechaza",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "no, mejor lo dejo"
+    },
+    "esperado": {
+      "resultado": "sin_pedido",
+      "kinds": [
+        "informacion",
+        "descartado"
+      ],
+      "propuesta_final": []
+    }
+  },
+  {
+    "id": "res-cambia-la-cantidad",
+    "grupo": "reservado",
+    "descripcion": "Cambia la cantidad de la propuesta",
+    "previo": [
+      "7 pastas colgate"
+    ],
+    "mensaje": {
+      "customer_id": "cli-res-cambia-la-cantidad",
+      "channel": "telegram",
+      "type": "text",
+      "text": "mejor ponele 3"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "PAS-COL-90",
+          "cantidad": 3
+        }
+      ]
+    }
+  },
+  {
+    "id": "res-saludo",
+    "grupo": "reservado",
+    "descripcion": "Solo saluda",
+    "mensaje": {
+      "customer_id": "cli-res-saludo",
+      "channel": "telegram",
+      "type": "text",
+      "text": "buenas tardes!"
+    },
+    "esperado": {
+      "resultado": "informacion"
+    }
+  },
+  {
+    "id": "res-pide-a-alguien",
+    "grupo": "reservado",
+    "descripcion": "Pide que lo atienda alguien del equipo",
+    "mensaje": {
+      "customer_id": "cli-res-pide-a-alguien",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "me pasás con alguien del local?"
+    },
+    "esperado": {
+      "resultado": "derivada"
+    }
+  },
+  {
+    "id": "res-acepta-con-condicion-de-pago",
+    "grupo": "reservado",
+    "descripcion": "Acepta con una condición de pago que no se puede asegurar",
+    "previo": [
+      "5 shampoo elvive"
+    ],
+    "mensaje": {
+      "customer_id": "cli-res-acepta-con-condicion-de-pago",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "dale, pero cobrame a fin de mes"
+    },
+    "esperado": {
+      "resultado": "sin_pedido",
+      "kinds": [
+        "propuesta",
+        "informacion",
+        "derivada"
+      ],
+      "propuesta_final": [
+        {
+          "sku": "SH-ELV-400",
+          "cantidad": 5
+        }
+      ]
+    }
+  },
+  {
+    "id": "res-pregunta-el-precio",
+    "grupo": "reservado",
+    "descripcion": "Pregunta el precio de la propuesta vigente",
+    "previo": [
+      "5 acondicionadores pantene de 400"
+    ],
+    "mensaje": {
+      "customer_id": "cli-res-pregunta-el-precio",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "¿a cuánto está cada uno?"
+    },
+    "esperado": {
+      "resultado": "sin_pedido",
+      "kinds": [
+        "propuesta",
+        "informacion"
+      ],
+      "propuesta_final": [
+        {
+          "sku": "AC-PAN-400",
+          "cantidad": 5
+        }
+      ],
+      "dice": [
+        "7\\.?600"
       ]
     }
   }

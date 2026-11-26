@@ -334,7 +334,7 @@
       "customer_id": "cli-adv-medida-que-no-existe",
       "channel": "telegram",
       "type": "text",
-      "text": "3 shampoo keratina nordika 500"
+      "text": "4 acondicionador keratina silkara 500"
     },
     "esperado": {
       "resultado": "sin_pedido",

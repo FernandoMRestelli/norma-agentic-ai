@@ -700,38 +700,6 @@ def _regla_numero_de_renglon(texto: str) -> Rechazo | None:
     return None
 
 
-_TIENE_VINETA = re.compile(r"(?m)^\s*(?:[•\-*]|\d+[.)])\s+\S")
-
-
-def _regla_pregunta(
-    texto: str,
-    pendientes: list[int],
-    kind: str = "",
-    options: list[str] | None = None,
-) -> Rechazo | None:
-    """Con renglones pendientes o aclaración con opciones, el mensaje tiene que mostrar las opciones/pregunta.
-
-    El cliente no ve los campos `pendientes` ni `options`: si el modelo anuncia opciones («Tenés estas opciones:»)
-    sin escribirlas, le llega un mensaje cortado (Issue #107).
-    """
-    if pendientes and "?" not in texto:
-        numeros = ", ".join(str(n) for n in pendientes)
-        return Rechazo(
-            "pregunta_faltante",
-            f"El cliente no ve `pendientes`: escribí en el mensaje la pregunta de cada renglón pendiente ({numeros}), "
-            "con sus opciones, una por renglón con una viñeta (•)",
-        )
-    if kind == "aclaracion" and options and not pendientes:
-        tiene_vinetas = bool(_TIENE_VINETA.search(texto))
-        if (texto.rstrip().endswith(":") and not tiene_vinetas) or ("?" not in texto and not tiene_vinetas):
-            return Rechazo(
-                "pregunta_faltante",
-                "El cliente no ve el campo `options`: escribí en el mensaje las opciones comerciales con su nombre y "
-                "medida (una por renglón con viñeta •) y preguntale cuál prefiere",
-            )
-    return None
-
-
 def validar_salida(
     message: str,
     kind: str,
@@ -739,13 +707,12 @@ def validar_salida(
     options: list[str] | None = None,
     turno: ContextoTurno | None = None,
     vigente: OrderDraft | None = None,
-    pendientes: list[int] | None = None,
     descuento_autorizado: float | None = None,
 ) -> list[Rechazo]:
     """Las reglas que no cumple el mensaje del LLM. Vacía si puede llegar al cliente.
 
     Solo revisa lo que escribió el LLM: el detalle de la propuesta lo arma el sistema con datos del catálogo.
-    `pendientes` son los números de los renglones que el LLM declaró como pregunta al cliente.
+    Las dudas con sus opciones y lo que queda afuera tampoco: los escribe el sistema debajo del mensaje (M8-2).
     """
     options = options or []
     turno = turno or ContextoTurno()
@@ -769,7 +736,6 @@ def validar_salida(
         _regla_medidas(message, propuesta, vigente, turno, options),
         _regla_promesas(normalizado, descuento_autorizado),
         _regla_formato(message),
-        _regla_pregunta(message, pendientes or [], kind, options),
         _regla_numero_de_renglon(message),
     )
     return [rechazo for rechazo in reglas if rechazo is not None]
