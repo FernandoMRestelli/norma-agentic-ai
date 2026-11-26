@@ -18,6 +18,10 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 - `python -m internal.comparar_corridas` compara dos corridas de la evaluación, y `evaluar_agente --orquestador` elige con qué turno correr, para decidir si se queda el orquestador (RF-124, CA-214, CA-215). No cambia nada en producción.
 - Los permisos de Claude Code del repo cubren todo lo que `AGENTS.md` prohíbe leer o editar, con un test que lo controla, y `AGENTS.md` dice cómo verificar un cambio. `README.md`, `MEJORAS.md` y `architecture.md` coinciden con el código.
 
+### Cambiado
+
+- `.env.example` trae la API paga de OpenAI (`gpt-6-luna`) para el texto, sin el límite diario del free tier; OpenRouter y Gemini quedan como alternativas comentadas. Solo afecta a quien arma su `.env` de cero: los que ya existen no cambian.
+
 ### Corregido
 
 - «Tenés algo para rulos?» encuentra lo mismo que «rulos» (RF-118, CA-204, CA-205). Antes, las palabras con las que el cliente pide contaban como si fueran del producto: la búsqueda volvía vacía y el asistente podía decir que no se trabaja algo que hay. Cuando una palabra no existe en el catálogo, la pista dice qué hay sin ella y distingue una marca de una necesidad. No hay nada que migrar al desplegar.

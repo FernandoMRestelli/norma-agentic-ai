@@ -126,7 +126,7 @@ Se suma `telegram` (`web | whatsapp | telegram`) en `IncomingMessage`, `OrderDra
 | `TELEGRAM_BOT_TOKEN` | Sí, para el bot | Token que da @BotFather. Nunca en el repo ni en logs |
 | `TELEGRAM_ALLOWED_USER_IDS` | Sí, para que responda | Ids numéricos separados por coma |
 | `TELEGRAM_WEBHOOK_SECRET` | Solo con webhook | Valor de `X-Telegram-Bot-Api-Secret-Token` (1 a 256 caracteres: letras, números, `_` y `-`) |
-| `LLM_PROVIDER` | Sí, para el agente | `gemini`, `groq` u `openrouter` (free tier; `.env.example` trae `openrouter`), u `openai` (pago, ej. `gpt-6-luna`) |
+| `LLM_PROVIDER` | Sí, para el agente | `gemini`, `groq` u `openrouter` (free tier), u `openai` (pago, ej. `gpt-6-luna`; `.env.example` trae `openai`) |
 | `LLM_MODEL` | Sí, para el agente | P. ej. `nvidia/nemotron-3.5-lightning:free` en OpenRouter, `gemini-3.8-flash` o `gpt-6-luna` |
 | `LLM_API_KEY` | Sí, para el agente | API key del proveedor (OpenRouter, Groq, Google AI Studio u OpenAI) |
 | `LLM_VISION_PROVIDER`, `LLM_VISION_MODEL`, `LLM_VISION_API_KEY` | No, para leer fotos | `huggingface` (local, sin key), `openai`, `openrouter` o `gemini`. Vacío: la foto recibe el pedido de escribirla |
@@ -173,7 +173,7 @@ los tres:
 
 | Tema | Decisión |
 |---|---|
-| D-01 (parcial) | Para la beta, **un modelo free tier para texto** (Gemini, Groq u OpenRouter; `.env.example` trae OpenRouter), u OpenAI (`gpt-6-luna`, pago) cuando el free tier no alcanza. Imagen en prueba con un modelo local de Hugging Face (Qwen3-VL 2B). Audio y el LLM de producción siguen abiertos |
+| D-01 (parcial) | Para la beta, **un modelo free tier para texto** (Gemini, Groq u OpenRouter), u OpenAI (`gpt-6-luna`, pago) cuando el free tier no alcanza; `.env.example` trae OpenAI. Imagen en prueba con un modelo local de Hugging Face (Qwen3-VL 2B). Audio y el LLM de producción siguen abiertos |
 | Un bot por integrante para desarrollar y uno compartido para la beta | Evita el `409 Conflict` del polling al desarrollar en paralelo, y en la beta concentra los pedidos en una sola base, como en la operación real |
 | Deduplicación en memoria | Alcanza con una instancia y polling (el `offset` ya evita repetidos); se mueve a la base con `processed_messages` |
 | Riesgo: límites del free tier | Un turno sin errores hace unas 4 llamadas y puede llegar a 15 (RNF-12), así que hay que medir el consumo con tres personas probando. Si no alcanza, se pasa a un modelo `flash-lite` o a pago |
