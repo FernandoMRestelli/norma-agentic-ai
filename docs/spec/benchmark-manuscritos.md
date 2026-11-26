@@ -9,7 +9,7 @@
 | | |
 |---|---|
 | Etapa del roadmap | 03 · Pedidos multimodales |
-| Estado | Implementado: listas, Form y casos (RF-126 a RF-132). Especificado: corrida y puntaje (RF-133 a RF-140) |
+| Estado | Implementado (RF-126 a RF-140); falta correrlo con las fotos |
 | Responsable | Federico Picado |
 | Requisitos relacionados | RF-101 a RF-110 y RNF-18 ([lectura de imágenes](lectura-de-imagenes.md)), D-50 (desarrollo y reservado) |
 | IDs que reserva | RF-126 a RF-140, CA-218 a CA-238 |
@@ -112,7 +112,8 @@ foto de `casos.json` por cada modelo con `vision_service.leer_imagen`, el mismo 
   `resultado` (el modelo falló o devolvió un JSON inválido) también se saltea, salvo con `--reintentar`: un JSON
   inválido es un resultado del modelo, no un error de la corrida.
 - **Huella del prompt.** Cada salida guarda la huella de lo que se le mandó al modelo: `INSTRUCCIONES`, las marcas si
-  `VISION_MARCAS` está activo y el lado máximo de la imagen. Si la huella actual no es la de las salidas ya
+  `VISION_MARCAS` está activo y el lado máximo de la imagen. Con `VISION_MARCAS`, las marcas salen de
+  `catalogo_evaluacion.csv`, el catálogo de las listas, y no del de producción. Si la huella actual no es la de las salidas ya
   guardadas de ese modelo en esa corrida, `correr` se niega a seguir y pide otra `--corrida`: mezclar dos prompts en
   una corrida invalida la comparación.
 - **Solo desarrollo por defecto.** `--grupo` es `desarrollo` (por defecto), `reservado` o `todos`. El reservado se
@@ -370,7 +371,7 @@ Son los campos de `vision_service.Lectura`, con `resultado` como `ImagenLeida.mo
 | CA-232 | Un esperado «Nordika» y un leído «Nordica 900 keratina» con otro leído antes que también tiene las palabras | Se puntúa el nivel (a) | El esperado se empareja con el primero, el otro queda sobrante, y la marca con una letra cambiada empareja | `tests/test_evaluar_manuscritos.py::test_nivel_a_empareja_por_palabras` |
 | CA-233 | Leídos que la búsqueda deja `unico`, `varias` con el SKU esperado entre los candidatos, `aproximado` y `no_encontrado` contra `catalogo_evaluacion.csv` | Se puntúa el nivel (b) | El `unico` empareja sin duda, `varias` y `aproximado` emparejan con duda y el `no_encontrado` queda sobrante con su esperado omitido | `tests/test_evaluar_manuscritos.py::test_nivel_b_empareja_por_sku` |
 | CA-234 | La hoja `p03-A` del diseño (§6.4): 12 renglones bien, N5 con la cantidad mal, uno con duda, uno omitido y un tachado pedido | Se puntúa | S = 13,4 / 16 = 0,84; precision y recall 0,80; errores silenciosos 2; tachados pedidos 1; no es perfecta | `tests/test_evaluar_manuscritos.py::test_ejemplo_del_diseno` |
-| CA-235 | Una salida sin `resultado` para una foto legible de 15 renglones | Se puntúa | S = 0, 15 omitidos, y JSON válido baja | `tests/test_evaluar_manuscritos.py::test_json_invalido_da_cero` |
+| CA-235 | Una salida sin `resultado` para una foto legible de 15 renglones, y otra sin `resultado` ni `crudo` (el modelo no contestó) | Se puntúa | La primera da S = 0, 15 omitidos, y JSON válido baja; la segunda no entra al puntaje y se avisa que hay que `--reintentar` | `tests/test_evaluar_manuscritos.py::test_json_invalido_da_cero`, `test_sin_respuesta_no_cuenta` |
 | CA-236 | Un par con tono «7,1» leído y «7.1» esperado y otro con unidad `cajas` leída y `unidades` esperada | Se puntúa | El primero da D = 1 y el segundo D = 0 | `tests/test_evaluar_manuscritos.py::test_detalle_normalizado` |
 | CA-237 | Una corrida con dos modelos, uno de API con precio y otro local, y fotos de los dos grupos | Se puntúa dos veces | Las dos dan el mismo `resumen.json`, con desarrollo y reservado separados, el local con USD 0, el de API con su USD, y los cortes por dificultad, origen, luz y papel | `tests/test_evaluar_manuscritos.py::test_resumen_por_modelo_y_grupo` |
 | CA-238 | Una corrida guardada | Se puntúa con la red cortada y sin claves | Termina sin llamar a ningún modelo | `tests/test_evaluar_manuscritos.py::test_puntuar_sin_red` |
@@ -389,6 +390,9 @@ Son los campos de `vision_service.Lectura`, con `resultado` como `ImagenLeida.mo
   marcó ilegible, se cuenta como acierto de legibilidad.
 - El modelo dice `legible: false` en una foto que se lee: S = 0 con todos los esperados omitidos, igual que un JSON
   inválido.
+- El modelo no contestó (cuota, timeout, red): la salida queda sin `resultado` y sin `crudo`. No es un resultado
+  del modelo, así que `puntuar` no la cuenta como S = 0: la trata como foto sin salida y sugiere `--reintentar`. Un
+  JSON inválido, en cambio, sí trae `crudo` y cuenta como S = 0.
 - El modelo local falla al cargar (faltan `requirements-vision-local.txt`): `correr` lo dice y sigue con los demás
   modelos.
 - Una corrida cortada por el tope de llamadas: `puntuar` puntúa lo que hay y avisa cuántas fotos de cada modelo no
@@ -431,7 +435,7 @@ Son los campos de `vision_service.Lectura`, con `resultado` como `ImagenLeida.mo
    generados con la semilla 116.~~
 4. ~~RF-130 a RF-140 y CA-224 a CA-238 en esta spec.~~
 5. ~~Tests de CA-224 a CA-226 y el comando `casos` en `internal/benchmark_manuscritos.py`.~~
-6. Tests de CA-227 a CA-238 con fotos y modelos falsos, e `internal/evaluar_manuscritos.py` con `correr` y
-   `puntuar`. Los tests no llaman a ningún modelo.
+6. ~~Tests de CA-227 a CA-238 con fotos y modelos falsos, e `internal/evaluar_manuscritos.py` con `correr` y
+   `puntuar`. Los tests no llaman a ningún modelo.~~
 7. Con las fotos: armar `casos.json`, correr Qwen local sobre `desarrollo` y, con permiso de quien paga la clave,
    `gpt-6-luna` y GPT Terra con `--max-llamadas`. El reservado se corre al final, una vez, para medir.

@@ -1,9 +1,8 @@
 # Benchmark de pedidos escritos a mano
 
 > **Estado: diseño aprobado en general (15 renglones por hoja, sorteados, juntados con un Google Form; tres
-> modelos); faltan los detalles de la §8.** Las listas y el Form ya se generan, y el armado de los casos, la corrida
-> y el puntaje están especificados (RF-130 a RF-140 en la [spec](spec/benchmark-manuscritos.md)); todavía no hay
-> código del runner. El comportamiento nuevo entra primero a la spec (RF y CA) y después al código, como pide
+> modelos); faltan los detalles de la §8.** Las listas, el Form, el armado de los casos, la corrida y el puntaje ya
+> están implementados (RF-126 a RF-140 en la [spec](spec/benchmark-manuscritos.md)); falta correrlo con las fotos. El comportamiento nuevo entra primero a la spec (RF y CA) y después al código, como pide
 > `CONTRIBUTING.md`.
 >
 > **Dependencias:** todo lo que se cita ya está en `develop`: `docs/spec/lectura-de-imagenes.md`, D-42, D-50 (grupos
@@ -473,7 +472,7 @@ El mismo benchmark sirve para comparar un modelo solo, modelo + prompt (con y si
 3. Juntar las fotos con el Form, revisarlas contra su lista y armar `casos.json` cruzando `respuestas.csv` con
    `listas.json`.
 4. Correr el nivel (a) con `comparar_vision --casos` (sin código nuevo).
-5. Runner de los niveles (a) y (b) con el puntaje de la §6: `python -m internal.evaluar_manuscritos correr` guarda
-   cada salida y `puntuar` la puntúa sin llamar a ningún modelo. Especificado en la
-   [spec](spec/benchmark-manuscritos.md#33-corrida) (RF-133 a RF-140); falta el código, con tests que citen sus CA.
+5. ~~Runner de los niveles (a) y (b) con el puntaje de la §6~~: `python -m internal.evaluar_manuscritos correr`
+   guarda cada salida y `puntuar` la puntúa sin llamar a ningún modelo
+   ([spec](spec/benchmark-manuscritos.md#33-corrida), RF-133 a RF-140).
 6. Nivel (c) y optimización con DSPy/GEPA solo con permiso, porque llaman a un LLM pago.
