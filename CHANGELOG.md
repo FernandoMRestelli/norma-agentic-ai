@@ -8,6 +8,10 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Sin publicar]
 
+### Agregado
+
+- Diseño de un benchmark de pedidos escritos a mano en `docs/benchmark-pedidos-manuscritos.md`. Las listas ficticias las copian personas reales, y el puntaje por renglón pondera el producto, la cantidad y las dudas, para comparar `gpt-6-luna`, GPT Terra y un modelo local. Solo es el documento: todavía no tiene runner.
+
 ## [0.2.0] - 2026-11-23
 
 El asistente toma pedidos por texto, foto y audio contra el catálogo real. Suma pedidos largos renglón por renglón, búsqueda que tolera errores de tipeo, guardrails en código, memoria entre mensajes, consulta del estado de los pedidos, derivación a una persona, vencimiento de conversaciones, dashboard operativo, Google Sheets y Excel. Producción suma MLflow, con una traza de cada turno, foto y audio, sin el texto de los mensajes.
