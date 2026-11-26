@@ -278,10 +278,14 @@ def _del_turno(state: EstadoNorma) -> list[Any]:
     return state["messages"][state.get("inicio_turno", 0) :]
 
 
-def _tokens_del_turno(state: EstadoNorma) -> int:
-    """Lo que gastó el turno hasta acá: el loop principal y los sub-loops (RF-122)."""
+def _tokens_del_turno(state: EstadoNorma, notas: list[dict[str, Any]] | None = None) -> int:
+    """Lo que gastó el turno hasta acá: el loop principal y los sub-loops (RF-122).
+
+    `notas` reemplaza las del estado: mientras corren las tools, las de los sub-loops que ya delegó esta respuesta.
+    """
     usos = [m.usage_metadata for m in _del_turno(state) if isinstance(m, AIMessage) and m.usage_metadata]
-    notas = state.get("notas_turno") or []
+    if notas is None:
+        notas = state.get("notas_turno") or []
     return sum(uso.get("input_tokens", 0) + uso.get("output_tokens", 0) for uso in usos) + sum(
         nota.get("tokens_entrada", 0) + nota.get("tokens_salida", 0) for nota in notas
     )
@@ -407,6 +411,9 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
 
         def delegar(skill, encargo, numeros, ctx):
             usadas = state.get("iteraciones", 0) + ctx.iteraciones_sub_loop
+            # Lo que gastaron el orquestador y los sub-loops anteriores, también los de esta misma respuesta (RF-122)
+            tope_tokens = get_settings().agent_max_tokens_per_turn
+            tokens = max(tope_tokens - _tokens_del_turno(state, ctx.notas_turno), 0) if tope_tokens > 0 else None
             return sub_loop.correr(
                 model,
                 skill,
@@ -419,6 +426,7 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
                 opciones_texto=context.opciones_previas(opciones_previas),
                 presupuesto=max(max_iteraciones() - usadas, 0),
                 plazo_vencido=lambda: _plazo_vencido(state),
+                tokens_disponibles=tokens,
             )
 
         return delegar

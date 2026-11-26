@@ -178,10 +178,13 @@ def correr(
     opciones_texto: str,
     presupuesto: int,
     plazo_vencido: Callable[[], bool],
+    tokens_disponibles: int | None = None,
 ) -> dict[str, Any]:
     """Corre el sub-loop y devuelve su entrada para `notas_turno`: la nota, sus intentos y su uso del LLM.
 
     `presupuesto` es lo que le queda al turno (RF-93): el sub-loop corre hasta su `max_iteraciones` o hasta ahí.
+    `tokens_disponibles` son los tokens que le quedan al turno (RF-122), o None sin tope: no hace otra llamada al LLM
+    cuando las suyas los gastaron.
     Si falla el LLM, lanza `FallaSubLoop` y el turno falla como hoy (§7).
     """
     tools = tool_registry.available_sub_loop(skill)
@@ -228,7 +231,9 @@ def correr(
     with observabilidad.paso("sub_loop", "AGENT", skill=skill.nombre, renglones=len(numeros)) as span:
         span.texto(entrada={"encargo": encargo, "renglones": numeros})
         while entregada is None:
-            if entrada["llamadas"] >= tope or plazo_vencido():
+            gastados = entrada["tokens_entrada"] + entrada["tokens_salida"]
+            sin_tokens = tokens_disponibles is not None and gastados >= tokens_disponibles
+            if entrada["llamadas"] >= tope or plazo_vencido() or sin_tokens:
                 logger.warning("Agente: el sub-loop de %s llegó a su tope, entrega lo encontrado", skill.nombre)
                 entrada.update(nota=nota.con_lo_encontrado(numeros, busquedas), cerrada_por="tope")
                 break

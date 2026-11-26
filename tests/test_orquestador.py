@@ -12,7 +12,7 @@ from internal.schemas import agent_schema
 from internal.schemas.catalog_schema import Product
 from internal.services import order_service, sheets_service, skill_service
 from internal.tools import order_tools
-from tests.test_agent_graph import CLIENTE, _agente, _ai, _call, _resultados, base_limpia  # noqa: F401
+from tests.test_agent_graph import CLIENTE, _agente, _ai, _call, _con_uso, _resultados, base_limpia  # noqa: F401
 
 LISTA = "2 shampoo keratina\n3 mascara argan"  # los dos tienen dos medidas
 LISTA_CON_MEDIDA = "2 shampoo keratina 900\n3 mascara argan"  # el primero queda definido (RF-113)
@@ -359,6 +359,79 @@ def test_las_vueltas_del_sub_loop_cuentan_para_el_tope(catalogo, monkeypatch):
     assert resultado.llamadas_sub_loop == 2
     assert modelo.ofrecidas[-1] == ["respond_to_customer"]  # el cierre de hoy
     assert resultado.kind == "aclaracion"
+
+
+ACLARAR = _ai(_call("respond_to_customer", kind="aclaracion", message="¿Qué shampoo y qué máscara querés?",
+                   pendientes=[{"renglon": 1, "opciones": ["SH-KER-900", "SH-KER-300"]},
+                               {"renglon": 2, "opciones": MASCARAS}]))  # fmt: skip
+
+
+def _tope_de_tokens(monkeypatch, tope):
+    monkeypatch.setenv("AGENT_MAX_TOKENS_PER_TURN", str(tope))
+    get_settings.cache_clear()
+
+
+def test_el_sub_loop_respeta_el_tope_de_tokens(catalogo, monkeypatch):
+    """CA-209: la llamada del sub-loop que pasa el tope ya se gastó, pero no hace otra: entrega lo encontrado y el
+    orquestador solo puede responder."""
+    _tope_de_tokens(monkeypatch, 1000)
+    agent, modelo = _agente(
+        _delegar(),
+        _con_uso(_ai(_call_id("search_products", 1, query="shampoo keratina")), 1500, 1),
+        ACLARAR,
+    )
+
+    resultado = agent.handle("1", text=LISTA, **CLIENTE)
+
+    (entrada,) = _notas(agent)
+    assert (entrada["llamadas"], entrada["cerrada_por"]) == (1, "tope")
+    assert modelo.ofrecidas[-1] == ["respond_to_customer"]
+    assert resultado.kind == "aclaracion" and resultado.llamadas_sub_loop == 1
+
+
+def test_sin_tope_de_tokens_el_sub_loop_sigue(catalogo, monkeypatch):
+    """CA-209: con el tope en 0 no se controla."""
+    _tope_de_tokens(monkeypatch, 0)
+    agent, _ = _agente(
+        _delegar(),
+        _con_uso(_ai(_call_id("search_products", 1, query="shampoo keratina")), 1500, 1),
+        _nota(),
+        _responder(),
+    )
+
+    agent.handle("1", text=LISTA_CON_MEDIDA, **CLIENTE)
+
+    (entrada,) = _notas(agent)
+    assert (entrada["llamadas"], entrada["cerrada_por"]) == (2, "nota")
+
+
+def test_el_sub_loop_cuenta_lo_gastado_antes(catalogo, monkeypatch):
+    """CA-209: lo que gastó el orquestador del turno ya cuenta, y el sub-loop no llama al LLM."""
+    _tope_de_tokens(monkeypatch, 1000)
+    agent, _ = _agente(_con_uso(_delegar(), 1000), ACLARAR)
+
+    resultado = agent.handle("1", text=LISTA, **CLIENTE)
+
+    (entrada,) = _notas(agent)
+    assert (entrada["llamadas"], entrada["cerrada_por"]) == (0, "tope")
+    assert resultado.kind == "aclaracion" and resultado.llamadas_sub_loop == 0
+
+
+def test_el_tope_de_tokens_se_comparte_entre_delegaciones(catalogo, monkeypatch):
+    """CA-209: dos delegaciones en una respuesta: la segunda cuenta lo que gastó la primera."""
+    _tope_de_tokens(monkeypatch, 1000)
+    dos = _ai(
+        _call_id("delegar_skill", 1, skill="tomar_pedido", encargo="Resolvé el renglón 1", renglones=[1]),
+        _call_id("delegar_skill", 2, skill="tomar_pedido", encargo="Resolvé el renglón 2", renglones=[2]),
+    )
+    agent, _ = _agente(dos, _con_uso(_ai(_call_id("search_products", 1, query="shampoo keratina")), 1500, 1), ACLARAR)
+
+    agent.handle("1", text=LISTA, **CLIENTE)
+
+    assert [(e["renglones"], e["llamadas"], e["cerrada_por"]) for e in _notas(agent)] == [
+        ([1], 1, "tope"),
+        ([2], 0, "tope"),
+    ]
 
 
 def test_el_orquestador_puede_decir_lo_que_quedo(catalogo):
