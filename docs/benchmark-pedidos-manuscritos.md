@@ -1,6 +1,7 @@
 # Benchmark de pedidos escritos a mano
 
-> **Estado: diseño aprobado en general (15 renglones por hoja, tres modelos); faltan los detalles de la §8.** Todavía
+> **Estado: diseño aprobado en general (15 renglones por hoja, sorteados, juntados con un Google Form; tres
+> modelos); faltan los detalles de la §8.** Todavía
 > no hay código del runner. El comportamiento nuevo entra primero a la spec (RF y CA) y después al código, como pide
 > `AGENTS.md`.
 >
@@ -116,10 +117,11 @@ modelo en producción.
 
 ## 3. Ground truth: listas asignadas que los amigos copian
 
-En vez de que cada amigo invente un pedido y después transcribirlo, **a cada uno se le manda una lista ya tipeada**
-(productos y cantidades del catálogo ficticio) y la copia a mano «como haría un pedido real». La respuesta correcta
-se conoce de antemano y sale de la misma planilla que genera las listas: no hay que transcribir nada ni hay
-desacuerdo entre anotadores.
+En vez de que cada amigo invente un pedido y después transcribirlo, **a cada uno le toca una lista numerada ya
+tipeada** (productos y cantidades del catálogo ficticio), que ve en un Google Form (§5), y la copia a mano «como haría
+un pedido real». La respuesta correcta se conoce de antemano y sale de la misma planilla que genera las listas: no hay
+que transcribir nada ni hay desacuerdo entre anotadores. Nadie elige productos: la única respuesta del Form que
+importa para el puntaje es el número de lista.
 
 - Cada amigo copia **las mismas palabras y números** de cada renglón. Mayúsculas, letra, espaciado y si usa un
   renglón o dos son suyos.
@@ -148,6 +150,12 @@ Hay dos opciones y cada una mide otra cosa:
 - **Parte variable (10 renglones):** sorteados con semilla fija desde un **pool de ~100 productos** de
   `catalogo_evaluacion.csv`. **Se asignan al azar, no se eligen**: es reproducible y no tiene sesgo de selección. El
   sorteo es estratificado para que cada hoja tenga al menos un renglón de cada tipo difícil.
+- **Listas numeradas:** Google Forms no puede sortear contenido distinto para cada persona, así que el sorteo se hace
+  antes: se generan unas 30 listas (`L01`…`L30`), cada una con el núcleo, sus 10 renglones sorteados, cuál tachar y
+  un encabezado inventado. A cada persona se le asigna un número de lista por adelantado (y otro si escribe una
+  segunda hoja), así no se repiten.
+- **Cada renglón del pool ya trae su cantidad escrita** («4 Belkor sh matizador 900», «media docena masc argan Lumine
+  250»): la lista dice exactamente qué copiar, y la forma de la cantidad la controlamos nosotros.
 
 Tipos difíciles que tienen que aparecer (a propósito):
 
@@ -192,14 +200,18 @@ esas sí se pueden versionar.
 
 ```
 data/benchmark_manuscritos/          ← no se versiona
+  respuestas.csv                      ← export del Form, sin mail ni nombre (§5)
   imagenes/
     p03-A.jpg                         ← persona 03, hoja A (sin nombres reales en el archivo)
     p03-B.jpg
   casos.json                          ← respuestas esperadas + metadatos de cada foto
 data_example/benchmark_manuscritos/  ← se versiona (todo ficticio)
-  pool.csv                            ← los ~100 SKU del pool, con su tipo de dificultad
-  listas.json                         ← las listas tipeadas que se mandaron, generadas con semilla
+  pool.csv                            ← los ~100 renglones del pool: texto tipeado, SKU, cantidad, tono, unidad, dificultad
+  listas.json                         ← las ~30 listas numeradas (L01…L30), generadas con semilla
 ```
+
+`casos.json` se arma con un script que cruza `respuestas.csv` (número de lista, condiciones, control) con
+`listas.json`: la respuesta esperada de cada foto es la de su lista.
 
 `casos.json` es **compatible con el de `comparar_vision`** (los campos `id`, `archivo`, `legible`, `renglones`,
 `tachados`), así el nivel (a) corre hoy mismo con `--casos data/benchmark_manuscritos/casos.json`. Suma lo que hace
@@ -211,6 +223,7 @@ falta para (b) y (c) y para cortar resultados:
   "archivo": "imagenes/p03-A.jpg",
   "persona": "p03",
   "hoja": "A",
+  "lista": "L07",
   "grupo": "reservado",
   "condiciones": {"luz": "artificial", "papel": "cuaderno rayado", "angulo": "de costado"},
   "legible": true,
@@ -232,22 +245,48 @@ falta para (b) y (c) y para cortar resultados:
 - `sku`, `cantidad`, `tono` y `unidad` son la respuesta del nivel (b) y (c).
 - `grupo` separa desarrollo de reservado (§7).
 
-## 5. Plantilla para mandarle a los amigos
+## 5. El Google Form para los participantes
 
-Un mensaje por persona, con su lista generada (ejemplo de la hoja A de la persona 03):
+Un solo Form para todos, generado con un Google Apps Script a partir de `listas.json` (crear 30 secciones a mano es
+lento y fácil de errarle). A cada persona se le manda el mismo link con su número de lista.
+
+**Estructura del Form:**
+
+1. **Inicio.** La explicación de abajo, la casilla obligatoria de consentimiento y la pregunta «¿Qué número de lista te
+   tocó?» (desplegable `L01`…`L30`) con «ir a la sección según la respuesta».
+2. **Una sección por lista.** Solo texto: el encabezado inventado y los 15 renglones a copiar, con el que hay que
+   tachar marcado. Cada una sigue a la sección final.
+3. **Sección final, común a todas:**
+   - la foto (subir archivo, una imagen);
+   - control: «¿Copiaste los 15 renglones tal cual?» (sí / no) y, si no, «¿Cuáles cambiaste o salteaste?»;
+   - condiciones: luz (natural / artificial / poca), papel (cuaderno rayado / hoja lisa / otro) y ángulo (de frente /
+     de costado).
+
+**Al recibir cada respuesta:**
+
+- Se mira la foto contra su lista (15 renglones, menos de un minuto). Un renglón que la persona salteó o cambió no se
+  le cuenta al modelo: se corrige en el esperado de esa foto o se descarta la hoja.
+- Para subir archivos el Form obliga a entrar con una cuenta de Google, y la foto queda en el Drive de quien armó el
+  Form con el nombre de la persona (`foto - Nombre Apellido.jpg`). Al bajarla se renombra a `pNN-A.jpg`, y del CSV se
+  borran el mail y el nombre antes de guardarlo como `respuestas.csv`. No se guarda nada más de la persona.
+
+**Texto de inicio del Form:**
 
 > ¡Hola! Te pido una mano para un trabajo de la facu: estoy midiendo qué tan bien una IA lee pedidos escritos a mano.
 >
-> 1. **Copiá a mano esta lista en un papel**, con tu letra de siempre, como si le hicieras un pedido a tu proveedor.
->    Copiá las mismas palabras y números de cada renglón; mayúsculas, letra y espacios como te salgan.
-> 2. Arriba poné el nombre del negocio y la fecha que figuran abajo (son inventados).
-> 3. **Tachá el renglón que dice «tachar»** con una línea, como si te hubieras arrepentido.
-> 4. **Sacale una foto con el celu** como la mandarías por WhatsApp: sin escanear, sin recortar, con la luz que
->    tengas. Mandámela por acá.
+> 1. Elegí abajo **el número de lista que te pasé** y vas a ver tu lista.
+> 2. **Copiala a mano en un papel**, con tu letra de siempre, como si le hicieras un pedido a tu proveedor. Copiá las
+>    mismas palabras y números de cada renglón; mayúsculas, letra y espacios como te salgan.
+> 3. Arriba poné el nombre del negocio y la fecha que figuran en la lista (son inventados).
+> 4. **Tachá el renglón que dice «tachar»** con una línea, como si te hubieras arrepentido.
+> 5. **Sacale una foto con el celu** como la mandarías por WhatsApp: sin escanear, sin recortar, con la luz que
+>    tengas, y subila al final del Form.
 >
 > No pongas tu nombre ni datos tuyos en la hoja. La foto se usa solo para este trabajo, no se publica, y se manda a
 > la API del modelo que la lee (OpenAI o Google) para medir. Si preferís que no, no pasa nada.
->
+
+**Ejemplo de la sección de una lista** (`L07`, la que le tocó a la persona 03 en su hoja A):
+
 > **Peluquería Los Álamos — 12/11**
 >
 > 2 sh keratina Nordika x900
@@ -267,7 +306,7 @@ Un mensaje por persona, con su lista generada (ejemplo de la hoja A de la person
 > 1 Fiorela sh nutrición 5 L
 > 5 Lumine sh nutrición 900
 
-Al recibir la foto anotamos `condiciones` (luz, papel, ángulo) sin guardar nada más de la persona.
+Las `condiciones` (luz, papel, ángulo) salen de la sección final del Form.
 
 ## 6. Scoring function
 
@@ -391,7 +430,8 @@ El mismo benchmark sirve para comparar un modelo solo, modelo + prompt (con y si
 1. ~~**Renglones por hoja**~~: cerrado, 15 (5 de núcleo + 10 sorteados).
 2. **Personas y fotos:** ¿cuántos amigos van a participar y cuántas hojas escribe cada uno (1 o 2)? ¿Una foto por
    hoja, o también una segunda foto «mala» (de costado, con sombra) para medir robustez?
-3. **Elegir vs. sortear:** la propuesta es sortear los 10 variables con semilla; ¿te parece, o querés que elijan?
+3. ~~**Elegir vs. sortear**~~: cerrado, se sortean. Los 10 variables salen de listas numeradas generadas con
+   semilla, y cada persona recibe su número; nadie elige productos.
 4. **Catálogo:** ¿usamos el ficticio `catalogo_evaluacion.csv` (versionable, recomendado) o el real (más fiel, pero
    las listas y respuestas no pueden ir al repo)?
 5. **Fotos en el repo:** ¿con permiso explícito de alguno, sumamos 2 o 3 fotos a `tests/fixtures/imagenes_pedidos/`,
@@ -402,8 +442,10 @@ El mismo benchmark sirve para comparar un modelo solo, modelo + prompt (con y si
 ## 9. Próximos pasos (después del OK)
 
 1. Spec: sumar RF y CA del benchmark a `docs/spec/lectura-de-imagenes.md`.
-2. Script que genera `pool.csv` y `listas.json` con semilla, y el texto de cada mensaje.
-3. Juntar las fotos y armar `casos.json`.
+2. Script que genera `pool.csv` y `listas.json` con semilla, y el Google Apps Script que arma el Form desde
+   `listas.json` (§5).
+3. Juntar las fotos con el Form, revisarlas contra su lista y armar `casos.json` cruzando `respuestas.csv` con
+   `listas.json`.
 4. Correr el nivel (a) con `comparar_vision --casos` (sin código nuevo).
 5. Runner del nivel (b) con el puntaje de la §6 (tests con datos sintéticos que citen sus CA) y línea en `CHANGELOG.md`.
 6. Nivel (c) y optimización con DSPy/GEPA solo con permiso, porque llaman a un LLM pago.

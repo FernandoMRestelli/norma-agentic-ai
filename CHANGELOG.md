@@ -10,7 +10,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Agregado
 
-- Diseño de un benchmark de pedidos escritos a mano en `docs/benchmark-pedidos-manuscritos.md`. Las listas ficticias las copian personas reales, y el puntaje por renglón pondera el producto, la cantidad y las dudas, para comparar `gpt-6-luna`, GPT Terra y un modelo local. Solo es el documento: todavía no tiene runner.
+- Diseño de un benchmark de pedidos escritos a mano en `docs/benchmark-pedidos-manuscritos.md`. Las listas ficticias, sorteadas de antemano, las copian personas reales y las fotos se juntan con un Google Form; el puntaje por renglón pondera el producto, la cantidad y las dudas, para comparar `gpt-6-luna`, GPT Terra y un modelo local. Solo es el documento: todavía no tiene runner.
 
 ## [0.2.0] - 2026-11-23
 
