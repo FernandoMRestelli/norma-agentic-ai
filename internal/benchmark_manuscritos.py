@@ -1,19 +1,24 @@
-"""Listas y Google Form del benchmark de pedidos escritos a mano (docs/spec/benchmark-manuscritos.md).
+"""Listas, Google Form y casos del benchmark de pedidos escritos a mano (docs/spec/benchmark-manuscritos.md).
 
     python -m internal.benchmark_manuscritos listas --cantidad 30 --semilla 116
     python -m internal.benchmark_manuscritos form
+    python -m internal.benchmark_manuscritos casos
 
 `listas` sortea las listas numeradas desde `pool.csv` (núcleo fijo + 10 renglones estratificados por dificultad) y las
 guarda en `listas.json`. `form` arma `crear_form.gs`, un Google Apps Script que crea el Form con una sección por lista:
-se pega en script.google.com y se corre una vez.
+se pega en script.google.com y se corre una vez. `casos` cruza las respuestas del Form y la revisión de cada foto con
+las listas y arma `data/benchmark_manuscritos/casos.json`, el archivo que puntúa `evaluar_manuscritos`.
 """
 
 import argparse
 import csv
 import json
+import math
 import random
+import re
+import unicodedata
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 CARPETA = Path("data_example/benchmark_manuscritos")
@@ -21,6 +26,12 @@ POOL = CARPETA / "pool.csv"
 LISTAS = CARPETA / "listas.json"
 FORM = CARPETA / "crear_form.gs"
 CATALOGO = Path("data_example/catalogo_evaluacion.csv")
+
+# Lo de cada experimento: letra de personas reales, no se versiona
+DATOS = Path("data/benchmark_manuscritos")
+RESPUESTAS = DATOS / "respuestas.csv"
+REVISION = DATOS / "revision.json"
+CASOS = DATOS / "casos.json"
 
 SEMILLA = 116
 VARIABLES = 10
@@ -38,6 +49,9 @@ TIPOS = (
 UNIDADES = {"unidades", "cajas", "cada_uno"}
 MINIMO_POR_TIPO = 5
 MINIMO_SORTEABLES = 100
+
+SEMILLA_GRUPOS = 130
+PROPORCION_DESARROLLO = 0.4
 
 # El encabezado de la hoja, igual en todas las listas: no es pedido y la lectura lo tiene que separar.
 ENCABEZADO = "Pedido para Norma"
@@ -328,6 +342,168 @@ def script_del_form(listas: dict) -> str:
     )
 
 
+# --- Casos (RF-130 a RF-132) ---
+
+_FOTO = re.compile(r"^(p\d{2,})-([AB])$")
+# Una columna o un valor con datos de la persona: el export del Form se limpia a mano antes (diseño, §5)
+_COLUMNAS_PRIVADAS = ("mail", "correo", "nombre", "archivo")
+_LINK_DE_DRIVE = "drive.google.com"
+
+
+@dataclass
+class Armado:
+    """Lo que sale de cruzar las respuestas con las listas: los casos, o los problemas que lo impiden."""
+
+    casos: list[dict] = field(default_factory=list)
+    descartadas: dict[str, str] = field(default_factory=dict)
+    problemas: list[str] = field(default_factory=list)
+
+
+def _sin_tildes(texto: str) -> str:
+    return unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode().lower()
+
+
+def problema_de_privacidad(columna: str) -> str:
+    return f"respuestas.csv tiene la columna «{columna}», con datos de la persona: borrala antes de armar los casos"
+
+
+def _problemas_de_privacidad(respuestas: list[dict]) -> list[str]:
+    columnas = list(dict.fromkeys(columna for fila in respuestas for columna in fila))
+    privadas = [
+        columna
+        for columna in columnas
+        if any(clave in _sin_tildes(columna) for clave in _COLUMNAS_PRIVADAS)
+        or any(_LINK_DE_DRIVE in (fila.get(columna) or "") for fila in respuestas)
+    ]
+    return [problema_de_privacidad(columna) for columna in privadas]
+
+
+def lista_del_pedido(pedido: str) -> str:
+    """Lo inverso de `nombre_del_pedido`: «Pedido 07» es «L07»."""
+    return "L" + pedido.strip().removeprefix("Pedido").strip()
+
+
+def _archivo(carpeta: Path, foto: str) -> str | None:
+    """La foto en `imagenes/`, con la extensión que tenga, relativa a la carpeta de casos.json."""
+    encontradas = sorted((carpeta / "imagenes").glob(f"{foto}.*"))
+    return f"imagenes/{encontradas[0].name}" if encontradas else None
+
+
+def asignar_grupos(
+    personas: list[str], semilla: int = SEMILLA_GRUPOS, anteriores: dict[str, str] | None = None
+) -> dict[str, str]:
+    """`desarrollo` o `reservado` para cada persona (RF-131).
+
+    El 40 % de las personas, redondeado para arriba, va a `desarrollo`. Quien ya tenía grupo en `anteriores` lo
+    conserva: solo se sortean las nuevas, completando la proporción sobre el total.
+    """
+    unicas = sorted(set(personas))
+    grupos = {persona: anteriores[persona] for persona in unicas if anteriores and persona in anteriores}
+    nuevas = [persona for persona in unicas if persona not in grupos]
+    random.Random(semilla).shuffle(nuevas)
+    faltan = max(0, math.ceil(PROPORCION_DESARROLLO * len(unicas)) - list(grupos.values()).count("desarrollo"))
+    for indice, persona in enumerate(nuevas):
+        grupos[persona] = "desarrollo" if indice < faltan else "reservado"
+    return dict(sorted(grupos.items()))
+
+
+def armar_casos(
+    respuestas: list[dict],
+    revision: dict[str, dict],
+    listas: dict,
+    carpeta: Path,
+    semilla: int = SEMILLA_GRUPOS,
+    anteriores: dict[str, str] | None = None,
+) -> Armado:
+    """Un caso por foto no descartada (RF-130), o la lista de problemas si hay alguno (RF-132).
+
+    `carpeta` es la de casos.json, con las fotos en `imagenes/`. `anteriores` son los grupos de un casos.json previo.
+    """
+    if privacidad := _problemas_de_privacidad(respuestas):
+        return Armado(problemas=privacidad)
+
+    por_id = {lista["id"]: lista for lista in listas["listas"]}
+    armado = Armado()
+    vistas: Counter = Counter(fila.get("foto", "").strip() for fila in respuestas)
+    for foto in sorted(foto for foto, veces in vistas.items() if veces > 1):
+        armado.problemas.append(f"{foto}: la foto está repetida en respuestas.csv ({vistas[foto]} filas)")
+
+    casos = []
+    for fila in respuestas:
+        foto = fila.get("foto", "").strip()
+        if vistas[foto] > 1:
+            continue
+        if not (partes := _FOTO.match(foto)):
+            armado.problemas.append(f"{foto or '(vacía)'}: el id de la foto tiene que ser pNN-A o pNN-B")
+            continue
+        notas = revision.get(foto)
+        if notas and notas.get("descartar"):
+            armado.descartadas[foto] = notas["descartar"]
+            continue
+        notas = notas or {}
+        pedido = fila.get(TEXTOS["elegir_lista"], "").strip()
+        lista = por_id.get(lista_del_pedido(pedido)) if pedido else None
+        if lista is None:
+            armado.problemas.append(f"{foto}: «{pedido}» no está en listas.json")
+            continue
+        if (archivo := _archivo(carpeta, foto)) is None:
+            armado.problemas.append(f"{foto}: no hay archivo en imagenes/ ({foto}.jpg, .png…)")
+        if fila.get(TEXTOS["copio_todo"], "").strip() == TEXTOS["si_no"][1] and foto not in revision:
+            armado.problemas.append(
+                f"{foto}: dice «No» en «{TEXTOS['copio_todo']}» y no tiene entrada en revision.json"
+                " (si copió todo, anotala con {{}})"
+            )
+        sin_copiar = list(notas.get("sin_copiar", []))
+        posiciones = {renglon["n"] for renglon in lista["renglones"]}
+        if fuera := [n for n in sin_copiar if n not in posiciones]:
+            armado.problemas.append(f"{foto}: sin_copiar tiene {fuera}, fuera de 1 a {max(posiciones)}")
+        caso = {
+            "id": foto,
+            "archivo": archivo,
+            "persona": partes.group(1),
+            "hoja": partes.group(2),
+            "lista": lista["id"],
+            "grupo": None,
+            "condiciones": {
+                "luz": fila.get(TEXTOS["luz"], "").strip().lower(),
+                "papel": fila.get(TEXTOS["papel"], "").strip().lower(),
+            },
+            "sexo": fila.get(TEXTOS["sexo"], "").strip().lower(),
+            "legible": notas.get("legible", True),
+            "encabezado": lista["encabezado"],
+            "renglones": [renglon for renglon in lista["renglones"] if renglon["n"] not in sin_copiar],
+            "tachados": [list(palabras) for palabras in notas.get("tachados", [])],
+            "sin_copiar": sin_copiar,
+        }
+        if notas.get("notas"):
+            caso["notas"] = notas["notas"]
+        casos.append(caso)
+
+    fotos = {fila.get("foto", "").strip() for fila in respuestas}
+    for foto in sorted(set(revision) - fotos):
+        armado.problemas.append(f"{foto}: está en la revisión y no en respuestas.csv")
+    if armado.problemas:
+        return Armado(problemas=armado.problemas)
+
+    grupos = asignar_grupos([caso["persona"] for caso in casos], semilla, anteriores)
+    for caso in casos:
+        caso["grupo"] = grupos[caso["persona"]]
+    armado.casos = sorted(casos, key=lambda caso: caso["id"])
+    return armado
+
+
+def leer_respuestas(ruta: Path = RESPUESTAS) -> list[dict]:
+    # utf-8-sig: el CSV que baja Google Forms puede traer BOM
+    with open(ruta, encoding="utf-8-sig", newline="") as archivo:
+        return [{(clave or "").strip(): valor for clave, valor in fila.items()} for fila in csv.DictReader(archivo)]
+
+
+def _grupos_anteriores(ruta: Path) -> dict[str, str]:
+    if not ruta.exists():
+        return {}
+    return {caso["persona"]: caso["grupo"] for caso in json.loads(ruta.read_text(encoding="utf-8"))}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     comandos = parser.add_subparsers(dest="comando", required=True)
@@ -343,7 +519,16 @@ def main(argv: list[str] | None = None) -> int:
     form.add_argument("--listas", type=Path, default=LISTAS)
     form.add_argument("--salida", type=Path, default=FORM)
 
+    casos = comandos.add_parser("casos", help="Arma casos.json desde las respuestas del Form y la revisión")
+    casos.add_argument("--respuestas", type=Path, default=RESPUESTAS)
+    casos.add_argument("--revision", type=Path, default=REVISION)
+    casos.add_argument("--listas", type=Path, default=LISTAS)
+    casos.add_argument("--salida", type=Path, default=CASOS)
+    casos.add_argument("--semilla", type=int, default=SEMILLA_GRUPOS)
+
     args = parser.parse_args(argv)
+    if args.comando == "casos":
+        return _comando_casos(args)
     if args.comando == "listas":
         pool = leer_pool(args.pool)
         problemas = validar_pool(pool, leer_skus(args.catalogo))
@@ -357,6 +542,33 @@ def main(argv: list[str] | None = None) -> int:
         resultado = json.loads(args.listas.read_text(encoding="utf-8"))
         args.salida.write_text(script_del_form(resultado), encoding="utf-8")
         print(f"Script del Form en {args.salida}: pegalo en script.google.com y corré crearForm()")
+    return 0
+
+
+def _comando_casos(args: argparse.Namespace) -> int:
+    if not args.respuestas.exists():
+        print(f"Falta {args.respuestas}: exportá las respuestas del Form, sin mail ni nombre, y sumá la columna foto")
+        return 1
+    revision = json.loads(args.revision.read_text(encoding="utf-8")) if args.revision.exists() else {}
+    armado = armar_casos(
+        leer_respuestas(args.respuestas),
+        revision,
+        json.loads(args.listas.read_text(encoding="utf-8")),
+        args.salida.parent,
+        args.semilla,
+        _grupos_anteriores(args.salida),
+    )
+    if armado.problemas:
+        print(f"No se armaron los casos; {len(armado.problemas)} problemas:\n- " + "\n- ".join(armado.problemas))
+        return 1
+    args.salida.write_text(json.dumps(armado.casos, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    grupos = Counter(caso["grupo"] for caso in armado.casos)
+    print(
+        f"{len(armado.casos)} casos en {args.salida} "
+        f"({grupos['desarrollo']} de desarrollo, {grupos['reservado']} reservados)"
+    )
+    for foto, motivo in armado.descartadas.items():
+        print(f"- {foto} descartada: {motivo}")
     return 0
 
 

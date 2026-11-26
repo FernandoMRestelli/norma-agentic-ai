@@ -9,7 +9,7 @@
 | | |
 |---|---|
 | Etapa del roadmap | 03 · Pedidos multimodales |
-| Estado | Implementado: listas y Form (RF-126 a RF-129). Especificado: casos, corrida y puntaje (RF-130 a RF-140) |
+| Estado | Implementado: listas, Form y casos (RF-126 a RF-132). Especificado: corrida y puntaje (RF-133 a RF-140) |
 | Responsable | Federico Picado |
 | Requisitos relacionados | RF-101 a RF-110 y RNF-18 ([lectura de imágenes](lectura-de-imagenes.md)), D-50 (desarrollo y reservado) |
 | IDs que reserva | RF-126 a RF-140, CA-218 a CA-238 |
@@ -94,6 +94,9 @@ Antes de correr el comando, quien revisa las fotos:
 - El grupo se asigna **por persona**, con semilla: se ordenan los `pNN`, se mezclan y el 40 % (redondeado para
   arriba) va a `desarrollo` y el resto a `reservado`. Las dos hojas de una persona van al mismo grupo, y la misma
   semilla con las mismas personas da los mismos grupos.
+- **Un grupo no cambia.** Si ya hay un `casos.json`, cada persona que estaba conserva su grupo, y solo las nuevas se
+  sortean, completando el 40 % de `desarrollo` sobre el total. Las fotos llegan de a poco, y alguien de `desarrollo`
+  que pasara a `reservado` llevaría ahí letra que ya se miró.
 - Antes de escribir nada valida todo y, si algo falla, lista los problemas con el id de cada foto y no escribe
   `casos.json` (§7).
 
@@ -335,7 +338,7 @@ Son los campos de `vision_service.Lectura`, con `resultado` como `ImagenLeida.mo
 | RF-128 | Si el pool no alcanza para cubrir un tipo de dificultad, el sorteo falla con un error que nombra el tipo, en vez de dar una lista incompleta |
 | RF-129 | El script crea un Form con una sección por lista, a la que lleva el desplegable del inicio y que sigue a la sección final y no pide ni recolecta nombre ni mail |
 | RF-130 | `casos` arma un caso por foto no descartada, con los renglones de su lista menos los `sin_copiar`, los tachados y la legibilidad de la revisión y las condiciones y el sexo del Form |
-| RF-131 | El grupo se asigna por persona con semilla: el 40 % de las personas, redondeado para arriba, va a `desarrollo`; las hojas de una persona comparten grupo y la misma semilla da los mismos grupos |
+| RF-131 | El grupo se asigna por persona con semilla: el 40 % de las personas, redondeado para arriba, va a `desarrollo`; las hojas de una persona comparten grupo, la misma semilla da los mismos grupos y una persona que ya estaba en `casos.json` conserva el suyo |
 | RF-132 | `casos` no escribe nada si encuentra un problema, y lista cada uno con su foto: una columna de mail, nombre o archivo; un pedido que no está en `listas.json`; una foto repetida, sin archivo o con un id que no es `pNN-A`/`pNN-B`; un «No» en «¿Escribiste todos…?» sin entrada en la revisión; un `sin_copiar` fuera de 1 a 15; una entrada de la revisión sin foto |
 | RF-133 | `correr` guarda una salida por foto y modelo en cuanto vuelve el modelo, y saltea las que ya existen salvo, con `--reintentar`, las que no tienen `resultado` |
 | RF-134 | `correr` no llama a un modelo de API sin `--max-llamadas`, y con el tope no hace más llamadas nuevas que esas en toda la corrida |
@@ -357,8 +360,8 @@ Son los campos de `vision_service.Lectura`, con `resultado` como `ImagenLeida.mo
 | CA-222 | Un pool sintético sin renglones de `tono` | Se sortea una lista | Falla con un error que dice `tono` | `tests/test_benchmark_manuscritos.py::test_pool_sin_un_tipo_falla` |
 | CA-223 | Dos listas, una con comillas en un renglón | Se genera el script | Trae una sección por lista con «Pedido para Norma» y sus 15 renglones, el desplegable con «Pedido 01» y «Pedido 02», el salto a la sección final, `setCollectEmail(false)`, ninguna pregunta por el ángulo y las listas como JSON válido; el archivo es solo ASCII y los acentos vuelven al leer el JSON | `tests/test_benchmark_manuscritos.py::test_script_del_form` |
 | CA-224 | Un `respuestas.csv` sintético con tres fotos («Pedido 07», «Pedido 02» y otra descartada) y una revisión con `sin_copiar: [11]` y un tachado en la primera | Se arman los casos | Salen dos casos: el de `L07` con 14 renglones (sin el 11), su tachado y sus condiciones en minúsculas; el de `L02` con sus 15; la descartada no sale y se informa | `tests/test_benchmark_manuscritos.py::test_casos_desde_respuestas` |
-| CA-225 | Diez personas sintéticas, tres con dos hojas | Se asignan los grupos dos veces con la misma semilla | Cuatro personas en `desarrollo` y seis en `reservado`, las dos hojas de cada persona en el mismo grupo e igual las dos veces | `tests/test_benchmark_manuscritos.py::test_grupos_por_persona` |
-| CA-226 | Respuestas con una columna «Dirección de correo electrónico», un «Pedido 31», una foto repetida, un «No» sin revisión y un `sin_copiar: [16]` | Se arman los casos | Falla con un problema por cada uno, que nombra su foto, y no escribe `casos.json` | `tests/test_benchmark_manuscritos.py::test_casos_con_problemas` |
+| CA-225 | Diez personas sintéticas, tres con dos hojas | Se asignan los grupos dos veces con la misma semilla, y otra vez sumando cinco personas nuevas | Cuatro personas en `desarrollo` y seis en `reservado`, las dos hojas de cada persona en el mismo grupo e igual las dos veces; con las quince, las diez de antes siguen en su grupo y `desarrollo` llega a seis | `tests/test_benchmark_manuscritos.py::test_grupos_por_persona`, `test_grupos_comparten_las_hojas`, `test_comando_casos_conserva_los_grupos` |
+| CA-226 | Respuestas con un «Pedido 31», una foto repetida, una sin archivo, un id que no es `pNN-A`, un «No» sin revisión, un `sin_copiar: [16]` y una entrada de la revisión sin foto; aparte, unas con una columna «Dirección de correo electrónico» o un link de Drive | Se arman los casos | Falla con un problema por cada uno, que nombra su foto, y no escribe `casos.json`; con la columna de mail o el link falla solo por eso, nombrando la columna | `tests/test_benchmark_manuscritos.py::test_casos_con_problemas`, `test_casos_sin_datos_de_la_persona` |
 | CA-227 | Tres fotos sintéticas, un modelo falso que cuenta sus llamadas y una corrida con la salida de la primera ya guardada | Se corre | Llama dos veces y quedan las tres salidas, con los campos de la §4.7 | `tests/test_evaluar_manuscritos.py::test_correr_retoma_sin_repetir` |
 | CA-228 | Una corrida con una salida sin `resultado` | Se corre sin y con `--reintentar` | Sin la opción no la vuelve a llamar; con ella sí, y la reemplaza | `tests/test_evaluar_manuscritos.py::test_correr_reintenta_solo_si_se_pide` |
 | CA-229 | Un modelo `openai:` falso y cinco fotos | Se corre sin `--max-llamadas` y después con `--max-llamadas 2` | La primera no llama nada y dice que serían 5 llamadas; la segunda llama 2 veces | `tests/test_evaluar_manuscritos.py::test_correr_con_tope_de_llamadas` |
@@ -426,8 +429,8 @@ Son los campos de `vision_service.Lectura`, con `resultado` como `ImagenLeida.mo
 2. ~~Tests de CA-218 a CA-223 en `tests/test_benchmark_manuscritos.py`.~~
 3. ~~`internal/benchmark_manuscritos.py` con los comandos `listas` y `form`, y `listas.json` y `crear_form.gs`
    generados con la semilla 116.~~
-4. RF-130 a RF-140 y CA-224 a CA-238 en esta spec.
-5. Tests de CA-224 a CA-226 y el comando `casos` en `internal/benchmark_manuscritos.py`.
+4. ~~RF-130 a RF-140 y CA-224 a CA-238 en esta spec.~~
+5. ~~Tests de CA-224 a CA-226 y el comando `casos` en `internal/benchmark_manuscritos.py`.~~
 6. Tests de CA-227 a CA-238 con fotos y modelos falsos, e `internal/evaluar_manuscritos.py` con `correr` y
    `puntuar`. Los tests no llaman a ningún modelo.
 7. Con las fotos: armar `casos.json`, correr Qwen local sobre `desarrollo` y, con permiso de quien paga la clave,
