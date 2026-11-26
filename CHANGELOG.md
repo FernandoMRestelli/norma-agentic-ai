@@ -10,7 +10,8 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Agregado
 
-- Diseño de un benchmark de pedidos escritos a mano en `docs/benchmark-pedidos-manuscritos.md`. Las listas ficticias, sorteadas de antemano, las copian personas reales y las fotos se juntan con un Google Form; el puntaje por renglón pondera el producto, la cantidad y las dudas, para comparar `gpt-6-luna`, GPT Terra y un modelo local. Solo es el documento: todavía no tiene runner.
+- Diseño de un benchmark de pedidos escritos a mano en `docs/benchmark-pedidos-manuscritos.md`. Las listas ficticias, sorteadas de antemano, las copian personas reales y las fotos se juntan con un Google Form; el puntaje por renglón pondera el producto, la cantidad y las dudas, para comparar `gpt-6-luna`, GPT Terra y un modelo local. Todavía no tiene runner.
+- `python -m internal.benchmark_manuscritos` sortea las listas del benchmark de pedidos escritos a mano y arma el Google Apps Script que crea el Form para juntar las fotos. Cada lista trae 5 renglones fijos y 10 sorteados del pool de `data_example/benchmark_manuscritos/`, que cubren los tipos de dificultad, y uno para tachar. La pregunta de subir la foto se agrega a mano.
 
 ## [0.2.0] - 2026-11-23
 

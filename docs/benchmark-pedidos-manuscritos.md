@@ -1,9 +1,9 @@
 # Benchmark de pedidos escritos a mano
 
 > **Estado: diseño aprobado en general (15 renglones por hoja, sorteados, juntados con un Google Form; tres
-> modelos); faltan los detalles de la §8.** Todavía
-> no hay código del runner. El comportamiento nuevo entra primero a la spec (RF y CA) y después al código, como pide
-> `AGENTS.md`.
+> modelos); faltan los detalles de la §8.** Las listas y el Form ya se generan
+> ([spec](spec/benchmark-manuscritos.md)); todavía no hay código del runner. El comportamiento nuevo entra primero a
+> la spec (RF y CA) y después al código, como pide `CONTRIBUTING.md`.
 >
 > **Dependencia:** esta rama sale de `develop`. Lo que se cita de `docs/spec/lectura-de-imagenes.md`, D-42, D-50
 > (grupos `desarrollo`/`reservado`), RNF-18 y el intervalo de Wilson de `evaluar_agente` llega con
@@ -207,7 +207,8 @@ data/benchmark_manuscritos/          ← no se versiona
   casos.json                          ← respuestas esperadas + metadatos de cada foto
 data_example/benchmark_manuscritos/  ← se versiona (todo ficticio)
   pool.csv                            ← los ~100 renglones del pool: texto tipeado, SKU, cantidad, tono, unidad, dificultad
-  listas.json                         ← las ~30 listas numeradas (L01…L30), generadas con semilla
+  listas.json                         ← las 30 listas numeradas (L01…L30), generadas con la semilla 116
+  crear_form.gs                       ← el Apps Script que crea el Form (§5), generado desde listas.json
 ```
 
 `casos.json` se arma con un script que cruza `respuestas.csv` (número de lista, condiciones, control) con
@@ -248,7 +249,17 @@ falta para (b) y (c) y para cortar resultados:
 ## 5. El Google Form para los participantes
 
 Un solo Form para todos, generado con un Google Apps Script a partir de `listas.json` (crear 30 secciones a mano es
-lento y fácil de errarle). A cada persona se le manda el mismo link con su número de lista.
+lento y fácil de errarle). A cada persona se le manda el mismo link con su número de lista. El detalle está en la
+[spec de las listas y el Form](spec/benchmark-manuscritos.md).
+
+```bash
+python -m internal.benchmark_manuscritos listas   # pool.csv → listas.json (30 listas, semilla 116)
+python -m internal.benchmark_manuscritos form     # listas.json → crear_form.gs
+```
+
+`crear_form.gs` se pega en un proyecto nuevo de [script.google.com](https://script.google.com) y se corre
+`crearForm()` una vez, con la cuenta que va a recibir las fotos. Después, en la sección final, se agrega **a mano** la
+pregunta «Subir archivo» (solo imágenes, un archivo, obligatoria): ni Apps Script ni la API de Forms pueden crearla.
 
 **Estructura del Form:**
 
@@ -285,7 +296,8 @@ lento y fácil de errarle). A cada persona se le manda el mismo link con su núm
 > No pongas tu nombre ni datos tuyos en la hoja. La foto se usa solo para este trabajo, no se publica, y se manda a
 > la API del modelo que la lee (OpenAI o Google) para medir. Si preferís que no, no pasa nada.
 
-**Ejemplo de la sección de una lista** (`L07`, la que le tocó a la persona 03 en su hoja A):
+**Ejemplo de la sección de una lista** (ilustrativo: las 30 listas sorteadas están en
+`data_example/benchmark_manuscritos/listas.json`):
 
 > **Peluquería Los Álamos — 12/11**
 >
@@ -441,9 +453,10 @@ El mismo benchmark sirve para comparar un modelo solo, modelo + prompt (con y si
 
 ## 9. Próximos pasos (después del OK)
 
-1. Spec: sumar RF y CA del benchmark a `docs/spec/lectura-de-imagenes.md`.
-2. Script que genera `pool.csv` y `listas.json` con semilla, y el Google Apps Script que arma el Form desde
-   `listas.json` (§5).
+1. ~~Spec, pool, listas y Form~~: hecho en [`docs/spec/benchmark-manuscritos.md`](spec/benchmark-manuscritos.md)
+   (RF-126 a RF-129) e `internal/benchmark_manuscritos.py`. Los RF y CA del runner van en esa misma spec.
+2. Crear el Form con `crear_form.gs`, agregar la pregunta de la foto y mandar el link con el número de lista de cada
+   persona.
 3. Juntar las fotos con el Form, revisarlas contra su lista y armar `casos.json` cruzando `respuestas.csv` con
    `listas.json`.
 4. Correr el nivel (a) con `comparar_vision --casos` (sin código nuevo).
