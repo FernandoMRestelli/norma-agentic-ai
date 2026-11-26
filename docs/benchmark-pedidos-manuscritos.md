@@ -5,10 +5,9 @@
 > ([spec](spec/benchmark-manuscritos.md)); todavía no hay código del runner. El comportamiento nuevo entra primero a
 > la spec (RF y CA) y después al código, como pide `CONTRIBUTING.md`.
 >
-> **Dependencia:** esta rama sale de `develop`. Lo que se cita de `docs/spec/lectura-de-imagenes.md`, D-42, D-50
-> (grupos `desarrollo`/`reservado`), RNF-18 y el intervalo de Wilson de `evaluar_agente` llega con
-> `feature/mejoras-del-agente`, que todavía no está en `develop`. La lectura, `renglones_desde_lectura`,
-> `buscar_renglones` y `comparar_vision` ya están en `develop`.
+> **Dependencias:** todo lo que se cita ya está en `develop`: `docs/spec/lectura-de-imagenes.md`, D-42, D-50 (grupos
+> `desarrollo`/`reservado`), RNF-18, el intervalo de Wilson de `evaluar_agente`, la lectura, `renglones_desde_lectura`,
+> `buscar_renglones` y `comparar_vision`.
 
 La idea viene de la clase 9 de IA Agéntica (AI Benchmarks): un leaderboard global no dice qué modelo conviene para
 *esta* tarea, así que armamos un benchmark propio, orientado a la tarea, con la forma
