@@ -17,6 +17,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 - Sensor de calidad: `python -m internal.sensor_calidad --dias 7` resume el uso real desde las trazas y la base, sin texto de clientes, y avisa si algo pasa su umbral (RF-123, CA-211 a CA-213). Cada turno dice en el log y en la traza si lo tuvo que rescatar el sistema (`rescates`).
 - `python -m internal.comparar_corridas` compara dos corridas de la evaluación, y `evaluar_agente --orquestador` elige con qué turno correr, para decidir si se queda el orquestador (RF-124, CA-214, CA-215). No cambia nada en producción.
 - Los permisos de Claude Code del repo cubren todo lo que `AGENTS.md` prohíbe leer o editar, con un test que lo controla, y `AGENTS.md` dice cómo verificar un cambio. `README.md`, `MEJORAS.md` y `architecture.md` coinciden con el código.
+- Spec de mejoras de búsqueda, registro y verificación en `docs/spec/mejoras-clases-5-6-9.md`, a partir de las clases 5, 6 y 9 de IA Agéntica. Suma lo que todavía no estaba hecho ni propuesto en las specs de las clases 7 y 8: peso por rareza en la búsqueda (ya probado contra `evaluar_busqueda`: la versión suave gana poco y la clásica empeora), descripciones de skills y tools que no confundan al modelo, decisiones como ADRs, tests probados con mutantes y un juez del tono validado contra personas. Solo es el documento: no cambia el comportamiento.
 
 ### Cambiado
 
