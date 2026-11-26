@@ -8,7 +8,8 @@ from typing import Any
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import BaseModel, ValidationError
 
-from internal.agent import guardrails, nota
+from internal.agent import evidencia as ev
+from internal.agent import guardrails, nota, observabilidad
 from internal.agent.state import Resultado
 from internal.config import get_settings
 from internal.schemas.agent_schema import (
@@ -31,7 +32,14 @@ from internal.schemas.agent_schema import (
 )
 from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import Channel, OrderDraft
-from internal.services import inventory_service, order_service, validation_service
+from internal.services import (
+    busqueda_service,
+    interpretation_service,
+    inventory_service,
+    order_service,
+    validation_service,
+)
+from internal.services.palabras_clave import es_aceptacion_explicita, es_aceptacion_pura
 from internal.services.skill_service import TOOL_RESPUESTA, Skill, SkillError, get_skills
 from internal.tools import catalog_tools, inventory_tools, order_tools, reply_tools, skill_tools
 
@@ -77,6 +85,20 @@ class TurnContext:
     condicion_comercial: str | None = None
     acuerdo_operativo: str | None = None
     propuesta_pendiente_mostrar: bool = False
+    # Con qué se comprueba la aceptación antes de registrar (RF-111). Sin el mensaje no hay aceptación: falla cerrado
+    mensaje_cliente: str = ""
+    kind_anterior: str | None = None
+    opciones_previas: list[str] = field(default_factory=list)  # las `options` de la respuesta anterior
+    confirmaciones_frenadas: int = 0  # `aceptacion_no_clara` de este turno
+    # Con qué se comprueba la propuesta (RF-112 a RF-114). Sin evidencia no hay producto que proponer: falla cerrado
+    evidencia: ev.Evidencia = field(default_factory=ev.Evidencia)
+    skus_pedidos: set[str] = field(default_factory=set)  # los de los pedidos anteriores que ve el LLM en su prompt
+    opciones_rechazadas: int = 0  # `opcion_sin_elegir` de este turno
+    cantidades_rechazadas: int = 0  # `cantidad_distinta` de este turno
+    # Las cantidades que nombró el cliente: solo con ellas una tool dice cuánto queda (RF-125). None: no se controla
+    cantidades: set[int] | None = None
+    tolerados: list[str] = field(default_factory=list)  # códigos aceptados porque el modelo insistió (RF-123)
+    cierre: bool = False  # se agotó el presupuesto: el LLM ya no puede volver a buscar (RNF-16)
     turno: guardrails.ContextoTurno = field(default_factory=guardrails.ContextoTurno)  # para validar la salida
     orquestador: bool = False  # con el orquestador, `leer_skill` de una skill sub_loop dice cómo delegarla
     notas_turno: list[dict[str, Any]] = field(default_factory=list)  # la nota de búsqueda y las de los sub-loops
@@ -100,11 +122,19 @@ def _explorar_catalogo(data: ExplorarCatalogoInput, _: TurnContext) -> dict[str,
     return catalog_tools.explorar_catalogo(data.brand, data.category, data.limit)
 
 
-def _al_llm(product: Product, quantity: int | None = None) -> dict[str, Any]:
+def _pidio(ctx: TurnContext, quantity: int, product: Product) -> bool:
+    """El cliente pidió esa cantidad: no la inventó el modelo para que la tool le diga el stock (RF-125)."""
+    if ctx.cantidades is None:
+        return True
+    medidas = busqueda_service.normalizar(f"{product.name} {product.presentation or ''}").numeros
+    return quantity in ctx.cantidades and quantity not in {numero.valor for numero in medidas}
+
+
+def _al_llm(product: Product, quantity: int | None = None, decir_cuanto: bool = True) -> dict[str, Any]:
     datos = {**product.model_dump(mode="json", exclude=_SOLO_INTERNOS), "hay_stock": product.stock > 0}
     if quantity is not None:
         datos["alcanza"] = product.stock >= quantity
-        if not datos["alcanza"]:
+        if not datos["alcanza"] and decir_cuanto:
             # Cuántas quedan solo importa si no alcanza: es lo único que BR-01 deja decirle al cliente
             datos["disponible"] = product.stock
     # Solo cuando es cierto: es una pista para preguntar («¿el de 900, como la otra vez?»), no un dato de cada producto
@@ -175,9 +205,12 @@ def _consultar_estado_pedido(data: ConsultarEstadoPedidoInput, ctx: TurnContext)
 
 def _search_products(data: SearchProductsInput, ctx: TurnContext) -> dict[str, Any]:
     resultado = catalog_tools.buscar_productos(data.query, data.limit, _comprados(ctx))
+    def al_llm(product: Product) -> dict[str, Any]:
+        return _al_llm(product, data.quantity, data.quantity is None or _pidio(ctx, data.quantity, product))
+
     salida = {
-        "matches": [_al_llm(match, data.quantity) for match in resultado.matches],
-        "sugerencias": [_al_llm(sugerencia, data.quantity) for sugerencia in resultado.sugerencias],
+        "matches": [al_llm(match) for match in resultado.matches],
+        "sugerencias": [al_llm(sugerencia) for sugerencia in resultado.sugerencias],
         "corregido": resultado.corregido,
         "total": resultado.total,
         "difieren_en": resultado.difieren_en,
@@ -192,6 +225,11 @@ def _buscar_renglones(data: BuscarRenglonesInput, ctx: TurnContext) -> dict[str,
         [renglon.model_dump() for renglon in data.renglones], _comprados(ctx)
     )
     anotar_busqueda(ctx.renglones, [renglon.model_dump() for renglon in data.renglones], resultados)
+    for resultado in resultados:
+        falta = resultado.get("falta")
+        product = catalog_tools.get_product(falta["sku"]) if falta else None
+        if product is not None and not _pidio(ctx, falta["requested"], product):
+            del falta["available"]
     return {"renglones": resultados}
 
 
@@ -219,10 +257,12 @@ def _get_product(data: GetProductInput, _: TurnContext) -> dict[str, Any]:
     return {"product": _al_llm(product)}
 
 
-def _check_stock(data: CheckStockInput, _: TurnContext) -> dict[str, Any]:
+def _check_stock(data: CheckStockInput, ctx: TurnContext) -> dict[str, Any]:
     check = inventory_tools.check_stock(data.sku, data.quantity)
     # Si alcanza, el LLM no necesita el número: así no se lo puede pasar al cliente (BR-01)
-    return check.model_dump(mode="json", exclude={"available"} if check.is_enough else None)
+    product = catalog_tools.get_product(data.sku)
+    decir_cuanto = not check.is_enough and (product is None or _pidio(ctx, data.quantity, product))
+    return check.model_dump(mode="json", exclude=None if decir_cuanto else {"available"})
 
 
 def _leer_skill(data: LeerSkillInput, ctx: TurnContext) -> dict[str, Any]:
@@ -243,17 +283,123 @@ def _leer_br(data: LeerBrInput, ctx: TurnContext) -> dict[str, Any]:
 MAX_COBERTURAS_FALLIDAS = 2
 
 
+# Después de esta cantidad, la siguiente se acepta: el control puede no entender lo que dijo el cliente (D-49)
+MAX_OPCIONES_RECHAZADAS = 2
+MAX_CANTIDADES_RECHAZADAS = 1
+CODIGO_OPCION = "opcion_sin_elegir"
+CODIGO_CANTIDAD = "cantidad_distinta"
+
+
+def elegidos(ctx: TurnContext) -> ev.Elegidos:
+    """Lo que el cliente ya eligió o tenía a la vista antes de este mensaje."""
+    siempre = set(ctx.opciones_previas) | ({item.sku for item in ctx.propuesta.items} if ctx.propuesta else set())
+    if interpretation_service.depende_de_otra_cosa(ctx.mensaje_cliente):
+        siempre |= ctx.skus_pedidos  # «lo de siempre» se elige entre sus pedidos, aunque la búsqueda traiga más (BR-11)
+    return ev.Elegidos(siempre, ev.de_los_renglones(ctx.renglones))
+
+
+def error_sin_elegir(lineas: list[tuple[str, int | None]], ctx: TurnContext) -> ToolFailure | None:
+    """El error de las líneas que el modelo eligió por el cliente, o None (RF-113). Lo usan la respuesta y la nota."""
+    if not (faltan := ctx.evidencia.sin_elegir(lineas, elegidos(ctx))):
+        return None
+    detalle = ", ".join(sku if n is None else f"{sku} (renglón {n})" for sku, n in faltan)
+    return ToolFailure(
+        CODIGO_OPCION,
+        f"La búsqueda no definió estos productos: {detalle}. Había varias opciones, era aproximado o es de otro "
+        "renglón. Si el cliente dio más datos, buscá otra vez con todos; si no, dejalo en `pendientes` o en `options` "
+        "y preguntale cuál quiere (BR-03, BR-09)",
+        skus=[sku for sku, _ in faltan],
+    )
+
+
+def _error_cantidad(data: RespondToCustomerInput, ctx: TurnContext) -> ToolFailure | None:
+    """Un renglón nuevo propuesto con otra cantidad que la que escribió el cliente (RF-114)."""
+    por_renglon: dict[int, list[Any]] = {}
+    for item in data.propuesta or []:
+        if item.renglon is not None:
+            por_renglon.setdefault(item.renglon, []).append(item)
+    distintas = []
+    for renglon in ctx.renglones:
+        items = por_renglon.get(renglon["n"])
+        if renglon["estado"] != "sin_resolver" or not items or len({item.sku for item in items}) > 1:
+            continue
+        pedida, propuesta = interpretation_service.cantidad_inequivoca(renglon), sum(item.quantity for item in items)
+        menos_por_stock = items[0].sku in ctx.turno.faltantes and pedida is not None and propuesta < pedida
+        if pedida is not None and propuesta != pedida and not menos_por_stock:
+            distintas.append((renglon["n"], pedida, propuesta))
+    if not distintas:
+        return None
+    detalle = ", ".join(f"el renglón {n} pide {pedida} y propusiste {propuesta}" for n, pedida, propuesta in distintas)
+    return ToolFailure(
+        CODIGO_CANTIDAD,
+        f"La cantidad no es la que escribió el cliente: {detalle}. Corregila; si el cliente la pidió de otra forma, "
+        "volvé a mandar la misma respuesta y se acepta",
+        renglones=[n for n, _, _ in distintas],
+    )
+
+
+def _tolerar(motivo: str, ctx: TurnContext) -> None:
+    ctx.tolerados.append(motivo)
+    logger.warning("Guardrail: se acepta una propuesta después de insistir (motivo=%s)", motivo)
+    with observabilidad.paso("control_evidencia", "GUARDRAIL", motivo=motivo, tolerado=True):
+        pass
+
+
+def _controlar_evidencia(data: RespondToCustomerInput, ctx: TurnContext) -> None:
+    """La propuesta sale de lo que el LLM vio, sin elegir por el cliente ni cambiar sus cantidades (RF-112 a RF-114)."""
+    items = data.propuesta or []
+    del_prompt = set(ctx.opciones_previas) | ctx.skus_pedidos
+    del_prompt |= {item.sku for item in ctx.propuesta.items} if ctx.propuesta else set()
+    del_prompt = del_prompt.union(*ev.de_los_renglones(ctx.renglones).values())
+    usados = [item.sku for item in items] + data.options + [sku for p in data.pendientes for sku in p.opciones]
+    if no_vistos := [sku for sku in dict.fromkeys(usados) if sku not in ctx.evidencia.vistos | del_prompt]:
+        raise ToolFailure(
+            "sku_no_buscado",
+            f"Estos SKU no salieron de ninguna búsqueda: {', '.join(no_vistos)}. Buscá lo que pidió el cliente y usá "
+            "el SKU que devuelve la tool, o sacalos de la respuesta",
+            skus=no_vistos,
+        )
+    if falla := error_sin_elegir([(item.sku, item.renglon) for item in items], ctx):
+        if ctx.opciones_rechazadas < MAX_OPCIONES_RECHAZADAS and not ctx.cierre:
+            raise falla
+        _tolerar(CODIGO_OPCION, ctx)
+    if falla := _error_cantidad(data, ctx):
+        if ctx.cantidades_rechazadas < MAX_CANTIDADES_RECHAZADAS and not ctx.cierre:
+            raise falla
+        _tolerar(CODIGO_CANTIDAD, ctx)
+
+
+def _sin_stock_revelado(error: ToolFailure, ctx: TurnContext) -> ToolFailure:
+    """El error de stock sin el número, si la cantidad no la pidió el cliente (RF-125)."""
+    if error.code != "stock_insuficiente":
+        return error
+    lineas = [dict(linea) for linea in error.details["lineas"]]
+    for linea in lineas:
+        product = catalog_tools.get_product(linea["sku"])
+        if product is not None and not _pidio(ctx, linea["requested"], product):
+            del linea["available"]
+    return ToolFailure(error.code, error.message, lineas=lineas)
+
+
 def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict[str, Any]:
     data = reply_tools.con_tonos(data, ctx.renglones)
-    propuesta = reply_tools.respond_to_customer(
-        data, ctx.customer_id, ctx.channel, ctx.propuesta, ctx.customer_name, ctx.conversation_id, ctx.renglones,
-        ctx.origen,
-    )
+    try:
+        propuesta = reply_tools.respond_to_customer(
+            data, ctx.customer_id, ctx.channel, ctx.propuesta, ctx.customer_name, ctx.conversation_id, ctx.renglones,
+            ctx.origen,
+        )
+    except ToolFailure as exc:
+        raise _sin_stock_revelado(exc, ctx) from exc
     # Con un pedido numerado, `options` sale de los renglones que se preguntan
     options = data.options or list(dict.fromkeys(sku for p in data.pendientes for sku in p.opciones))
+    if propuesta and not data.pendientes:
+        # El modelo repite en `options` lo que ya propuso: eso no deja ninguna pregunta abierta (RF-99)
+        propuestos = {item.sku for item in propuesta.items}
+        options = [sku for sku in options if sku not in propuestos]
     renglones = reply_tools.cubrir_renglones(
         data, ctx.renglones, tolerar=ctx.coberturas_fallidas >= MAX_COBERTURAS_FALLIDAS
     )
+    _controlar_evidencia(data, ctx)
     if propuesta:
         # Lo que quedó afuera viaja con la propuesta: si el cliente la acepta, la orden lo guarda (RF-76).
         # También conservamos el descuento autorizado y el acuerdo operativo confirmado sin duplicarlo.
@@ -268,7 +414,7 @@ def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict
                 "notes": notas_combinadas,
             }
         )
-    message = data.message
+    message, fijo = data.message, False
     # Lo que escribió el LLM pasa por los guardrails antes de llegar al cliente; la vigente no cambia si falla
     rechazos = guardrails.validar_salida(
         message, data.kind.value, propuesta, options, ctx.turno, ctx.propuesta,
@@ -295,7 +441,7 @@ def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict
                 "Guardrail: intentos agotados, sale el mensaje fijo (reglas=%s)",
                 ",".join(r.regla for r in rechazos),
             )
-            message = guardrails.mensaje_seguro(propuesta)
+            message, fijo = guardrails.mensaje_seguro(propuesta), True
     respuesta = message
     if propuesta:
         # El detalle sale del catálogo, no del LLM: así entra un pedido de muchas líneas y los precios son exactos
@@ -316,7 +462,12 @@ def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict
         order_service.discard_draft(ctx.propuesta)
         ctx.propuesta = None
         ctx.propuesta_pendiente_mostrar = False
-    return {"enviado": True}
+    enviado: dict[str, Any] = {"enviado": True}
+    if fijo:
+        enviado["mensaje_fijo"] = True
+    if ctx.tolerados:
+        enviado["tolerado"] = list(ctx.tolerados)
+    return enviado
 
 
 def _delegar_skill(data: DelegarSkillInput, ctx: TurnContext) -> dict[str, Any]:
@@ -367,6 +518,44 @@ CONDICIONES_ACTUALIZADAS = (
 )
 
 
+CODIGO_ACEPTACION = "aceptacion_no_clara"
+KINDS_CON_PROPUESTA = ("propuesta", "sin_stock")  # las respuestas que le muestran la propuesta al cliente
+PEDIR_CONFIRMACION = "Antes de registrarlo, te paso el pedido como está hasta ahora. ¿Lo confirmo así?"
+_ACEPTACION_CON_ALGO_MAS = (
+    "No se registró nada: el último mensaje del cliente no es solo una aceptación. Si cambia algo, leé tomar_pedido y "
+    "BR-05; si pone una condición o una observación, BR-10; si duda o pregunta, contestale. Después volvé a mostrarle "
+    "la propuesta con kind propuesta, para que la confirme"
+)
+_ACEPTACION_DE_UNA_PREGUNTA = (
+    "No se registró nada: tu mensaje anterior le hizo una pregunta y esto la contesta. Leé tomar_pedido, resolvé esa "
+    "duda y mostrale la propuesta con kind propuesta, para que la confirme"
+)
+
+
+def _controlar_aceptacion(ctx: TurnContext) -> bool:
+    """True si el cliente aceptó la propuesta vigente. Si no, el LLM recibe el error para responderle (RF-111).
+
+    Devuelve False cuando otra vuelta del LLM no ayuda y el sistema vuelve a mostrar la propuesta: si insistió en el
+    turno, o si el cliente aceptó una propuesta que salió con dudas y no se sabe a cuál de las dos cosas dijo que sí.
+    """
+    pura = es_aceptacion_pura(ctx.mensaje_cliente)
+    mostro_propuesta = ctx.kind_anterior in KINDS_CON_PROPUESTA
+    pregunto = bool(ctx.opciones_previas) or ctx.kind_anterior == "aclaracion"
+    if pura and (not pregunto or (mostro_propuesta and es_aceptacion_explicita(ctx.mensaje_cliente))):
+        return True
+    motivo = "contesta_una_pregunta" if pura else "dice_algo_mas"
+    muestra_el_sistema = ctx.confirmaciones_frenadas > 0 or (pura and mostro_propuesta)
+    logger.warning("Guardrail: armar_pedido sin una aceptación clara (motivo=%s)", motivo)
+    with observabilidad.paso(
+        "control_aceptacion", "GUARDRAIL", motivo=motivo, vuelve_a_mostrar=muestra_el_sistema
+    ) as paso:
+        paso.fallo(CODIGO_ACEPTACION)
+    if muestra_el_sistema:
+        return False
+    ctx.confirmaciones_frenadas += 1
+    raise ToolFailure(CODIGO_ACEPTACION, _ACEPTACION_DE_UNA_PREGUNTA if pura else _ACEPTACION_CON_ALGO_MAS)
+
+
 def _armar_pedido(_: ArmarPedidoInput, ctx: TurnContext) -> dict[str, Any]:
     if ctx.propuesta and ctx.propuesta_pendiente_mostrar:
         # No se confirma una propuesta modificada por el operador sin que el cliente vea antes el total y acuerdos
@@ -378,6 +567,12 @@ def _armar_pedido(_: ArmarPedidoInput, ctx: TurnContext) -> dict[str, Any]:
         ctx.kind = "propuesta"
         ctx.resultado = "pausar"
         return {"condiciones_actualizadas": True}
+    if ctx.propuesta and not _controlar_aceptacion(ctx):
+        # La misma propuesta, sin cambios: lo último que lee el cliente vuelve a ser qué está confirmando
+        ctx.respuesta = f"{PEDIR_CONFIRMACION}\n\n{validation_service.build_proposal_detail(ctx.propuesta)}"
+        ctx.kind = "propuesta"
+        ctx.resultado = "pausar"
+        return {"confirmacion_pedida": True}
     try:
         order = order_tools.armar_pedido(ctx.propuesta)
     except order_service.PriceChangedError as exc:
@@ -543,7 +738,8 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             "armar_pedido",
             "Registra la propuesta vigente y termina el turno. El sistema le responde al cliente con el detalle y el "
-            "número. Usala solo si el cliente aceptó la propuesta sin cambios.",
+            "número. Usala solo si el cliente aceptó la propuesta sin cambios: si su mensaje dice algo más, no se "
+            "registra.",
             ArmarPedidoInput,
             _armar_pedido,
         ),
@@ -648,7 +844,7 @@ def _tool_no_permitida(name: str, ctx: TurnContext) -> str:
     return f"La tool {name!r} no está disponible en este turno: usá las que tenés"
 
 
-def _failure(code: str, message: str, **details: Any) -> dict[str, Any]:
+def error(code: str, message: str, **details: Any) -> dict[str, Any]:
     return {"ok": False, "error": {"code": code, "message": message, "details": details}}
 
 
@@ -710,31 +906,39 @@ def reglas_que_dispara(
 
 def execute(name: str, arguments: dict[str, Any], ctx: TurnContext) -> dict[str, Any]:
     """Ejecuta una tool y devuelve el sobre común, con la BR que dispara el resultado si corresponde (RF-63)."""
-    return _adjuntar_br(name, _run(name, arguments, ctx), ctx)
+    result = _run(name, arguments, ctx)
+    if result["ok"]:
+        ctx.evidencia.sumar(name, result["data"])
+        ctx.turno.ver(result["data"])
+    elif result["error"]["code"] == CODIGO_OPCION:
+        ctx.opciones_rechazadas += 1
+    elif result["error"]["code"] == CODIGO_CANTIDAD:
+        ctx.cantidades_rechazadas += 1
+    return _adjuntar_br(name, result, ctx)
 
 
 def _run(name: str, arguments: dict[str, Any], ctx: TurnContext) -> dict[str, Any]:
     """Ejecuta una tool y devuelve el sobre común. Un error vuelve al LLM para que lo corrija."""
     if name not in ctx.disponibles or name not in TOOLS:
-        return _failure("tool_no_permitida", _tool_no_permitida(name, ctx))
+        return error("tool_no_permitida", _tool_no_permitida(name, ctx))
     spec = TOOLS[name]
     try:
         data = spec.input_model.model_validate(arguments)
         return {"ok": True, "data": spec.run(data, ctx)}
     except ValidationError as exc:
         errors = exc.errors(include_url=False, include_input=False, include_context=False)
-        return _failure(
+        return error(
             "argumentos_invalidos",
             "Los argumentos no cumplen el esquema: corregilos según `errores` y volvé a llamar a la tool",
             errores=errors,
         )
     except ToolFailure as exc:
-        return _failure(exc.code, exc.message, **exc.details)
+        return error(exc.code, exc.message, **exc.details)
     except FallaSubLoop:
         raise  # no es un error de la tool: el turno falla, como cuando falla el LLM del orquestador
     except OSError:
         logger.exception("Tool %s: no se pudo leer el catálogo", name)
-        return _failure("catalogo_no_disponible", _CATALOGO_NO_DISPONIBLE)
+        return error("catalogo_no_disponible", _CATALOGO_NO_DISPONIBLE)
     except Exception:
         logger.exception("Tool %s: error inesperado", name)
-        return _failure("error_interno", _ERROR_INTERNO)
+        return error("error_interno", _ERROR_INTERNO)

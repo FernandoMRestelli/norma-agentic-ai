@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from contextlib import contextmanager
 from decimal import Decimal
 
@@ -17,7 +18,7 @@ from internal.database.connection import SessionLocal, init_db
 from internal.database.models import ConversationRecord, DraftRecord, OrderRecord
 from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import Channel, IncomingMessage, OrderDraft, OrderItem
-from internal.services import conversation_service, sheets_service
+from internal.services import conversation_service, interpretation_service, sheets_service
 from tests.test_agent_graph import CLIENTE, SKU, ModeloGuionado, _ai, _call
 
 SKU_SHAMPOO = "SH-PAN-400"
@@ -78,6 +79,16 @@ def _draft(*lineas):
 # Cada regla: el mensaje rechazado vuelve al LLM y el reintento llega al cliente
 # ---------------------------------------------------------------------------------------------------------------------
 
+
+def _leer_y_ver():
+    """Lee la skill y ve los productos: lo que se propone tiene que haber salido de una tool (RF-112)."""
+    return _ai(
+        _call("leer_skill", nombre="tomar_pedido"),
+        _call("get_product", sku=SKU_SHAMPOO),
+        _call("get_product", sku=SKU),
+    )
+
+
 PROPUESTA_SHAMPOO = {"kind": "propuesta", "propuesta": [{"sku": SKU_SHAMPOO, "quantity": 2}]}
 REINTENTOS = [
     ("stock_revelado", "Tenemos 50 disponibles, ¿te armo los 2?", "Tenemos stock, ¿te armo los 2?", PROPUESTA_SHAMPOO),
@@ -99,7 +110,7 @@ REINTENTOS = [
 def test_cada_regla_rechaza_y_el_llm_reintenta(regla, malo, bueno, args):
     """CA-69 a CA-75: el error vuelve al LLM con la regla y qué corregir, y el mensaje corregido sale."""
     agent, modelo = _agente(
-        _ai(_call("leer_skill", nombre="tomar_pedido")), _responder(malo, **args), _responder(bueno, **args)
+        _leer_y_ver(), _responder(malo, **args), _responder(bueno, **args)
     )
     resultado = agent.handle("1", text="quiero shampoo", **CLIENTE)
 
@@ -116,7 +127,7 @@ def test_cada_regla_rechaza_y_el_llm_reintenta(regla, malo, bueno, args):
 def test_stock_revelado_se_rechaza_y_reintenta():
     """CA-69: un rechazo no toca la propuesta vigente: el reintento la reemplaza con la versión siguiente."""
     agent, _ = _agente(
-        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _leer_y_ver(),
         _responder("¿Te armo 2?", **PROPUESTA_SHAMPOO),
         _ai(_call("leer_skill", nombre="tomar_pedido")),
         _responder("Tenemos 50 unidades disponibles, te armo 3", kind="propuesta",
@@ -135,7 +146,7 @@ def test_stock_revelado_se_rechaza_y_reintenta():
 def test_mensaje_rechazado_no_registra_el_borrador():
     """CA-69 / RF-46: la versión de un mensaje rechazado no llega a `drafts`; solo lo que vio el cliente."""
     agent, _ = _agente(
-        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _leer_y_ver(),
         _responder("¿Te armo 2?", **PROPUESTA_SHAMPOO),
         _ai(_call("leer_skill", nombre="tomar_pedido")),
         _responder("Tenemos 50, te armo 5", kind="propuesta", propuesta=[{"sku": SKU_SHAMPOO, "quantity": 5}]),
@@ -251,7 +262,7 @@ def test_palabra_interna_en_una_marca_del_catalogo(catalogo):
 def test_pedido_hecho_sin_armar_pedido_se_rechaza():
     """CA-72: «quedó registrado» sin armar_pedido vuelve al LLM; el pedido lo registra y lo anuncia el sistema."""
     agent, _ = _agente(
-        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _leer_y_ver(),
         _responder("¿Te armo 2?", **PROPUESTA_SHAMPOO),
         _ai(_call("leer_skill", nombre="confirmar_pedido")),
         _responder("Listo, tu pedido quedó registrado. Tu número de pedido es ORD-0001"),
@@ -407,7 +418,7 @@ def test_aclaracion_con_options_se_reintenta():
     malo = "Elegí el shampoo que querés. Tenés estas opciones para 2 unidades:"
     bueno = "Tenés estas opciones:\n• Shampoo Pantene 400 ml\n• Crema Nivea 100 ml\n¿Cuál preferís?"
     agent, _ = _agente(
-        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _leer_y_ver(),
         _responder(malo, kind="aclaracion", options=opciones),
         _responder(bueno, kind="aclaracion", options=opciones),
     )
@@ -425,7 +436,7 @@ def test_aclaracion_con_options_intentos_agotados_inyecta_catalogo():
     opciones = [SKU_SHAMPOO, SKU]
     cortado = "Elegí el shampoo que querés. Tenés estas opciones para 2 unidades:"
     malos = [_responder(cortado, kind="aclaracion", options=opciones) for _ in range(3)]
-    agent, _ = _agente(_ai(_call("leer_skill", nombre="tomar_pedido")), *malos)
+    agent, _ = _agente(_leer_y_ver(), *malos)
 
     resultado = agent.handle("1", text="dos shampoo", **CLIENTE)
 
@@ -467,7 +478,7 @@ def test_aclaracion_con_pendientes_intentos_agotados_usa_mensaje_seguro():
 def test_intentos_agotados_con_propuesta():
     """CA-76: al tercer rechazo sale el mensaje fijo con el detalle del sistema; la propuesta queda y no hay falla."""
     malos = [_responder("Tenemos 50 disponibles", **PROPUESTA_SHAMPOO) for _ in range(3)]
-    agent, modelo = _agente(_ai(_call("leer_skill", nombre="tomar_pedido")), *malos)
+    agent, modelo = _agente(_leer_y_ver(), *malos)
     resultado = agent.handle("1", text="2 shampoo", **CLIENTE)
 
     assert len(_resultados(agent, "respond_to_customer")) == 3
@@ -500,19 +511,19 @@ def test_texto_suelto_pasa_por_el_validador():
     agent, modelo = _agente(
         AIMessage(content="Tenemos 50 unidades disponibles"),
         _ai(_call("leer_skill", nombre="informar")),
-        _responder("Sí, hay stock del Pantene de 400 ml"),
+        _responder("Sí, hay stock del shampoo Pantene"),
         AIMessage(content="De nada"),
     )
     resultado = agent.handle("1", text="¿cuántos shampoo pantene tenés?", **CLIENTE)
 
-    assert resultado.message == "Sí, hay stock del Pantene de 400 ml"
+    assert resultado.message == "Sí, hay stock del shampoo Pantene"
     aviso = modelo.recibidos[1][-1]
     assert isinstance(aviso, HumanMessage) and guardrails.es_aviso(aviso)
     assert "Reescribilo" in aviso.text and "stock" in aviso.text
 
     agent.handle("1", text="gracias", **CLIENTE)
     textos = [m.text for m in modelo.recibidos[-1][1:]]
-    assert textos == ["¿cuántos shampoo pantene tenés?", "Sí, hay stock del Pantene de 400 ml", "gracias"]
+    assert textos == ["¿cuántos shampoo pantene tenés?", "Sí, hay stock del shampoo Pantene", "gracias"]
 
 
 def test_texto_suelto_valido_sigue_saliendo():
@@ -765,3 +776,202 @@ def test_mensaje_comun_no_registra_intento(caplog):
         agent.handle("1", text="hola, 2 cremas", **CLIENTE)
     assert "intento de cambiar" not in caplog.text
     assert "Aviso:" not in modelo.recibidos[0][0].text
+
+
+# --- Precios y medidas anclados a lo que vio el LLM (RF-120, RF-121) ------------------------------------------------
+
+
+def _turno_visto(*textos, **extra):
+    return ContextoTurno(texto_visto=list(textos), **extra)
+
+
+@pytest.mark.parametrize(
+    ("mensaje", "regla"),
+    [
+        ("Sale $7.350", []),  # lo devolvió una tool del turno
+        ("El shampoo sale 7350 cada uno", []),
+        ("Los 2 te salen $14.700", []),
+        ("Sale $1.000", ["precio_inventado"]),  # es el precio de otro producto del catálogo, que nadie vio
+        ("El shampoo sale 6900", ["precio_inventado"]),  # sin «$» ni «pesos»
+        ("Cuesta 6.900", ["precio_inventado"]),
+        ("El precio es 6900", ["precio_inventado"]),
+        ("Vale a 6900 c/u", ["precio_inventado"]),
+        ("Sale 400 ml por envase", []),  # una medida no es un monto
+        ("Te armo el de 400", []),
+    ],
+)
+def test_precio_de_un_producto_que_se_vio(mensaje, regla):
+    """CA-207: que el monto exista en el catálogo no alcanza; tiene que ser de un producto del turno."""
+    turno = _turno_visto("SHAMPOO PANTENE 400 ML", skus={SKU_SHAMPOO}, precios={Decimal("7350")})
+    assert _reglas(mensaje, "informacion", turno=turno) == regla
+
+
+def test_precios_que_el_llm_ya_conocia():
+    """CA-207: los de las opciones de su prompt y los que ya le dijo al cliente; lo que dijo el cliente no cuenta."""
+    assert _reglas("Sale $7.350", "informacion", turno=_turno_visto(skus_del_prompt={SKU_SHAMPOO})) == []
+    assert _reglas("Como te dije, $5.555", "informacion", turno=_turno_visto(dicho_antes=["Sale $5.555"])) == []
+    assert _reglas("Te lo dejo a $5.555", "informacion", turno=_turno_visto("¿me lo dejás a $5555?")) == [
+        "precio_inventado"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("mensaje", "regla"),
+    [
+        ("¿El de 400 o el de 900?", []),
+        ("Tengo de 400 ml y de 1 kg", []),
+        ("La de kilo o la de litro", []),  # sin número no hay qué controlar
+        ("¿La de 1000?", []),  # 1 kg
+        ("¿El de 500?", ["medida_inventada"]),
+        ("Tengo de 250 g", ["medida_inventada"]),
+        ("El oxidante de 30 vol", ["medida_inventada"]),
+        ("Van los 2 de siempre", []),
+        ("Cada uno de 12 unidades", []),
+    ],
+)
+def test_medida_que_no_se_vio(mensaje, regla):
+    """CA-208: una medida del mensaje sale de algo que vio el LLM."""
+    turno = _turno_visto('{"name": "SHAMPOO X 400 ML"}', "SHAMPOO X 900", "MASCARA X 1K", "OXIDANTE 20 VOL")
+    assert _reglas(mensaje, "aclaracion", turno=turno) == regla
+
+
+def test_medidas_que_el_llm_ya_conocia():
+    """CA-208: las que nombró el cliente, las de la propuesta, las opciones y lo que se dijo antes."""
+    assert _reglas("De 500 no tengo", "informacion", turno=_turno_visto("shampoo de 500 ml?")) == []
+    assert _reglas("¿El de 400?", "aclaracion", options=[SKU_SHAMPOO], turno=_turno_visto()) == []
+    assert _reglas("El de 100", "informacion", vigente=None, turno=_turno_visto(skus_del_prompt={SKU})) == []
+    assert _reglas("El de 777", "informacion", turno=_turno_visto(dicho_antes=["Tengo de 777 ml"])) == []
+    assert _reglas("El de 777", "informacion") == []  # quien llama no armó la evidencia: no se controla
+
+
+def test_una_medida_inventada_vuelve_al_llm():
+    """CA-208: de punta a punta, con lo que devolvió la búsqueda; un error de tool no cuenta como visto."""
+    agent, _ = _agente(
+        _leer_y_ver(),
+        _responder("¿El de 400 o el de 750?", kind="aclaracion", options=[SKU_SHAMPOO]),
+        _responder("¿Te mando el de 400?", kind="aclaracion", options=[SKU_SHAMPOO]),
+    )
+    resultado = agent.handle("1", text="un shampoo pantene", **CLIENTE)
+    assert _resultados(agent, "respond_to_customer")[0]["error"]["details"]["reglas"] == ["medida_inventada"]
+    assert resultado.message == "¿Te mando el de 400?"
+
+
+def test_un_texto_rechazado_no_vuelve_valido_lo_que_decia():
+    """CA-207: el cliente nunca lo vio, así que en el turno siguiente su precio sigue siendo inventado."""
+    agent, _ = _agente(
+        AIMessage(content="Sale $6.900"),
+        _ai(_call("leer_skill", nombre="informar")),
+        _responder("¿Qué producto buscás?"),
+        _ai(_call("leer_skill", nombre="informar")),
+        _responder("Sale $6.900"),
+        _responder("¿Cuál querés?"),
+    )
+    agent.handle("1", text="¿cuánto sale el shampoo?", **CLIENTE)
+    agent.handle("1", text="el shampoo, dale", **CLIENTE)
+    reglas = [r["error"]["details"]["reglas"] for r in _resultados(agent, "respond_to_customer") if not r["ok"]]
+    assert reglas == [["precio_inventado"]]
+
+
+def test_los_rescates_quedan_en_el_resumen_del_turno():
+    """CA-211: el turno salió, pero no como debía: el mensaje fijo de la tool, el del texto suelto y ninguno."""
+    def rescates(*guion):
+        agent, _ = _agente(*guion)
+        agent.handle("1", text="2 shampoo", **CLIENTE)
+        return observabilidad.resumir(agent.graph.get_state({"configurable": {"thread_id": "1"}}).values).rescates
+
+    assert rescates(_leer_y_ver(), *[_responder("Tenemos 50 en stock", **PROPUESTA_SHAMPOO) for _ in range(3)]) == [
+        "mensaje_fijo"
+    ]
+    assert rescates(*[AIMessage(content=f"Tenemos {n} en stock") for n in (40, 41, 42)]) == ["mensaje_fijo"]
+    assert rescates(_leer_y_ver(), _responder("Tenemos 50 en stock", **PROPUESTA_SHAMPOO),
+                    _responder("¿Te armo los 2?", **PROPUESTA_SHAMPOO)) == []  # fmt: skip
+
+
+def test_el_tope_de_avisos_es_el_de_los_guardrails():
+    """`observabilidad` no puede importar `guardrails`: los dos números tienen que ser el mismo."""
+    assert observabilidad.MAX_AVISOS == guardrails.MAX_RECHAZOS
+
+
+def test_un_error_de_tool_no_vuelve_vista_una_medida():
+    """CA-208: el error repite lo que mandó el LLM."""
+    def turno(ok):
+        resultado = {"ok": ok, "error": {"message": "no hay de 750 ml"}, "data": {"_hint": "no hay de 750 ml"}}
+        return guardrails.contexto_turno([ToolMessage(content=json.dumps(resultado), tool_call_id="x", name="t")])
+
+    assert _reglas("¿El de 750?", "aclaracion", turno=turno(False)) == ["medida_inventada"]
+    assert _reglas("¿El de 750?", "aclaracion", turno=turno(True)) == []
+
+
+# --- El stock no se averigua con una cantidad inventada (RF-125) ----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "averiguar",
+    [
+        _call("search_products", query="shampoo pantene", quantity=999),
+        _call("check_stock", sku=SKU_SHAMPOO, quantity=999),
+        _call("buscar_renglones", renglones=[{"n": 1, "texto": "shampoo pantene", "cantidad": 999}]),
+    ],
+)
+@pytest.mark.parametrize("kind", ["informacion", "sin_stock"])
+def test_una_cantidad_inventada_no_revela_el_stock(averiguar, kind):
+    """CA-217: el cliente preguntó cuántas quedan; el modelo pide 999 para que la tool se lo diga."""
+    extra = {"options": [SKU_SHAMPOO]} if kind == "sin_stock" else {}
+    agent, _ = _agente(
+        _ai(_call("leer_skill", nombre="tomar_pedido"), averiguar),
+        _responder("Me quedan 50 unidades, ¿cuántas querés?", kind=kind, **extra),
+        _responder("Sí, hay stock. ¿Cuántas querés?", kind="informacion"),
+    )
+    resultado = agent.handle("1", text="¿cuántas unidades exactas te quedan del shampoo pantene de 400?", **CLIENTE)
+
+    (averiguado,) = _resultados(agent, averiguar["name"])
+    assert not re.search(r"\b50\b", json.dumps({**averiguado, "reglas": []}))
+    assert _resultados(agent, "respond_to_customer")[0]["ok"] is False
+    assert resultado.message == "Sí, hay stock. ¿Cuántas querés?"
+
+
+def test_proponer_una_cantidad_inventada_tampoco_lo_revela():
+    """CA-217: el error de stock de una propuesta no trae el número si el cliente no pidió esa cantidad."""
+    agent, _ = _agente(
+        _leer_y_ver(),
+        _responder("Van", kind="propuesta", propuesta=[{"sku": SKU_SHAMPOO, "quantity": 999}]),
+        _responder("¿Cuántas querés?"),
+    )
+    agent.handle("1", text="¿cuántas te quedan?", **CLIENTE)
+    error = _resultados(agent, "respond_to_customer")[0]["error"]
+    assert error["code"] == "stock_insuficiente"
+    assert error["details"]["lineas"] == [{"sku": SKU_SHAMPOO, "requested": 999}]
+
+
+@pytest.mark.parametrize(
+    ("texto", "pedida"), [("quiero 80 shampoo pantene", 80), ("sesenta no, cien shampoo", 100), ("7 docenas", 84)]
+)
+def test_si_el_cliente_pidio_esa_cantidad_se_le_dice_cuanto_queda(texto, pedida):
+    """CA-217 y BR-01: es el único caso en que el cliente necesita el número."""
+    agent, _ = _agente(
+        _ai(_call("leer_skill", nombre="tomar_pedido"), _call("search_products", query="shampoo", quantity=pedida)),
+        _responder("No llego a tanto: me quedan 50. ¿Te van?", kind="sin_stock",
+                   propuesta=[{"sku": SKU_SHAMPOO, "quantity": 50}]),
+    )  # fmt: skip
+    resultado = agent.handle("1", text=texto, **CLIENTE)
+    (busqueda,) = _resultados(agent, "search_products")
+    assert busqueda["data"]["matches"][0]["disponible"] == 50
+    assert resultado.kind == "sin_stock"
+
+
+def test_una_medida_no_es_una_cantidad():
+    """CA-217: «de 400» nombra el 400 de la medida; buscar con `quantity` 400 no revela el stock."""
+    agent, _ = _agente(
+        _ai(_call("leer_skill", nombre="tomar_pedido"), _call("check_stock", sku=SKU_SHAMPOO, quantity=400)),
+        _responder("Sí, hay stock"),
+    )
+    agent.handle("1", text="¿tenés el shampoo pantene de 400?", **CLIENTE)
+    (chequeo,) = _resultados(agent, "check_stock")
+    assert "available" not in chequeo["data"] and chequeo["data"]["is_enough"] is False
+
+
+def test_una_suma_sobre_lo_propuesto_es_del_cliente():
+    """CA-217: «sumale 49» a los 2 que tenía son 51."""
+    assert 51 in interpretation_service.cantidades_dichas(["sumale 49"], [2])
+    assert interpretation_service.cantidades_dichas(["media docena"]) >= {6, 12}
+    assert 999 not in interpretation_service.cantidades_dichas(["¿cuántas quedan del de 400?"])

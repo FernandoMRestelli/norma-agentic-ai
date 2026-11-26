@@ -1,7 +1,12 @@
 import pytest
 
 from internal.schemas.order_schema import ConfirmationAction
-from internal.services.palabras_clave import es_saludo, interpretar_palabra_clave
+from internal.services.palabras_clave import (
+    es_aceptacion_explicita,
+    es_aceptacion_pura,
+    es_saludo,
+    interpretar_palabra_clave,
+)
 
 
 @pytest.mark.parametrize(
@@ -90,3 +95,52 @@ def test_saludos(texto: str):
 )
 def test_un_saludo_con_algo_mas_no_es_solo_un_saludo(texto: str):
     assert not es_saludo(texto)
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        *("dale", "sí, dale", "si dale", "SÍ!!", "siii", "daleee", "ok gracias", "dale gracias", "ok ok", "ok si dale"),
+        *("perfecto", "perfecto, mandalo", "buenísimo, confirmalo", "confirmo el pedido", "por favor confirmar"),
+        *("listo, ya está", "de una", "está bien", "sí, está bien", "si esta bien", "sí, así está bien", "de acuerdo"),
+        *("lo confirmo", "cerralo así nomás", "nada más, confirmalo", "bueno dale", "hola, dale"),
+        *("👍", "dale 👍🏽", "dale 😊"),
+        *("si por favor", "si gracias", "mandamelo", "si perfecto"),
+        "dale\ngracias",
+    ],
+)
+def test_aceptacion_pura(texto: str):
+    """CA-187: aceptar con otras palabras, o con cortesía, sigue siendo solo aceptar (RF-111)."""
+    assert es_aceptacion_pura(texto)
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        *("", "   ", "gracias", "hola", "bueno", "👎", "🤔", "[imagen leída]\ndale"),
+        *("ok?", "¿dale?", "sí...", "dale…", "si puede ser"),  # duda o pregunta
+        *("dale, pero 2", "dale pero que sean dos", "dale 3", "ok, la de 400", "si, sumale un shampoo"),  # cambia algo
+        *("dale, sacá la crema", "sí, la de kilo", "dale, mandame una", "dale, más"),
+        *("dale si llega el lunes", "confirmo si esta todo listo", "dale si es el de argan"),  # condición
+        *("si esta todo listo mandalo", "dale pero aguantame al lunes que cobro", "ok, pago como siempre"),
+        *("dale x2", "dale ２", "dale ½", "dale ②", "dale 2️⃣", "dale 两个", "dale 👎"),
+        *("mandalo si podes", "dale, si está todo"),
+        *("no", "no, dale", "obvio que no"),
+        *("no, gracias", "todavía no confirmo", "dejame pensarlo", "bueno, ahora veo"),  # rechaza
+    ],
+)
+def test_lo_que_no_es_una_aceptacion_pura(texto: str):
+    """CA-187: lo que no se reconoce no registra; a lo sumo, se le pide otra confirmación (D-47)."""
+    assert not es_aceptacion_pura(texto)
+
+
+@pytest.mark.parametrize(
+    ("texto", "explicita"),
+    [
+        *((t, True) for t in ("confirmalo", "confirmo", "sí, confirmalo así", "cerralo", "dale, así")),
+        *((t, False) for t in ("dale", "sí", "ok", "perfecto", "confirmalo pero con 2", "¿lo confirmo?")),
+    ],
+)
+def test_aceptacion_explicita(texto: str, explicita: bool):
+    """CA-186: nombra la confirmación, así que no puede estar contestando otra pregunta."""
+    assert es_aceptacion_explicita(texto) is explicita

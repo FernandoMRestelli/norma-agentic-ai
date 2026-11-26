@@ -2,6 +2,7 @@
 
 import csv
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -177,7 +178,7 @@ def _proponer(cantidad: int = 2) -> AIMessage:
     )
 
 
-LEER_TOMAR = _ai(_call("leer_skill", nombre="tomar_pedido"))
+LEER_TOMAR = _ai(_call("leer_skill", nombre="tomar_pedido"), _call("search_products", query="shampoo pantene 400"))
 LEER_CONFIRMAR = _ai(_call("leer_skill", nombre="confirmar_pedido"))
 
 
@@ -194,8 +195,11 @@ def _caso(id: str, resultado: str, texto: str = "2 shampoos pantene 400", **extr
 
 
 def test_registro_indebido():
-    """CA-114: un caso que esperaba `sin_pedido` y terminó en una orden suma un registro indebido."""
-    caso = _caso("eval-indebido", "sin_pedido", "mmm no sé, dejame pensarlo", previo=["2 shampoos pantene 400"])
+    """CA-114: un caso que esperaba `sin_pedido` y terminó en una orden suma un registro indebido.
+
+    El mensaje acepta: con uno que no acepta, `armar_pedido` no registra aunque el modelo la llame (RF-111).
+    """
+    caso = _caso("eval-indebido", "sin_pedido", "sí, dale", previo=["2 shampoos pantene 400"])
     modelo = _Modelo(responses=[LEER_TOMAR, _proponer(), LEER_CONFIRMAR, _ai(_call("armar_pedido"))])
 
     fila, _ = evaluar_agente._evaluar(NormaAgent(modelo, InMemorySaver()), caso)
@@ -245,3 +249,217 @@ def test_un_renglon_afuera_sin_avisar_esta_perdido():
     assert evaluar_agente.medir_lineas(esperado, obtenidos, avisados=["1 planchita"])["lineas_perdidas"] == 1
     todos = ["1 planchita", "2 shampoo"]
     assert evaluar_agente.medir_lineas(esperado, obtenidos, avisados=todos)["lineas_perdidas"] == 0
+
+
+# --- Puntaje, casos adversariales y presupuesto (RF-115 a RF-117) -----------------------------------------------
+
+
+def _adversariales() -> list[dict]:
+    return json.loads((DATOS / "adversariales.json").read_text(encoding="utf-8"))
+
+
+def _responder(kind: str, mensaje: str, **extra) -> AIMessage:
+    return _ai(_call("respond_to_customer", kind=kind, message=mensaje, **extra))
+
+
+PANTENE = [{"sku": "SH-PAN-400", "cantidad": 2}]
+
+
+@pytest.mark.parametrize(
+    ("exige", "correcto"),
+    [
+        ({}, True),
+        ({"kinds": ["informacion"], "propuesta_final": []}, True),
+        ({"kinds": ["propuesta"]}, False),  # no registró, pero contestó otra cosa
+        ({"propuesta_final": PANTENE}, False),  # no registró, pero tiró la propuesta
+    ],
+)
+def test_no_registrar_no_alcanza(exige, correcto):
+    """CA-199: el agente descarta la propuesta de alguien que solo dudó."""
+    caso = _caso("eval-duda", "sin_pedido", "mmm, lo pienso", previo=["2 shampoos pantene 400"])
+    caso["esperado"].update(exige)
+    descartar = _responder("informacion", "Dale, la saco. ¿Otra cosa?", descartar_propuesta=True)
+    modelo = _Modelo(responses=[LEER_TOMAR, _proponer(), LEER_CONFIRMAR, descartar])
+
+    fila, _ = evaluar_agente._evaluar(NormaAgent(modelo, InMemorySaver()), caso)
+
+    assert fila["resultado"] == ("correcto" if correcto else "incorrecto")
+    assert fila["registro_indebido"] == 0
+
+
+@pytest.mark.parametrize(("patron", "correcto"), [(r"\bVERANO\b", False), (r"\binvierno\b", True)])
+def test_lo_que_la_respuesta_no_puede_decir(patron, correcto):
+    """CA-200: sin importar mayúsculas, y solo sobre lo que escribió el agente."""
+    caso = _caso("eval-dice", "informacion", "hola")
+    caso["esperado"]["no_dice"] = [patron]
+    modelo = _Modelo(responses=[_responder("informacion", "Hola, ¿qué te preparo este verano?")])
+
+    fila, _ = evaluar_agente._evaluar(NormaAgent(modelo, InMemorySaver()), caso)
+
+    assert fila["resultado"] == ("correcto" if correcto else "incorrecto")
+    assert fila["dijo"] == ("" if correcto else patron)
+
+
+@pytest.mark.parametrize(("patron", "correcto"), [("VERANO", True), ("peinar", False)])
+def test_una_respuesta_generica_no_alcanza(patron, correcto):
+    """CA-200: `dice` exige que la respuesta nombre lo que se preguntó."""
+    caso = _caso("eval-generica", "informacion", "hola")
+    caso["esperado"]["dice"] = [patron]
+    modelo = _Modelo(responses=[_responder("informacion", "Hola, ¿qué te preparo este verano?")])
+    fila, _ = evaluar_agente._evaluar(NormaAgent(modelo, InMemorySaver()), caso)
+    assert fila["resultado"] == ("correcto" if correcto else "incorrecto")
+    assert fila["no_dijo"] == ("" if correcto else patron)
+
+
+def test_aclaracion_sin_opciones_exactas():
+    """RF-115: con decenas de opciones posibles, el caso exige preguntar y no proponer, no una lista exacta."""
+    caso = _caso("eval-aclara", "aclaracion", "2 shampoo")
+    caso["esperado"]["propuesta_final"] = []
+    preguntar = _responder("aclaracion", "¿De qué marca lo querés?")
+    fila, _ = evaluar_agente._evaluar(NormaAgent(_Modelo(responses=[preguntar]), InMemorySaver()), caso)
+    assert fila["resultado"] == "correcto"
+
+
+@pytest.mark.parametrize("caso", _adversariales(), ids=lambda caso: caso["id"])
+def test_casos_adversariales_son_coherentes(caso, catalogo):
+    """CA-201."""
+    IncomingMessage(**caso["mensaje"])
+    esperado = caso["esperado"]
+    assert caso["grupo"] in evaluar_agente.GRUPOS
+    assert esperado["resultado"] in RESULTADOS | {"aclaracion", "informacion"}
+    for item in [*esperado.get("items", []), *esperado.get("propuesta_final", [])]:
+        assert item["cantidad"] <= catalogo[item["sku"]].stock
+    assert all(sku in catalogo for sku in esperado.get("opciones", []))
+    for patron in [*esperado.get("no_dice", []), *esperado.get("dice", [])]:
+        re.compile(patron)
+    if esperado["resultado"] == "sin_pedido":
+        assert "kinds" in esperado, "Un `sin_pedido` adversarial dice qué respuestas valen: no registrar no alcanza"
+
+
+def test_los_dos_grupos_cubren_los_mismos_temas():
+    """CA-201: lo reservado mide lo mismo que se mira en desarrollo, y ningún id se repite."""
+    casos = _adversariales()
+    assert len({caso["id"] for caso in casos}) == len(casos) >= 20
+    temas = {grupo: {c["tema"] for c in casos if c["grupo"] == grupo} for grupo in evaluar_agente.GRUPOS}
+    assert temas["desarrollo"] == temas["reservado"] == {"aceptacion", "evidencia", "inyeccion", "negocio"}
+
+
+def test_hay_controles_positivos():
+    """RF-116: si todos los casos fueran trampas, un agente que nunca registra sacaría 100 %."""
+    for grupo in evaluar_agente.GRUPOS:
+        resultados = {c["esperado"]["resultado"] for c in _adversariales() if c["grupo"] == grupo}
+        assert {"pedido", "borrador"} <= resultados
+
+
+def test_elegir_grupo():
+    """CA-201: lo que no dice su grupo es de desarrollo."""
+    casos = [{"id": "a"}, {"id": "b", "grupo": "reservado"}, {"id": "c", "grupo": "desarrollo"}]
+    elegidos = {g: [c["id"] for c in evaluar_agente.del_grupo(casos, g)] for g in (*evaluar_agente.GRUPOS, "todos")}
+    assert elegidos == {"desarrollo": ["a", "c"], "reservado": ["b"], "todos": ["a", "b", "c"]}
+
+
+def _corridas(n: int) -> list[tuple[dict, int]]:
+    return [(_caso(f"eval-{i}", "borrador"), 1) for i in range(n)]
+
+
+def test_tope_de_llamadas():
+    """CA-202: cada caso gasta 2; con tope 3 corren dos y los otros quedan sin evaluar."""
+    modelo = _Modelo(responses=[LEER_TOMAR, _proponer()] * 4)
+    guardados = []
+
+    filas, conversaciones = evaluar_agente.correr(
+        NormaAgent(modelo, InMemorySaver()), _corridas(4), [], max_llamadas=3,
+        al_terminar_caso=lambda filas, _: guardados.append(len(filas)),
+    )  # fmt: skip
+
+    assert [fila["resultado"] for fila in filas] == ["correcto", "correcto", "sin_evaluar", "sin_evaluar"]
+    assert len(conversaciones) == 4
+    assert guardados == [1, 2, 4]  # se guarda caso por caso
+    metricas = evaluar_agente._metricas(filas)
+    assert (metricas["llamadas_llm_total"], metricas["sin_evaluar"]) == (4, 2)
+    assert "sin_evaluar 2 > 0" in evaluar_agente.fuera_de_umbral(metricas)
+
+
+def test_corta_si_el_llm_no_responde():
+    """CA-202: con la cuota agotada no sigue probando los casos que faltan."""
+
+    class _SinCuota(_Modelo):
+        def invoke(self, *args, **kwargs):
+            raise RuntimeError("429")
+
+    filas, _ = evaluar_agente.correr(NormaAgent(_SinCuota(responses=[]), InMemorySaver()), _corridas(6), [])
+
+    assert [fila["resultado"] for fila in filas] == ["sin_evaluar"] * 6
+    assert sum(fila["llamadas_llm"] for fila in filas) == evaluar_agente.CORTAR_TRAS
+
+
+def test_una_falla_suelta_no_corta():
+    """CA-202: cuentan las fallas seguidas."""
+
+    class _Intermitente(_Modelo):
+        fallas: int = 0
+
+        def invoke(self, *args, **kwargs):
+            if self.fallas < 2:
+                self.fallas += 1
+                raise RuntimeError("503")
+            return super().invoke(*args, **kwargs)
+
+    modelo = _Intermitente(responses=[LEER_TOMAR, _proponer()] * 4)
+    filas, _ = evaluar_agente.correr(NormaAgent(modelo, InMemorySaver()), _corridas(5), [])
+    assert [fila["resultado"] for fila in filas] == ["sin_evaluar"] * 2 + ["correcto"] * 3
+
+
+def test_tokens_y_costo_de_todos_los_turnos():
+    """CA-203: lo que se paga son todos los turnos; las columnas de siempre siguen siendo del último."""
+
+    def con_uso(mensaje: AIMessage, entrada: int) -> AIMessage:
+        uso = {"input_tokens": entrada, "output_tokens": 10, "total_tokens": entrada + 10}
+        return mensaje.model_copy(update={"usage_metadata": uso})
+
+    caso = _caso("eval-tokens", "pedido", "sí, dale", previo=["2 shampoos pantene 400"])
+    respuestas = [LEER_TOMAR, _proponer(), LEER_CONFIRMAR, _ai(_call("armar_pedido"))]
+    modelo = _Modelo(responses=[con_uso(m, n) for m, n in zip(respuestas, (100, 200, 300, 400), strict=True)])
+
+    fila, _ = evaluar_agente._evaluar(NormaAgent(modelo, InMemorySaver()), caso)
+
+    assert (fila["tokens_entrada"], fila["tokens_entrada_total"], fila["tokens_salida_total"]) == (700, 1000, 40)
+    metricas = evaluar_agente._metricas([fila])
+    assert evaluar_agente.costo_usd(metricas, evaluar_agente.leer_precio("0.10,0.50")) == pytest.approx(0.00012)
+
+
+def test_codigos_de_error_de_todos_los_turnos():
+    """RF-117: cuántas veces frenó cada control, en cualquier turno del caso."""
+    caso = _caso("eval-errores", "sin_pedido", "dale, pero que sean 3", previo=["2 shampoos pantene 400"])
+    modelo = _Modelo(responses=[
+        _ai(_call("leer_skill", nombre="tomar_pedido")), _proponer(), LEER_TOMAR, _proponer(),
+        LEER_CONFIRMAR, _ai(_call("armar_pedido")), _ai(_call("leer_skill", nombre="tomar_pedido")), _proponer(3),
+    ])  # fmt: skip
+
+    fila, _ = evaluar_agente._evaluar(NormaAgent(modelo, InMemorySaver()), caso)
+
+    assert evaluar_agente.codigos_de_error([fila, fila]) == {"sku_no_buscado": 2, "aceptacion_no_clara": 2}
+
+
+def test_intervalo_y_casos_firmes():
+    """RF-117: 10 de 10 no es 100 % seguro, y un caso que acierta 2 de 3 no es firme."""
+    assert evaluar_agente.intervalo(0, 0) == (0.0, 0.0)
+    assert evaluar_agente.intervalo(10, 10) == (72.2, 100.0)
+    assert evaluar_agente.intervalo(5, 10) == (23.7, 76.3)
+    base = {"iteraciones": 1, "latencia_ms": 1, "tokens_entrada": 0, "tokens_salida": 0}
+    filas = [{**base, "caso": c, "resultado": r} for c, r in [("a", "correcto")] * 3 + [("b", "correcto")] * 2]
+    filas.append({**base, "caso": "b", "resultado": "incorrecto"})
+    assert evaluar_agente._metricas(filas)["casos_firmes_pct"] == 50.0
+
+
+def test_salida_en_json(tmp_path):
+    """RF-117: las filas con su conversación, las métricas y el costo, para documentar la corrida."""
+    modelo = _Modelo(responses=[LEER_TOMAR, _proponer()])
+    filas, conversaciones = evaluar_agente.correr(NormaAgent(modelo, InMemorySaver()), _corridas(1), [])
+    salida = tmp_path / "carpeta" / "corrida.json"
+
+    evaluar_agente.escribir_salida(salida, {"modelo": "falso"}, filas, conversaciones, (1.0, 1.0))
+
+    datos = json.loads(salida.read_text(encoding="utf-8"))
+    assert (datos["modelo"], datos["metricas"]["correctos"], datos["costo_usd"]) == ("falso", 1, 0)
+    assert datos["filas"][0]["conversacion"][0]["cliente"] == "2 shampoos pantene 400"

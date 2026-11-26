@@ -92,7 +92,10 @@ norma-agentic-ai/
 │   ├── config.py
 │   ├── telegram_polling.py   # bot de Telegram por polling (beta)
 │   ├── verificar_claves.py
-│   ├── evaluar_agente.py     # corre los casos de mensajes.json con el LLM real
+│   ├── evaluar_agente.py     # corre los casos de evaluación con el LLM real
+│   ├── comparar_corridas.py  # compara dos corridas de la evaluación
+│   ├── evaluar_busqueda.py   # evalúa el buscador solo, sin LLM
+│   ├── sensor_calidad.py     # mide el uso real desde las trazas y la base
 │   ├── api/
 │   │   ├── chat.py
 │   │   ├── orders.py
@@ -104,6 +107,8 @@ norma-agentic-ai/
 │   │   ├── state.py
 │   │   ├── context.py
 │   │   ├── tool_registry.py
+│   │   ├── guardrails.py     # lo que el mensaje no puede decir
+│   │   ├── evidencia.py      # qué productos vio el modelo en el turno
 │   │   ├── llm.py
 │   │   ├── observabilidad.py
 │   │   └── system_prompt.md

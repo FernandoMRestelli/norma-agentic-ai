@@ -401,7 +401,13 @@ def test_audio_si_con_propuesta_confirma_sin_llm(monkeypatch, base_de_datos_inic
 
     respuestas = iter(
         [
-            AIMessage(content="", tool_calls=[{"name": "leer_skill", "args": {"nombre": "tomar_pedido"}, "id": "c1"}]),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "leer_skill", "args": {"nombre": "tomar_pedido"}, "id": "c1"},
+                    {"name": "search_products", "args": {"query": "shampoo neutro 1L"}, "id": "c1b"},
+                ],
+            ),
             AIMessage(
                 content="",
                 tool_calls=[

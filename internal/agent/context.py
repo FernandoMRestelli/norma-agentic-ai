@@ -183,7 +183,7 @@ def _current_state(state: EstadoNorma) -> str:
     return "\n".join(lines)
 
 
-def _previous_history(messages: list[AnyMessage]) -> list[AnyMessage]:
+def historial_previo(messages: list[AnyMessage]) -> list[AnyMessage]:
     """De los turnos anteriores solo queda la charla: las lecturas y tools valían para su turno."""
     history: list[AnyMessage] = []
     for index, message in enumerate(messages):
@@ -216,4 +216,4 @@ def build_messages(state: EstadoNorma, orquestador: bool = False) -> list[AnyMes
         precarga.bloque(state.get("notas_turno") or []),
     )
     system = "\n\n".join(parte for parte in partes if parte)
-    return [SystemMessage(content=system), *_previous_history(state["messages"][:start]), *state["messages"][start:]]
+    return [SystemMessage(content=system), *historial_previo(state["messages"][:start]), *state["messages"][start:]]

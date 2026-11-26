@@ -38,6 +38,11 @@ def hint_busqueda(resultado: SearchResult) -> str | None:
             "producto del catálogo. Si es la marca o el producto, "
             "no se trabaja: avisale al cliente y no ofrezcas otro en su lugar como si fuera lo pedido."
         )
+        if pistas.sin_lo_que_no_esta:
+            partes.append(
+                f"Sin eso hay: {', '.join(pistas.sin_lo_que_no_esta)}. Si {_citar(pistas.no_estan)} dice para qué lo "
+                "quiere y no es una marca, no digas que no lo trabajás: ofrecé esos y preguntale si le sirven."
+            )
     primero = pistas.cercanos[0] if pistas.cercanos else None
     faltan = [f for f in (primero.falta if primero else []) if f not in pistas.no_estan]
     medidas_que_faltan = [f for f in faltan if any(c.isdigit() for c in f)]

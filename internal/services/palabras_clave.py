@@ -69,6 +69,69 @@ def interpretar_palabra_clave(texto: str) -> ConfirmationAction | None:
     return None
 
 
+# Aceptación pura (RF-111, D-47): todas las palabras del mensaje tienen que ser de estas listas. Lo que no se reconoce
+# no registra: a lo sumo, se le pide al cliente otra confirmación
+_ACEPTA = frozenset(
+    "ok oka okey dale si listo perfecto mandale mandalo mandamelo armalo armamelo hacelo anotalo acepto correcto "
+    "exacto claro obvio seguro vamos va metele estabien deuna deacuerdo".split()
+)
+# Nombran la confirmación: no pueden estar contestando otra pregunta del asistente (CA-186)
+_ACEPTA_EXPLICITA = frozenset(
+    "confirmo confirmar confirma confirmalo confirmado confirmemos cerralo cerramos cerrar registralo cargalo "
+    "asi".split()
+)
+# Cortesía y palabras que acompañan («el pedido», «nomás»): solas no aceptan nada
+_ACOMPANA = frozenset(
+    "gracias muchas mil por favor porfa porfis hola buenas bueno genial buenisimo barbaro joya excelente bien che "
+    "norma el la lo y todo tal cual como ya esta pedido propuesta orden nomas entonces nadamas".split()
+)
+_SIGUE_A_SI = _ACEPTA | _ACEPTA_EXPLICITA | {"gracias", "por", "porfa"}  # después de otra cosa, «si» condiciona
+_FRASES_ACEPTACION = {"de una": "deuna", "esta bien": "estabien", "de acuerdo": "deacuerdo", "nada mas": "nadamas"}
+_PULGAR_ARRIBA = re.compile("[👍👌✅🙌]")
+_DUDA = re.compile(r"[?¿]|\.\.|…|[👎❌🚫🤔😕🙁]")
+
+
+def _palabras_de_aceptacion(texto: str) -> list[str] | None:
+    """Las palabras del mensaje si todas son de aceptar o de cortesía; None si dice algo más."""
+    if _DUDA.search(texto):
+        return None
+    texto = _PULGAR_ARRIBA.sub(" ok ", texto.lower())
+    # «sí» con tilde o seguido de un signo afirma; «si» puede ser una condición («dale si llega el lunes»)
+    texto = re.sub(r"\bsí\b|\bs+i+\b(?=\s*[,.;!]|\s*$)|\bsii+\b", "ok", unicodedata.normalize("NFC", texto))
+    nfd = unicodedata.normalize("NFD", texto)
+    # `\w` y no `[a-z0-9]`: un «２» o un «½» tienen que quedar como una palabra que no se reconoce, no desaparecer
+    limpio = " ".join(re.findall(r"\w+", "".join(c for c in nfd if unicodedata.category(c) != "Mn")))
+    for frase, palabra in _FRASES_ACEPTACION.items():
+        limpio = re.sub(rf"\b{frase}\b", palabra, limpio)
+    conocidas = _ACEPTA | _ACEPTA_EXPLICITA | _ACOMPANA
+    palabras = []
+    for palabra in limpio.split():
+        if palabra not in conocidas:
+            palabra = re.sub(r"(.)\1+", r"\1", palabra)  # «daleee», «okkk»
+        if palabra not in conocidas:
+            return None
+        palabras.append(palabra)
+    for actual, siguiente in zip(palabras, palabras[1:], strict=False):
+        if actual == "si" and siguiente not in _SIGUE_A_SI:
+            return None  # «si esta todo listo mandalo» es una condición
+    return palabras
+
+
+def es_aceptacion_pura(texto: str) -> bool:
+    """True si el mensaje solo acepta, con las palabras que sea: «sí, dale», «perfecto, mandalo» (RF-111).
+
+    Es lo que `armar_pedido` exige cuando la llama el LLM. Es más amplia que `ACEPTACIONES`, que además evita al LLM.
+    """
+    palabras = _palabras_de_aceptacion(texto)
+    return bool(palabras) and any(p in _ACEPTA or p in _ACEPTA_EXPLICITA for p in palabras)
+
+
+def es_aceptacion_explicita(texto: str) -> bool:
+    """True si además de aceptar nombra la confirmación: «confirmalo», «cerralo así» (CA-186)."""
+    palabras = _palabras_de_aceptacion(texto)
+    return bool(palabras) and any(p in _ACEPTA_EXPLICITA for p in palabras)
+
+
 def es_saludo(texto: str) -> bool:
     """True si el mensaje es solo un saludo o un agradecimiento: no nombra productos ni cantidades."""
     palabras = re.findall(r"[a-z]+", _normalizar(texto))

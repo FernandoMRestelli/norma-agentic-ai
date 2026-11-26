@@ -14,6 +14,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from sqlalchemy import delete, func, inspect, select
 
 from internal.agent import tool_registry
+from internal.agent.evidencia import Evidencia
 from internal.agent.norma_agent import NormaAgent
 from internal.config import get_settings
 from internal.database.connection import SessionLocal, init_db, make_engine
@@ -177,6 +178,13 @@ PROPUESTA_CON_NOTAS = _call(
 )
 
 
+LEER_Y_BUSCAR = _ai(
+    _call("leer_skill", nombre="tomar_pedido"),
+    _call("search_products", query="tintura sintetica"),
+    _call("search_products", query="shampoo sintetico"),
+)
+
+
 def _draft(*lineas, draft_id="d-guardado", version=1, conversation_id=None, notes=None) -> OrderDraft:
     return OrderDraft(
         draft_id=draft_id,
@@ -195,7 +203,7 @@ def _draft(*lineas, draft_id="d-guardado", version=1, conversation_id=None, note
 
 def test_orden_se_reconstruye_desde_la_base(catalogo, monkeypatch, caplog):
     """CA-81: desde la base, sin el checkpoint, se reconstruye la orden entera; el nombre no va a los logs."""
-    agent = NormaAgent(ModeloGuionado(_ai(_call("leer_skill", nombre="tomar_pedido")), _ai(PROPUESTA_CON_NOTAS)),
+    agent = NormaAgent(ModeloGuionado(LEER_Y_BUSCAR, _ai(PROPUESTA_CON_NOTAS)),
                        InMemorySaver())
     monkeypatch.setattr(conversation_service, "get_agent", lambda: agent)
     caplog.set_level(logging.DEBUG)
@@ -236,7 +244,7 @@ def session_order_id() -> str:
 
 def test_notas_llegan_a_la_orden_y_al_mensaje(catalogo):
     """CA-82: las notas llegan al borrador, a la orden y a los mensajes que ve el cliente."""
-    agent = NormaAgent(ModeloGuionado(_ai(_call("leer_skill", nombre="tomar_pedido")), _ai(PROPUESTA_CON_NOTAS)),
+    agent = NormaAgent(ModeloGuionado(LEER_Y_BUSCAR, _ai(PROPUESTA_CON_NOTAS)),
                        InMemorySaver())
     propuesta = agent.handle("1", customer_id="telegram:1", channel=Channel.TELEGRAM, text="hola", customer_name=NOMBRE)
     assert propuesta.draft.notes == "Retira el sábado"
@@ -310,6 +318,7 @@ def _responder(vigente, *lineas, descartar=False):
         customer_name=NOMBRE,
         conversation_id=7,
         propuesta=vigente,
+        evidencia=Evidencia(vistos={SKU_SHAMPOO, SKU_TINTURA}),
     )
     args = {
         "kind": "propuesta" if lineas else "informacion",
@@ -597,7 +606,7 @@ def test_observaciones_al_confirmar_llegan_a_notas_de_la_orden(catalogo, monkeyp
     lineas = [{"sku": SKU_SHAMPOO, "quantity": 2}]
     agent = NormaAgent(
         ModeloGuionado(
-            _ai(_call("leer_skill", nombre="tomar_pedido")),
+            LEER_Y_BUSCAR,
             _ai(_call("respond_to_customer", kind="propuesta", message="¿Lo confirmás?", propuesta=lineas)),
             _ai(_call("leer_skill", nombre="tomar_pedido")),
             _ai(_call("leer_br", id="BR-10")),

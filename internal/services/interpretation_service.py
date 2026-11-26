@@ -2,6 +2,7 @@
 
 import re
 import unicodedata
+from collections.abc import Iterable
 from typing import Any
 
 from internal.schemas.agent_schema import ProposedItem, ToolFailure
@@ -22,6 +23,53 @@ _TONO_Y_CANTIDAD = re.compile(r"^(?P<resto>.*[a-z].*?)\s+(?P<tono>\d{1,2}[.,]\d{
 _MARCA_DE_LISTA = re.compile(r"^(?:[-–—•*·]+\s*|\d{1,2}[.)]\s+)")
 # Un renglón que depende del historial o de otro mensaje no es inequívoco
 _DEPENDE_DE_OTRA_COSA = re.compile(r"\b(siempre|mismo|misma|mismos|mismas|anterior|otra vez|igual|ese|esa|eso)\b")
+
+
+# La cantidad cuenta otra cosa que unidades del catálogo, o el número puede ser parte del producto: no se controla
+_CANTIDAD_DUDOSA = re.compile(
+    r"\b(docenas?|doc|media|par|pares|cajas?|packs?|bultos?|displays?|combos?|blisters?|unid\w*|u|cada|todos?|todas?)\b"
+)
+_OTRA_CANTIDAD = re.compile(r"^(?:[ox/+-]|y|de)?\s*\d|^(?:o|y)\b")
+
+
+def depende_de_otra_cosa(texto: str) -> bool:
+    """El cliente se refiere a algo que no nombra: «lo de siempre», «lo mismo que la otra vez»."""
+    return bool(_DEPENDE_DE_OTRA_COSA.search(_minusculas(texto)))
+
+
+_CANTIDADES_EN_LETRAS = {
+    "un": 1, "una": 1, "uno": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5, "seis": 6, "siete": 7, "ocho": 8,
+    "nueve": 9, "diez": 10, "once": 11, "doce": 12, "quince": 15, "veinte": 20, "treinta": 30, "cuarenta": 40,
+    "cincuenta": 50, "cien": 100, "docena": 12, "par": 2,
+}  # fmt: skip
+MAX_CANTIDADES_A_SUMAR = 40
+
+
+def cantidades_dichas(textos: Iterable[str], otras: Iterable[int] = ()) -> set[int]:
+    """Los números que nombró el cliente, en cifras o en letras, y las sumas de a dos («sumale 3» a los 2 que tenía).
+
+    Con docenas, también sus múltiplos. Puede traer medidas: quien la usa las descarta por producto (RF-125).
+    """
+    dichas = set(otras)
+    for texto in textos:
+        limpio = _minusculas(texto)
+        dichas |= {int(n) for n in re.findall(r"\d{1,4}", limpio)}
+        dichas |= {_CANTIDADES_EN_LETRAS[p] for p in re.findall(r"[a-z]+", limpio) if p in _CANTIDADES_EN_LETRAS}
+        if "docena" in limpio:
+            dichas |= {n * 12 for n in dichas} | {6}
+    if len(dichas) <= MAX_CANTIDADES_A_SUMAR:
+        dichas |= {a + b for a in dichas for b in dichas}
+    return dichas
+
+
+def cantidad_inequivoca(renglon: dict[str, Any]) -> int | None:
+    """Las unidades que pide un renglón cuando está escrito de una sola forma posible; None si no (RF-114)."""
+    if renglon.get("unidad") or _CANTIDAD_DUDOSA.search(_minusculas(renglon["texto"])):
+        return None
+    separado = renglon.get("buscar") or separar_renglon(renglon["texto"])
+    if separado is None or _OTRA_CANTIDAD.search(_minusculas(separado["texto"])):
+        return None
+    return separado["cantidad"]
 
 
 def normalize_items(items: list[ProposedItem], renglones: list[dict[str, Any]] | None = None) -> list[OrderItem]:

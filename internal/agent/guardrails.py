@@ -74,6 +74,15 @@ class ContextoTurno:
     # True si en este turno se llamó a `consultar_estado_pedido`
     consulto_estado: bool = False
     rechazos: int = 0  # mensajes ya rechazados en este turno
+    # Todo el texto que vio el LLM: resultados de tools, notas, charla y lo que está en su prompt (RF-120, RF-121).
+    # None: quien llama no lo armó, y esas reglas no se controlan
+    texto_visto: list[str] | None = None
+    dicho_antes: list[str] = field(default_factory=list)  # mensajes anteriores del asistente, que ya pasaron por acá
+
+    def ver(self, datos: Any) -> None:
+        """Suma algo que vio el LLM, si el turno lleva la cuenta."""
+        if self.texto_visto is not None:
+            self.texto_visto.append(datos if isinstance(datos, str) else json.dumps(datos, ensure_ascii=False))
 
 
 def _recorrer(valor: Any, turno: ContextoTurno) -> None:
@@ -100,6 +109,7 @@ def sumar_notas(turno: ContextoTurno, notas: Iterable[dict[str, Any]]) -> Contex
     la precarga y las de los sub-loops, con los faltantes de stock que encontraron (spec del orquestador §3.2)."""
     for nota in notas:
         _recorrer(nota, turno)
+        turno.ver(nota)
         turno.faltantes.update(nota.get("faltantes") or {})
     return turno
 
@@ -119,14 +129,18 @@ def es_aviso(message: AnyMessage) -> bool:
 
 def contexto_turno(messages: Iterable[AnyMessage]) -> ContextoTurno:
     """Junta los SKU, precios y faltantes que vio el LLM en el turno, y cuántas veces se le rechazó el mensaje."""
-    turno = ContextoTurno()
+    turno = ContextoTurno(texto_visto=[])
     for message in messages:
+        if isinstance(message, HumanMessage) and not es_aviso(message):
+            turno.ver(message.text)
         if isinstance(message, ToolMessage):
             try:
                 result = json.loads(message.content)
             except (TypeError, ValueError):
                 continue
             _recorrer(result, turno)
+            if result.get("ok"):  # un error puede repetir lo que inventó el LLM
+                turno.ver(message.content)
             if message.name == "consultar_estado_pedido":
                 turno.consulto_estado = True
                 if result.get("ok"):
@@ -250,7 +264,12 @@ NUMERO_DE_RENGLON = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 
-_MONTO = re.compile(r"\$\s*(\d[\d.,]*)|\b(\d[\d.,]*)\s*(?:pesos|ars)\b")
+# Sin «$» ni «pesos», un número es un monto si lo anuncia un verbo de precio: «sale 1500», no «el de 900»
+_MONTO = re.compile(
+    r"\$\s*(\d[\d.,]*)|\b(\d[\d.,]*)\s*(?:pesos|ars)\b|"
+    r"\b(?:salen?|cuestan?|valen?|precio(?:\s+(?:es|de))?:?)\s+(?:a\s+|de\s+)?(\d{3,}[\d.,]*|\d{1,3}(?:\.\d{3})+)\b"
+    r"(?!\s*(?:ml|cc|l|lts?|litros?|g|gr|grs|gramos|kg|kilos?|vol|unidades|unid|u)\b)"
+)
 
 
 def _a_numero(texto: str) -> int:
@@ -325,6 +344,24 @@ def _stock_real(sku: str) -> int | None:
     return product.stock if product else None
 
 
+def _precios_visibles(turno: ContextoTurno) -> set[Decimal]:
+    """Precios que el LLM conoce sin que una tool los haya devuelto en el turno: los de los productos de su prompt y
+    los que ya le dijo al cliente, que pasaron por este control (RF-120)."""
+    if turno.texto_visto is None:
+        return set()
+    dichos = {
+        monto
+        for texto in turno.dicho_antes
+        for match in _MONTO.finditer(texto.lower())
+        if (monto := _monto(next(filter(None, match.groups())))) is not None
+    }
+    if not turno.skus_del_prompt:
+        return dichos
+    from internal.services import inventory_service
+
+    return dichos | {p.price for p in inventory_service.get_catalog() if p.sku in turno.skus_del_prompt}
+
+
 def _precios_catalogo() -> set[Decimal]:
     from internal.services import inventory_service
 
@@ -341,8 +378,12 @@ def _regla_stock(
         # BR-01: el agente dice cuántas quedan, y ese número es el disponible real
         disponibles = set(turno.faltantes.values())
         skus = [item.sku for item in propuesta.items] if propuesta else []
+        pedidas = {item.sku: item.quantity for item in propuesta.items} if propuesta else {}
         for sku in dict.fromkeys([*skus, *options]):
-            if (stock := _stock_real(sku)) is not None:
+            if (stock := _stock_real(sku)) is None:
+                continue
+            # El número que necesita el cliente es el de lo que se le ofrece entero: el de una alternativa, no (RF-125)
+            if turno.texto_visto is None or pedidas.get(sku) == stock:
                 disponibles.add(stock)
         if any(numero not in disponibles for numero in numeros):
             return Rechazo(
@@ -492,11 +533,11 @@ def _regla_precios(
     montos = [
         monto
         for match in _MONTO.finditer(texto.lower())
-        if (monto := _monto(match.group(1) or match.group(2))) is not None
+        if (monto := _monto(next(filter(None, match.groups())))) is not None
     ]
     if not montos:
         return None
-    unitarios = set(turno.precios)
+    unitarios = set(turno.precios) | _precios_visibles(turno)
     totales: set[Decimal] = set()
     for draft in (propuesta, vigente):
         if draft is None:
@@ -513,7 +554,7 @@ def _regla_precios(
         return any(precio > 0 and monto % precio == 0 and monto / precio <= MAX_QUANTITY for precio in unitarios)
 
     sueltos = [monto for monto in montos if not explicado(monto)]
-    if sueltos:
+    if sueltos and turno.texto_visto is None:
         catalogo = _precios_catalogo()
         sueltos = [monto for monto in sueltos if monto not in catalogo]
     if sueltos:
@@ -592,6 +633,49 @@ def _regla_promesas(normalizado: str, descuento_autorizado: float | Decimal | No
             "promesa",
             f"No prometas {', '.join(temas)}: si el cliente pregunta, decile que no tenés ese dato y que lo confirma "
             "alguien del equipo",
+        )
+    return None
+
+
+_DIMENSIONES_DE_MEDIDA = {"ml", "g", "vol"}
+# «el de 400»: una medida sin unidad. No «el de 12 unidades» ni un monto
+_EL_DE_N = re.compile(r"\b(?:el|la|los|las|otro|otra|uno|una)\s+de\s+(\d{2,4})\b(?!\s*(?:pesos|unid|u\b|%|[.,]\d))")
+
+
+def _regla_medidas(texto: str, propuesta: OrderDraft | None, vigente: OrderDraft | None, turno: ContextoTurno,
+                   options: list[str]) -> Rechazo | None:  # fmt: skip
+    """Una medida del mensaje tiene que estar en algo que vio el LLM: «el de 500» no se ofrece si nadie lo vio."""
+    if turno.texto_visto is None:
+        return None
+    from internal.services import busqueda_service
+
+    mencionadas = {
+        round(numero.base, 3): numero.original
+        for numero in busqueda_service.normalizar(texto).numeros
+        if numero.dimension in _DIMENSIONES_DE_MEDIDA
+    }
+    mencionadas |= {float(n): n for n in _EL_DE_N.findall(_normalizar(texto))}
+    if not mencionadas:
+        return None
+    fuentes = [*turno.texto_visto, *turno.dicho_antes]
+    for draft in (propuesta, vigente):
+        fuentes += [f"{item.product_name} {item.presentation or ''}" for item in draft.items] if draft else []
+    if ofrecidos := set(options) | turno.skus_del_prompt:
+        from internal.services import inventory_service
+
+        productos = (p for p in inventory_service.get_catalog() if p.sku in ofrecidos)
+        fuentes += [f"{p.name} {p.presentation or ''}" for p in productos]
+    vistas = {
+        round(valor, 3)
+        for fuente in fuentes
+        for numero in busqueda_service.normalizar(fuente).numeros
+        for valor in (numero.base, numero.valor)
+    }
+    if sueltas := [original for base, original in mencionadas.items() if base not in vistas]:
+        return Rechazo(
+            "medida_inventada",
+            f"Estas medidas no salen de ninguna búsqueda: {', '.join(sueltas)}. Nombrá solo las que devolvieron las "
+            "tools, o preguntá sin dar números",
         )
     return None
 
@@ -682,6 +766,7 @@ def validar_salida(
             turno.consulto_estado,
         ),
         _regla_precios(message, propuesta, vigente, turno),
+        _regla_medidas(message, propuesta, vigente, turno, options),
         _regla_promesas(normalizado, descuento_autorizado),
         _regla_formato(message),
         _regla_pregunta(message, pendientes or [], kind, options),
