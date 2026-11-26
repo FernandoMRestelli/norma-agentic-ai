@@ -1,14 +1,14 @@
 # Spec: mejoras del agente a partir de la Clase 8 (Software 2.0 y 3.0)
 
-> Documento de diseño: **no implementa nada**. Lee el agente con los conceptos de la Clase 8 de Inteligencia
+> Documento de diseño. Lee el agente con los conceptos de la Clase 8 de Inteligencia
 > Artificial Agéntica («AI Training 2.0 and 3.0») y propone mejoras priorizadas. Cada mejora cita el concepto que
 > la motiva y la evidencia en el código. Si se aprueba, cada mejora se pasa a la [plantilla](_plantilla.md) con
-> sus IDs definitivos.
+> sus IDs definitivos. M8-1 ya está implementado en esta rama (ver su sección).
 
 | | |
 |---|---|
-| Estado | Propuesto |
-| Base | `develop` (`96943c7`, versión 0.2.0). Cita dos ramas que todavía no están en `develop`: `feature/mejoras-del-agente` (D-47 a D-52, grupo `reservado`, `evaluar_busqueda`, tope de tokens) y `feature/benchmark-pedidos-manuscritos` (`docs/benchmark-pedidos-manuscritos.md`) |
+| Estado | M8-1 implementado; M8-2 a M8-8 propuestos |
+| Base | `develop` (`2b64fce`), con `feature/mejoras-del-agente` ya integrada (D-47 a D-52, grupo `reservado`, `evaluar_busqueda`, tope de tokens). Cita `feature/benchmark-pedidos-manuscritos` (`docs/benchmark-pedidos-manuscritos.md`), que todavía no está en `develop` |
 | IDs | Provisorios: `M8-1` a `M8-8`. Los RF, CA y D se reservan cuando se apruebe, después de los que usa `feature/mejoras-del-agente` |
 | Fuente de la clase | Resumen de la Clase 8, secciones 4 a 6, 10, 11.2, 11.3 y 13 |
 
@@ -122,6 +122,16 @@ formas de leakage de Kapoor y Narayanan tienen su versión acá:
 - `evaluar_agente --set pedidos` reporta `desarrollo` y `reservado` por separado, con intervalo por caso, y
   `fuera_de_umbral` usa solo `reservado`.
 - Hay al menos tantos casos `reservado` como de `desarrollo` en `pedidos`.
+
+**Implementado.** Los puntos 1, 2, 3, 4 y 6; el 5 (partir el vocabulario) queda para cuando haya más casos.
+
+| Punto | Cómo quedó |
+|---|---|
+| 1. Grupo reservado | Cada caso de `mensajes.json` y `pedidos_evaluacion.json` dice su `grupo`. Los de antes pasan a `desarrollo`. Los reservados (18 de `mensajes` y 13 de `pedidos`, contra 32 y 11 de desarrollo) salen de `tests/casos_reservados.py`, con una semilla propia: los mismos tipos de pedido con otras marcas, otros productos y formas de escribir sorteadas (abreviaturas, errores de tipeo, medidas). Un test exige que el archivo sea la salida del generador: si alguien ajusta algo mirando un reservado, se cambia la semilla y se regeneran todos con `python -m tests.casos_reservados` |
+| 2. RNF-15 sobre lo reservado | `fuera_de_umbral` recibe las métricas de `reservado` (`GRUPO_DEL_UMBRAL`). Con los dos grupos en la corrida, una tabla los muestra lado a lado con la diferencia. Sin casos reservados en la corrida (`--grupo desarrollo`), RNF-15 no se mide y la corrida lo dice. La salida `.json` y MLflow traen las métricas de cada grupo (`reservado_recall_lineas_pct`, etc.) |
+| 3. Ejemplos de los prompts | Los ejemplos de `system_prompt.md`, `sub_loop.md`, `tomar_pedido` (`skill.md`, `respuesta.md`, BR-05, BR-09, BR-10), BR-06, BR-08 y `derivar_o_cancelar` usan marcas inventadas que no están en ningún catálogo (Corvana, Tessaly, Marvane, Lazzia) y otras medidas, tonos y frases. Esto también cubre el punto 2 de M8-6 |
+| 4. Control en CI | `tests/test_contaminacion.py`. Encontró dos filtraciones que ya estaban en los sets de `feature/mejoras-del-agente`: la consulta reservada `necesidad-02` («tenés algo para rulos?») era igual al adversarial de desarrollo `necesidad-sin-producto`, y el adversarial reservado `medida-que-no-existe` repetía la consulta de desarrollo `medida_inexistente-01`. Se reescribieron los dos reservados |
+| 6. Intervalos por caso | `intervalo_por_casos` remuestrea casos enteros, con todas sus líneas y repeticiones (2000 veces, semilla fija). La corrida informa el intervalo del recall y de la precisión, y avisa si el intervalo de lo reservado incluye el umbral (`umbral_sin_decidir`) |
 
 ### M8-2 · Los hechos los escribe el código
 
@@ -325,14 +335,15 @@ calcula la evidencia para rechazar; la mejora la guarda.
 
 | ID | Riesgo o pregunta | Estado |
 |---|---|---|
-| D-M8-1 | Umbral de parecido entre casos de grupos distintos (M8-1). Con uno muy bajo, todo pedido de shampoo se parece a otro; arrancar con n-gramas de 3 palabras y ajustar | Abierta |
+| D-M8-1 | Umbral de parecido entre casos de grupos distintos (M8-1). Con uno muy bajo, todo pedido de shampoo se parece a otro; arrancar con n-gramas de 3 palabras y ajustar | Decidida para arrancar: n-gramas de 3 palabras que no cruzan renglones ni signos; se ignoran los que tienen dos palabras de función o más («con una persona», «la cantidad a»), que no dicen de qué caso salieron. Dos casos del mismo catálogo y de grupos distintos son el mismo si el parecido de Jaccard de sus n-gramas pasa 0,5 (los textos de menos de tres palabras, solo si son iguales). Se revisa si el control frena casos que no se copian |
 | D-M8-2 | ¿El negocio tiene carta de tonos por línea, o una convención para «821»? Sin eso, M8-3 solo resuelve los casos sin ambigüedad y pregunta el resto | Abierta, la responde el negocio |
 | D-M8-3 | ¿Se pueden usar las conversaciones de prueba del equipo (`data/norma.db`) como fuente de M8-7? AGENTS.md permite leerlas para depurar, pero no copiar su contenido a commits. Una abreviatura genérica («acond») no es un dato personal; propuesta: solo de los sets ficticios hasta que el equipo decida | Abierta |
 | R-1 | Escribir casos `reservado` cuesta, y cada vez que alguien ajusta mirando uno hay que reemplazarlo (D-50). Sin disciplina, lo reservado se contamina en pocas iteraciones | Riesgo |
 | R-2 | Mover texto del modelo a plantillas (M8-2) puede hacer que los mensajes suenen más rígidos. Se mide con los chequeos de estilo y leyendo conversaciones (`--conversaciones`) | Riesgo |
 | R-3 | Un modelo más barato en el sub-loop puede perder renglones de forma silenciosa. La nota se valida (`nota.py`), pero un renglón mal resuelto con un SKU válido pasa. Por eso M8-4 depende de M8-1 | Riesgo |
 | R-4 | Con 11 casos de `pedidos`, ninguna comparación entre modelos o prompts va a ser concluyente. Hace falta escalar el set (por ejemplo, con el generador de `datos_sinteticos.py`) antes de cerrar D-38 o D-28 | Riesgo |
-| R-5 | Esta spec se apoya en `feature/mejoras-del-agente` y en `feature/benchmark-pedidos-manuscritos`, que no están en `develop`. Si la primera cambia D-48 o D-50, hay que revisar M8-1 y M8-8 | Riesgo |
+| R-5 | Esta spec se apoya en `feature/benchmark-pedidos-manuscritos`, que no está en `develop`. `feature/mejoras-del-agente` ya se integró | Riesgo |
+| R-6 | Los reservados de `mensajes` y `pedidos` salen de plantillas escritas en la misma rama que reescribió los ejemplos de los prompts. El control de CI garantiza que no comparten frases, pero no que las plantillas no sigan, sin querer, el estilo de los prompts. La primera corrida con LLM real dice cuánto separa a los dos grupos | Riesgo |
 
 ---
 

@@ -1,6 +1,7 @@
 [
   {
     "id": "lista-por-marca-clara",
+    "grupo": "desarrollo",
     "descripcion": "Lista agrupada por dos marcas, doce renglones, todo con medida: una propuesta con las doce líneas",
     "mensaje": {
       "customer_id": "cli-101",
@@ -64,6 +65,7 @@
   },
   {
     "id": "lista-con-abreviaturas-y-errores",
+    "grupo": "desarrollo",
     "descripcion": "Marcas y productos mal escritos, abreviaturas y sinónimos del rubro: se resuelven sin preguntar",
     "mensaje": {
       "customer_id": "cli-102",
@@ -119,6 +121,7 @@
   },
   {
     "id": "coloracion-tono-cantidad",
+    "grupo": "desarrollo",
     "descripcion": "Coloración en notación tono/cantidad debajo de la marca (V-01): una línea por tono, con el tono en la nota",
     "mensaje": {
       "customer_id": "cli-103",
@@ -162,6 +165,7 @@
   },
   {
     "id": "lista-con-fuera-de-catalogo",
+    "grupo": "desarrollo",
     "descripcion": "Tres renglones no se pueden armar: una marca que no existe y dos marcas que no trabajan esa categoría. Propone el resto y avisa cuáles quedaron afuera",
     "mensaje": {
       "customer_id": "cli-104",
@@ -198,6 +202,7 @@
   },
   {
     "id": "lista-con-dudas-de-medida",
+    "grupo": "desarrollo",
     "descripcion": "Tres renglones no dicen la medida y el catálogo tiene varias: propone lo claro y pregunta las tres dudas juntas",
     "mensaje": {
       "customer_id": "cli-105",
@@ -249,6 +254,7 @@
   },
   {
     "id": "lista-larga-30-renglones",
+    "grupo": "desarrollo",
     "descripcion": "Treinta renglones de cinco marcas, todos claros: ninguno se pierde",
     "mensaje": {
       "customer_id": "cli-106",
@@ -384,6 +390,7 @@
   },
   {
     "id": "pedido-en-dos-mensajes",
+    "grupo": "desarrollo",
     "descripcion": "El pedido llega en dos mensajes: el segundo suma renglones a la propuesta del primero",
     "previo": [
       "Silkara\n2 sh nutricion 900\n2 acond nutricion 900\n1 mascara nutricion 1k"
@@ -426,6 +433,7 @@
   },
   {
     "id": "lista-y-acepta",
+    "grupo": "desarrollo",
     "descripcion": "Lista de ocho renglones y después «dale»: registra las ocho líneas",
     "previo": [
       "Belkor\n2 sh color 900\n2 acond color 900\n1 mascara argan 250\n3 oxidante 40 vol 900\nTrevia\n2 crema de peinar\n1 spray brillo\n1 serum puntas\n2 ampolla"
@@ -476,6 +484,7 @@
   },
   {
     "id": "lista-con-stock-corto",
+    "grupo": "desarrollo",
     "descripcion": "De un renglón quedan 3 y pide 5, y otro está agotado: ofrece las 3, deja afuera el agotado y propone el resto",
     "mensaje": {
       "customer_id": "cli-109",
@@ -532,6 +541,7 @@
   },
   {
     "id": "lista-y-rechaza",
+    "grupo": "desarrollo",
     "descripcion": "Recibe la propuesta y la rechaza: no se registra nada",
     "previo": [
       "Lumine\n2 sh keratina 300\n2 acond keratina 300\n1 serum puntas"
@@ -548,6 +558,7 @@
   },
   {
     "id": "lista-larga-con-todo",
+    "grupo": "desarrollo",
     "descripcion": "Veintitrés renglones con errores de tipeo, una duda de medida y un producto que no existe: propone los veintiuno claros, pregunta la duda y avisa lo que quedó afuera",
     "mensaje": {
       "customer_id": "cli-111",
@@ -655,6 +666,793 @@
       "afuera": [
         "1 planchita"
       ]
+    }
+  },
+  {
+    "id": "res-lista-clara-1",
+    "grupo": "reservado",
+    "descripcion": "Lista de 12 renglones en 2 marcas, todos con medida: una propuesta con todas",
+    "mensaje": {
+      "customer_id": "cli-res-lista-clara-1",
+      "channel": "telegram",
+      "type": "text",
+      "text": "nordica\n1 enjuague queratina 900\n5 champu keratina 5l\n5 brillo en spray\n6 masc argan 1 kilo\n3 shamp matiz x300\n3 crema peinar rulos\nORKIDEA\n1 acondi nutricion x900\n4 shamp keratina 900ml\n1 protector de calor\n6 masc nutrición de kilo\n1 mascara argan x 250 gr\n6 bano de crema karite"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "NOR-AC-KER-900",
+          "cantidad": 1
+        },
+        {
+          "sku": "NOR-SH-KER-5L",
+          "cantidad": 5
+        },
+        {
+          "sku": "NOR-FI-SPR-250",
+          "cantidad": 5
+        },
+        {
+          "sku": "NOR-MA-ARG-1K",
+          "cantidad": 6
+        },
+        {
+          "sku": "NOR-SH-MAT-300",
+          "cantidad": 3
+        },
+        {
+          "sku": "NOR-FI-CPR-300",
+          "cantidad": 3
+        },
+        {
+          "sku": "ORK-AC-NUT-900",
+          "cantidad": 1
+        },
+        {
+          "sku": "ORK-SH-KER-900",
+          "cantidad": 4
+        },
+        {
+          "sku": "ORK-CU-PRO-250",
+          "cantidad": 1
+        },
+        {
+          "sku": "ORK-MA-NUT-1K",
+          "cantidad": 6
+        },
+        {
+          "sku": "ORK-MA-ARG-250",
+          "cantidad": 1
+        },
+        {
+          "sku": "ORK-BA-KAR-1K",
+          "cantidad": 6
+        }
+      ]
+    }
+  },
+  {
+    "id": "res-lista-clara-2",
+    "grupo": "reservado",
+    "descripcion": "Lista de 11 renglones en 3 marcas, todos con medida: una propuesta con todas",
+    "mensaje": {
+      "customer_id": "cli-res-lista-clara-2",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "montello\n1 capa de corte\n1 pincel para tintura\n1 peine\n5 aluminio\nORKIDEA\n4 máscara argán 1k\n1 sh argan x900\n4 enjuague queratina 300\n1 acondi color x900\nsilkara\n5 acond nutricion 900\n5 ampollas reparadoras\n4 sh argan 300"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "MON-AX-CAP",
+          "cantidad": 1
+        },
+        {
+          "sku": "MON-AX-PIN",
+          "cantidad": 1
+        },
+        {
+          "sku": "MON-AX-PEI",
+          "cantidad": 1
+        },
+        {
+          "sku": "MON-AX-ALU-5K",
+          "cantidad": 5
+        },
+        {
+          "sku": "ORK-MA-ARG-1K",
+          "cantidad": 4
+        },
+        {
+          "sku": "ORK-SH-ARG-900",
+          "cantidad": 1
+        },
+        {
+          "sku": "ORK-AC-KER-300",
+          "cantidad": 4
+        },
+        {
+          "sku": "ORK-AC-COL-900",
+          "cantidad": 1
+        },
+        {
+          "sku": "SIL-AC-NUT-900",
+          "cantidad": 5
+        },
+        {
+          "sku": "SIL-CU-AMP-15",
+          "cantidad": 5
+        },
+        {
+          "sku": "SIL-SH-ARG-300",
+          "cantidad": 4
+        }
+      ]
+    }
+  },
+  {
+    "id": "res-lista-clara-3",
+    "grupo": "reservado",
+    "descripcion": "Lista de 16 renglones en 2 marcas, todos con medida: una propuesta con todas",
+    "mensaje": {
+      "customer_id": "cli-res-lista-clara-3",
+      "channel": "telegram",
+      "type": "text",
+      "text": "KAPRIS\n2 mascarilla queratina x 250 gr\n6 acondi color 300ml\n4 shamp nutrición 300\n6 sh queratina 5l\n1 champu matizador 300ml\n5 baño crema karite\n5 masc queratina 1 kilo\n5 shamp color x 900\nLUMINE\n1 shamp color bidon 5l\n4 acondi queratina 300ml\n6 sérum de puntas\n6 gel\n3 sh nutrición bidon 5l\n1 crema de peinar\n5 acondicionador queratina 900ml\n6 champu color 900ml"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "KAP-MA-KER-250",
+          "cantidad": 2
+        },
+        {
+          "sku": "KAP-AC-COL-300",
+          "cantidad": 6
+        },
+        {
+          "sku": "KAP-SH-NUT-300",
+          "cantidad": 4
+        },
+        {
+          "sku": "KAP-SH-KER-5L",
+          "cantidad": 6
+        },
+        {
+          "sku": "KAP-SH-MAT-300",
+          "cantidad": 1
+        },
+        {
+          "sku": "KAP-BA-KAR-1K",
+          "cantidad": 5
+        },
+        {
+          "sku": "KAP-MA-KER-1K",
+          "cantidad": 5
+        },
+        {
+          "sku": "KAP-SH-COL-900",
+          "cantidad": 5
+        },
+        {
+          "sku": "LUM-SH-COL-5L",
+          "cantidad": 1
+        },
+        {
+          "sku": "LUM-AC-KER-300",
+          "cantidad": 4
+        },
+        {
+          "sku": "LUM-FI-SER-60",
+          "cantidad": 6
+        },
+        {
+          "sku": "LUM-FI-GEL-500",
+          "cantidad": 6
+        },
+        {
+          "sku": "LUM-SH-NUT-5L",
+          "cantidad": 3
+        },
+        {
+          "sku": "LUM-FI-CPR-300",
+          "cantidad": 1
+        },
+        {
+          "sku": "LUM-AC-KER-900",
+          "cantidad": 5
+        },
+        {
+          "sku": "LUM-SH-COL-900",
+          "cantidad": 6
+        }
+      ]
+    }
+  },
+  {
+    "id": "res-lista-larga",
+    "grupo": "reservado",
+    "descripcion": "Lista larga de 31 renglones en cinco marcas, todos claros: ninguno se pierde",
+    "mensaje": {
+      "customer_id": "cli-res-lista-larga",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "FIORELA\n5 oxidante 20 volumenes 90ml\n2 champu argán x300\n6 protector termico\n4 oxi 10 volumenes x90\n6 shampoo argan bidon 5l\n6 máscara keratina x 250 gr\nNordika\n2 champu color x 900\n5 acond queratina 300ml\n4 deco sachet\n5 acondicionador color x 900\n5 champu matiz 900ml\n2 sh nutricion 900\n3 shampoo nutricion x300\nlumine\n4 enjuague keratina x900\n1 champu keratina x 300\n6 acond nutricion x 300\n1 shamp matizador x 900\n4 masc nutricion de kilo\nkapris\n3 champu matizador 5l\n4 shampoo argán x 300\n1 oxidante 10 volumenes x 900\n2 máscara keratina 1 kilo\n2 oxidante 30vol 90ml\n4 oxidante 20 vol 900ml\nORKIDEA\n6 ampollas reparadoras\n5 bano de crema de coco\n5 champu nutrición x 900\n3 sh queratina 300ml\n3 acondi keratina 900ml\n2 enjuague color x 300\n4 gel"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "FIO-OX-20-90",
+          "cantidad": 5
+        },
+        {
+          "sku": "FIO-SH-ARG-300",
+          "cantidad": 2
+        },
+        {
+          "sku": "FIO-CU-PRO-250",
+          "cantidad": 6
+        },
+        {
+          "sku": "FIO-OX-10-90",
+          "cantidad": 4
+        },
+        {
+          "sku": "FIO-SH-ARG-5L",
+          "cantidad": 6
+        },
+        {
+          "sku": "FIO-MA-KER-250",
+          "cantidad": 6
+        },
+        {
+          "sku": "NOR-SH-COL-900",
+          "cantidad": 2
+        },
+        {
+          "sku": "NOR-AC-KER-300",
+          "cantidad": 5
+        },
+        {
+          "sku": "NOR-DE-50",
+          "cantidad": 4
+        },
+        {
+          "sku": "NOR-AC-COL-900",
+          "cantidad": 5
+        },
+        {
+          "sku": "NOR-SH-MAT-900",
+          "cantidad": 5
+        },
+        {
+          "sku": "NOR-SH-NUT-900",
+          "cantidad": 2
+        },
+        {
+          "sku": "NOR-SH-NUT-300",
+          "cantidad": 3
+        },
+        {
+          "sku": "LUM-AC-KER-900",
+          "cantidad": 4
+        },
+        {
+          "sku": "LUM-SH-KER-300",
+          "cantidad": 1
+        },
+        {
+          "sku": "LUM-AC-NUT-300",
+          "cantidad": 6
+        },
+        {
+          "sku": "LUM-SH-MAT-900",
+          "cantidad": 1
+        },
+        {
+          "sku": "LUM-MA-NUT-1K",
+          "cantidad": 4
+        },
+        {
+          "sku": "KAP-SH-MAT-5L",
+          "cantidad": 3
+        },
+        {
+          "sku": "KAP-SH-ARG-300",
+          "cantidad": 4
+        },
+        {
+          "sku": "KAP-OX-10-900",
+          "cantidad": 1
+        },
+        {
+          "sku": "KAP-MA-KER-1K",
+          "cantidad": 2
+        },
+        {
+          "sku": "KAP-OX-30-90",
+          "cantidad": 2
+        },
+        {
+          "sku": "KAP-OX-20-900",
+          "cantidad": 4
+        },
+        {
+          "sku": "ORK-CU-AMP-15",
+          "cantidad": 6
+        },
+        {
+          "sku": "ORK-BA-COC-1K",
+          "cantidad": 5
+        },
+        {
+          "sku": "ORK-SH-NUT-900",
+          "cantidad": 5
+        },
+        {
+          "sku": "ORK-SH-KER-300",
+          "cantidad": 3
+        },
+        {
+          "sku": "ORK-AC-KER-900",
+          "cantidad": 3
+        },
+        {
+          "sku": "ORK-AC-COL-300",
+          "cantidad": 2
+        },
+        {
+          "sku": "ORK-FI-GEL-500",
+          "cantidad": 4
+        }
+      ]
+    }
+  },
+  {
+    "id": "res-dudas-de-medida-1",
+    "grupo": "reservado",
+    "descripcion": "3 renglones sin medida de productos que vienen en varias: propone lo claro y pregunta las dudas juntas",
+    "mensaje": {
+      "customer_id": "cli-res-dudas-de-medida-1",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "orkidea\n4 máscara argán x1kg\n5 acondi argán x300\n4 enjuague keratina\n1 sh color\nFIORELA\n5 shampoo color x300\n5 spray brillo\n3 máscara argán 250g\n1 ox 10 vol"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "ORK-MA-ARG-1K",
+          "cantidad": 4
+        },
+        {
+          "sku": "ORK-AC-ARG-300",
+          "cantidad": 5
+        },
+        {
+          "sku": "FIO-SH-COL-300",
+          "cantidad": 5
+        },
+        {
+          "sku": "FIO-FI-SPR-250",
+          "cantidad": 5
+        },
+        {
+          "sku": "FIO-MA-ARG-250",
+          "cantidad": 3
+        }
+      ],
+      "dudas": [
+        {
+          "renglon": "4 enjuague keratina",
+          "opciones": [
+            "ORK-AC-KER-300",
+            "ORK-AC-KER-900"
+          ]
+        },
+        {
+          "renglon": "1 sh color",
+          "opciones": [
+            "ORK-SH-COL-300",
+            "ORK-SH-COL-900",
+            "ORK-SH-COL-5L"
+          ]
+        },
+        {
+          "renglon": "1 ox 10 vol",
+          "opciones": [
+            "FIO-OX-10-90",
+            "FIO-OX-10-900"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "res-dudas-de-medida-2",
+    "grupo": "reservado",
+    "descripcion": "3 renglones sin medida de productos que vienen en varias: propone lo claro y pregunta las dudas juntas",
+    "mensaje": {
+      "customer_id": "cli-res-dudas-de-medida-2",
+      "channel": "telegram",
+      "type": "text",
+      "text": "Orkidea\n1 shamp argan x 900\n4 crema de peinar\n3 máscara argán x1kg\n1 shampoo color\n3 mascarilla nutrición\nFiorela\n6 oxidante 30vol 90ml\n6 sh argán bidon 5l\n3 mascara argan 1 kilo\n2 sh matiz 300ml\n3 oxi 20vol"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "ORK-SH-ARG-900",
+          "cantidad": 1
+        },
+        {
+          "sku": "ORK-FI-CPR-300",
+          "cantidad": 4
+        },
+        {
+          "sku": "ORK-MA-ARG-1K",
+          "cantidad": 3
+        },
+        {
+          "sku": "FIO-OX-30-90",
+          "cantidad": 6
+        },
+        {
+          "sku": "FIO-SH-ARG-5L",
+          "cantidad": 6
+        },
+        {
+          "sku": "FIO-MA-ARG-1K",
+          "cantidad": 3
+        },
+        {
+          "sku": "FIO-SH-MAT-300",
+          "cantidad": 2
+        }
+      ],
+      "dudas": [
+        {
+          "renglon": "1 shampoo color",
+          "opciones": [
+            "ORK-SH-COL-300",
+            "ORK-SH-COL-900",
+            "ORK-SH-COL-5L"
+          ]
+        },
+        {
+          "renglon": "3 mascarilla nutrición",
+          "opciones": [
+            "ORK-MA-NUT-250",
+            "ORK-MA-NUT-1K"
+          ]
+        },
+        {
+          "renglon": "3 oxi 20vol",
+          "opciones": [
+            "FIO-OX-20-90",
+            "FIO-OX-20-900"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "res-fuera-de-catalogo-1",
+    "grupo": "reservado",
+    "descripcion": "Dos marcas con un producto que no trabajan y una marca que no existe: propone el resto y avisa lo que quedó afuera",
+    "mensaje": {
+      "customer_id": "cli-res-fuera-de-catalogo-1",
+      "channel": "telegram",
+      "type": "text",
+      "text": "orkidea\n4 sh argán x 900\n2 brillo en spray\n1 shampoo queratina x 900\n3 polvo decolorante 700\nbrisa\n2 acondicionador nutrición x 900\n1 acondicionador queratina 900ml\n3 tintura\nOndessa\n3 shampoo"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "ORK-SH-ARG-900",
+          "cantidad": 4
+        },
+        {
+          "sku": "ORK-FI-SPR-250",
+          "cantidad": 2
+        },
+        {
+          "sku": "ORK-SH-KER-900",
+          "cantidad": 1
+        },
+        {
+          "sku": "BRI-AC-NUT-900",
+          "cantidad": 2
+        },
+        {
+          "sku": "BRI-AC-KER-900",
+          "cantidad": 1
+        }
+      ],
+      "afuera": [
+        "3 polvo decolorante 700",
+        "3 tintura",
+        "3 shampoo"
+      ]
+    }
+  },
+  {
+    "id": "res-fuera-de-catalogo-2",
+    "grupo": "reservado",
+    "descripcion": "Dos marcas con un producto que no trabajan y una marca que no existe: propone el resto y avisa lo que quedó afuera",
+    "mensaje": {
+      "customer_id": "cli-res-fuera-de-catalogo-2",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "FIORELA\n1 masc nutrición x250\n3 oxidante 30 vol 90\n2 champu color 300ml\n4 capa de corte\nBrisa\n4 acond color x 900\n5 shamp argan 5 litros\n6 champu argan 900\n1 shampoo color 5 litros\n4 tintura\nOndessa\n2 shampoo"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "FIO-MA-NUT-250",
+          "cantidad": 1
+        },
+        {
+          "sku": "FIO-OX-30-90",
+          "cantidad": 3
+        },
+        {
+          "sku": "FIO-SH-COL-300",
+          "cantidad": 2
+        },
+        {
+          "sku": "BRI-AC-COL-900",
+          "cantidad": 4
+        },
+        {
+          "sku": "BRI-SH-ARG-5L",
+          "cantidad": 5
+        },
+        {
+          "sku": "BRI-SH-ARG-900",
+          "cantidad": 6
+        },
+        {
+          "sku": "BRI-SH-COL-5L",
+          "cantidad": 1
+        }
+      ],
+      "afuera": [
+        "4 capa de corte",
+        "4 tintura",
+        "2 shampoo"
+      ]
+    }
+  },
+  {
+    "id": "res-coloracion-tono-cantidad",
+    "grupo": "reservado",
+    "descripcion": "Coloración en tono/cantidad debajo de la marca: una línea por tono, con el tono en la nota",
+    "mensaje": {
+      "customer_id": "cli-res-coloracion-tono-cantidad",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "Argania\ntinturas\n54/1\n53/3\n45/3\n63/1\n67/2\n5 ox 10 volumenes x 900\n4 ox 20vol x 900"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "ARG-CO-60",
+          "cantidad": 1,
+          "nota": "tono 5.4"
+        },
+        {
+          "sku": "ARG-CO-60",
+          "cantidad": 3,
+          "nota": "tono 5.3"
+        },
+        {
+          "sku": "ARG-CO-60",
+          "cantidad": 3,
+          "nota": "tono 4.5"
+        },
+        {
+          "sku": "ARG-CO-60",
+          "cantidad": 1,
+          "nota": "tono 6.3"
+        },
+        {
+          "sku": "ARG-CO-60",
+          "cantidad": 2,
+          "nota": "tono 6.7"
+        },
+        {
+          "sku": "ARG-OX-10-900",
+          "cantidad": 5
+        },
+        {
+          "sku": "ARG-OX-20-900",
+          "cantidad": 4
+        }
+      ]
+    }
+  },
+  {
+    "id": "res-stock-corto",
+    "grupo": "reservado",
+    "descripcion": "De un renglón queda menos de lo que pide y otro está agotado: ofrece lo que queda, deja afuera el agotado y propone el resto",
+    "mensaje": {
+      "customer_id": "cli-res-stock-corto",
+      "channel": "telegram",
+      "type": "text",
+      "text": "kapris\n6 deco 700\n6 shamp keratina 900\n3 protector de calor\nfiorela\n4 oxi 30 volumenes x 900\n1 baño crema karite\n1 enjuague argan x300"
+    },
+    "esperado": {
+      "resultado": "sin_stock",
+      "items": [
+        {
+          "sku": "KAP-DE-700",
+          "cantidad": 6
+        },
+        {
+          "sku": "KAP-SH-KER-900",
+          "cantidad": 6
+        },
+        {
+          "sku": "KAP-CU-PRO-250",
+          "cantidad": 3
+        },
+        {
+          "sku": "FIO-OX-30-900",
+          "cantidad": 4
+        },
+        {
+          "sku": "FIO-BA-KAR-1K",
+          "cantidad": 1
+        },
+        {
+          "sku": "FIO-AC-ARG-300",
+          "cantidad": 1
+        }
+      ],
+      "afuera": [
+        "4 oxi 30 volumenes x 900"
+      ],
+      "propuesta": [
+        {
+          "sku": "KAP-DE-700",
+          "cantidad": 2
+        },
+        {
+          "sku": "KAP-SH-KER-900",
+          "cantidad": 6
+        },
+        {
+          "sku": "KAP-CU-PRO-250",
+          "cantidad": 3
+        },
+        {
+          "sku": "FIO-BA-KAR-1K",
+          "cantidad": 1
+        },
+        {
+          "sku": "FIO-AC-ARG-300",
+          "cantidad": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "res-pedido-en-dos-mensajes",
+    "grupo": "reservado",
+    "descripcion": "El segundo mensaje suma renglones a la propuesta del primero",
+    "previo": [
+      "Kapris\n3 acondi color 300ml\n5 champu argán bidon 5l\n5 baño de crema karite"
+    ],
+    "mensaje": {
+      "customer_id": "cli-res-pedido-en-dos-mensajes",
+      "channel": "telegram",
+      "type": "text",
+      "text": "agregale\nbelcor\n6 crema de peinar\n3 acond color 900\nFIORELA\n3 acond color x 300\n1 crema para rulos\n5 oxi 20vol x900"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "KAP-AC-COL-300",
+          "cantidad": 3
+        },
+        {
+          "sku": "KAP-SH-ARG-5L",
+          "cantidad": 5
+        },
+        {
+          "sku": "KAP-BA-KAR-1K",
+          "cantidad": 5
+        },
+        {
+          "sku": "BEL-FI-CPR-300",
+          "cantidad": 6
+        },
+        {
+          "sku": "BEL-AC-COL-900",
+          "cantidad": 3
+        },
+        {
+          "sku": "FIO-AC-COL-300",
+          "cantidad": 3
+        },
+        {
+          "sku": "FIO-FI-CPR-300",
+          "cantidad": 1
+        },
+        {
+          "sku": "FIO-OX-20-900",
+          "cantidad": 5
+        }
+      ]
+    }
+  },
+  {
+    "id": "res-lista-y-acepta",
+    "grupo": "reservado",
+    "descripcion": "Lista de 6 renglones y una aceptación: registra todas las líneas",
+    "previo": [
+      "brisa\n1 shampoo color 900ml\n3 champu nutricion 5 litros\n6 shampoo matiz 900ml\nLumine\n1 shampoo matizador x 300\n4 serum puntas\n3 mascara argan x 250 gr"
+    ],
+    "mensaje": {
+      "customer_id": "cli-res-lista-y-acepta",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "de una"
+    },
+    "esperado": {
+      "resultado": "pedido",
+      "items": [
+        {
+          "sku": "BRI-SH-COL-900",
+          "cantidad": 1
+        },
+        {
+          "sku": "BRI-SH-NUT-5L",
+          "cantidad": 3
+        },
+        {
+          "sku": "BRI-SH-MAT-900",
+          "cantidad": 6
+        },
+        {
+          "sku": "LUM-SH-MAT-300",
+          "cantidad": 1
+        },
+        {
+          "sku": "LUM-FI-SER-60",
+          "cantidad": 4
+        },
+        {
+          "sku": "LUM-MA-ARG-250",
+          "cantidad": 3
+        }
+      ]
+    }
+  },
+  {
+    "id": "res-lista-y-rechaza",
+    "grupo": "reservado",
+    "descripcion": "Recibe la propuesta y la rechaza: no se registra nada",
+    "previo": [
+      "kapris\n6 sh nutrición bidon 5l\n6 crema para rulos\n3 ox 40 volumenes x 900"
+    ],
+    "mensaje": {
+      "customer_id": "cli-res-lista-y-rechaza",
+      "channel": "telegram",
+      "type": "text",
+      "text": "uh no, cancelá que ya conseguí"
+    },
+    "esperado": {
+      "resultado": "sin_pedido"
     }
   }
 ]

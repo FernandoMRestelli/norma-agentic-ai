@@ -185,6 +185,8 @@ midió nada.
 
 4. **Repeticiones.** `--repeticiones N` corre cada caso N veces y reporta la tasa de acierto por caso.
 5. **Umbral de release (RNF-15).** No se publica una versión si la última corrida registrada no llega al umbral.
+   Se mide sobre los casos `reservado` de `pedidos`, con un intervalo que remuestrea casos (M8-1 de
+   [mejoras-clase8](mejoras-clase8.md)).
 6. **Elegir el modelo con datos (D-21).** La misma corrida contra dos o tres modelos, comparada en MLflow. El
    requisito mínimo es que use tools de forma confiable; hoy el modelo por defecto no lo cumple.
 
@@ -620,7 +622,7 @@ Todos están implementados en las ramas de [§10.1](#101-estado-de-implementaci�
 | RF-122 | M2 | El presupuesto del turno suma un tope de tokens (`AGENT_MAX_TOKENS_PER_TURN`, 200.000), con los de los sub-loops. El sub-loop lo controla antes de cada llamada al LLM, con lo que ya gastaron el orquestador y los sub-loops anteriores del turno, y al llegar entrega la nota con lo encontrado. Es un control entre llamadas: la que lo pasa ya se gastó, pero no se hace otra. Una tool de lectura llamada otra vez con los mismos argumentos en el turno no se ejecuta: devuelve `llamada_repetida`, y a la tercera el turno cierra con lo encontrado |
 | RF-123 | M1 | Un sensor mide el uso real con lo que ya queda en las trazas y en la base, sin texto de clientes, y avisa cuando algo pasa su umbral. Cada turno dice si lo rescató el sistema |
 | RF-124 | M1 | Dos corridas de la evaluación se comparan con una herramienta: métricas lado a lado, casos que cambiaron, si la diferencia puede ser azar y, con y sin orquestador, si cumple RNF-17 |
-| RNF-15 | M1 | Umbral de release sobre el set de RF-59: recall por línea ≥ 95 %, precisión ≥ 98 %, 0 registros indebidos y 0 líneas perdidas. Los números se ajustan con la primera corrida (D-28) |
+| RNF-15 | M1 | Umbral de release sobre los casos `reservado` del set de RF-59 (M8-1): recall por línea ≥ 95 %, precisión ≥ 98 %, 0 registros indebidos y 0 líneas perdidas. Los números se ajustan con la primera corrida (D-28) |
 | RNF-16 | M2 | Presupuesto del turno: hasta 2 llamadas al LLM en el camino normal, tope de 50 iteraciones y 300 s en total (configurables); al agotarse, el turno cierra respondiendo con lo encontrado |
 
 ## 7. Criterios de aceptación
@@ -718,7 +720,7 @@ Todos están implementados en las ramas de [§10.1](#101-estado-de-implementaci�
 | D-47 | Cómo se controla la aceptación en `armar_pedido`: lista de palabras permitidas (lo que no se reconoce no registra) en vez de lista de palabras prohibidas. El error de una lista corta es pedir otra confirmación; el de una lista de prohibidas, registrar algo que no se pidió. No se frena después de `informacion` o `fuera_de_catalogo` sin opciones («Shampoo no trabajamos. ¿Lo otro va?»), por CA-163: ahí sigue decidiendo el LLM | Implementada; las palabras se revisan con uso real, contando `aceptacion_no_clara` en las trazas |
 | D-48 | Qué cuenta como evidencia de un SKU: lo que el LLM vio. Que exista en el catálogo no alcanza: uno elegido de memoria existe y puede ser otro producto. No se tolera por insistencia, porque siempre se puede sacar o buscar | Implementada |
 | D-49 | `opcion_sin_elegir` y `cantidad_distinta` se toleran (a la tercera y a la segunda): el control puede equivocarse con lo que dijo el cliente, y todavía falta que confirme una propuesta que muestra cada línea. No controla si una búsqueda del modelo le sumó un dato que el cliente no dijo: eso se mide con la evaluación | Implementada; se revisa contando los códigos en las trazas |
-| D-50 | Los sets `mensajes` y `pedidos` ya se usaron para ajustar prompts: su resultado es optimista. El grupo `reservado` de los adversariales es la medida honesta, y deja de serlo si se ajusta algo mirando sus casos: ahí pasan a `desarrollo` y se escriben otros | Implementada |
+| D-50 | Los sets `mensajes` y `pedidos` ya se usaron para ajustar prompts: su resultado es optimista. El grupo `reservado` de los adversariales es la medida honesta, y deja de serlo si se ajusta algo mirando sus casos: ahí pasan a `desarrollo` y se escriben otros. Desde M8-1, `mensajes` y `pedidos` también tienen su grupo `reservado`, generado con otra semilla, y un test de CI controla que los prompts no copien lo reservado | Implementada |
 | D-51 | El tope de 50 iteraciones es muy alto: en 28 turnos locales el loop principal dio p50 2, p95 5 y máximo 8. Bajarlo sin medir repite el problema del tope de 8 (un pedido de 7 renglones no llegaba a responder). Se decide con la corrida de la evaluación; mientras, el gasto lo acota el tope de tokens (p95 de esos turnos: 49.000) | Abierta |
 | D-52 | Los umbrales del sensor (`sensor_calidad.UMBRALES`) son un punto de partida. Se ajustan con las primeras semanas de uso real: un sensor que avisa siempre se ignora | Abierta |
 

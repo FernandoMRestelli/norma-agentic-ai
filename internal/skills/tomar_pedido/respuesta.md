@@ -17,7 +17,7 @@ Si el cliente solo consultó precio o disponibilidad, respondé con `kind = info
 
 Ejemplo de pedido largo con dudas, solo por el tono:
 
-«Te armé lo de Pantene y la Koleston. Me quedan dos dudas:
-• Sedal: ¿shampoo o crema de enjuague?
-• La máscara: ¿la de 250 o la de 1 kilo?
-El Kérastase no lo trabajamos. ¿Qué te mando de cada una?»
+«Te armé lo de Corvana y la Tessaly. Me quedan dos dudas:
+• Marvane: ¿shampoo o acondicionador?
+• El tratamiento: ¿el de 250 o el de 500?
+El Lazzia no lo trabajamos. ¿Qué te mando de cada una?»

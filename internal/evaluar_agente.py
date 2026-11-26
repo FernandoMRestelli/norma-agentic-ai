@@ -7,13 +7,16 @@ Solo manda datos inventados. Cada caso hace varias llamadas al LLM: en el free t
 Hay tres conjuntos de casos (--set):
 - `mensajes` (por defecto): `data_example/mensajes.json` contra `data_example/catalogo.csv`, de 15 productos.
 - `pedidos`: `data_example/pedidos_evaluacion.json` contra `data_example/catalogo_evaluacion.csv`, de unos 400.
-  Son listas largas con el formato de los pedidos reales (RF-59); la corrida se compara con el umbral de RNF-15.
+  Son listas largas con el formato de los pedidos reales (RF-59); lo reservado se compara con el umbral de RNF-15.
 - `adversariales`: `data_example/adversariales.json`, contra el mismo catálogo. Aceptaciones con trampa, falta de
-  evidencia, inyección y datos del negocio (RF-116). --grupo elige `desarrollo`, `reservado` o `todos`: lo reservado
-  se corre para medir y no se ajusta nada mirando sus casos (D-50).
+  evidencia, inyección y datos del negocio (RF-116).
 
-Además del resultado de cada caso, mide las líneas una por una (RF-60) y revisa cómo suena cada respuesta
-(chequeos de estilo, spec de skills y respuestas §3.6).
+Los tres conjuntos tienen casos de `desarrollo` y `reservado`, y --grupo elige uno o `todos`: lo reservado se corre
+para medir y no se ajusta nada mirando sus casos (D-50, M8-1). Con los dos grupos, la corrida los muestra lado a lado:
+la diferencia es la medida del sobreajuste.
+
+Además del resultado de cada caso, mide las líneas una por una (RF-60), con un intervalo que remuestrea casos y no
+líneas, y revisa cómo suena cada respuesta (chequeos de estilo, spec de skills y respuestas §3.6).
 Con --repeticiones N, corre cada caso N veces y muestra la tasa de acierto de cada uno.
 Con --conversaciones, escribe cada caso con su conversación completa para revisarla a mano.
 Con --max-llamadas N se detiene al llegar a N llamadas al LLM, y con --precio ENTRADA,SALIDA (USD por millón de tokens)
@@ -26,6 +29,7 @@ import contextlib
 import json
 import math
 import os
+import random
 import re
 import tempfile
 import time
@@ -46,10 +50,13 @@ CORTAR_TRAS = 3
 CASES = CONJUNTOS["mensajes"][0]
 KIND_POR_RESULTADO = {"borrador": "propuesta"}
 
-# Umbral de release sobre el conjunto `pedidos` (RNF-15). Son un punto de partida: se ajustan con la primera
-# corrida completa (D-28, docs/spec/toma-de-pedidos-por-texto.md)
+# Umbral de release sobre los casos reservados del conjunto `pedidos` (RNF-15, M8-1). Son un punto de partida: se
+# ajustan con la primera corrida completa (D-28, docs/spec/toma-de-pedidos-por-texto.md)
 UMBRAL_MINIMOS = {"recall_lineas_pct": 95.0, "precision_lineas_pct": 98.0}
 UMBRAL_MAXIMOS = {"registros_indebidos": 0, "lineas_perdidas": 0}
+GRUPO_DEL_UMBRAL = "reservado"
+# Remuestreos del intervalo por casos (bootstrap), con semilla fija: la misma corrida da siempre el mismo intervalo
+REMUESTREOS = 2000
 
 # Chequeos de estilo: cada uno mira una cosa que un cliente notaría (spec de skills y respuestas §3.6)
 _SKU_GENERICO = re.compile(r"\b[A-Z]{2,}-[A-Z0-9]+-[A-Z0-9]+\b")
@@ -235,6 +242,35 @@ def intervalo(aciertos: int, total: int, z: float = 1.96) -> tuple[float, float]
     return round(100 * (centro - margen) / divisor, 1), round(100 * (centro + margen) / divisor, 1)
 
 
+def intervalo_por_casos(
+    filas: list[dict], parte: str, total: str, *, remuestreos: int = REMUESTREOS, semilla: int = 0
+) -> tuple[float, float]:
+    """Intervalo al 95 % de un porcentaje por línea, remuestreando casos enteros (bootstrap, M8-1).
+
+    Las líneas de un caso no son independientes: si el modelo entiende mal el encabezado de una marca, pierde todas
+    sus líneas juntas. Por eso se sortean casos, con todas sus líneas y sus repeticiones, y no líneas sueltas.
+    """
+    por_caso: dict[str, list[int]] = {}
+    for fila in filas:
+        if fila["resultado"] == "sin_evaluar" or not fila.get(total):
+            continue
+        acumulado = por_caso.setdefault(fila["caso"], [0, 0])
+        acumulado[0] += fila.get(parte, 0)
+        acumulado[1] += fila[total]
+    casos = list(por_caso.values())
+    if not casos:
+        return 0.0, 0.0
+    rng = random.Random(semilla)
+    porcentajes = []
+    for _ in range(remuestreos):
+        muestra = rng.choices(casos, k=len(casos))
+        porcentajes.append(100 * sum(p for p, _ in muestra) / sum(t for _, t in muestra))
+    porcentajes.sort()
+    bajo = porcentajes[int(0.025 * remuestreos)]
+    alto = porcentajes[max(math.ceil(0.975 * remuestreos) - 1, 0)]
+    return round(bajo, 1), round(alto, 1)
+
+
 def _pct(parte: int, total: int) -> float:
     return round(100 * parte / total, 1) if total else 0.0
 
@@ -254,6 +290,8 @@ def _metricas(filas: list[dict]) -> dict[str, float]:
 
     llamadas = sum(fila.get("llamadas_llm", fila["iteraciones"]) for fila in evaluadas)
     bajo, alto = intervalo(correctas, len(evaluadas))
+    recall_bajo, recall_alto = intervalo_por_casos(filas, "lineas_correctas", "lineas_esperadas")
+    precision_bajo, precision_alto = intervalo_por_casos(filas, "lineas_correctas", "lineas_propuestas")
     tasas = tasas_por_caso(filas)
     return {
         "aciertos_ic95_bajo": bajo,
@@ -271,6 +309,10 @@ def _metricas(filas: list[dict]) -> dict[str, float]:
         # Por línea y sobre todos los casos juntos: un pedido de 30 renglones pesa más que uno de 2 (RF-60)
         "recall_lineas_pct": _pct(suma("lineas_correctas"), suma("lineas_esperadas")),
         "precision_lineas_pct": _pct(suma("lineas_correctas"), suma("lineas_propuestas")),
+        "recall_lineas_ic95_bajo": recall_bajo,
+        "recall_lineas_ic95_alto": recall_alto,
+        "precision_lineas_ic95_bajo": precision_bajo,
+        "precision_lineas_ic95_alto": precision_alto,
         "lineas_perdidas": suma("lineas_perdidas"),
         "registros_indebidos": suma("registro_indebido"),
         "aclaraciones_de_mas": suma("aclaracion_de_mas"),
@@ -300,6 +342,29 @@ def fuera_de_umbral(metricas: dict[str, float]) -> list[str]:
     if metricas["sin_evaluar"]:
         fallas.append(f"sin_evaluar {metricas['sin_evaluar']} > 0")
     return fallas
+
+
+def umbral_sin_decidir(metricas: dict[str, float]) -> list[str]:
+    """Las métricas cuyo intervalo por casos incluye el umbral: con pocos casos, la corrida no alcanza para decidir.
+
+    Con 11 casos, un 95 % de recall puede no distinguirse de un 90 % (M8-1): la corrida tiene que decirlo.
+    """
+    return [
+        f"{nombre} {metricas[nombre]} (IC 95 %: {bajo} a {alto}) incluye {minimo}"
+        for nombre, minimo in UMBRAL_MINIMOS.items()
+        if (bajo := metricas[nombre.replace("_pct", "_ic95_bajo")]) < minimo
+        <= (alto := metricas[nombre.replace("_pct", "_ic95_alto")])
+    ]
+
+
+def del_grupo_de(filas: list[dict], grupo: str) -> list[dict]:
+    """Las filas de un grupo; las que no dicen el suyo son de desarrollo."""
+    return [fila for fila in filas if fila.get("grupo", GRUPOS[0]) == grupo]
+
+
+def metricas_por_grupo(filas: list[dict]) -> dict[str, dict[str, float]]:
+    """Las métricas de cada grupo que tiene filas: comparar los dos mide el sobreajuste a lo de desarrollo (M8-1)."""
+    return {grupo: _metricas(propias) for grupo in GRUPOS if (propias := del_grupo_de(filas, grupo))}
 
 
 def tasas_por_caso(filas: list[dict]) -> dict[str, tuple[int, int]]:
@@ -398,7 +463,8 @@ def main() -> int:
     print(f"\n{passed} de {evaluated} corridas correctas, {estilo_ok} con buen estilo, {not_evaluated} sin evaluar")
     metricas = _metricas(filas)
     print(
-        f"Líneas: recall {metricas['recall_lineas_pct']} %, precisión {metricas['precision_lineas_pct']} %, "
+        f"Líneas: recall {metricas['recall_lineas_pct']} % (IC 95 % por casos: {metricas['recall_lineas_ic95_bajo']} "
+        f"a {metricas['recall_lineas_ic95_alto']}), precisión {metricas['precision_lineas_pct']} %, "
         f"{metricas['lineas_perdidas']} perdidas, {metricas['registros_indebidos']} registros indebidos, "
         f"{metricas['aclaraciones_de_mas']} aclaraciones de más, "
         f"{metricas['llamadas_llm_promedio']} llamadas al LLM por caso"
@@ -423,11 +489,35 @@ def main() -> int:
     if args.repeticiones > 1:
         for caso, (correctas, evaluadas) in tasas_por_caso(filas).items():
             print(f"   {caso}: {correctas}/{evaluadas}")
+    por_grupo = metricas_por_grupo(filas)
+    if len(por_grupo) > 1:
+        print(lado_a_lado(por_grupo))
     if args.conjunto == "pedidos":
-        fallas = fuera_de_umbral(metricas)
-        print("RNF-15: cumple el umbral de release" if not fallas else f"RNF-15: no cumple ({'; '.join(fallas)})")
-        return 1 if fallas else 0
+        if GRUPO_DEL_UMBRAL not in por_grupo:
+            print(f"RNF-15: se mide solo con los casos de {GRUPO_DEL_UMBRAL}, y esta corrida no tiene ninguno")
+        else:
+            del_umbral = por_grupo[GRUPO_DEL_UMBRAL]
+            fallas = fuera_de_umbral(del_umbral)
+            veredicto = "cumple el umbral de release" if not fallas else f"no cumple ({'; '.join(fallas)})"
+            print(f"RNF-15, sobre {GRUPO_DEL_UMBRAL}: {veredicto}")
+            if dudosas := umbral_sin_decidir(del_umbral):
+                print(f"   Con {len(tasas_por_caso(del_grupo_de(filas, GRUPO_DEL_UMBRAL)))} casos no alcanza para "
+                      f"decidir: {'; '.join(dudosas)}")  # fmt: skip
+            return 1 if fallas else 0
     return 0 if passed == len(filas) and estilo_ok == len(filas) else 1
+
+
+def lado_a_lado(por_grupo: dict[str, dict[str, float]]) -> str:
+    """Desarrollo y reservado en una tabla: la diferencia entre los dos es la medida del sobreajuste (M8-1)."""
+    filas = [("aciertos_pct", "Aciertos %"), ("recall_lineas_pct", "Recall por línea %"),
+             ("precision_lineas_pct", "Precisión por línea %"), ("estilo_ok_pct", "Estilo ok %")]  # fmt: skip
+    desarrollo, reservado = por_grupo["desarrollo"], por_grupo["reservado"]
+    lineas = [f"{'Por grupo':<24}{'desarrollo':>12}{'reservado':>12}{'diferencia':>12}"]
+    for clave, nombre in filas:
+        diferencia = round(desarrollo[clave] - reservado[clave], 1)
+        lineas.append(f"{nombre:<24}{desarrollo[clave]:>12}{reservado[clave]:>12}{diferencia:>+12}")
+    lineas.append(f"{'Corridas evaluadas':<24}{desarrollo['evaluados']:>12}{reservado['evaluados']:>12}")
+    return "\n".join(lineas)
 
 
 def del_grupo(cases: list[dict], grupo: str) -> list[dict]:
@@ -458,6 +548,7 @@ def _sin_correr(case: dict, repeticion: int) -> dict:
         "caso": case["id"], "repeticion": repeticion, "resultado": "sin_evaluar", "estilo": "ok", "kind": "",
         "esperado": json.dumps(case["esperado"], ensure_ascii=False), "turnos": 0, "iteraciones": 0, "tools": "",
         "skills": "", "tokens_entrada": 0, "tokens_salida": 0, "latencia_ms": 0, "llamadas_llm": 0, "errores": "",
+        "grupo": case.get("grupo", GRUPOS[0]),
     }  # fmt: skip
 
 
@@ -501,7 +592,10 @@ def escribir_salida(
 ) -> None:  # fmt: skip
     """Las filas, sus conversaciones y las métricas en un .json. Se reescribe entero: si se corta, queda lo corrido."""
     metricas = _metricas(filas)
-    datos = {**contexto, "metricas": metricas, "codigos_de_error": codigos_de_error(filas)}
+    datos = {
+        **contexto, "metricas": metricas, "metricas_por_grupo": metricas_por_grupo(filas),
+        "codigos_de_error": codigos_de_error(filas),
+    }  # fmt: skip
     if precio:
         datos["costo_usd"] = round(costo_usd(metricas, precio), 5)
     datos["filas"] = [
@@ -672,6 +766,8 @@ def _registrar(
         }
     )
     mlflow.log_metrics(_metricas(filas))
+    for grupo, metricas in metricas_por_grupo(filas).items():  # `reservado_recall_lineas_pct`, etc. (M8-1)
+        mlflow.log_metrics({f"{grupo}_{nombre}": valor for nombre, valor in metricas.items()})
     if filas:
         # Un caso sin evaluar no trae las columnas de líneas: la tabla las deja vacías
         columnas = list(dict.fromkeys(columna for fila in filas for columna in fila))
