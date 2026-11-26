@@ -64,15 +64,15 @@ En producción no se usa ninguna de las dos opciones: corre la imagen publicada 
 ## Bot de Telegram (beta)
 
 Para probar entre el equipo, cada integrante le escribe pedidos simulados a un bot de Telegram
-(detalle en la [spec del canal](docs/spec/canal-telegram.md)). Hoy el bot recibe, filtra y responde; interpretar
-el pedido llega con el agente (etapa 03).
+(detalle en la [spec del canal](docs/spec/canal-telegram.md)). El bot toma pedidos
+por texto, foto y audio, y los registra cuando el cliente acepta.
 
 Hay dos tipos de bot:
 
 | Bot | Quién lo crea | Para qué | Lista blanca |
 |---|---|---|---|
 | **De desarrollo** | Cada integrante, el suyo | Programar y probar en tu máquina sin pisar a los demás | Solo tu id |
-| **Beta compartido** | Uno para el equipo, cuando el agente tome pedidos (etapa 03) | Que los tres pidan al mismo negocio y los pedidos caigan en la misma base y planilla | Los tres ids |
+| **Beta compartido** | Uno para el equipo | Que los tres pidan al mismo negocio y los pedidos caigan en la misma base y planilla | Los tres ids |
 
 El bot beta corre en **un solo lugar** (idealmente un servidor, D-03): Telegram admite un solo proceso de polling
 por token y responde `409 Conflict` al segundo.
@@ -138,6 +138,27 @@ python -m internal.evaluar_agente --mlflow --pausa 30
 
 En MLflow, el experimento → **Runs** → seleccionar dos corridas → **Compare**.
 
+Cada corrida llama al LLM con tu clave y cuesta plata si el modelo es pago: `--max-llamadas` la detiene y `--precio`
+estima el costo. `--salida` guarda el resultado para compararlo:
+
+```bash
+python -m internal.evaluar_agente --set adversariales --max-llamadas 150 --precio 0.10,0.50 --salida data/evaluacion/adversariales.json
+```
+
+```bash
+python -m internal.comparar_corridas data/evaluacion/sin.json data/evaluacion/con.json
+```
+
+El buscador se mide aparte, sin LLM ni costo, y el uso real con el sensor, que solo lee:
+
+```bash
+python -m internal.evaluar_busqueda --fallas
+```
+
+```bash
+python -m internal.sensor_calidad --dias 7
+```
+
 ## Lectura de imágenes a JSON (experimental)
 
 `internal/services/vision_service.py` lee una foto o captura de un pedido y devuelve un JSON (`ImagenLeida` en
@@ -190,6 +211,9 @@ El detalle de cada pieza está en [docs/architecture.md](docs/architecture.md).
 | `internal/tools/` | Acciones que el agente puede usar (catálogo, stock, borradores) |
 | `internal/services/` | Orquestador, preprocesamiento, interpretación, confirmación, órdenes, Google Sheets y Telegram |
 | `internal/telegram_polling.py` | Bot de Telegram por polling, para desarrollo y la beta |
+| `internal/evaluar_agente.py`, `comparar_corridas.py` | Evalúa el agente con el LLM real y compara dos corridas |
+| `internal/evaluar_busqueda.py` | Evalúa el buscador solo, sin LLM |
+| `internal/sensor_calidad.py` | Mide el uso real desde las trazas y la base, y avisa |
 | `internal/verificar_claves.py` | Prueba las claves de Telegram y del LLM sin mostrarlas |
 | `internal/schemas/` | Contratos de datos: pedido (borrador vs. orden) y catálogo |
 | `internal/database/` | Base interna (SQLite en `data/`) |

@@ -27,6 +27,14 @@ OTRA_DIMENSION = 0.9  # 1 kg y 1000 ml: «la de kilo» puede ser cualquiera de l
 
 STOPWORDS = frozenset("de del el la los las un una unos unas y e o u a al en con para por favor que mas".split())
 
+# Cómo pide el cliente, no qué pide: «tenés algo para rulos?». Se sacan de la búsqueda solo si ningún producto del
+# catálogo las tiene, así «PELO» en un nombre sigue contando (RF-118)
+CONVERSACION = frozenset(
+    "algo alguna alguno algun tenes tienen tene tiene hay busco buscando necesito necesitamo quiero queremo quisiera "
+    "mandame manda mande dame pasame porfa hola buena buen dia tarde cuanto sale salen cuesta cuestan precio "
+    "vende vendes venden trabaja trabajan que cual sirva sirve me te pelo cabello".split()
+)
+
 # Abreviaturas y variantes: valen lo mismo que la palabra canónica (claves y valores ya normalizados)
 ABREVIATURAS = {
     "sh": "shampoo",
@@ -488,11 +496,41 @@ def _pistas(
         ]
         if len(con_las_palabras) <= MAX_PRODUCTOS_PARA_MEDIDAS:
             medidas = _medidas([indice.productos[p.product.sku] for p in con_las_palabras])
-    return Pistas(no_estan=no_estan, cercanos=cercanos, medidas=medidas)
+    return Pistas(
+        no_estan=no_estan,
+        cercanos=cercanos,
+        medidas=medidas,
+        sin_lo_que_no_esta=_sin_lo_que_no_esta(no_estan, puntuados),
+    )
+
+
+def _sin_lo_que_no_esta(no_estan: list[str], puntuados: list[_Puntuado]) -> list[str]:
+    """Los productos que tienen todo lo demás que pidió el cliente, si una palabra no existe en el catálogo (RF-118)."""
+    if not no_estan:
+        return []
+    cumplen = []
+    for puntuado in puntuados:
+        resto = [t for q, t in puntuado.terminos if not (isinstance(q, Palabra) and q.original in no_estan)]
+        if resto and all(t.valor_sugerencia for t in resto):
+            cumplen.append(puntuado)
+    cumplen.sort(key=lambda p: (-p.score_sugerencia, p.sobrantes))
+    return [p.product.name for p in cumplen[:MAX_CERCANOS]]
 
 
 def _es_coloracion(producto: ProductoIndexado) -> bool:
     return any(SINONIMOS.get(canon) == "coloracion" for canon in producto.canones)
+
+
+def _sin_conversacion(busqueda: Texto, indice: Indice) -> Texto:
+    """La búsqueda sin las palabras con las que el cliente pide; entera si no queda ninguna otra (RF-118)."""
+
+    def sobra(palabra: Palabra) -> bool:
+        return (palabra.canon in CONVERSACION or palabra.original in CONVERSACION) and (
+            palabra.canon not in indice.vocabulario
+        )
+
+    palabras = tuple(palabra for palabra in busqueda.palabras if not sobra(palabra))
+    return Texto(palabras, busqueda.numeros) if palabras else busqueda
 
 
 def _cantidad_al_principio(query: str, busqueda: Texto) -> bool:
@@ -517,7 +555,7 @@ def buscar(
     if sku:
         exacto = ProductMatch(**por_sku[sku].model_dump(exclude={"is_low_stock"}), score=1)
         return SearchResult(matches=[exacto], total=1)
-    busqueda = normalizar(query)
+    busqueda = _sin_conversacion(normalizar(query), indice)
     if not busqueda.palabras and not busqueda.numeros:
         return SearchResult()
     parecidos = [indice.parecidos(palabra) for palabra in busqueda.palabras]

@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from internal.agent import (
     context,
     contexto_cliente,
+    evidencia,
     guardrails,
     observabilidad,
     precarga,
@@ -45,6 +46,8 @@ logger = logging.getLogger(__name__)
 # se controla entre una iteración y la siguiente. Al agotarse, el turno no falla: cierra respondiendo
 ITERACIONES_CIERRE = 2  # para responder con lo encontrado; la segunda es por si el validador rechaza la primera
 TOOL_CIERRE = "respond_to_customer"
+MAX_LLAMADAS_REPETIDAS = 3  # en un turno: insistir con lo mismo no avanza, y el turno cierra con lo encontrado (RF-122)
+CODIGO_REPETIDA = "llamada_repetida"
 MAX_FAILURES = 2  # D-07
 # Con una propuesta vigente, un mensaje así de corto y sin números casi siempre la acepta, la rechaza o duda
 MAX_PALABRAS_RESPUESTA_A_PROPUESTA = 3
@@ -256,6 +259,12 @@ def descubrir_tools(state: EstadoNorma, config: RunnableConfig) -> dict[str, Any
     elif _reloj() - state.get("turno_desde", _reloj()) > max_segundos_turno():
         motivo = "plazo"
         logger.warning("Agente: el turno pasó el plazo de %d s, cierra con lo encontrado", max_segundos_turno())
+    elif 0 < get_settings().agent_max_tokens_per_turn <= (tokens := _tokens_del_turno(state)):
+        motivo = "tokens"
+        logger.warning("Agente: el turno gastó %d tokens, cierra con lo encontrado", tokens)
+    elif _rechazos(_del_turno(state), CODIGO_REPETIDA) >= MAX_LLAMADAS_REPETIDAS:
+        motivo = "sin_progreso"
+        logger.warning("Agente: %d llamadas repetidas, cierra con lo encontrado", MAX_LLAMADAS_REPETIDAS)
     if motivo:
         # En vez de cortar con el mensaje de falla, el modelo responde con lo que ya averiguó (RNF-16)
         with observabilidad.paso("cierre", "CHAIN", motivo=motivo, iteraciones=iteraciones):
@@ -263,6 +272,41 @@ def descubrir_tools(state: EstadoNorma, config: RunnableConfig) -> dict[str, Any
         return {"cierre_desde": iteraciones, "tools_disponibles": [TOOL_CIERRE]}
     orquestador = tool_registry.orquestador_activo()
     return {"tools_disponibles": tool_registry.available(state.get("skills_activas", []), orquestador)}
+
+
+def _del_turno(state: EstadoNorma) -> list[Any]:
+    return state["messages"][state.get("inicio_turno", 0) :]
+
+
+def _tokens_del_turno(state: EstadoNorma, notas: list[dict[str, Any]] | None = None) -> int:
+    """Lo que gastó el turno hasta acá: el loop principal y los sub-loops (RF-122).
+
+    `notas` reemplaza las del estado: mientras corren las tools, las de los sub-loops que ya delegó esta respuesta.
+    """
+    usos = [m.usage_metadata for m in _del_turno(state) if isinstance(m, AIMessage) and m.usage_metadata]
+    if notas is None:
+        notas = state.get("notas_turno") or []
+    return sum(uso.get("input_tokens", 0) + uso.get("output_tokens", 0) for uso in usos) + sum(
+        nota.get("tokens_entrada", 0) + nota.get("tokens_salida", 0) for nota in notas
+    )
+
+
+def _ya_llamadas(messages: list[Any]) -> set[str]:
+    """Las llamadas a tools de lectura del turno que salieron bien, para no repetirlas iguales (RF-122)."""
+    hechas = set()
+    pendientes: list[dict[str, Any]] = []
+    for message in messages:
+        if isinstance(message, AIMessage) and message.tool_calls:
+            pendientes = list(message.tool_calls)
+        elif isinstance(message, ToolMessage) and pendientes:
+            llamada = pendientes.pop(0)  # cada llamada tiene su resultado, en el mismo orden
+            if llamada["name"] in evidencia.TOOLS and json.loads(message.content).get("ok"):
+                hechas.add(_clave_llamada(llamada))
+    return hechas
+
+
+def _clave_llamada(call: dict[str, Any]) -> str:
+    return f"{call['name']} {json.dumps(call['args'], ensure_ascii=False, sort_keys=True)}"
 
 
 def _conversation_id(config: RunnableConfig) -> int | None:
@@ -302,7 +346,31 @@ def _turn_context(state: EstadoNorma, config: RunnableConfig, disponibles: list[
         condicion_comercial=state.get("condicion_comercial"),
         acuerdo_operativo=state.get("acuerdo_operativo"),
         propuesta_pendiente_mostrar=bool(state.get("propuesta_pendiente_mostrar", False)),
+        mensaje_cliente=_mensaje_cliente(state),
+        kind_anterior=state.get("kind_anterior"),
+        opciones_previas=list(state.get("opciones_previas") or []),
+        skus_pedidos={
+            linea["sku"]
+            for pedido in (state.get("contexto_cliente") or {}).get("pedidos") or []
+            for linea in pedido["lineas"]
+        },
+        cierre=state.get("cierre_desde") is not None,
+        cantidades=interpretation_service.cantidades_dichas(
+            [m.text for m in state["messages"] if isinstance(m, HumanMessage) and not guardrails.es_aviso(m)],
+            [item.quantity for item in propuesta.items] if propuesta else [],
+        ),
     )
+
+
+def _rechazos(messages: list[Any], codigo: str) -> int:
+    """Cuántas veces una tool devolvió este error en el turno."""
+    return sum(isinstance(m, ToolMessage) and f'"code": "{codigo}"' in m.content for m in messages)
+
+
+def _mensaje_cliente(state: EstadoNorma) -> str:
+    """El mensaje que abrió el turno, sin la marca de audio. Vacío si el turno no lo abrió el cliente."""
+    entrada = state["messages"][state.get("inicio_turno", 0)]
+    return message_service.sin_marca_audio(entrada.text) if isinstance(entrada, HumanMessage) else ""
 
 
 def _tras_registrar(order_id: str | None) -> dict[str, Any]:
@@ -316,6 +384,16 @@ def _contexto_validacion(state: EstadoNorma) -> guardrails.ContextoTurno:
     turno = guardrails.contexto_turno(state["messages"][state.get("inicio_turno", 0) :])
     guardrails.sumar_notas(turno, state.get("notas_turno") or [])
     turno.skus_del_prompt |= set(state.get("opciones_previas") or [])
+    # La charla que le llega al LLM: un texto rechazado no está, así que no vuelve válido lo que decía
+    for anterior in context.historial_previo(state["messages"][: state.get("inicio_turno", 0)]):
+        if isinstance(anterior, AIMessage):
+            turno.dicho_antes.append(anterior.text)
+        else:
+            turno.ver(anterior.text)
+    for renglon in state.get("renglones") or []:
+        turno.ver(renglon["texto"])
+        turno.skus_del_prompt |= {linea["sku"] for linea in renglon.get("lineas") or []}
+        turno.skus_del_prompt |= set(renglon.get("opciones") or [])
     for pedido in (state.get("contexto_cliente") or {}).get("pedidos") or []:
         turno.skus_del_prompt |= {linea["sku"] for linea in pedido["lineas"]}
     return turno
@@ -333,6 +411,9 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
 
         def delegar(skill, encargo, numeros, ctx):
             usadas = state.get("iteraciones", 0) + ctx.iteraciones_sub_loop
+            # Lo que gastaron el orquestador y los sub-loops anteriores, también los de esta misma respuesta (RF-122)
+            tope_tokens = get_settings().agent_max_tokens_per_turn
+            tokens = max(tope_tokens - _tokens_del_turno(state, ctx.notas_turno), 0) if tope_tokens > 0 else None
             return sub_loop.correr(
                 model,
                 skill,
@@ -345,6 +426,7 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
                 opciones_texto=context.opciones_previas(opciones_previas),
                 presupuesto=max(max_iteraciones() - usadas, 0),
                 plazo_vencido=lambda: _plazo_vencido(state),
+                tokens_disponibles=tokens,
             )
 
         return delegar
@@ -404,14 +486,27 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             and ('"code": "renglones_sin_cuenta"' in m.content or '"code": "duda_de_lectura"' in m.content)
             for m in del_turno
         )
+        ctx.confirmaciones_frenadas = _rechazos(del_turno, tool_registry.CODIGO_ACEPTACION)
+        ctx.opciones_rechazadas = _rechazos(del_turno, tool_registry.CODIGO_OPCION)
+        ctx.cantidades_rechazadas = _rechazos(del_turno, tool_registry.CODIGO_CANTIDAD)
+        ctx.evidencia = evidencia.del_turno(del_turno, state.get("notas_turno") or [])
         ctx.orquestador = tool_registry.orquestador_activo()
         ctx.notas_turno = list(state.get("notas_turno") or [])
         ctx.iteraciones_sub_loop = state.get("iteraciones_sub_loop", 0)
         if ctx.orquestador:
             ctx.delegar = delegador(state)
         messages: list[Any] = []
+        ya_llamadas = _ya_llamadas(del_turno)
         for call in state["messages"][-1].tool_calls:
-            if ctx.resultado == "continuar":
+            if ctx.resultado == "continuar" and _clave_llamada(call) in ya_llamadas:
+                with observabilidad.paso(call["name"], "TOOL", iteracion=state.get("iteraciones")) as paso:
+                    result = tool_registry.error(
+                        CODIGO_REPETIDA,
+                        f"Ya llamaste a {call['name']} con estos argumentos en este turno y el resultado es el mismo: "
+                        "usá ese. Si no alcanza, buscá de otra forma o respondele al cliente con lo que tenés",
+                    )
+                    paso.resultado_tool(call["args"], result)
+            elif ctx.resultado == "continuar":
                 with observabilidad.paso(call["name"], "TOOL", iteracion=state.get("iteraciones")) as paso:
                     try:
                         result = tool_registry.execute(call["name"], call["args"], ctx)

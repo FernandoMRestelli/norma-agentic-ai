@@ -12,3 +12,11 @@
 
 3. **Entorno local:**
    - Cada colaborador utiliza sus propias credenciales en local. No solicites ni almacenes secretos de otros desarrolladores.
+
+4. **Cómo trabajar en este repo** (lo demás está en `CONTRIBUTING.md`):
+   - Spec primero: un cambio de comportamiento actualiza `docs/spec/` (RF y CA) antes del código, y cada test cita su CA.
+   - Verificar antes de dar algo por hecho: `.venv/bin/ruff check .` y `.venv/bin/python -m pytest -q`.
+   - Si cambia la búsqueda: `.venv/bin/python -m internal.evaluar_busqueda --fallas` (sin red ni LLM).
+   - `python -m internal.evaluar_agente` llama a un LLM con la clave de quien lo corre y **cuesta plata**: pedí permiso antes y usá `--max-llamadas`. No se ajusta nada mirando los casos de grupo `reservado`.
+   - Ramas `feature/*` o `fix/*` desde `develop`, y una línea en `CHANGELOG.md` dentro de `[Sin publicar]`.
+   - Los hooks de pre-commit usan `python`: correlos con el entorno activado (`PATH="$PWD/.venv/bin:$PATH" pre-commit run`).

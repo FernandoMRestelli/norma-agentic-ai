@@ -189,7 +189,7 @@ def test_evaluacion_de_varios_turnos_con_modelo_falso(tmp_path):
         propuesta=[{"sku": "SH-PAN-400", "quantity": 2}],
     )
     modelo = ModeloGuionado(
-        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _ai(_call("leer_skill", nombre="tomar_pedido"), _call("search_products", query="pantene shampoo")),
         _ai(aclarar),
         _ai(_call("leer_skill", nombre="tomar_pedido")),
         _ai(proponer),

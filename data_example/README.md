@@ -80,6 +80,11 @@ hacer en `esperado.resultado`:
 - `informacion`: responde sin proponer nada, por ejemplo a un saludo.
 - `pedido`: registra el pedido con los `items` indicados, porque el cliente aceptó la propuesta.
 - `sin_pedido`: no registra nada, porque el cliente dudó o rechazó la propuesta.
+- `derivada`: pasa la conversación a una persona del equipo.
+
+Además, `esperado` puede exigir (RF-115): `kinds`, los tipos de respuesta que valen; `propuesta_final`, qué propuesta
+tiene que quedar vigente (una lista vacía: ninguna), y `dice` y `no_dice`, expresiones regulares que el
+mensaje tiene que tener y que no puede tener.
 
 Los casos con `previo` tienen dos turnos: primero ese mensaje, que recibe una propuesta, y después `mensaje`.
 Se corren con el LLM real con `python -m internal.evaluar_agente`.
@@ -112,6 +117,22 @@ El catálogo de 15 productos alcanza para probar un mensaje, no un pedido real. 
 Se corre con `python -m internal.evaluar_agente --set pedidos`. La corrida reporta recall y precisión por línea,
 líneas perdidas, registros indebidos y aclaraciones de más, y la compara con el umbral de release (RNF-15). Con
 `--repeticiones 3` corre cada caso tres veces y muestra cuántas acertó.
+
+## `adversariales.json`
+
+Casos hechos para que el agente se equivoque, contra `catalogo_evaluacion.csv` (RF-116): aceptaciones con trampa
+(`tema` `aceptacion`), pedidos sin datos suficientes (`evidencia`), intentos de cambiar las reglas (`inyeccion`) y
+consultas que no se pueden contestar (`negocio`). Se corren con `--set adversariales`.
+
+`grupo` separa los de `desarrollo`, que se miran para ajustar prompts, de los `reservado`, que solo miden: si se ajusta
+algo mirando un caso reservado, pasa a `desarrollo` y se escribe otro (D-50).
+
+## `consultas_busqueda.json`
+
+124 consultas para medir el buscador solo, sin LLM (RF-119), contra `catalogo_evaluacion.csv`. `relevantes` son los SKU
+que responden la consulta, con comodines (`*-MA-ARG-1K`); vacío si el catálogo no tiene respuesta. Los `tipo` cubren
+desde nombres exactos hasta abreviaturas, errores, pedidos ambiguos, necesidades («algo para rulos») y cosas que no
+hay, y `grupo` funciona como en los adversariales. Se corre con `python -m internal.evaluar_busqueda --fallas`.
 
 Los tests de `tests/test_datos_ejemplo.py` verifican que estos archivos respeten
 los esquemas y sean coherentes entre sí (por ejemplo, que todo SKU exista en el catálogo).

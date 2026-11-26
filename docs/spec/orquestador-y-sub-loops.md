@@ -483,7 +483,8 @@ Una tarea, una rama, una PR, en este orden. Las dos primeras ya bajan llamadas c
 
 ### 9.1 Cómo quedó implementado
 
-Los pasos 2 a 4 están hechos y probados con el modelo guionado (CA-144 a CA-161). Falta el paso 5: medir.
+Los pasos 2 a 4 están hechos y probados con el modelo guionado (CA-144 a CA-161). Falta el paso 5: medir, con
+`evaluar_agente --orquestador no` y `--orquestador si`, y `comparar_corridas`, que dice si cumple RNF-17 (RF-124).
 
 - **Nodos nuevos:** `armar_contexto` (el contexto del cliente; LangGraph no deja que un nodo se llame como una clave
   del estado, por eso no es `contexto_cliente`) y `precarga_busqueda`, en `internal/agent/contexto_cliente.py` y

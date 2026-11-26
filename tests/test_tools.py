@@ -7,7 +7,7 @@ import pytest
 from internal.agent import sub_loop, tool_registry
 from internal.schemas.agent_schema import ToolFailure
 from internal.schemas.catalog_schema import Product
-from internal.schemas.order_schema import Channel
+from internal.schemas.order_schema import Channel, OrderDraft, OrderItem
 from internal.services import inventory_service, sheets_service, skill_service
 from internal.services.skill_service import SkillError, load_skills
 from internal.tools import catalog_tools, inventory_tools, order_tools, skill_tools
@@ -215,6 +215,18 @@ def test_tool_no_permitida_nombra_la_skill_que_la_habilita():
     assert "informar" in error["message"]
     assert "tomar_pedido" in error["message"]
     assert "confirmar_pedido" not in error["message"]
+
+
+def test_armar_pedido_sin_el_mensaje_del_cliente_no_registra():
+    """CA-188: el control falla cerrado: sin el mensaje no hay aceptación que comprobar (RF-111)."""
+    propuesta = OrderDraft(
+        draft_id="d",
+        customer_id="c",
+        channel=Channel.WEB,
+        items=[OrderItem(sku="SH-PAN-400", product_name="Shampoo Pantene", quantity=1)],
+    )
+    error = _error("armar_pedido", {}, disponibles=["armar_pedido"], propuesta=propuesta)
+    assert error["code"] == "aceptacion_no_clara"
 
 
 def test_armar_pedido_sin_propuesta_dice_que_no_hay_nada_que_registrar():

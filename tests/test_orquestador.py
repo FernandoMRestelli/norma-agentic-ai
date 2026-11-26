@@ -12,9 +12,10 @@ from internal.schemas import agent_schema
 from internal.schemas.catalog_schema import Product
 from internal.services import order_service, sheets_service, skill_service
 from internal.tools import order_tools
-from tests.test_agent_graph import CLIENTE, _agente, _ai, _call, _resultados, base_limpia  # noqa: F401
+from tests.test_agent_graph import CLIENTE, _agente, _ai, _call, _con_uso, _resultados, base_limpia  # noqa: F401
 
-LISTA = "2 shampoo keratina\n3 mascara argan"
+LISTA = "2 shampoo keratina\n3 mascara argan"  # los dos tienen dos medidas
+LISTA_CON_MEDIDA = "2 shampoo keratina 900\n3 mascara argan"  # el primero queda definido (RF-113)
 MASCARAS = ["MAS-ARG-250", "MAS-ARG-1K"]
 
 
@@ -94,7 +95,7 @@ def test_pedido_delegado_en_un_sub_loop(catalogo):
     """El camino feliz: el orquestador delega, el sub-loop entrega la nota y el orquestador responde con ella."""
     agent, modelo = _agente(_delegar(), _nota(), _responder())
 
-    resultado = agent.handle("1", text=LISTA, **CLIENTE)
+    resultado = agent.handle("1", text=LISTA_CON_MEDIDA, **CLIENTE)
 
     assert resultado.kind == "propuesta"
     assert [(item.sku, item.quantity) for item in resultado.draft.items] == [("SH-KER-900", 2)]
@@ -133,11 +134,11 @@ def test_el_sub_loop_tiene_contexto_propio(catalogo):
         _responder(),
     )
     agent.handle("1", text="hola", **CLIENTE)
-    agent.handle("1", text=LISTA, **CLIENTE)
+    agent.handle("1", text=LISTA_CON_MEDIDA, **CLIENTE)
 
     (indice,) = [i for i, mensajes in enumerate(modelo.recibidos) if _es_sub_loop(mensajes)]
     sistema, cliente = modelo.recibidos[indice]
-    assert isinstance(cliente, HumanMessage) and cliente.content.endswith(LISTA)  # solo el último mensaje
+    assert isinstance(cliente, HumanMessage) and cliente.content.endswith(LISTA_CON_MEDIDA)  # solo el último mensaje
     assert cliente.content.startswith("Resolvé solo los renglones 1, 2 del encargo")
     assert "Qué te preparo hoy" not in sistema.content
     assert "## Nota de búsqueda" not in sistema.content  # la precarga entra como «ya buscados» de su encargo
@@ -157,7 +158,7 @@ def test_nota_con_sku_inventado_se_rechaza(catalogo):
         _responder(),
     )
 
-    resultado = agent.handle("1", text=LISTA, **CLIENTE)
+    resultado = agent.handle("1", text=LISTA_CON_MEDIDA, **CLIENTE)
 
     rechazo = json.loads(modelo.recibidos[2][-1].content)
     assert rechazo["error"]["code"] == "sku_no_buscado"
@@ -221,7 +222,7 @@ def test_las_notas_no_pasan_al_turno_siguiente(catalogo):
         _ai(_call("respond_to_customer", kind="propuesta", message="Dale, te lo dejo así. ¿Lo confirmo?",
                   propuesta=[{"sku": "SH-KER-900", "quantity": 2}])),
     )  # fmt: skip
-    agent.handle("1", text=LISTA, **CLIENTE)
+    agent.handle("1", text=LISTA_CON_MEDIDA, **CLIENTE)
 
     agent.handle("1", text="¿cuánto tarda en llegar?", **CLIENTE)
 
@@ -229,7 +230,7 @@ def test_las_notas_no_pasan_al_turno_siguiente(catalogo):
     assert not any(observacion in str(m.content) for m in recibidos)
     assert not any(isinstance(m, ToolMessage) for m in recibidos)
     sistema = recibidos[0].content
-    assert "1. 2 shampoo keratina → resuelto: 2 x SH-KER-900" in sistema
+    assert "1. 2 shampoo keratina 900 → resuelto: 2 x SH-KER-900" in sistema
     assert "2. 3 mascara argan → pendiente" in sistema
     assert _estado(agent)["notas_turno"] == []
 
@@ -267,7 +268,7 @@ def test_sub_loop_con_texto_suelto_recibe_aviso(catalogo):
     suelto = "TEXTO-SUELTO: ya casi lo tengo"
     agent, modelo = _agente(_delegar(), AIMessage(content=suelto), _nota(), _responder())
 
-    resultado = agent.handle("1", text=LISTA, **CLIENTE)
+    resultado = agent.handle("1", text=LISTA_CON_MEDIDA, **CLIENTE)
 
     segunda = modelo.recibidos[2]
     assert _es_sub_loop(segunda)
@@ -286,12 +287,13 @@ def test_redelegar_trae_los_intentos_anteriores(catalogo):
         _delegar(renglones=(2,)),
         _ai(_call_id("search_products", 1, query="mascara argan rulos")),
         _nota(1, resueltos=(), pendientes=((2, MASCARAS),)),
-        _delegar(renglones=(2,), n=2, encargo="Probá por la medida que suele llevar"),
+        _delegar(renglones=(2,), n=2, encargo="Probá con la medida"),
+        _ai(_call_id("search_products", 2, query="mascara argan 1 kg")),
         _nota(2, resueltos=((2, "MAS-ARG-1K", 3),), pendientes=()),
         _responder(resueltos=((1, "SH-KER-900", 2), (2, "MAS-ARG-1K", 3)), pendientes=()),
     )
 
-    agent.handle("1", text=LISTA, **CLIENTE)
+    agent.handle("1", text=LISTA_CON_MEDIDA, **CLIENTE)
 
     sub_loops = [mensajes for mensajes in modelo.recibidos if _es_sub_loop(mensajes)]
     segundo = sub_loops[-1][0].content
@@ -314,7 +316,7 @@ def test_el_orquestador_ve_solo_la_nota(catalogo):
         _responder(),
     )
 
-    agent.handle("1", text=LISTA, **CLIENTE)
+    agent.handle("1", text=LISTA_CON_MEDIDA, **CLIENTE)
 
     orquestador = modelo.recibidos[-1]
     assert not _es_sub_loop(orquestador)
@@ -359,6 +361,79 @@ def test_las_vueltas_del_sub_loop_cuentan_para_el_tope(catalogo, monkeypatch):
     assert resultado.kind == "aclaracion"
 
 
+ACLARAR = _ai(_call("respond_to_customer", kind="aclaracion", message="¿Qué shampoo y qué máscara querés?",
+                   pendientes=[{"renglon": 1, "opciones": ["SH-KER-900", "SH-KER-300"]},
+                               {"renglon": 2, "opciones": MASCARAS}]))  # fmt: skip
+
+
+def _tope_de_tokens(monkeypatch, tope):
+    monkeypatch.setenv("AGENT_MAX_TOKENS_PER_TURN", str(tope))
+    get_settings.cache_clear()
+
+
+def test_el_sub_loop_respeta_el_tope_de_tokens(catalogo, monkeypatch):
+    """CA-209: la llamada del sub-loop que pasa el tope ya se gastó, pero no hace otra: entrega lo encontrado y el
+    orquestador solo puede responder."""
+    _tope_de_tokens(monkeypatch, 1000)
+    agent, modelo = _agente(
+        _delegar(),
+        _con_uso(_ai(_call_id("search_products", 1, query="shampoo keratina")), 1500, 1),
+        ACLARAR,
+    )
+
+    resultado = agent.handle("1", text=LISTA, **CLIENTE)
+
+    (entrada,) = _notas(agent)
+    assert (entrada["llamadas"], entrada["cerrada_por"]) == (1, "tope")
+    assert modelo.ofrecidas[-1] == ["respond_to_customer"]
+    assert resultado.kind == "aclaracion" and resultado.llamadas_sub_loop == 1
+
+
+def test_sin_tope_de_tokens_el_sub_loop_sigue(catalogo, monkeypatch):
+    """CA-209: con el tope en 0 no se controla."""
+    _tope_de_tokens(monkeypatch, 0)
+    agent, _ = _agente(
+        _delegar(),
+        _con_uso(_ai(_call_id("search_products", 1, query="shampoo keratina")), 1500, 1),
+        _nota(),
+        _responder(),
+    )
+
+    agent.handle("1", text=LISTA_CON_MEDIDA, **CLIENTE)
+
+    (entrada,) = _notas(agent)
+    assert (entrada["llamadas"], entrada["cerrada_por"]) == (2, "nota")
+
+
+def test_el_sub_loop_cuenta_lo_gastado_antes(catalogo, monkeypatch):
+    """CA-209: lo que gastó el orquestador del turno ya cuenta, y el sub-loop no llama al LLM."""
+    _tope_de_tokens(monkeypatch, 1000)
+    agent, _ = _agente(_con_uso(_delegar(), 1000), ACLARAR)
+
+    resultado = agent.handle("1", text=LISTA, **CLIENTE)
+
+    (entrada,) = _notas(agent)
+    assert (entrada["llamadas"], entrada["cerrada_por"]) == (0, "tope")
+    assert resultado.kind == "aclaracion" and resultado.llamadas_sub_loop == 0
+
+
+def test_el_tope_de_tokens_se_comparte_entre_delegaciones(catalogo, monkeypatch):
+    """CA-209: dos delegaciones en una respuesta: la segunda cuenta lo que gastó la primera."""
+    _tope_de_tokens(monkeypatch, 1000)
+    dos = _ai(
+        _call_id("delegar_skill", 1, skill="tomar_pedido", encargo="Resolvé el renglón 1", renglones=[1]),
+        _call_id("delegar_skill", 2, skill="tomar_pedido", encargo="Resolvé el renglón 2", renglones=[2]),
+    )
+    agent, _ = _agente(dos, _con_uso(_ai(_call_id("search_products", 1, query="shampoo keratina")), 1500, 1), ACLARAR)
+
+    agent.handle("1", text=LISTA, **CLIENTE)
+
+    assert [(e["renglones"], e["llamadas"], e["cerrada_por"]) for e in _notas(agent)] == [
+        ([1], 1, "tope"),
+        ([2], 0, "tope"),
+    ]
+
+
 def test_el_orquestador_puede_decir_lo_que_quedo(catalogo):
     """BR-01 con el orquestador: el sub-loop vio que no alcanza, la nota trae lo que queda y el validador de salida
     deja que el orquestador lo diga, aunque la búsqueda no esté en su turno."""
@@ -373,7 +448,7 @@ def test_el_orquestador_puede_decir_lo_que_quedo(catalogo):
                   pendientes=[{"renglon": 1, "opciones": ["SH-KER-900", "SH-KER-300"]}])),
     )  # fmt: skip
 
-    resultado = agent.handle("1", text=LISTA, **CLIENTE)
+    resultado = agent.handle("1", text="2 shampoo keratina\n3 mascara argan 250", **CLIENTE)
 
     (delegacion,) = _resultados(agent, "delegar_skill")
     assert delegacion["data"]["disponibles"] == {"MAS-ARG-250": 2}
@@ -410,7 +485,7 @@ def test_el_sub_loop_sabe_que_tools_tiene(catalogo):
         _responder(),
     )
 
-    agent.handle("1", text=LISTA, **CLIENTE)
+    agent.handle("1", text=LISTA_CON_MEDIDA, **CLIENTE)
 
     error = json.loads(modelo.recibidos[2][-1].content)["error"]
     assert error["code"] == "tool_no_permitida"
@@ -608,9 +683,25 @@ def test_las_dudas_de_la_nota_traen_el_nombre_de_sus_opciones(catalogo):
     """Con solo los SKU de las opciones, el orquestador los copiaba en el mensaje al cliente."""
     agent, _ = _agente(_delegar(), _nota(), _responder())
 
-    agent.handle("1", text=LISTA, **CLIENTE)
+    agent.handle("1", text=LISTA_CON_MEDIDA, **CLIENTE)
 
     (delegacion,) = _resultados(agent, "delegar_skill")
     (duda,) = delegacion["data"]["pendientes"]
     assert duda["opciones"] == MASCARAS
     assert duda["nombres"] == ["Máscara Argan 250 g", "Máscara Argan 1 kg"]
+
+
+@pytest.mark.parametrize(
+    ("difieren", "pregunta"),
+    [
+        ("medida", "¿cuál de estos? (medida)"),  # decía «m, e, d, i, d, a»
+        (["cajas o unidades"], "¿cuál de estos? (cajas o unidades)"),
+        (None, "¿cuál de estos?"),
+    ],
+)
+def test_la_pregunta_de_la_nota_al_tope(difieren, pregunta):
+    """CA-156: la pregunta que arma el backend al llegar al tope dice en qué difieren las opciones."""
+    candidatos = [{"sku": sku} for sku in MASCARAS]
+    resultado = {"n": 1, "estado": "varias", "total": 2, "candidatos": candidatos, "difieren_en": difieren}
+    armada = nota.con_lo_encontrado([1], {1: ({"n": 1, "texto": "mascara"}, resultado)})
+    assert armada["pendientes"] == [{"renglon": 1, "pregunta": pregunta, "opciones": MASCARAS}]

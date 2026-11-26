@@ -3,6 +3,8 @@
 Verifica casos positivos y negativos (fechas, SKUs, montos, exports de WhatsApp y codificaciones).
 """
 
+import fnmatch
+import json
 import sys
 from pathlib import Path
 
@@ -110,3 +112,38 @@ class TestTelefonosArgentinos:
         f.write_text("cliente\t5491123456789\n", encoding="utf-16")
         lineas = buscar_telefonos_en_archivo(f)
         assert lineas == [1]
+
+
+class TestPermisosDelAsistente:
+    """AGENTS.md aconseja; `.claude/settings.json` impide. Lo prohibido tiene que estar en los dos."""
+
+    @staticmethod
+    def _permisos():
+        return json.loads(Path(".claude/settings.json").read_text(encoding="utf-8"))["permissions"]
+
+    def test_los_secretos_no_se_leen_ni_se_editan(self):
+        deny = self._permisos()["deny"]
+        for ruta in (".env", ".env.local", ".env.production", ".env.staging", ".env.bak", "credentials/**"):
+            assert f"Read(./{ruta})" in deny and f"Edit(./{ruta})" in deny
+
+    def test_los_volcados_de_clientes_no_se_leen(self):
+        deny = self._permisos()["deny"]
+        for patron in ("*.vcf", "*_chat*.txt", "*WhatsApp*", "*.zip"):
+            assert f"Read(./data/**/{patron})" in deny
+
+    def test_las_bases_locales_no_se_editan_a_mano(self):
+        assert "Edit(./data/**/*.db)" in self._permisos()["deny"]
+
+    def test_lo_permitido_sigue_permitido(self):
+        """`deny` gana siempre: un patrón amplio como `.env.*` taparía `.env.example` y los CSV de `data/`."""
+        permisos = self._permisos()
+        assert "Read(./.env.example)" in permisos["allow"]
+        for regla in permisos["deny"]:
+            patron = regla.partition("(./")[2].rstrip(")")
+            assert not fnmatch.fnmatch(".env.example", patron)
+            assert not (regla.startswith("Read") and fnmatch.fnmatch("data/x/catalogo.csv", patron))
+
+    def test_no_permite_ejecutar_cualquier_cosa(self):
+        """Permitir `python:*` o `bash:*` equivale a permitir todo."""
+        for regla in self._permisos()["allow"]:
+            assert not regla.startswith(("Bash(python", "Bash(bash", "Bash(sh", "Bash(node", "Bash(*"))

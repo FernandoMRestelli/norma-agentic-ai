@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 _USO_TOKENS = "mlflow.chat.tokenUsage"
 # Con los contenedores arrancando a la vez, MLflow puede tardar más que el primer mensaje: se vuelve a probar
 REINTENTO_SEGUNDOS = 60.0
+MAX_AVISOS = 2  # los de guardrails.MAX_RECHAZOS: importarlo de ahí cierra un ciclo
 _ultimo_intento = 0.0
 
 
@@ -49,10 +50,19 @@ class ResumenTurno:
     tokens_entrada_sub_loop: int = 0
     tokens_salida_sub_loop: int = 0
     sub_loops: list[str] = field(default_factory=list)  # la skill de cada delegación, en orden
+    # Cuando el turno salió, pero no como debía (RF-123): mensaje_fijo, cierre, confirmacion_pedida o tolerado:<código>
+    rescates: list[str] = field(default_factory=list)
+
+
+def _rescates(data: dict[str, Any]) -> list[str]:
+    """Lo que una tool dice que resolvió el sistema en lugar del LLM."""
+    rescates = [nombre for nombre in ("mensaje_fijo", "confirmacion_pedida") if data.get(nombre)]
+    return rescates + [f"tolerado:{codigo}" for codigo in data.get("tolerado") or []]
 
 
 def resumir(state: EstadoNorma) -> ResumenTurno:
     resumen = ResumenTurno(skills=list(state.get("skills_activas", [])), fallas=state.get("fallas", 0))
+    avisos = 0
     for message in state.get("messages", [])[state.get("inicio_turno", 0) :]:
         if isinstance(message, AIMessage):
             resumen.tools.extend(call["name"] for call in message.tool_calls)
@@ -63,14 +73,21 @@ def resumir(state: EstadoNorma) -> ResumenTurno:
             result = json.loads(message.content)
             if not result.get("ok"):
                 resumen.errores.append(result["error"]["code"])
+            else:
+                resumen.rescates += _rescates(result["data"])
         elif isinstance(message, HumanMessage) and "guardrail" in message.additional_kwargs:
             resumen.errores.append("respuesta_rechazada")  # texto suelto que no pasó el validador
+            avisos += 1
     for nota in state.get("notas_turno") or []:
         if nota.get("tipo") == "sub_loop":
             resumen.sub_loops.append(nota["skill"])
             resumen.llamadas_sub_loop += nota.get("llamadas", 0)
             resumen.tokens_entrada_sub_loop += nota.get("tokens_entrada", 0)
             resumen.tokens_salida_sub_loop += nota.get("tokens_salida", 0)
+    if avisos > MAX_AVISOS:  # el texto suelto agotó los intentos: salió el mensaje fijo
+        resumen.rescates.append("mensaje_fijo")
+    if state.get("cierre_desde") is not None:
+        resumen.rescates.append("cierre")
     if propuesta := state.get("propuesta"):
         resumen.draft_id = propuesta.get("draft_id")
     if state.get("kind") == "pedido" and not state.get("iteraciones"):
@@ -183,11 +200,13 @@ class Turno(Paso):
                 fallas=resumen.fallas,
                 tools=resumen.tools,
                 errores=resumen.errores,
+                rescates=resumen.rescates,
                 skills=resumen.skills,
                 tokens_entrada=resumen.tokens_entrada,
                 tokens_salida=resumen.tokens_salida,
                 llamadas_sub_loop=resumen.llamadas_sub_loop,
                 tokens_entrada_sub_loop=resumen.tokens_entrada_sub_loop,
+                tokens_salida_sub_loop=resumen.tokens_salida_sub_loop,
                 sub_loops=resumen.sub_loops,
                 latencia_ms=latencia_ms,
                 draft_id=resumen.draft_id,

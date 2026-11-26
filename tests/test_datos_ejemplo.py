@@ -33,7 +33,9 @@ LINE_COLUMNS = [
     "subtotal", "nota", "coincidencia", "pedido_como",
 ]
 ORDER_LINE = re.compile(r"^(?P<quantity>\d+) x (?P<label>.+) \((?P<sku>[A-Z0-9-]+)\)( \[(?P<note>[^\]]+)\])?$")
-EXPECTED_RESULTS = {"borrador", "aclaracion", "sin_stock", "fuera_de_catalogo", "informacion", "pedido", "sin_pedido"}
+EXPECTED_RESULTS = {
+    "borrador", "aclaracion", "sin_stock", "fuera_de_catalogo", "informacion", "pedido", "sin_pedido", "derivada",
+}  # fmt: skip
 
 
 def read_csv(name: str) -> list[dict[str, str]]:

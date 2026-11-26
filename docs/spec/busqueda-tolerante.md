@@ -171,6 +171,8 @@ no cambian en esta PR; la regla que usa `sugerencias` es BR-07 (frente E).
 | RF-37 | Una palabra coincide aunque tenga letras cambiadas, faltantes o transpuestas, o un error por sonido del español (`b/v`, `s/c/z`, `ll/y`, `h` muda, `k/qu`); los números nunca se aproximan |
 | RF-38 | La medida de cada producto se separa del nombre al indexar y se compara medida con medida, venga del nombre o de la presentación |
 | RF-39 | `search_products` devuelve coincidencias confiables, sugerencias cuando no las hay y las palabras corregidas, sobre un índice en memoria del catálogo normalizado con el stock siempre fresco |
+| RF-118 | Las palabras con las que el cliente pide («tenés algo para…») no cuentan en la búsqueda, salvo que estén en un producto. Si una palabra no existe en el catálogo, la pista dice qué productos tienen todo lo demás: puede ser una marca que no se trabaja o para qué lo quiere |
+| RF-119 | El buscador se mide solo, sin LLM: consultas con sus juicios de relevancia, de varios tipos, con y sin respuesta y en dos grupos (D-50). El CI exige un piso de recall, MRR y acierto, ningún falso único y que sin respuesta no proponga |
 
 ## 6. Criterios de aceptación
 
@@ -189,6 +191,9 @@ precios inventados.
 | CA-66 | El agente invoca `search_products` | Hay o no hay matches | Vienen `matches`, `sugerencias` y `corregido`; cada producto trae `score`, `aproximado` y `hay_stock`, sin `stock`, `min_stock` ni `is_low_stock` | `tests/test_busqueda.py::test_contrato_de_la_tool` |
 | CA-67 | Un catálogo ya indexado | Cambia el stock o cambia un nombre | El índice no se reconstruye por el stock, que sale fresco en el resultado; un nombre nuevo sí reconstruye el índice | `tests/test_busqueda.py::test_indice_en_memoria_con_stock_fresco` |
 | CA-68 | Un catálogo de 1.000 productos ya indexado | Se hacen búsquedas típicas | Cada búsqueda tarda menos de 50 ms | `tests/test_busqueda.py::test_busqueda_sobre_mil_productos_es_rapida` |
+| CA-204 | Un catálogo con cremas de peinar para rulos | Se busca «tenés algo para rulos?» | Salen esas cremas, como con «rulos». Una palabra de la lista que está en un producto sigue contando | `tests/test_busqueda.py::test_lo_que_se_dice_al_pedir_no_cuenta`, `::test_una_palabra_de_conversacion_que_esta_en_el_catalogo_cuenta` |
+| CA-205 | Una palabra que no existe («frizz») junto a otras que sí | Se busca | El hint nombra lo que hay sin ella y distingue una marca de una necesidad; si sin ella tampoco hay nada, no lo dice | `tests/test_busqueda.py::test_pista_sin_la_palabra_que_no_existe` |
+| CA-206 | Las consultas de `data_example/consultas_busqueda.json` | Se evalúa el buscador | Cumple los pisos en cada grupo, sin falsos únicos | `tests/test_evaluar_busqueda.py::test_piso_de_calidad` |
 
 Siguen pasando CA-29 y CA-45 (`tests/test_tools.py`) y CA-58 (`tests/test_agent_graph.py`).
 
@@ -213,6 +218,7 @@ Siguen pasando CA-29 y CA-45 (`tests/test_tools.py`) y CA-58 (`tests/test_agent_
 | D-A2 | `1 kg` y `1000 ml` coinciden con 0,9 y como aproximados: en el rubro «la de kilo» puede ser cualquiera de las dos, pero no son la misma medida | Cerrada |
 | D-A3 | El tono escrito sin punto sigue el supuesto V-01 de [validaciones_pendientes.md](../validaciones_pendientes.md). Hoy las coloraciones del catálogo real no tienen tono en el nombre, así que solo aplica cuando lo tengan | Abierta (V-01) |
 | D-A4 | Las listas de abreviaturas y sinónimos están en `busqueda_service.py`. Si el negocio usa otras, se suman ahí con su test | Cerrada |
+| D-A5 | Línea de base del buscador con 124 consultas (2026-11-24), antes y después de RF-118: recall@3 0,87 → 0,94; MRR 0,867 → 0,937; únicos correctos 0,776 → 0,91; productos que existen y se negaban 12 → 5; abstención 1,0 y falsos únicos 0, sin cambios. En «necesidad» el recall es 0,667: lo que falta usa palabras que ningún nombre tiene («teñir», «mechas»), así que es donde medir embeddings (D-29) si se proponen | Medida |
 
 ## 9. Plan de implementación
 

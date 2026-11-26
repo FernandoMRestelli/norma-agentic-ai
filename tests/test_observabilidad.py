@@ -348,7 +348,7 @@ def orquestador_en_mlflow(mlflow_local, monkeypatch):
 
     def correr():
         agent = NormaAgent(ModeloGuionado(orq._delegar(), orq._nota(), orq._responder()), InMemorySaver())
-        agent.handle("44", customer_id="telegram:secreto-77", channel=Channel.TELEGRAM, text=orq.LISTA)
+        agent.handle("44", customer_id="telegram:secreto-77", channel=Channel.TELEGRAM, text=orq.LISTA_CON_MEDIDA)
         trace = _traza(mlflow_local)
         return trace, {span.name: span for span in trace.data.spans}
 
@@ -360,7 +360,8 @@ def test_el_orquestador_deja_sus_cuentas_en_la_traza(orquestador_en_mlflow):
     trace, spans = orquestador_en_mlflow()
 
     precarga = spans["precarga_busqueda"].attributes
-    assert (precarga["buscados"], precarga["sin_separar"], precarga["varias"]) == (2, 0, 2)
+    assert (precarga["buscados"], precarga["sin_separar"]) == (2, 0)
+    assert (precarga["unico"], precarga["varias"]) == (1, 1)
     sub_loop = spans["sub_loop"].attributes
     assert (sub_loop["resueltos"], sub_loop["pendientes"], sub_loop["afuera"]) == (1, 1, 0)
     assert (sub_loop["tokens_entrada"], sub_loop["cerrada_por"]) == (0, "nota")  # el modelo guionado no da uso
@@ -381,8 +382,9 @@ def test_con_texto_el_orquestador_guarda_encargo_y_nota(orquestador_en_mlflow, m
     assert spans["sub_loop"].inputs == {"encargo": "Resolvé producto, medida y cantidad", "renglones": [1, 2]}
     assert spans["sub_loop"].outputs["resueltos"][0]["sku"] == "SH-KER-900"
     assert spans["nota"].inputs["resueltos"][0]["sku"] == "SH-KER-900"
-    assert [b["texto"] for b in spans["precarga_busqueda"].inputs["buscados"]] == ["shampoo keratina", "mascara argan"]
-    assert {r["estado"] for r in spans["precarga_busqueda"].outputs["resultados"]} == {"varias"}
+    buscados = [b["texto"] for b in spans["precarga_busqueda"].inputs["buscados"]]
+    assert buscados == ["shampoo keratina 900", "mascara argan"]
+    assert [r["estado"] for r in spans["precarga_busqueda"].outputs["resultados"]] == ["unico", "varias"]
 
 
 def test_lectura_y_turno_comparten_mensaje(mlflow_local, monkeypatch):

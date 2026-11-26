@@ -11,9 +11,10 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import ValidationError
 from sqlalchemy import delete, func, select
 
-from internal.agent import context, graph, norma_agent, tool_registry
+from internal.agent import context, graph, norma_agent, observabilidad, tool_registry
 from internal.agent.graph import FAILURE_MESSAGE, HANDOFF_MESSAGE
 from internal.agent.norma_agent import NormaAgent
+from internal.config import get_settings
 from internal.database.connection import SessionLocal, init_db
 from internal.database.models import ConversationRecord, DraftRecord, OrderRecord
 from internal.schemas.agent_schema import RespondToCustomerInput
@@ -22,6 +23,7 @@ from internal.schemas.order_schema import Channel, IncomingMessage
 from internal.services import conversation_service, order_service, sheets_service, skill_service
 
 SKU = "CR-NIV-100"
+OTRO = "CR-NIV-400"
 CLIENTE = {"customer_id": "telegram:1", "channel": Channel.TELEGRAM}
 
 
@@ -327,20 +329,21 @@ def test_descartar_propuesta_va_sin_propuesta():
     [
         ("aclaracion", [SKU], None),  # «¿es la Crema Nivea de 100?»
         ("aclaracion", [], None),  # «¿cuántas te mando?»
-        ("propuesta", [SKU], [{"sku": SKU, "quantity": 3}]),  # un pedido largo que deja una duda
+        ("propuesta", [OTRO], [{"sku": SKU, "quantity": 3}]),  # un pedido largo que deja una duda
     ],
 )
 def test_si_que_contesta_una_pregunta_va_al_agente(catalogo, kind, options, propuesta):
     """CA-164: con una propuesta vigente, «sí» después de una pregunta no registra sin el LLM (RF-99)."""
     agent, modelo = _agente(
         *GUION_OFERTA,
-        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _ai(_call("leer_skill", nombre="tomar_pedido"), _call("get_product", sku=OTRO)),
         _ai(_call("respond_to_customer", kind=kind, message="¿Es la Crema Nivea de 100?", options=options,
                   propuesta=propuesta)),
         _ai(_call("leer_skill", nombre="tomar_pedido")),
         _ai(_propuesta("Listo, van las 3 Crema Nivea de 100. ¿Te lo confirmo?", SKU, 3)),
     )
     agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+    catalogo.append(catalogo[0].model_copy(update={"sku": OTRO, "presentation": "400 ml"}))
     agent.handle("1", text="y una crema más", **CLIENTE)
     llamadas = len(modelo.recibidos)
 
@@ -349,6 +352,148 @@ def test_si_que_contesta_una_pregunta_va_al_agente(catalogo, kind, options, prop
     assert len(modelo.recibidos) > llamadas
     assert respuesta.kind == "propuesta"
     assert _ordenes() == 0
+
+
+PIDE_CONFIRMACION = "Antes de registrarlo, te paso el pedido como está hasta ahora"
+
+
+def _reoferta(mensaje="Te lo dejo así. ¿Lo confirmás?"):
+    return _ai(_propuesta(mensaje, SKU, 3))
+
+
+@pytest.mark.parametrize("texto", ["dale", "dale, muchas gracias!"])
+def test_repetir_en_options_lo_propuesto_no_deja_una_pregunta(catalogo, texto):
+    """CA-216: el modelo manda en `options` los SKU que ya propuso; «dale» acepta igual, con o sin el LLM (RF-99)."""
+    agent, _ = _agente(
+        _ai(_call("search_products", query="crema")),
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _ai(_call("respond_to_customer", kind="propuesta", message="Van 2 cremas. ¿Lo confirmo?", options=[SKU],
+                  propuesta=[{"sku": SKU, "quantity": 2}])),
+        *GUION_ACEPTA,
+    )  # fmt: skip
+    propuesta = agent.handle("1", text="quiero dos cremas", **CLIENTE)
+    assert propuesta.options == []
+    assert agent.handle("1", text=texto, **CLIENTE).kind == "pedido"
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        *("dale, pero que sean 2", "dale pero que sean dos", "ok?", "sí...", "dale si llega el lunes"),
+        *("sí, sumale un shampoo", "no, mejor no", "dejame pensarlo", "dale, pago como siempre"),
+        "[audio transcripto]\ndale, pero mandame dos",
+    ],
+)
+def test_armar_pedido_exige_una_aceptacion_pura(catalogo, texto):
+    """CA-183: aunque el modelo llame a `armar_pedido`, lo que no es solo aceptar no registra nada (RF-111)."""
+    agent, _ = _agente(*GUION_OFERTA, *GUION_ACEPTA, _ai(_call("leer_skill", nombre="tomar_pedido")), _reoferta())
+    agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+
+    respuesta = agent.handle("1", text=texto, **CLIENTE)
+
+    assert _resultados(agent, "armar_pedido")[0]["error"]["code"] == "aceptacion_no_clara"
+    assert respuesta.kind == "propuesta" and not respuesta.cerrada
+    assert _ordenes() == 0
+
+
+@pytest.mark.parametrize(
+    "texto", ["sí, dale", "perfecto, mandalo", "ok gracias", "[audio transcripto]\nsí, confirmalo"]
+)
+def test_armar_pedido_registra_una_aceptacion_dicha_de_otra_forma(catalogo, texto):
+    """RF-111: el control no frena a quien acepta con otras palabras."""
+    agent, _ = _agente(*GUION_OFERTA, *GUION_ACEPTA)
+    agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+
+    assert agent.handle("1", text=texto, **CLIENTE).kind == "pedido"
+    assert _ordenes() == 1
+
+
+@pytest.mark.parametrize(("kind", "options"), [("aclaracion", [SKU]), ("aclaracion", []), ("fuera_de_catalogo", [SKU])])
+@pytest.mark.parametrize("texto", ["sí", "dale", "sí, confirmo"])
+def test_armar_pedido_no_toma_una_respuesta_como_aceptacion(catalogo, kind, options, texto):
+    """CA-184: un «sí» que contesta la pregunta del asistente no registra, aunque el modelo se confunda (RF-111)."""
+    agent, _ = _agente(
+        *GUION_OFERTA,
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _ai(_call("respond_to_customer", kind=kind, message="¿Es la Crema Nivea de 100?", options=options)),
+        *GUION_ACEPTA,
+        _ai(_call("leer_skill", nombre="tomar_pedido")),
+        _reoferta(),
+    )
+    agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+    agent.handle("1", text="y una crema más", **CLIENTE)
+
+    respuesta = agent.handle("1", text=texto, **CLIENTE)
+
+    error = _resultados(agent, "armar_pedido")[0]["error"]
+    assert error["code"] == "aceptacion_no_clara" and "pregunta" in error["message"]
+    assert respuesta.kind == "propuesta"
+    assert _ordenes() == 0
+
+
+def test_si_el_modelo_insiste_el_sistema_vuelve_a_mostrar_la_propuesta(catalogo):
+    """CA-185: dos llamadas en el turno no registran; el cliente ve la propuesta y su «dale» la cierra sin LLM."""
+    agent, modelo = _agente(*GUION_OFERTA, *GUION_ACEPTA, _ai({**_call("armar_pedido"), "id": "otra"}))
+    oferta = agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+
+    respuesta = agent.handle("1", text="dale, pero que sean dos", **CLIENTE)
+
+    assert respuesta.kind == "propuesta" and not respuesta.cerrada and respuesta.options == []
+    assert respuesta.message.startswith(PIDE_CONFIRMACION)
+    assert "• 3 x Crema Nivea 100 ml ($1000.00 c/u = $3000.00)" in respuesta.message
+    assert respuesta.draft == oferta.draft
+    assert _ordenes() == 0
+    estado = agent.graph.get_state({"configurable": {"thread_id": "1"}}).values
+    assert observabilidad.resumir(estado).rescates == ["confirmacion_pedida"]  # CA-211
+
+    llamadas = len(modelo.recibidos)
+    final = agent.handle("1", text="dale", **CLIENTE)
+    assert final.kind == "pedido" and len(modelo.recibidos) == llamadas
+    assert _ordenes() == 1
+
+
+def test_el_freno_vale_por_turno(catalogo):
+    """CA-185: un rechazo de un turno anterior no cuenta como insistencia en el siguiente."""
+
+    def turno(mensaje):  # mensajes distintos: add_messages reemplaza a uno con el mismo id
+        return (
+            _ai(_call("leer_skill", nombre="confirmar_pedido")),
+            _ai(_call("armar_pedido")),
+            _ai(_call("leer_skill", nombre="tomar_pedido")),
+            _reoferta(mensaje),
+        )
+
+    agent, _ = _agente(*GUION_OFERTA, *turno("Te lo dejo así. ¿Lo confirmás?"), *turno("Sigue igual. ¿Va?"))
+    agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+    agent.handle("1", text="dale, pero que sean dos", **CLIENTE)
+
+    respuesta = agent.handle("1", text="dale, pero que sean una", **CLIENTE)
+
+    assert respuesta.message.startswith("Sigue igual. ¿Va?")
+    assert _ordenes() == 0
+
+
+@pytest.mark.parametrize(("texto", "registra"), [("dale", False), ("sí", False), ("confirmalo así", True)])
+def test_pedido_con_dudas_pide_una_confirmacion_explicita(catalogo, texto, registra):
+    """CA-186: con dudas a la vista, «dale» puede contestar cualquiera de las dos cosas; «confirmalo así», no."""
+    agent, modelo = _agente(
+        *GUION_OFERTA,
+        _ai(_call("leer_skill", nombre="tomar_pedido"), _call("get_product", sku=OTRO)),
+        _ai(_call("respond_to_customer", kind="propuesta", message="Van 3. La otra, ¿es la de 400? ¿O lo confirmo así?",
+                  options=[OTRO], propuesta=[{"sku": SKU, "quantity": 3}])),
+        *GUION_ACEPTA,
+    )
+    agent.handle("1", text="te encargo 5 cremas", **CLIENTE)
+    catalogo.append(catalogo[0].model_copy(update={"sku": OTRO, "presentation": "400 ml"}))
+    agent.handle("1", text="y una crema más", **CLIENTE)
+
+    respuesta = agent.handle("1", text=texto, **CLIENTE)
+
+    assert _ordenes() == int(registra)
+    if not registra:
+        assert respuesta.kind == "propuesta" and respuesta.message.startswith(PIDE_CONFIRMACION)
+        assert modelo.guion == []  # lo resolvió el sistema, sin otra llamada al LLM
+        assert agent.handle("1", text="dale", **CLIENTE).kind == "pedido"
 
 
 def test_pregunta_abierta_de_un_checkpoint_anterior():
@@ -580,6 +725,102 @@ def test_plazo_del_turno(catalogo, monkeypatch):
     assert modelo.ofrecidas[1] == ["respond_to_customer"]
 
 
+def _con_uso(mensaje, entrada, salida=0):
+    uso = {"input_tokens": entrada, "output_tokens": salida, "total_tokens": entrada + salida}
+    return mensaje.model_copy(update={"usage_metadata": uso})
+
+
+def _cerrar(mensaje="Encontré la crema. ¿Cuántas querés?"):
+    return _ai(_call("respond_to_customer", kind="aclaracion", message=mensaje))
+
+
+@pytest.fixture
+def tope_de_tokens(monkeypatch):
+    def fijar(tope):
+        monkeypatch.setenv("AGENT_MAX_TOKENS_PER_TURN", str(tope))
+        get_settings.cache_clear()
+
+    yield fijar
+    get_settings.cache_clear()
+
+
+@pytest.mark.parametrize(("tope", "cierra"), [(1000, True), (1001, False), (0, False)])
+def test_tope_de_tokens(catalogo, tope_de_tokens, tope, cierra):
+    """CA-209: cuenta entrada y salida de todo el turno; al llegar al tope solo queda responder."""
+    tope_de_tokens(tope)
+    buscar = _ai(_call("leer_skill", nombre="tomar_pedido"), _call("search_products", query="crema"))
+    agent, modelo = _agente(_con_uso(buscar, 900, 100), _cerrar())
+
+    agent.handle("1", text="quiero algo", **CLIENTE)
+
+    assert (modelo.ofrecidas[1] == ["respond_to_customer"]) is cierra
+
+
+def test_el_tope_de_tokens_es_por_turno(catalogo, tope_de_tokens):
+    """CA-209: lo que gastó el turno anterior no cuenta."""
+    tope_de_tokens(1000)
+    leer = _call("leer_skill", nombre="tomar_pedido")
+    agent, modelo = _agente(_con_uso(_ai(leer), 1), _con_uso(_cerrar(), 5000), _ai(leer), _cerrar("¿Cuál de las dos?"))
+    agent.handle("1", text="quiero algo", **CLIENTE)
+    agent.handle("1", text="una crema", **CLIENTE)
+    assert "search_products" in modelo.ofrecidas[3]
+
+
+def test_los_tokens_de_los_sub_loops_cuentan():
+    """CA-209: lo que gastó un sub-loop está en su nota."""
+    notas = [{"tipo": "busqueda"}, {"tipo": "sub_loop", "tokens_entrada": 700, "tokens_salida": 50}]
+    mensajes = [HumanMessage(content="hola"), _con_uso(_ai(), 100, 10)]
+    assert graph._tokens_del_turno({"messages": mensajes, "inicio_turno": 0, "notas_turno": notas}) == 860
+
+
+def _busca(n, **args):
+    return _ai({**_call("search_products", **args), "id": f"busca-{n}"})
+
+
+def test_llamada_repetida_no_se_ejecuta(catalogo, monkeypatch):
+    """CA-210: el modelo recibe que ya la hizo, y la búsqueda no corre de nuevo."""
+    buscadas = []
+    original = tool_registry.catalog_tools.buscar_productos
+    monkeypatch.setattr(
+        tool_registry.catalog_tools, "buscar_productos", lambda *a: buscadas.append(a[0]) or original(*a)
+    )
+    agent, _ = _agente(
+        _busca(1, query="crema", limit=3), _busca(2, limit=3, query="crema"),  # el orden de los argumentos no importa
+        _ai(_call("leer_skill", nombre="tomar_pedido")), _cerrar(),
+    )  # fmt: skip
+    agent.handle("1", text="quiero algo", **CLIENTE)
+
+    codigos = [r["ok"] or r["error"]["code"] for r in _resultados(agent, "search_products")]
+    assert codigos == [True, "llamada_repetida"]
+    assert buscadas == ["crema"]
+
+
+def test_tres_repetidas_cierran_el_turno(catalogo):
+    """CA-210: insistir con lo mismo no avanza: responde con lo encontrado en vez de llegar al tope de iteraciones."""
+    agent, modelo = _agente(*[_busca(n, query="crema") for n in range(4)], _cerrar())
+    resultado = agent.handle("1", text="quiero algo", **CLIENTE)
+    assert modelo.ofrecidas[-1] == ["respond_to_customer"]
+    assert (resultado.kind, resultado.iterations) == ("aclaracion", 5)
+    estado = agent.graph.get_state({"configurable": {"thread_id": "1"}}).values
+    assert observabilidad.resumir(estado).rescates == ["cierre"]  # CA-211
+
+
+def test_lo_que_no_es_repetir(catalogo):
+    """CA-210: otros argumentos, una que falló, una tool que no es de lectura y el turno siguiente se ejecutan."""
+    leer = _call("leer_skill", nombre="tomar_pedido")
+    agent, _ = _agente(
+        _busca(1, query="crema"), _busca(2, query="crema nivea"),
+        _ai(_call("check_stock", sku="NO-EXISTE", quantity=1)), _ai(_call("check_stock", sku="NO-EXISTE", quantity=1)),
+        _ai(leer), _ai({**leer, "id": "otra"}), _cerrar(),
+        _busca(3, query="crema"), _ai(leer), _cerrar("¿Cuántas?"),
+    )  # fmt: skip
+    agent.handle("1", text="quiero algo", **CLIENTE)
+    agent.handle("1", text="una crema", **CLIENTE)
+    for tool in ("search_products", "check_stock", "leer_skill"):
+        assert "llamada_repetida" not in str(_resultados(agent, tool))
+    assert all(r["ok"] for r in _resultados(agent, "search_products"))
+
+
 def test_presupuesto_por_defecto():
     """RNF-16: el tope es por turno (cada mensaje del cliente), no por conversación."""
     assert graph.max_iteraciones() == 50
@@ -657,7 +898,7 @@ def test_saludo_cierra_en_una_llamada(catalogo):
 def test_la_skill_preactivada_no_sigue_en_el_turno_siguiente(catalogo):
     """RF-62: cada turno se encamina de nuevo; si el mensaje no es claro, vuelve a elegir el modelo."""
     agent, modelo = _agente(
-        _ai(_propuesta("Listo, te armé las cremas. ¿Lo confirmo?", SKU, 2)),
+        _ai(_call("get_product", sku=SKU), _propuesta("Listo, te armé las cremas. ¿Lo confirmo?", SKU, 2)),
         _ai(_call("leer_skill", nombre="tomar_pedido")),
         _ai(_propuesta("Ahora son 3. ¿Lo dejamos así?", SKU, 3)),
     )
@@ -722,7 +963,7 @@ def test_nombre_del_cliente_llega_como_dato(catalogo):
 
 def test_historial_previo_empieza_con_el_cliente():
     previo = [AIMessage(content="suelto"), HumanMessage(content="hola"), _ai(_call("get_product", sku=SKU))]
-    assert [m.text for m in context._previous_history(previo)] == ["hola"]
+    assert [m.text for m in context.historial_previo(previo)] == ["hola"]
 
 
 def test_orquestador_abre_y_cierra_conversaciones(catalogo, monkeypatch):
@@ -1162,7 +1403,9 @@ def test_aclaracion_sin_volver_a_buscar(catalogo_pantene):
         message="El shampoo Pantene lo tengo en 200 y en 400. ¿Cuál te mando?",
         options=["SH-200", "SH-400"],
     )
-    agent, modelo = _agente(_ai(preguntar), _ai(_propuesta("Listo, van los 2 de 400. ¿Lo confirmo?", "SH-400", 2)))
+    vio = (_call("get_product", sku="SH-200"), _call("get_product", sku="SH-400"))
+    elegir = _ai(_propuesta("Listo, van los 2 de 400. ¿Lo confirmo?", "SH-400", 2))
+    agent, modelo = _agente(_ai(*vio, preguntar), elegir)
     agent.handle("1", text="2 shampoo pantene", **CLIENTE)  # una cantidad: preactiva `tomar_pedido`
 
     resultado = agent.handle("1", text="el de 400", **CLIENTE)
@@ -1183,7 +1426,8 @@ def test_las_opciones_son_las_de_la_ultima_respuesta(catalogo_pantene):
     preguntar = _call("respond_to_customer", kind="aclaracion", message="¿De 200 o de 400?", options=opciones)
     proponer = _ai(_propuesta("Van los 2 de 400. ¿Lo confirmo?", "SH-400", 2))
     otra = _ai(_propuesta("Ahora son 3 de 400. ¿Lo dejamos así?", "SH-400", 3))
-    agent, modelo = _agente(_ai(preguntar), proponer, otra)
+    vio = (_call("get_product", sku="SH-200"), _call("get_product", sku="SH-400"))
+    agent, modelo = _agente(_ai(*vio, preguntar), proponer, otra)
     agent.handle("1", text="2 shampoo pantene", **CLIENTE)
     agent.handle("1", text="2 del de 400", **CLIENTE)
     agent.handle("1", text="mejor 3 de esos", **CLIENTE)
