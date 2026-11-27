@@ -9,9 +9,10 @@
 > **Pendientes:** lo que falta decidir está marcado como **⏳ A-xx**, y las tareas sin dueño como **⏳ T-xx**. Todo
 > está reunido en [§8](#8-pendientes-de-definir).
 >
-> **Diapositivas:** borrador en [`presentacion.html`](presentacion.html), con el formato de la propuesta. Lo que
-> falta aparece en cajas punteadas violetas con el mismo ID, y el punto de esa diapositiva en la barra de abajo
-> también es violeta.
+> **Diapositivas:** borrador en [`presentacion.html`](presentacion.html), con el formato de la propuesta, y la misma
+> presentación con otro estilo en [`presentacion-opcion-2.html`](presentacion-opcion-2.html) (A-23). Lo que
+> falta aparece como etiqueta junto al título, con el mismo ID, y el punto de esa diapositiva en la barra de abajo
+> cambia de color.
 
 ---
 
@@ -279,7 +280,7 @@ corrida, que es lo que más tarda) y el resto en paralelo.
 | A-20 | Dónde se documentan los datos | Ampliar `docs/data/fuentes.md` o un documento nuevo | §5.4 | |
 | A-21 | Cómo se describe y evalúa el generador de datos sintéticos | Documentar cómo se armaron el catálogo de evaluación, las consultas y los casos, y qué control de calidad tuvieron | §5.4 | |
 | A-22 | Sumar un `Makefile` (o scripts) para correr sistema y evaluación | Sí, con `make test`, `make eval-busqueda`, `make eval-agente`, `make bot`; o solo comandos en el README | §5.6 | |
-| A-23 | Formato de las diapositivas | Seguir el HTML de la propuesta (mismo estilo, versionado en `docs/presentacion/`) u otra herramienta | Armado de diapositivas | **Decidido (2026-11-26):** `presentacion.html`, con el estilo de la propuesta. Se probaron y descartaron una grilla «bento» y un estilo violeta |
+| A-23 | Formato de las diapositivas | Las dos opciones tienen el mismo contenido: `presentacion.html` (grafito y verde, el estilo de la propuesta) y `presentacion-opcion-2.html` (crema, títulos con serifa y acento terracota). Se probaron y descartaron una grilla «bento» y un estilo violeta | Armado de diapositivas | HTML, sí. Falta elegir entre las dos opciones |
 
 ### Tareas sin dueño
 
