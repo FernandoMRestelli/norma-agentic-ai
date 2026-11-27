@@ -6,7 +6,8 @@
 > **Qué es:** qué contamos, en qué orden, con qué evidencia del repo y qué falta producir antes de exponer. No es
 > la presentación: es el guion para armarla.
 >
-> **Pendientes:** lo que falta decidir está marcado como **⏳ A-xx** y reunido en [§8](#8-pendientes-de-definir).
+> **Pendientes:** lo que falta decidir está marcado como **⏳ A-xx**, y las tareas sin dueño como **⏳ T-xx**. Todo
+> está reunido en [§8](#8-pendientes-de-definir).
 >
 > **Diapositivas:** borrador en [`presentacion.html`](presentacion.html), con el formato de la propuesta. Lo que
 > falta aparece en cajas punteadas violetas con el mismo ID, y el punto de esa diapositiva en la barra de abajo
@@ -110,9 +111,9 @@ Formato de las diapositivas a definir: **⏳ A-23**. Quién presenta cada bloque
 | 3 | Hipótesis | 1 | Hipótesis reformulada con su baseline y su métrica (§5.1) | — | ❌ · ⏳ A-05 a A-07 |
 | 4 | Arquitectura | 2,5 | Diagrama: canal → filtro previo → grafo (skills, tools, sub-loop) → guardrails → propuesta → aceptación → registro → planillas y dashboard. Principio: «el LLM interpreta, el backend valida». Después, cómo decide el agente (4 skills, 9 BR, 15 tools; la skill habilita sus tools) y cómo está organizado el repo (carpetas, 772 tests, 14 specs, CI) | `docs/architecture.md`, `internal/skills/`, `internal/agent/tool_registry.py` | 🟡 rehacer el diagrama con el estado actual · ⏳ A-17, A-22 |
 | 5 | Áreas de profundización | 3 | Las 3 centrales de §3, una diapo cada una, con un ejemplo de falla que resuelven | Specs y tests | ✅ material, falta diapos · ⏳ A-13 |
-| 6 | Evaluación sobre test y costos | 2,5 | Resultados en el grupo reservado contra el baseline, con intervalo; análisis de fallas; costo por pedido y latencia p50/p95; elección de modelo | Herramientas listas | ❌ falta correr · ⏳ A-08 a A-12 |
+| 6 | Evaluación sobre test y costos | 2,5 | Resultados en el grupo reservado contra el baseline, con intervalo; análisis de fallas; costo por pedido y latencia p50/p95; elección de modelo | Herramientas listas | ❌ falta correr · ⏳ A-08 a A-12, A-26, T-01, T-02 |
 | 7 | Relato del desarrollo | 2 | Bloqueos, qué no funcionó, cambios de rumbo, uso de asistentes de IA, aprendizajes (§6) | `MEJORAS.md`, `CHANGELOG.md`, specs | 🟡 falta sintetizar · ⏳ A-18 |
-| 8 | Limitaciones y próximos pasos | 0,5 | Ver §7 | `MEJORAS.md` | ✅ |
+| 8 | Limitaciones y próximos pasos | 0,5 | Ver §7 | `MEJORAS.md` | ✅ · ⏳ A-25 qué haríamos distinto |
 
 ---
 
@@ -267,6 +268,8 @@ corrida, que es lo que más tarda) y el resto en paralelo.
 | A-16 | Cómo contar los cambios respecto de la propuesta | Validar la tabla de §2: en especial si el BI con DuckDB es recorte definitivo o próximo paso | Bloques 2, 7 y 8 | |
 | A-17 | Diagrama de arquitectura | Rehacer el de `docs/Flujo completo de Norma Agentic AI.png` o partir del mermaid de `docs/architecture.md` | Bloque 4 | |
 | A-18 | Relato del desarrollo y uso de asistentes de IA | Cada integrante suma sus bloqueos, aprendizajes y herramientas a §6 | Bloque 7 | |
+| A-25 | Qué haríamos distinto | La consigna lo pide explícitamente. Por ejemplo: medir antes de sumar funcionalidades, fijar el modelo antes, cuidar el reparto de commits desde el principio | Bloque 8 | |
+| A-26 | Si el benchmark de pedidos escritos a mano entra en la presentación | Entró a `develop` el 2026-11-26 (`docs/benchmark-pedidos-manuscritos.md`, `docs/spec/benchmark-manuscritos.md`): listas sorteadas que el equipo copia a mano y fotografía, con la respuesta correcta conocida de antemano. Las listas y el Form están hechos; faltan los casos y el runner. Opciones: mostrarlo con resultados (si se corre a tiempo), mostrarlo como diseño en evaluación, o dejarlo afuera | Bloques 5 y 6 | |
 
 ### Requisitos que faltan en el repo
 
@@ -276,4 +279,13 @@ corrida, que es lo que más tarda) y el resto en paralelo.
 | A-20 | Dónde se documentan los datos | Ampliar `docs/data/fuentes.md` o un documento nuevo | §5.4 | |
 | A-21 | Cómo se describe y evalúa el generador de datos sintéticos | Documentar cómo se armaron el catálogo de evaluación, las consultas y los casos, y qué control de calidad tuvieron | §5.4 | |
 | A-22 | Sumar un `Makefile` (o scripts) para correr sistema y evaluación | Sí, con `make test`, `make eval-busqueda`, `make eval-agente`, `make bot`; o solo comandos en el README | §5.6 | |
-| A-23 | Formato de las diapositivas | Seguir el HTML de la propuesta (mismo estilo, versionado en `docs/presentacion/`) u otra herramienta | Armado de diapositivas | |
+| A-23 | Formato de las diapositivas | Seguir el HTML de la propuesta (mismo estilo, versionado en `docs/presentacion/`) u otra herramienta | Armado de diapositivas | **Decidido (2026-11-26):** `presentacion.html`, con el estilo de la propuesta. Se probaron y descartaron una grilla «bento» y un estilo violeta |
+
+### Tareas sin dueño
+
+No son decisiones, pero hay que asignarlas (A-04). En las diapositivas aparecen como **⏳ T-xx**.
+
+| ID | Tarea | De dónde sale | Responsable |
+|---|---|---|---|
+| T-01 | Traer los números de la comparación de Qwen3-VL local contra la API para leer fotos: calidad, costo y latencia | PR #110; diapositiva de costos; §5.3 | |
+| T-02 | Análisis de fallas de la corrida sobre test: clasificar los casos que fallan (uso de tools, interpretación, búsqueda o guardrail), con uno o dos ejemplos de cada tipo | §5.2, paso 4; diapositiva de evaluación sobre test | |
