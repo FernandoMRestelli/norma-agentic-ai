@@ -9,10 +9,10 @@
 | | |
 |---|---|
 | Etapa del roadmap | 03 · Pedidos multimodales |
-| Estado | Implementado (RF-126 a RF-147); falta validar la scoring con el orden a mano |
+| Estado | Implementado: RF-126 a RF-148. Especificado: el control de conteo, los omitidos como errores, los tachados inventados y la señal de faltante (RF-149 a RF-152). Falta validar la scoring con el orden a mano |
 | Responsable | Federico Picado |
 | Requisitos relacionados | RF-101 a RF-110 y RNF-18 ([lectura de imágenes](lectura-de-imagenes.md)), D-50 (desarrollo y reservado) |
-| IDs que reserva | RF-126 a RF-148, CA-218 a CA-250 |
+| IDs que reserva | RF-126 a RF-152, CA-218 a CA-254 |
 
 ## 1. Objetivo
 
@@ -32,6 +32,7 @@ volver a pagar.
 | El sorteo de las listas con semilla (`listas.json`) | La pregunta de subir la foto: Apps Script no puede crearla y se agrega a mano |
 | El Google Apps Script que crea el Form (`crear_form.gs`) | El nivel (c), con el agente completo: lo cubre `evaluar_agente` y cuesta plata |
 | Armar `casos.json` desde las respuestas del Form y la revisión de cada foto | Optimizar `INSTRUCCIONES` con DSPy/GEPA |
+| Medir una señal de «puede faltar un renglón» que el bot podría usar sin conocer la hoja | Sumar esa señal al bot, o decirle al cliente cuántos productos se leyeron: se decide con lo que mida el benchmark, en otra spec |
 | Correr los modelos de visión sobre las fotos y guardar cada salida | Cambiar el modelo de visión de producción: se decide con los resultados, en otra PR |
 | Puntuar los niveles (a) lectura y (b) lectura + búsqueda, con costo y latencia | |
 | Validar la scoring contra un orden hecho a mano, y congelar el reservado | |
@@ -200,7 +201,9 @@ cantidad.
 `legible: false` cuando la foto se lee da S = 0 con todos los esperados omitidos. Una foto que el caso marca
 `legible: false` no entra al puntaje, y se reporta si el modelo la marcó ilegible.
 
-**Errores graves y filtro.** Son errores graves los sobrantes de costo 1 y los pares con cantidad lejos sin duda.
+**Errores graves y filtro.** Son errores graves los renglones omitidos, los sobrantes de costo 1 y los pares con
+cantidad lejos sin duda. El omitido cuenta porque en un pedido real nadie avisa que faltó algo: el cliente no recibe
+ese producto y no se entera hasta que llega el pedido.
 Una configuración es **elegible** en un nivel y grupo si no tiene tachados pedidos y sus errores graves no pasan del
 2 % de los renglones esperados. La que decide es la del nivel (b) en `reservado`; en los demás se muestra como
 referencia.
@@ -214,9 +217,11 @@ referencia.
 | Peores hojas | Las 5 fotos de menor S, con su S, de menor a mayor (los empates, por id) |
 | Peores renglones | Los 10 renglones del pool (por `id`) de menor s promedio, entre los que aparecieron en al menos dos fotos, con su texto, su s promedio y cuántas veces aparecieron. Un omitido cuenta s = 0 |
 | Elegible | Sí o no, con el motivo si no |
-| Errores graves | Cantidad y porcentaje sobre los renglones esperados |
-| Errores silenciosos | Pares con alguna penalización y sin duda, más los sobrantes de costo 1 |
+| Errores graves | Omitidos, sobrantes de costo 1 y cantidades lejos sin duda: cantidad y porcentaje sobre los renglones esperados |
+| Errores silenciosos | Pares con alguna penalización y sin duda, más los omitidos y los sobrantes de costo 1 |
 | Tachados pedidos | Objetivo 0 (RNF-18) |
+| Tachados inventados | Tachados leídos (`ImagenLeida.tachados`) que no tienen las palabras de ningún tachado de la revisión. Es una señal: si la foto no se revisó, puede ser un tachado real. No entra a S ni al filtro |
+| Señal de faltante | Cuántas veces la señal de la §3.6 acertó, dio una falsa alarma o no detectó una salida con renglones de menos |
 | Fotos perfectas | Porcentaje de fotos con todos los pares en s = 1 y sin sobrantes |
 | Precision, recall, F1 | Un par es correcto si coinciden producto y cantidad, con o sin duda |
 | JSON válido | Porcentaje de salidas con `resultado` |
@@ -232,6 +237,29 @@ puede repetir. Un modelo de API sin precio muestra el USD como desconocido, no c
 
 `puntuar` escribe `corridas/<corrida>/resumen.json` y muestra una tabla con una fila por modelo, nivel y grupo, con
 la columna de elegible. Con `--detalle` muestra, por foto, cada esperado con lo que se leyó y su s.
+
+### 3.6 Fotos para revisar y señal de faltante
+
+Cada lista tiene 15 renglones, así que se sabe cuántos tendría que leer el modelo. Eso sirve para dos cosas.
+
+**Fotos para revisar.** Sin revisar cada foto no se sabe si la persona copió todo. Pero si **todos los modelos** de
+la corrida (al menos dos) leen menos renglones que los esperados de esa foto, lo más probable es que falten en la
+hoja (la persona los salteó o la foto los corta) y no que todos los modelos fallen igual. `puntuar` lista esas fotos
+en `para_revisar`, con los esperados y lo que leyó cada modelo. Quien revisa mira solo esas fotos y, si falta algo,
+lo anota en `sin_copiar`. Al contar, un renglón leído cuyo texto empieza con «pedido» no cuenta: es el encabezado
+leído como renglón.
+
+**Señal de faltante.** En un pedido real no hay lista con la que comparar. La señal usa solo la salida del modelo,
+como podría hacerlo el bot: dispara si la transcripción completa (`texto`) tiene más líneas de producto que
+`renglones`. Una línea de producto es una línea no vacía de `texto` con al menos una letra y un número; así no cuentan
+el encabezado, la fecha ni el membrete del papel. El benchmark sí conoce la verdad, y cuenta:
+
+| | La salida tiene menos renglones que los esperados | La salida tiene todos |
+|---|---|---|
+| La señal dispara | Detectada | Falsa alarma |
+| La señal no dispara | No detectada | Bien |
+
+Las fotos de `para_revisar` no entran a esta cuenta hasta que se revisen: ahí el faltante puede ser de la hoja.
 
 ### 3.5 Validación de la scoring
 
@@ -378,12 +406,15 @@ Son los campos de `vision_service.Lectura`, con `resultado` como `ImagenLeida.mo
 ```json
 {
   "corrida": "2026-12-02-luna", "casos": "data/benchmark_manuscritos/casos.json",
+  "para_revisar": [{"foto": "p02-A", "esperados": 15, "leidos": {"openai:gpt-6-luna": 12, "huggingface:…": 12}}],
   "modelos": [
     {"modelo": "openai:gpt-6-luna", "huella": "3f9a…",
      "niveles": {
        "b": {"desarrollo": {"fotos": 8, "S": 0.84, "S_intervalo": [0.79, 0.88], "fotos_perfectas_pct": 25.0,
                             "precision": 0.8, "recall": 0.8, "f1": 0.8, "errores_silenciosos": 9,
-                            "tachados_pedidos": 1, "errores_graves": 2, "errores_graves_pct": 1.7,
+                            "tachados_pedidos": 1, "tachados_inventados": 0, "errores_graves": 2,
+                            "errores_graves_pct": 1.7,
+                            "senal_de_faltante": {"detectada": 1, "falsa_alarma": 0, "no_detectada": 2, "bien": 5},
                             "elegible": false, "motivo": "pide 1 tachado", "S_por_hoja": 0.85,
                             "peores_hojas": [{"foto": "p03-A", "S": 0.825}],
                             "peores_renglones": [{"id": "N5", "texto": "Silkara protector térmico (7)", "s": 0.4,
@@ -437,12 +468,16 @@ En la carpeta de la corrida (§3.5). La clave:
 | RF-140 | `puntuar` reporta por modelo, nivel y grupo el S micro con intervalo por bootstrap sobre fotos, fotos perfectas, precision, recall y F1, errores silenciosos, tachados pedidos, JSON válido, segundos p50 y p95, USD con precio por modelo y los cortes por dificultad, origen, luz y papel; las mismas salidas dan el mismo resumen |
 | RF-141 | La cantidad está lejos si la mayor es el doble o más de la menor, si una es 0 o si la clase de unidad (cajas contra el resto) no coincide; si no coincide sin estar lejos, está cerca |
 | RF-142 | Un sobrante cuesta 1 en el denominador si es un tachado o es silencioso, y 0,2 si es dudoso (con duda o, en (b), con la búsqueda en `varias`, `aproximado` o `no_encontrado`) |
-| RF-143 | Los errores graves son los sobrantes de costo 1 y los pares con cantidad lejos sin duda; una configuración es elegible si no pide tachados y sus errores graves no pasan del 2 % de los renglones esperados |
+| RF-143 | Los errores graves son los omitidos, los sobrantes de costo 1 y los pares con cantidad lejos sin duda; una configuración es elegible si no pide tachados y sus errores graves no pasan del 2 % de los renglones esperados |
 | RF-144 | El resumen suma el S por hoja, las 5 peores hojas, los 10 peores renglones del pool con al menos dos apariciones, los cortes por persona, letra y nitidez, y la huella de cada modelo; avisa si dos modelos de la corrida tienen huellas distintas |
 | RF-145 | `puntuar --para-ordenar N` escribe N pares modelo + foto de `desarrollo`, al azar con semilla, sin el modelo ni el puntaje, y su clave aparte |
 | RF-146 | `validar --orden` da el porcentaje de pares en el mismo orden que S y los invertidos; la scoring es válida con al menos 80 % y ningún invertido de más de 0,1 de S, y si no sale con error |
 | RF-147 | `casos --congelar` fija las personas del reservado; con el reservado congelado, toda persona nueva va a `desarrollo`. La letra y la nitidez de la revisión pasan a `condiciones`, y un valor que no es de la §4.5 es un problema de esa foto |
 | RF-148 | El modelo local de visión (`vision_local`) genera hasta 20.000 tokens de salida, para que una hoja de 15 renglones no corte el JSON por la mitad, y no lee una imagen cuya entrada pase de 100.000 tokens: devuelve la lectura con el error, sin generar. Cambia también la lectura del bot, no solo el benchmark |
+| RF-149 | `puntuar` lista en `para_revisar` las fotos en que todos los modelos de la corrida, si son al menos dos, leen menos renglones que los esperados, sin contar un renglón leído que empieza con «pedido» |
+| RF-150 | Un renglón omitido cuenta como error silencioso y como error grave |
+| RF-151 | El resumen cuenta los tachados inventados: tachados leídos que no tienen las palabras de ningún tachado de la revisión; no entran a S ni al filtro |
+| RF-152 | El resumen cuenta cuántas veces la señal de faltante (más líneas de producto en `texto` que `renglones`) detectó, dio una falsa alarma o no detectó una salida con renglones de menos, sin las fotos de `para_revisar` |
 
 ## 6. Criterios de aceptación
 
@@ -464,7 +499,7 @@ En la carpeta de la corrida (§3.5). La clave:
 | CA-231 | Casos de los dos grupos | Se corre sin `--grupo` | Solo llama con las fotos de `desarrollo` | `tests/test_evaluar_manuscritos.py::test_correr_solo_desarrollo` |
 | CA-232 | Un esperado «keratina nordika 900» × 2 y los leídos «2 keratna Nordika 900» y «2 sh keratina Nordica x300»; aparte, los mismos más «2 keratina Nordika 900» al final | Se puntúa el nivel (a) | En el primero se empareja con «Nordica x300» (una letra en la marca) con la medida mal, s = 0,7, y «keratna» sobra; en el segundo se prefiere el que tiene la medida, s = 1, y sobran los otros dos | `tests/test_evaluar_manuscritos.py::test_nivel_a_empareja_por_palabras` |
 | CA-233 | Leídos que la búsqueda deja `unico`, `varias` con el SKU esperado entre los candidatos, `aproximado` y `no_encontrado` contra `catalogo_evaluacion.csv` | Se puntúa el nivel (b) | El `unico` empareja sin duda, `varias` y `aproximado` emparejan con duda y el `no_encontrado` queda sobrante con su esperado omitido | `tests/test_evaluar_manuscritos.py::test_nivel_b_empareja_por_sku` |
-| CA-234 | La hoja `p03-A` del diseño (§6.10): 12 renglones bien, N5 con «1» por «7», uno con duda, uno omitido y un tachado pedido | Se puntúa | S = 13,2 / 16 = 0,825; precision y recall 0,80; errores silenciosos 2; errores graves 2; tachados pedidos 1; no es perfecta ni elegible | `tests/test_evaluar_manuscritos.py::test_ejemplo_del_diseno` |
+| CA-234 | La hoja `p03-A` del diseño (§6.10): 12 renglones bien, N5 con «1» por «7», uno con duda, uno omitido y un tachado pedido | Se puntúa | S = 13,2 / 16 = 0,825; precision y recall 0,80; errores silenciosos 3; errores graves 3; tachados pedidos 1; no es perfecta ni elegible | `tests/test_evaluar_manuscritos.py::test_ejemplo_del_diseno` |
 | CA-235 | Una salida sin `resultado` para una foto legible de 15 renglones, y otra sin `resultado` ni `crudo` (el modelo no contestó) | Se puntúa | La primera da S = 0, 15 omitidos, y JSON válido baja; la segunda no entra al puntaje y se avisa que hay que `--reintentar` | `tests/test_evaluar_manuscritos.py::test_json_invalido_da_cero`, `test_sin_respuesta_no_cuenta` |
 | CA-236 | Un par con tono «7,1» leído y «7.1» esperado, otro con `cajas` leído y sin unidad esperada, y otro con `cada_uno` esperado y sin unidad leída | Se puntúa | El primero da s = 1, el segundo s = 0,4 (cantidad lejos) y el tercero s = 1 | `tests/test_evaluar_manuscritos.py::test_detalle_normalizado` |
 | CA-237 | Una corrida con dos modelos, uno de API con precio y otro local, y fotos de los dos grupos | Se puntúa dos veces | Las dos dan el mismo `resumen.json`, con desarrollo y reservado separados, el local con USD 0, el de API con su USD, y los cortes por dificultad, origen, luz y papel | `tests/test_evaluar_manuscritos.py::test_resumen_por_modelo_y_grupo` |
@@ -481,6 +516,10 @@ En la carpeta de la corrida (§3.5). La clave:
 | CA-248 | Una revisión con `letra: dificil` y `nitidez: nitida` en una foto, nada en otra y `letra: regular` en una tercera | Se arman los casos | La primera trae esos valores en `condiciones`, la segunda «sin dato», y la tercera es un problema que nombra su foto | `tests/test_benchmark_manuscritos.py::test_letra_y_nitidez` |
 | CA-249 | El modelo local con una entrada de 3.900 tokens y otra de 100.001 | Se lee la imagen | La primera genera con `max_new_tokens=20000`; la segunda devuelve la lectura con el error y no genera | `tests/test_vision.py::test_topes_de_tokens_del_modelo_local` |
 | CA-250 | `VISION_MARCAS=true` y un catálogo de producción con otra marca | Se corre una foto | El prompt que recibe el modelo trae las marcas de `catalogo_evaluacion.csv` y no la de producción, y el catálogo de producción vuelve a su lugar al terminar | `tests/test_evaluar_manuscritos.py::test_correr_manda_las_marcas_del_catalogo_de_evaluacion` |
+| CA-251 | Una corrida con dos modelos: en una foto los dos leen 12 de 15 (uno, además, el encabezado «Pedido para Norma» como renglón) y en otra uno lee 15; aparte, una corrida con un solo modelo que lee 12 | Se puntúa | La primera foto está en `para_revisar` con 15 esperados y 12 leídos por cada modelo; la segunda no; con un solo modelo no hay fotos para revisar | `tests/test_evaluar_manuscritos.py::test_fotos_para_revisar` |
+| CA-252 | Una hoja de 15 esperados con 14 renglones bien leídos y uno que no aparece | Se resume | Errores silenciosos 1, errores graves 1 (6,7 %), y no es elegible | `tests/test_evaluar_manuscritos.py::test_omitido_es_error_grave` |
+| CA-253 | Una foto sin tachados en la revisión con 3 tachados leídos, y otra con un tachado en la revisión que el modelo lee | Se resume | 3 tachados inventados en la primera y 0 en la segunda; S y el filtro no cambian | `tests/test_evaluar_manuscritos.py::test_tachados_inventados` |
+| CA-254 | Salidas con 15 líneas de producto en `texto` y 12 renglones, con 15 y 15, con 14 y 14 en una hoja de 15, y con encabezado y fecha sin números | Se cuenta la señal | Detectada, bien, no detectada, y el encabezado y la fecha no cuentan como líneas de producto | `tests/test_evaluar_manuscritos.py::test_senal_de_faltante` |
 
 ## 7. Errores y casos borde
 
@@ -503,6 +542,10 @@ En la carpeta de la corrida (§3.5). La clave:
   modelos.
 - Una hoja de 15 renglones leída con el modelo local: con el tope de salida de antes (1024 tokens) el JSON salía
   cortado a la mitad e inválido. Con RF-148 entra entero; puede tardar varios minutos por foto en una Mac.
+- Una foto en `para_revisar` que, al mirarla, tiene todos los renglones: los modelos fallaron igual. Se deja como
+  está y el omitido cuenta.
+- Qwen copia en `tachados` casi todos los renglones de la hoja, además de ponerlos en `renglones` (primera prueba):
+  lo mide `tachados_inventados`.
 - Una corrida cortada por el tope de llamadas: `puntuar` puntúa lo que hay y avisa cuántas fotos de cada modelo no
   tienen salida; esas no entran al S de ese modelo, así que dos modelos con distinta cantidad de fotos no se
   comparan sin avisar.
@@ -552,6 +595,14 @@ En la carpeta de la corrida (§3.5). La clave:
 - **Un filtro, no un veto por hoja.** Poner en cero la hoja entera por un error grave deja un número ruidoso con
   pocas hojas y le saca señal al optimizador. Los errores graves se cuentan aparte y deciden si una configuración se
   puede elegir.
+- **Un omitido es un error grave.** En un pedido real nadie avisa que faltó un renglón: es tan silencioso como mandar
+  otro producto. Antes bajaba el S pero no contaba para el filtro, así que un modelo podía saltearse renglones y
+  seguir siendo elegible.
+- **Las fotos para revisar salen del acuerdo entre modelos.** No revisar cada foto es más barato, pero si dos modelos
+  distintos leen los mismos renglones de menos, probablemente el problema es la hoja. Con un solo modelo no se puede
+  saber, y no se marca nada.
+- **La señal de faltante es de un experimento, no del bot.** El benchmark sabe cuántos renglones hay; el bot no. Por
+  eso la señal usa solo la salida del modelo, y el benchmark mide si sirve antes de que se proponga para el bot.
 - **La scoring se valida antes de usarla**, contra el orden de alguien que conoce el negocio (§3.5), y se valida en
   desarrollo: hacerlo en el reservado sería mirarlo.
 - **El reservado se congela.** Sin congelarlo, cada foto nueva podría ir a parar al reservado después de que ya se
@@ -570,6 +621,8 @@ En la carpeta de la corrida (§3.5). La clave:
    `puntuar`. Los tests no llaman a ningún modelo.~~
 7. ~~RF-137 a RF-147 y CA-239 a CA-248 en esta spec, con CA-232, CA-234 y CA-236 actualizados a la scoring nueva.~~
 8. ~~Adaptar `evaluar_manuscritos` y `benchmark_manuscritos` a la scoring nueva, con sus tests.~~
-9. Validar la scoring con el orden a mano (§3.5) sobre desarrollo.
-10. Con las fotos: armar `casos.json`, correr Qwen local sobre `desarrollo` y, con permiso de quien paga la clave,
+9. RF-149 a RF-152 y CA-251 a CA-254 en esta spec, con CA-234 actualizado (los omitidos cuentan como errores).
+10. Implementarlos en `evaluar_manuscritos`, con sus tests.
+11. Validar la scoring con el orden a mano (§3.5) sobre desarrollo.
+12. Con las fotos: armar `casos.json`, correr Qwen local sobre `desarrollo` y, con permiso de quien paga la clave,
    `gpt-6-luna` y GPT Terra con `--max-llamadas`. El reservado se corre al final, una vez, para medir.

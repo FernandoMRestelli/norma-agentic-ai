@@ -513,7 +513,15 @@ correcto, la abreviatura o la tilde ya no importan.
 - **Cortes:** S por tipo de dificultad, origen (núcleo o pool), persona, letra (clara o difícil), foto (nítida o
   borrosa), luz y papel. La letra y la nitidez las anota quien revisa cada foto; la luz y el papel salen del Form.
 - **Diagnóstico:** fotos perfectas, precision, recall y F1, errores silenciosos, errores graves, tachados pedidos,
-  JSON válido, segundos p50 y p95, y USD por hoja y por cada 1000 renglones.
+  tachados inventados (los que el modelo marca y no están en la hoja), JSON válido, segundos p50 y p95, y USD por
+  hoja y por cada 1000 renglones.
+- **Fotos para revisar:** cada lista tiene 15 renglones. Si todos los modelos leen menos en la misma foto,
+  probablemente falten en la hoja (la persona los salteó o la foto los corta). Esas fotos se listan aparte para
+  mirarlas, en vez de revisar todas.
+- **Señal de faltante:** el bot no sabe cuántos renglones tiene una hoja real, así que no puede hacer ese control.
+  Lo que sí puede ver es si la transcripción completa (`texto`) tiene más líneas de producto que `renglones`. El
+  benchmark mide cuántas veces esa señal detecta un faltante, cuántas da una falsa alarma y cuántas no ve nada, para
+  decidir si vale la pena sumarla al bot o decirle al cliente cuántos productos se leyeron.
 
 Todo eso se calcula por modelo y huella del prompt, por nivel, y para desarrollo y reservado por separado.
 
@@ -522,8 +530,9 @@ Todo eso se calcula por modelo y huella del prompt, por nivel, y para desarrollo
 Poner en cero la hoja entera por un error grave parece estricto, pero con unas 20 hojas deja un número muy ruidoso, y
 al optimizador le saca la señal: un prompt que arregla tres renglones de una hoja vetada no sube nada. En cambio:
 
-- **Errores graves**, contados aparte: los sobrantes silenciosos (producto equivocado o inventado, que se mandaría) y
-  las cantidades lejos sin duda.
+- **Errores graves**, contados aparte: los renglones omitidos, los sobrantes silenciosos (producto equivocado o
+  inventado, que se mandaría) y las cantidades lejos sin duda. El omitido cuenta porque en un pedido real nadie avisa
+  que faltó algo: es tan silencioso como mandar otro producto.
 - **Filtro de elegibilidad:** una configuración (modelo + prompt) **no se puede elegir**, tenga el S que tenga, si
   en el reservado, nivel (b), pide algún tachado o tiene errores graves en más del 2 % de los renglones esperados. El
   ranking se arma solo con las elegibles; las demás se muestran marcadas.
@@ -566,12 +575,13 @@ Lo demás, sobre el mismo resultado:
 - **Boolean:** 0 (no salió perfecta).
 - **Por ítem:** 12 correctos (SKU y cantidad); 15 renglones en la salida (14 de los esperados + el tachado):
   precision = 12/15 = 0,80, recall = 12/15 = 0,80, F1 = 0,80.
-- **Guardarraíles:** errores silenciosos = 2 (la cantidad de N5 y el tachado), errores graves = 2 (los mismos: 13 %
-  de los renglones), tachados pedidos = 1. Con esta hoja sola, la configuración no sería elegible.
+- **Guardarraíles:** errores silenciosos = 3 (la cantidad de N5, el renglón que no leyó y el tachado), errores
+  graves = 3 (los mismos: 20 % de los renglones), tachados pedidos = 1. Con esta hoja sola, la configuración no sería
+  elegible.
 
 La ponderada distingue lo que el F1 no ve: el «10» con duda no sale mal porque el agente lo pregunta, y el «7» leído
 «1» sí, y caro. Si un cambio de prompt convierte el error de N5 en una duda, S sube a 13,6 / 16 = 0,85 y los errores
-graves bajan a 1; el F1 no se mueve. Sigue sin ser elegible mientras pida el tachado.
+graves bajan a 2; el F1 no se mueve. Sigue sin ser elegible mientras pida el tachado.
 
 ## 7. Costo, latencia y separación desarrollo / reservado
 
@@ -673,4 +683,17 @@ prompt. Es el único cambio, y por eso cambia la huella.
   leída lo dejaba en duda y ahora sale silencioso. Es el riesgo que la scoring tiene que mostrar, y lo muestra.
 - Con 3 hojas no alcanza para cerrar D-42, pero la dirección es clara: vale la pena medirlo con más fotos y, si se
   confirma, prenderlo en el bot. Cuesta 90 tokens de entrada más por foto (≈ 2 %).
+
+### 10.2 Lo que mostró contar los renglones
+
+Cada lista tiene 15 renglones, y contar cuántos leyó cada modelo mostró dos cosas que el puntaje no veía:
+
+- **En una de las tres hojas, Luna y Qwen leen 12 de 15**, y en la transcripción completa tampoco aparecen los otros
+  tres. Lo más probable es que la persona no los copió o que la foto los corta: el S de esa hoja castiga a los modelos
+  por renglones que no están. De ahí salen las fotos para revisar (§6.7, RF-149).
+- **Qwen copia en `tachados` casi todos los renglones** (de 12 a 16 por hoja), además de dejarlos en `renglones`. En
+  el bot eso le dice al agente que medio pedido está tachado. De ahí sale la métrica de tachados inventados (RF-151).
+
+Y una decisión: un renglón omitido pasa a contar como error grave (RF-150). En un pedido real nadie avisa que faltó
+algo, así que es tan silencioso como mandar otro producto.
 
