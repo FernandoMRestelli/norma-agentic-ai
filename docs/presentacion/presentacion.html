@@ -94,7 +94,135 @@
     .slide-header {
       border-bottom: 1px solid var(--border);
       padding-bottom: 14px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      column-gap: 24px;
     }
+
+    .slide-header .tag,
+    .slide-header .slide-title { grid-column: 1; }
+
+    /* Pendientes de la diapositiva: etiquetas chicas a la derecha del título */
+    .todo-chips {
+      grid-column: 2;
+      grid-row: 1 / 3;
+      align-self: end;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 6px;
+      max-width: 560px;
+    }
+
+    .todo-chip {
+      font-size: 0.72rem;
+      color: var(--pending);
+      border: 1px dashed var(--pending);
+      background: var(--pending-bg);
+      padding: 4px 10px;
+      border-radius: 12px;
+      white-space: nowrap;
+      cursor: help;
+    }
+
+    /* Números grandes como ancla de la diapositiva */
+    .stat-xl {
+      font-size: 3.4rem;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: -1.5px;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .stat-xl .from { color: var(--text-dim); font-weight: 600; font-size: 0.55em; letter-spacing: -0.5px; }
+
+    .stat-caption { font-size: 0.9rem; color: var(--text-muted); margin-top: 8px; line-height: 1.45; }
+
+    .quote-lg {
+      font-size: 1.6rem;
+      font-style: italic;
+      color: #fff;
+      line-height: 1.35;
+      padding-left: 16px;
+      border-left: 2px solid var(--accent);
+    }
+
+    .stack { display: flex; flex-direction: column; gap: 18px; }
+
+    /* El contenido ocupa todo el alto disponible, sin bandas vacías */
+    .slide-body.fill { justify-content: stretch; }
+    .slide-body.fill > :first-child { flex: 1; min-height: 0; }
+
+    .cols-3-even { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; align-items: stretch; }
+    .cols-4-even { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
+    .cols-2-even { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: stretch; }
+
+    .stat-md {
+      font-size: 2.3rem;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: -1px;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .stat-md .from, .stat-xl .from { color: var(--text-dim); font-weight: 600; font-size: 0.55em; letter-spacing: -0.5px; }
+
+    /* Lista de números chicos dentro de una tarjeta */
+    .stat-rows { display: flex; flex-direction: column; gap: 14px; }
+    .stat-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+    .stat-row:last-child { border-bottom: none; padding-bottom: 0; }
+    .stat-row .lbl { font-size: 0.88rem; color: var(--text-muted); }
+    .stat-row .val { font-size: 1.45rem; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .stat-row .val .from { color: var(--text-dim); font-weight: 600; font-size: 0.8em; }
+
+    /* Tarjeta en una sola fila, para un dato de cierre */
+    .card.strip { flex-direction: row; align-items: center; justify-content: flex-start; gap: 28px; padding: 16px 24px; }
+    .strip-item { font-size: 0.9rem; color: var(--text-muted); line-height: 1.45; }
+    .strip-item strong { color: #fff; }
+
+    .chip-code {
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.85rem;
+      color: var(--accent-light);
+      border: 1px solid var(--border-light);
+      border-radius: 14px;
+      padding: 4px 10px;
+      white-space: nowrap;
+    }
+
+    .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+
+    /* Diagrama de arquitectura que ocupa todo el alto */
+    .loop-container.fill-h { height: 100%; }
+    .loop-container.fill-h .flow-row { flex: 1; }
+    .loop-container.fill-h .flow-step { justify-content: center; }
+
+    table.fill-t { height: 100%; }
+
+    .skill-fn { font-size: 1.02rem; color: #fff; line-height: 1.4; }
+    .hypo-card .chip-row { gap: 6px; }
+    .hypo-card .chip-code { font-size: 0.76rem; padding: 3px 8px; }
+
+    /* Árbol de carpetas */
+    .card.tree-card { justify-content: center; padding: 22px 26px; }
+    .tree {
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.86rem;
+      line-height: 1.75;
+      color: var(--text-dim);
+      white-space: pre;
+      overflow: hidden;
+    }
+    .tree .d { color: #fff; }
+    .tree .d.hl { color: var(--accent-light); }
+    .tree .c { color: var(--text-muted); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+
+    .card.hypo-card, .card.spread { justify-content: space-between; gap: 14px; }
+    .hypo-card .hypo-text { font-size: 1.35rem; line-height: 1.35; margin-bottom: 0; }
+    .hypo-meta { font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; border-top: 1px solid var(--border); padding-top: 12px; }
+    .hypo-meta strong { color: var(--accent-light); font-weight: 600; }
 
     .tag {
       font-size: 0.75rem;
@@ -527,23 +655,26 @@
         <span class="tag">EL PROBLEMA Y SU USUARIO</span>
         <div class="slide-title">Pedidos informales, catálogo enorme, tipeo a mano</div>
       </div>
-      <div class="slide-body">
+      <div class="slide-body fill">
         <div class="asym-60-40">
-          <div class="card">
-            <h3><span class="icon">↳</span> Cómo llegan los pedidos</h3>
-            <ul>
-              <li><strong>Por cualquier medio:</strong> mensajes de chat, notas de voz y fotos de listas escritas a mano.</li>
-              <li><strong>Con lenguaje del mostrador:</strong> <em>"mandame 3 elvive reparación"</em>, <em>"2 mascara argan x 1k"</em>, <em>"coleston 821"</em>.</li>
-              <li><strong>Contra un catálogo grande:</strong> 1.090 productos de 57 marcas, con variantes mínimas (200 ml vs. 400 ml, tonos, fragancias).</li>
-            </ul>
+          <div class="card spread">
+            <h3><span class="icon">↳</span> Así llegan los pedidos</h3>
+            <div class="stack" style="gap: 22px;">
+              <div class="quote-lg">«mandame 3 elvive reparación»</div>
+              <div class="quote-lg">«2 mascara argan x 1k»</div>
+              <div class="quote-lg">«coleston 821»</div>
+            </div>
+            <p class="stat-caption">Por chat, nota de voz o foto de una lista escrita a mano.</p>
           </div>
-          <div class="card warning-box">
-            <h3 style="color: var(--warning);"><span class="icon">⚠</span> El costo hoy</h3>
-            <ul>
-              <li><strong>Usuario:</strong> quien atiende los pedidos en la distribuidora y los pasa a mano.</li>
-              <li><strong>Errores de despacho:</strong> tamaños o tonos equivocados por interpretaciones a ojo.</li>
-              <li><strong>Sin seguimiento:</strong> el pedido queda en el chat, no en una planilla operativa.</li>
-            </ul>
+          <div class="stack">
+            <div class="card highlight" style="flex: 1;">
+              <div class="stat-xl">1.090</div>
+              <p class="stat-caption">productos de 57 marcas, con variantes mínimas: 200 ml o 400 ml, tonos, fragancias.</p>
+            </div>
+            <div class="card warning-box" style="flex: 1;">
+              <h3 style="color: var(--warning); margin-bottom: 8px;"><span class="icon">⚠</span> Hoy, a mano</h3>
+              <p class="stat-caption" style="margin-top: 0;">Quien atiende los pedidos los tipea a ojo contra planillas: errores de despacho y pedidos sin seguimiento.</p>
+            </div>
           </div>
         </div>
       </div>
@@ -556,33 +687,24 @@
         <span class="tag">JUSTIFICACIÓN TÉCNICA</span>
         <div class="slide-title">¿Por qué un LLM y no software clásico?</div>
       </div>
-      <div class="slide-body">
-        <table>
-          <thead>
-            <tr>
-              <th style="width: 24%;">Dimensión</th>
-              <th style="width: 34%;">Software tradicional</th>
-              <th style="width: 42%;">Norma: LLM en el núcleo, rodeado de código</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>Entradas no estructuradas</strong></td>
-              <td>Falla con faltas de ortografía, jerga, fotos y audios.</td>
-              <td><strong>Interpreta la intención</strong> y arma renglones con producto, cantidad y presentación.</td>
-            </tr>
-            <tr>
-              <td><strong>Ambigüedad</strong></td>
-              <td>Reglas rígidas imposibles de mantener para cada variante.</td>
-              <td><strong>Pregunta con opciones</strong> salidas de la búsqueda cuando no hay un único producto.</td>
-            </tr>
-            <tr>
-              <td><strong>Datos y acciones</strong></td>
-              <td>Determinístico y seguro.</td>
-              <td><strong>El LLM interpreta, el backend valida:</strong> precios, stock, SKU y la aceptación se comprueban en código.</td>
-            </tr>
-          </tbody>
-        </table>
+      <div class="slide-body fill">
+        <div class="cols-3-even">
+          <div class="card hypo-card">
+            <span class="hypo-tag">ENTRADAS LIBRES</span>
+            <div class="hypo-text">Interpreta la intención y arma renglones con producto, cantidad y presentación.</div>
+            <div class="hypo-meta"><strong>Software clásico:</strong> falla con faltas de ortografía, jerga, fotos y audios.</div>
+          </div>
+          <div class="card hypo-card">
+            <span class="hypo-tag">AMBIGÜEDAD</span>
+            <div class="hypo-text">Pregunta con opciones salidas de la búsqueda cuando no hay un único producto.</div>
+            <div class="hypo-meta"><strong>Software clásico:</strong> reglas rígidas, imposibles de mantener para cada variante.</div>
+          </div>
+          <div class="card highlight hypo-card">
+            <span class="hypo-tag">DATOS Y ACCIONES</span>
+            <div class="hypo-text">El LLM interpreta, el backend valida: precios, stock, SKU y aceptación se comprueban en código.</div>
+            <div class="hypo-meta"><strong>Software clásico:</strong> determinístico y seguro. Por eso esa parte queda en código.</div>
+          </div>
+        </div>
       </div>
       <div class="src">Fuente: <code>README.md</code> · <code>docs/spec/guardrails.md</code></div>
     </div>
@@ -592,25 +714,36 @@
       <div class="slide-header">
         <span class="tag">ANTECEDENTES</span>
         <div class="slide-title">Qué existe hoy y en qué nos diferenciamos</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Cuántos productos y papers, y dónde queda escrita la revisión">⏳ A-19 revisión</span>
+        </div>
       </div>
-      <div class="slide-body">
-        <div class="asym-60-40">
-          <div class="card pending-card">
-            <h3><span class="icon">◎</span> Revisión de mercado</h3>
-            <ul class="compact">
-              <li>Bots de pedidos por WhatsApp, módulos de ERP y plataformas B2B: qué hacen y qué no.</li>
-              <li>Diferencia a sostener: entiende listas informales contra el catálogo propio y no registra nada sin la aceptación del cliente.</li>
+      <div class="slide-body fill">
+        <div class="cols-3-even">
+          <div class="card pending-card hypo-card">
+            <span class="hypo-tag" style="color: var(--pending);">REVISIÓN DE MERCADO</span>
+            <ul>
+              <li>Bots de pedidos por WhatsApp.</li>
+              <li>Módulos de ERP y plataformas B2B.</li>
+              <li>Qué hacen y qué no hacen.</li>
             </ul>
+            <div class="hypo-meta"><span class="tbd">Falta hacerla</span></div>
           </div>
-          <div class="card pending-card">
-            <h3><span class="icon">◎</span> Revisión de literatura</h3>
-            <ul class="compact">
-              <li>Extracción de pedidos desde texto informal, product matching contra catálogo, agentes con tools.</li>
-              <li>Métodos, métricas y resultados de referencia para comparar los nuestros.</li>
+          <div class="card pending-card hypo-card">
+            <span class="hypo-tag" style="color: var(--pending);">REVISIÓN DE LITERATURA</span>
+            <ul>
+              <li>Extracción de pedidos desde texto informal.</li>
+              <li>Product matching contra catálogo.</li>
+              <li>Agentes con tools: métodos y métricas.</li>
             </ul>
+            <div class="hypo-meta"><span class="tbd">Falta hacerla</span></div>
+          </div>
+          <div class="card highlight hypo-card">
+            <span class="hypo-tag">DIFERENCIA A SOSTENER</span>
+            <div class="hypo-text">Entiende listas informales contra el catálogo propio y no registra nada sin la aceptación del cliente.</div>
+            <div class="hypo-meta">Se compara contra lo existente en la evaluación.</div>
           </div>
         </div>
-        <div class="pending"><span class="pending-tag">⏳ A-19</span><span>Falta hacer la revisión completa: <strong>cuántos productos y papers</strong> y dónde queda escrita en el repo.</span></div>
       </div>
       <div class="src">Fuente: <span class="tbd">pendiente</span></div>
     </div>
@@ -620,35 +753,40 @@
       <div class="slide-header">
         <span class="tag">CASOS DE USO</span>
         <div class="slide-title">Qué hace hoy Norma en Telegram</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Qué casos muestra la demo y si va grabada (propuesta) o en vivo">⏳ A-15 demo</span>
+        </div>
       </div>
-      <div class="slide-body">
-        <div class="cols-3">
-          <div class="card">
-            <h3><span class="icon">✎</span> Tomar el pedido</h3>
-            <ul class="compact">
-              <li><strong>Texto:</strong> un producto suelto o una lista de hasta 30 renglones, uno por uno.</li>
-              <li><strong>Foto:</strong> lee la lista escrita a mano, separa encabezado y tachados.</li>
-              <li><strong>Audio:</strong> transcribe la nota de voz y sigue igual que con texto.</li>
+      <div class="slide-body fill">
+        <div class="cols-3-even">
+          <div class="card hypo-card">
+            <span class="hypo-tag">TOMAR EL PEDIDO</span>
+            <ul>
+              <li><strong>Texto:</strong> un producto o una lista de hasta 30 renglones.</li>
+              <li><strong>Foto:</strong> lee la lista escrita a mano.</li>
+              <li><strong>Audio:</strong> transcribe la nota de voz.</li>
             </ul>
+            <div class="hypo-meta">Los tres terminan en el mismo flujo.</div>
           </div>
-          <div class="card">
-            <h3><span class="icon">?</span> Resolver dudas</h3>
-            <ul class="compact">
-              <li><strong>Aclaración con opciones:</strong> «¿el de 400 o el de 900?».</li>
-              <li><strong>Fuera de catálogo o sin stock:</strong> lo avisa y ofrece alternativas.</li>
-              <li><strong>Correcciones:</strong> sumar, sacar o cambiar renglones de la propuesta.</li>
+          <div class="card hypo-card">
+            <span class="hypo-tag">RESOLVER DUDAS</span>
+            <ul>
+              <li><strong>Aclarar:</strong> «¿el de 400 o el de 900?».</li>
+              <li><strong>Avisar:</strong> fuera de catálogo o sin stock.</li>
+              <li><strong>Corregir:</strong> sumar, sacar o cambiar renglones.</li>
             </ul>
+            <div class="hypo-meta">Las opciones salen de la búsqueda.</div>
           </div>
-          <div class="card">
-            <h3><span class="icon">✓</span> Cerrar y seguir</h3>
-            <ul class="compact">
-              <li><strong>Propuesta y aceptación:</strong> registra solo si el cliente acepta.</li>
-              <li><strong>Estado del pedido:</strong> «¿cómo viene mi pedido?».</li>
-              <li><strong>Derivación a una persona:</strong> descuentos, envíos especiales, pagos diferidos.</li>
+          <div class="card highlight hypo-card">
+            <span class="hypo-tag">CERRAR Y SEGUIR</span>
+            <ul>
+              <li><strong>Registrar</strong> solo si el cliente acepta.</li>
+              <li><strong>Estado:</strong> «¿cómo viene mi pedido?».</li>
+              <li><strong>Derivar</strong> descuentos, envíos y pagos especiales.</li>
             </ul>
+            <div class="hypo-meta">La aceptación la comprueba el backend.</div>
           </div>
         </div>
-        <div class="pending"><span class="pending-tag">⏳ A-15</span><span>Demo: <strong>qué casos se muestran</strong> y si va grabada (propuesta) o en vivo.</span></div>
       </div>
       <div class="src">Fuente: <code>internal/skills/</code> · <code>CHANGELOG.md</code> 0.2.0</div>
     </div>
@@ -658,45 +796,27 @@
       <div class="slide-header">
         <span class="tag">DE LA PROPUESTA AL SISTEMA</span>
         <div class="slide-title">Qué cambió y por qué</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Validar la tabla en el grupo, en especial si el BI con DuckDB es recorte definitivo o próximo paso">⏳ A-16 validar</span>
+        </div>
       </div>
-      <div class="slide-body">
-        <table class="compact">
+      <div class="slide-body fill">
+        <table class="fill-t">
           <thead>
             <tr>
               <th style="width: 18%;">Tema</th>
-              <th style="width: 30%;">En la propuesta</th>
-              <th style="width: 52%;">Hoy</th>
+              <th style="width: 28%;">En la propuesta</th>
+              <th style="width: 54%;">Hoy</th>
             </tr>
           </thead>
           <tbody>
-            <tr>
-              <td><strong>Canal</strong></td>
-              <td>WhatsApp, notas, fotos, correos</td>
-              <td><strong>Telegram</strong> con texto, foto y audio para la beta del equipo. WhatsApp valida la firma y no procesa mensajes.</td>
-            </tr>
-            <tr>
-              <td><strong>Retrieval</strong></td>
-              <td>BM25 + embeddings</td>
-              <td><strong>Búsqueda tolerante sin embeddings:</strong> recall@3 0,94 medido sin LLM. Lo que falla son necesidades («teñir»), no tipeo.</td>
-            </tr>
-            <tr>
-              <td><strong>Analítica</strong></td>
-              <td>Preguntas sobre ventas con DuckDB</td>
-              <td><strong>Recortado:</strong> foco en la toma de pedidos. Hay un dashboard operativo.</td>
-            </tr>
-            <tr>
-              <td><strong>Repregunta y HITL</strong></td>
-              <td>Umbrales de confianza</td>
-              <td><strong>Ampliado:</strong> aclaraciones con opciones, aceptación del cliente comprobada en el backend, derivación con 24 h de silencio.</td>
-            </tr>
-            <tr>
-              <td><strong>Controles</strong></td>
-              <td>—</td>
-              <td><strong>Nuevo:</strong> guardrails y verificadores de evidencia en código, antes de responder y de registrar.</td>
-            </tr>
+            <tr><td><strong>Canal</strong></td><td>WhatsApp, notas, fotos, correos</td><td><strong>Telegram</strong> con texto, foto y audio, para la beta del equipo.</td></tr>
+            <tr><td><strong>Retrieval</strong></td><td>BM25 + embeddings</td><td><strong>Búsqueda tolerante sin embeddings:</strong> recall@3 de 0,94, medido sin LLM.</td></tr>
+            <tr><td><strong>Analítica</strong></td><td>Preguntas sobre ventas con DuckDB</td><td><strong>Recortada:</strong> foco en la toma de pedidos; hay un dashboard operativo.</td></tr>
+            <tr><td><strong>Repregunta</strong></td><td>Umbrales de confianza</td><td><strong>Ampliada:</strong> aclaraciones con opciones, aceptación comprobada en el backend y derivación.</td></tr>
+            <tr><td><strong>Controles</strong></td><td>—</td><td><strong>Nuevo:</strong> guardrails y verificadores de evidencia en código.</td></tr>
           </tbody>
         </table>
-        <div class="pending"><span class="pending-tag">⏳ A-16</span><span>Validar la tabla en el grupo, en especial si el <strong>BI con DuckDB</strong> es recorte definitivo o próximo paso.</span></div>
       </div>
       <div class="src">Fuente: <code>docs/presentacion/plan.md</code> §2 · <code>MEJORAS.md</code></div>
     </div>
@@ -706,34 +826,32 @@
       <div class="slide-header">
         <span class="tag">HIPÓTESIS</span>
         <div class="slide-title">Qué queremos demostrar y contra qué</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Baseline de H1: script determinístico, zero-shot o los dos">⏳ A-05 baseline</span>
+          <span class="todo-chip" title="Si H2 entra como hipótesis">⏳ A-06 H2</span>
+          <span class="todo-chip" title="Hipótesis del historial del cliente: medirla o explicar por qué no">⏳ A-07 historial</span>
+          <span class="todo-chip" title="Separar test en el set de búsqueda o declararlo como limitación">⏳ A-10 dev/test</span>
+        </div>
       </div>
-      <div class="slide-body">
-        <div class="asym-hero-side">
-          <div class="card highlight">
-            <div class="hypo-item">
-              <span class="hypo-tag">H1 · EXACTITUD DE LA ORDEN</span>
-              <div class="hypo-text">El agente arma la orden correcta más seguido que un baseline simple.</div>
-              <div class="hypo-baseline"><strong>Métrica:</strong> aciertos y recall de renglones en el grupo reservado, con intervalo de Wilson.<br><strong>Baseline:</strong> <span class="tbd">⏳ A-05 · script determinístico, zero-shot o los dos</span></div>
-            </div>
-            <div class="hypo-item">
-              <span class="hypo-tag">H2 · CONTROLES EN CÓDIGO</span>
-              <div class="hypo-text">Los guardrails y verificadores bajan los errores graves (SKU inventado, registro sin aceptación, precio inventado).</div>
-              <div class="hypo-baseline"><strong>Baseline:</strong> el mismo agente sin controles, set adversariales. <span class="tbd">⏳ A-06 · ¿la adoptamos?</span></div>
-            </div>
-            <div class="hypo-item">
-              <span class="hypo-tag">H3 · RETRIEVAL · MEDIDA</span>
-              <div class="hypo-text">La búsqueda tolerante mejora recall@3 y MRR frente a la búsqueda exacta anterior.</div>
-              <div class="hypo-baseline"><strong>Resultado:</strong> 0,87 → 0,94 y 0,867 → 0,937 en 124 consultas. <span class="tbd">⏳ A-10 · sin partición dev/test todavía</span></div>
-            </div>
+      <div class="slide-body fill">
+        <div class="cols-3-even">
+          <div class="card hypo-card">
+            <span class="hypo-tag">H1 · EXACTITUD DE LA ORDEN</span>
+            <div class="hypo-text">El agente arma la orden correcta más seguido que un baseline simple.</div>
+            <div class="hypo-meta"><strong>Mide:</strong> aciertos y recall de renglones en test.<br><strong>Contra:</strong> <span class="tbd">baseline a definir</span></div>
           </div>
-          <div class="card pending-card">
-            <h3><span class="icon">⏳</span> Falta definir</h3>
-            <ul class="compact">
-              <li><strong>A-05:</strong> el baseline de H1.</li>
-              <li><strong>A-06:</strong> si H2 entra como hipótesis.</li>
-              <li><strong>A-07:</strong> la hipótesis del historial del cliente de la propuesta: medirla con y sin contexto, o explicar por qué no se midió.</li>
-              <li><strong>A-10:</strong> separar test en el set de búsqueda o declararlo como limitación.</li>
-            </ul>
+          <div class="card hypo-card">
+            <span class="hypo-tag">H2 · CONTROLES EN CÓDIGO</span>
+            <div class="hypo-text">Los guardrails bajan los errores graves: SKU o precio inventado, registro sin aceptación.</div>
+            <div class="hypo-meta"><strong>Mide:</strong> errores graves en adversariales.<br><strong>Contra:</strong> el mismo agente sin controles.</div>
+          </div>
+          <div class="card highlight hypo-card">
+            <span class="hypo-tag">H3 · RETRIEVAL · YA MEDIDA</span>
+            <div>
+              <div class="stat-xl"><span class="from">0,87 →</span> 0,94</div>
+              <p class="stat-caption">recall@3 de la búsqueda tolerante en 124 consultas.</p>
+            </div>
+            <div class="hypo-meta"><strong>Contra:</strong> la búsqueda exacta anterior.</div>
           </div>
         </div>
       </div>
@@ -745,251 +863,404 @@
       <div class="slide-header">
         <span class="tag">ARQUITECTURA</span>
         <div class="slide-title">Del mensaje a la orden registrada</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Diagrama final: rehacer el de la imagen del flujo o partir del de docs/architecture.md">⏳ A-17 diagrama</span>
+        </div>
       </div>
-      <div class="slide-body">
-        <div class="loop-container">
+      <div class="slide-body fill">
+        <div class="loop-container fill-h">
           <div class="flow-row">
             <div class="flow-step">
               <span class="flow-step-num">1. Canal</span>
               <span class="flow-step-title">Telegram</span>
-              <span class="flow-step-desc">Texto, foto o audio. Foto → lectura a JSON; audio → transcripción.</span>
+              <span class="flow-step-desc">Foto → lectura; audio → transcripción.</span>
             </div>
             <div class="flow-arrow">→</div>
             <div class="flow-step">
               <span class="flow-step-num">2. Antes del LLM</span>
               <span class="flow-step-title">Filtro y atajos</span>
-              <span class="flow-step-desc">Desvíos evidentes y «dale» con propuesta vigente, sin tokens. Contexto del cliente.</span>
+              <span class="flow-step-desc">Desvíos y «dale» sin tokens.</span>
             </div>
             <div class="flow-arrow">→</div>
             <div class="flow-step core-agent">
               <span class="flow-step-num">3. Núcleo LLM</span>
               <span class="flow-step-title">Grafo con skills</span>
-              <span class="flow-step-desc">LangGraph. Lee la skill y sus reglas de negocio; recién ahí tiene las tools para responder.</span>
+              <span class="flow-step-desc">Las tools llegan al leer la skill.</span>
             </div>
             <div class="flow-arrow">→</div>
             <div class="flow-step">
               <span class="flow-step-num">4. Tools</span>
               <span class="flow-step-title">Catálogo y pedidos</span>
-              <span class="flow-step-desc">Búsqueda tolerante por renglón, stock, historial, armado de la propuesta.</span>
+              <span class="flow-step-desc">Búsqueda por renglón, stock, historial.</span>
             </div>
           </div>
           <div class="flow-row">
             <div class="flow-step guard">
               <span class="flow-step-num">5. Guardrails</span>
               <span class="flow-step-title">Validar la salida</span>
-              <span class="flow-step-desc">Cada SKU salió de una búsqueda; sin stock, SKU, precios ni promesas inventadas.</span>
+              <span class="flow-step-desc">Cada SKU salió de una búsqueda.</span>
             </div>
             <div class="flow-arrow">→</div>
             <div class="flow-step">
               <span class="flow-step-num">6. Propuesta</span>
               <span class="flow-step-title">Al cliente</span>
-              <span class="flow-step-desc">Renglones, cantidades y precios en el mismo chat.</span>
+              <span class="flow-step-desc">Renglones, cantidades y precios.</span>
             </div>
             <div class="flow-arrow">→</div>
             <div class="flow-step">
               <span class="flow-step-num">7. Aceptación</span>
               <span class="flow-step-title">La comprueba el backend</span>
-              <span class="flow-step-desc">Revalida precios; un «sí» a otra pregunta no registra.</span>
+              <span class="flow-step-desc">Revalida precios.</span>
             </div>
             <div class="flow-arrow">→</div>
             <div class="flow-step" style="border-left: 3px solid var(--accent);">
               <span class="flow-step-num">8. Registro</span>
-              <span class="flow-step-title">Orden y seguimiento</span>
-              <span class="flow-step-desc">SQLite, CSV y Google Sheets, una sola vez. Dashboard operativo.</span>
+              <span class="flow-step-title">Orden única</span>
+              <span class="flow-step-desc">SQLite, CSV, Sheets y dashboard.</span>
             </div>
           </div>
           <div class="loop-feedback">
             <span class="loop-badge">LOOP DE VERIFICACIÓN</span>
-            <span><strong>¿El guardrail rechaza?</strong> El agente reescribe, hasta 3 intentos. <strong>¿No hay un único producto?</strong> Pregunta con opciones. <strong>¿Pedido especial?</strong> Deriva a una persona.</span>
+            <span><strong>¿Rechaza el guardrail?</strong> Reescribe, hasta 3 veces. <strong>¿Varios productos?</strong> Pregunta con opciones. <strong>¿Pedido especial?</strong> Deriva a una persona.</span>
           </div>
-          <div class="principle"><strong>El LLM interpreta; el backend valida y registra; el cliente confirma; el equipo controla la operación.</strong></div>
+          <div class="principle"><strong>El LLM interpreta; el backend valida y registra; el cliente confirma.</strong></div>
         </div>
-        <div class="pending"><span class="pending-tag">⏳ A-17</span><span>Diagrama final: rehacer el de la imagen del flujo o partir del de <code>docs/architecture.md</code>.</span></div>
       </div>
       <div class="src">Fuente: <code>docs/architecture.md</code> · <code>internal/agent/graph.py</code> · <code>docs/spec/agente.md</code></div>
     </div>
 
-    <!-- 9. ÁREA: RETRIEVAL -->
+    <!-- 9. SKILLS Y TOOLS -->
+    <div class="slide">
+      <div class="slide-header">
+        <span class="tag">CÓMO DECIDE EL AGENTE</span>
+        <div class="slide-title">4 skills, 9 reglas de negocio y 15 tools</div>
+      </div>
+      <div class="slide-body fill">
+        <div class="cols-4-even">
+          <div class="card highlight hypo-card">
+            <span class="hypo-tag">TOMAR_PEDIDO</span>
+            <div class="skill-fn">Convierte lo que pide el cliente en una propuesta.</div>
+            <div class="chip-row">
+              <span class="chip-code">search_products</span><span class="chip-code">buscar_renglones</span>
+              <span class="chip-code">get_product</span><span class="chip-code">check_stock</span>
+              <span class="chip-code">explorar_catalogo</span><span class="chip-code">pedidos_anteriores</span>
+            </div>
+            <div class="hypo-meta"><strong>7 BR:</strong> stock, aclaraciones, correcciones, «lo de siempre»…</div>
+          </div>
+          <div class="card hypo-card">
+            <span class="hypo-tag">CONFIRMAR_PEDIDO</span>
+            <div class="skill-fn">Cierra la propuesta: registra solo si el cliente la acepta.</div>
+            <div class="chip-row">
+              <span class="chip-code">armar_pedido</span><span class="chip-code">respond_to_customer</span>
+            </div>
+            <div class="hypo-meta"><strong>1 BR:</strong> aceptación de la propuesta.</div>
+          </div>
+          <div class="card hypo-card">
+            <span class="hypo-tag">INFORMAR</span>
+            <div class="skill-fn">Saludos, horarios, pagos y estado de pedidos ya hechos.</div>
+            <div class="chip-row">
+              <span class="chip-code">respond_to_customer</span><span class="chip-code">consultar_estado_pedido</span>
+            </div>
+            <div class="hypo-meta"><strong>Datos del negocio</strong> en un archivo aparte.</div>
+          </div>
+          <div class="card hypo-card">
+            <span class="hypo-tag">DERIVAR_O_CANCELAR</span>
+            <div class="skill-fn">Pasa a una persona o descarta el borrador.</div>
+            <div class="chip-row">
+              <span class="chip-code">escalate_to_human</span><span class="chip-code">discard_order_draft</span><span class="chip-code">respond_to_customer</span>
+            </div>
+            <div class="hypo-meta"><strong>1 BR:</strong> derivación y cancelación.</div>
+          </div>
+        </div>
+        <div class="card strip">
+          <span class="hypo-tag" style="margin: 0; white-space: nowrap;">CÓMO SE USAN</span>
+          <span class="strip-item"><strong>1.</strong> Lee la skill (<code>leer_skill</code>)</span>
+          <span class="strip-item"><strong>2.</strong> Aparecen sus tools</span>
+          <span class="strip-item"><strong>3.</strong> Lee la BR que necesita (<code>leer_br</code>)</span>
+          <span class="strip-item">+2 del orquestador: <code>delegar_skill</code>, <code>entregar_nota</code></span>
+        </div>
+      </div>
+      <div class="src">Fuente: <code>internal/skills/</code> · <code>internal/agent/tool_registry.py</code> · <code>docs/spec/skills-y-respuestas.md</code></div>
+    </div>
+
+    <!-- 10. ORGANIZACIÓN DEL REPOSITORIO -->
+    <div class="slide">
+      <div class="slide-header">
+        <span class="tag">REPOSITORIO</span>
+        <div class="slide-title">Cómo está organizada la carpeta</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="La consigna pide algo «símil Makefile» para correr el sistema y la evaluación">⏳ A-22 Makefile</span>
+        </div>
+      </div>
+      <div class="slide-body fill">
+        <div class="asym-60-40">
+          <div class="card tree-card">
+<pre class="tree"><span class="d">norma-agentic-ai/</span>
+├── <span class="d">internal/</span>             <span class="c">el sistema</span>
+│   ├── <span class="d">agent/</span>            <span class="c">grafo, guardrails, evidencia, sub-loop</span>
+│   ├── <span class="d hl">skills/</span>           <span class="c">4 skills y 9 reglas de negocio en .md</span>
+│   ├── <span class="d hl">tools/</span>            <span class="c">lo que el LLM puede llamar</span>
+│   ├── <span class="d">services/</span>         <span class="c">búsqueda, audio, visión, pedidos, planillas</span>
+│   ├── <span class="d">api/, database/</span>  <span class="c">webhooks, órdenes, dashboard, SQLite</span>
+│   └── <span class="d">evaluar_*.py</span>      <span class="c">evaluación del agente y del buscador</span>
+├── <span class="d">tests/</span>                <span class="c">tests y datos sintéticos</span>
+├── <span class="d hl">docs/spec/</span>            <span class="c">qué tiene que hacer: RF, RNF y CA con ID</span>
+├── <span class="d">data_example/</span>         <span class="c">datos ficticios y sets de evaluación</span>
+├── <span class="d">frontend/</span>             <span class="c">dashboard operativo</span>
+├── <span class="d">.github/workflows/</span>     <span class="c">CI en cada PR</span>
+└── AGENTS.md · MEJORAS.md · CHANGELOG.md</pre>
+          </div>
+          <div class="stack">
+            <div class="cols-2-even" style="flex: 1;">
+              <div class="card highlight hypo-card">
+                <span class="hypo-tag">TESTS</span>
+                <div class="stat-md">754</div>
+                <div class="hypo-meta">Corren en el CI con cada PR.</div>
+              </div>
+              <div class="card hypo-card">
+                <span class="hypo-tag">SPECS</span>
+                <div class="stat-md">12</div>
+                <div class="hypo-meta">Documentos en <code>docs/spec/</code>.</div>
+              </div>
+            </div>
+            <div class="cols-2-even" style="flex: 1;">
+              <div class="card hypo-card">
+                <span class="hypo-tag">CI</span>
+                <div class="stat-md">4</div>
+                <div class="hypo-meta">Tests, reglas de PR, secretos e imagen.</div>
+              </div>
+              <div class="card hypo-card">
+                <span class="hypo-tag">COMMITS</span>
+                <div class="stat-md">120</div>
+                <div class="hypo-meta">En <code>develop</code>, de los tres integrantes.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="src">Fuente: <code>docs/architecture.md</code> §Estructura de código · <code>CONTRIBUTING.md</code> · <code>git log develop</code> (2026-11-26)</div>
+    </div>
+
+    <!-- 11. ÁREA: RETRIEVAL -->
     <div class="slide">
       <div class="slide-header">
         <span class="tag">ÁREA DE PROFUNDIZACIÓN · RECUPERACIÓN DE INFORMACIÓN</span>
         <div class="slide-title">Búsqueda tolerante, evaluada sin el LLM</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Las consultas son inventadas y no tienen partición desarrollo/test">⏳ A-10 dev/test</span>
+          <span class="todo-chip" title="Confirmar que es una de las áreas centrales">⏳ A-13 área</span>
+        </div>
       </div>
-      <div class="slide-body">
-        <div class="asym-40-60">
-          <div class="card highlight">
-            <h3><span class="icon">⌕</span> Qué tolera</h3>
-            <ul class="compact">
-              <li><strong>Tipeo y sonido:</strong> «pantne», «coleston», «zedal».</li>
-              <li><strong>Abreviaturas del rubro:</strong> «sh», «champú», «ACOND.».</li>
-              <li><strong>Medidas:</strong> <code>x900</code> = 900 ml, <code>1k</code> = 1 kg, sin aproximar números.</li>
-              <li><strong>Tonos:</strong> <code>821</code> = 8.21.</li>
-              <li><strong>Listas largas:</strong> <code>buscar_renglones</code> resuelve todos los renglones en una llamada y dice si hay uno, varios o ninguno.</li>
-            </ul>
-          </div>
-          <div class="card">
-            <h3><span class="icon">▤</span> Benchmark propio: 124 consultas, con piso en el CI</h3>
-            <div class="stats">
-              <div class="stat"><div class="stat-value"><span class="from">0,87 →</span> 0,94</div><div class="stat-label">recall@3</div></div>
-              <div class="stat"><div class="stat-value"><span class="from">0,867 →</span> 0,937</div><div class="stat-label">MRR</div></div>
-              <div class="stat"><div class="stat-value"><span class="from">0,776 →</span> 0,91</div><div class="stat-label">únicos correctos</div></div>
-              <div class="stat"><div class="stat-value"><span class="from">12 →</span> 5</div><div class="stat-label">productos existentes negados</div></div>
+      <div class="slide-body fill">
+        <div class="cols-2-even">
+          <div class="card highlight hypo-card">
+            <span class="hypo-tag">RECALL@3 · 124 CONSULTAS, SIN LLM</span>
+            <div>
+              <div class="stat-xl" style="font-size: 4.2rem;"><span class="from">0,87 →</span> 0,94</div>
+              <p class="stat-caption">Antes y después de RF-118, con un piso de calidad en el CI.</p>
             </div>
-            <p style="font-size: 0.84rem; color: var(--text-muted); margin-top: 14px; line-height: 1.5;">Abstención 1,0 y 0 falsos únicos, antes y después. Lo que falta son necesidades dichas con palabras que ningún nombre tiene («teñir», «mechas»): candidato a embeddings.</p>
+            <div class="hypo-meta">Falla con necesidades («teñir», «mechas»), no con errores de tipeo.</div>
+          </div>
+          <div class="stack">
+            <div class="card" style="flex: 1;">
+              <div class="stat-rows">
+                <div class="stat-row"><span class="lbl">MRR</span><span class="val"><span class="from">0,867 →</span> 0,937</span></div>
+                <div class="stat-row"><span class="lbl">Únicos correctos</span><span class="val"><span class="from">0,776 →</span> 0,91</span></div>
+                <div class="stat-row"><span class="lbl">Productos existentes negados</span><span class="val"><span class="from">12 →</span> 5</span></div>
+                <div class="stat-row"><span class="lbl">Abstención · falsos únicos</span><span class="val">1,0 · 0</span></div>
+              </div>
+            </div>
+            <div class="card">
+              <span class="hypo-tag" style="margin-bottom: 10px;">QUÉ TOLERA</span>
+              <div class="chip-row">
+                <span class="chip-code">pantne</span><span class="chip-code">coleston</span><span class="chip-code">sh</span>
+                <span class="chip-code">x900 = 900 ml</span><span class="chip-code">1k = 1 kg</span><span class="chip-code">821 = 8.21</span>
+              </div>
+            </div>
           </div>
         </div>
-        <div class="pending"><span class="pending-tag">⏳ A-10 · A-13</span><span>Las consultas son inventadas y no tienen partición dev/test. Confirmar que esta es una de las <strong>áreas centrales</strong>.</span></div>
       </div>
       <div class="src">Fuente: <code>python -m internal.evaluar_busqueda</code> · <code>data_example/consultas_busqueda.json</code> · <code>docs/spec/busqueda-tolerante.md</code></div>
     </div>
 
-    <!-- 10. ÁREA: TOOLS Y GUARDRAILS -->
+    <!-- 12. ÁREA: TOOLS Y GUARDRAILS -->
     <div class="slide">
       <div class="slide-header">
         <span class="tag">ÁREA DE PROFUNDIZACIÓN · TOOLS Y GUARDRAILS</span>
         <div class="slide-title">El código impide lo que el agente no puede hacer</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Falta el número que lo respalde: errores graves con y sin controles">⏳ A-06 medir</span>
+          <span class="todo-chip" title="Confirmar que es una de las áreas centrales">⏳ A-13 área</span>
+        </div>
       </div>
-      <div class="slide-body">
-        <div class="cols-3">
-          <div class="card">
-            <h3><span class="icon">⚙</span> Contratos de tools</h3>
-            <ul class="compact">
-              <li><strong>Permisos por skill:</strong> cada tool aparece cuando se lee la skill que la habilita.</li>
-              <li><strong>Errores que dicen qué hacer:</strong> <code>tool_no_permitida</code> nombra la skill que falta.</li>
-              <li><strong>Salida estructurada:</strong> la propuesta se arma con una tool, no con texto libre.</li>
+      <div class="slide-body fill">
+        <div class="cols-3-even">
+          <div class="card hypo-card">
+            <span class="hypo-tag">CONTRATOS DE TOOLS</span>
+            <ul>
+              <li>Cada tool aparece al leer la skill que la habilita.</li>
+              <li>Los errores dicen qué hacer: <code>tool_no_permitida</code> nombra la skill.</li>
+              <li>La propuesta se arma con una tool, no con texto libre.</li>
             </ul>
+            <div class="hypo-meta">Permisos por skill.</div>
           </div>
-          <div class="card highlight">
-            <h3><span class="icon">✓</span> Verificadores de evidencia</h3>
-            <ul class="compact">
-              <li><code>sku_no_buscado</code>: cada SKU salió de una búsqueda.</li>
-              <li><code>opcion_sin_elegir</code>, <code>cantidad_distinta</code>.</li>
-              <li>Precios y medidas que el modelo efectivamente vio.</li>
-              <li><strong>Aceptación comprobada</strong> antes de registrar.</li>
+          <div class="card highlight hypo-card">
+            <span class="hypo-tag">VERIFICADORES DE EVIDENCIA</span>
+            <ul>
+              <li><code>sku_no_buscado</code></li>
+              <li><code>opcion_sin_elegir</code></li>
+              <li><code>cantidad_distinta</code></li>
+              <li>Precios y medidas que el modelo vio</li>
+              <li>Aceptación comprobada antes de registrar</li>
             </ul>
+            <div class="hypo-meta">Lo que el sistema resuelve en lugar del modelo queda en <code>rescates</code>.</div>
           </div>
-          <div class="card warning-box">
-            <h3 style="color: var(--warning);"><span class="icon">⛨</span> Guardrails y topes</h3>
-            <ul class="compact">
-              <li>No revela stock ni SKU, no promete descuentos, envíos ni plazos; reintenta hasta 3 veces.</li>
-              <li>Topes por turno: 50 iteraciones, 300 s, 200.000 tokens.</li>
-              <li>Llamada repetida: a la tercera, cierra con lo encontrado.</li>
-            </ul>
+          <div class="card warning-box hypo-card">
+            <span class="hypo-tag" style="color: var(--warning);">GUARDRAILS Y TOPES</span>
+            <div>
+              <div class="stat-md">50 · 300 s · 200k</div>
+              <p class="stat-caption">iteraciones, segundos y tokens por turno.</p>
+            </div>
+            <div class="hypo-meta">Sin stock, SKU ni promesas en la respuesta; reintenta hasta 3 veces.</div>
           </div>
         </div>
-        <div class="pending"><span class="pending-tag">⏳ A-06 · A-13</span><span>Falta el número que lo respalde: <strong>errores graves con y sin controles</strong>. Lo que el sistema resuelve en lugar del modelo ya queda en <code>rescates</code>.</span></div>
       </div>
-      <div class="src">Fuente: <code>internal/agent/guardrails.py</code> · <code>internal/agent/evidencia.py</code> · <code>docs/spec/guardrails.md</code> · RF-111 a RF-114, RF-120 a RF-122</div>
+      <div class="src">Fuente: <code>internal/agent/guardrails.py</code> · <code>internal/agent/evidencia.py</code> · <code>docs/spec/guardrails.md</code> · RF-111 a RF-122</div>
     </div>
 
-    <!-- 11. ÁREA: EVALUACIÓN -->
+    <!-- 13. ÁREA: EVALUACIÓN -->
     <div class="slide">
       <div class="slide-header">
         <span class="tag">ÁREA DE PROFUNDIZACIÓN · EVALUACIÓN</span>
         <div class="slide-title">Benchmark propio del dominio</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Qué sets entran en test: hoy solo adversariales tiene grupo reservado">⏳ A-11 test</span>
+          <span class="todo-chip" title="Confirmar que es una de las áreas centrales">⏳ A-13 área</span>
+        </div>
       </div>
-      <div class="slide-body">
-        <div class="asym-60-40">
-          <table class="compact">
-            <thead>
-              <tr><th>Set</th><th>Casos</th><th>Qué mide</th></tr>
-            </thead>
-            <tbody>
-              <tr><td><strong>mensajes</strong></td><td class="num">32</td><td>Conversaciones cortas: saludo, aclaración, aceptación, fuera de catálogo.</td></tr>
-              <tr><td><strong>pedidos</strong></td><td class="num">11</td><td>Listas de hasta 30 renglones con tipeo, tonos y dudas, contra un catálogo inventado de 394 productos.</td></tr>
-              <tr><td><strong>adversariales</strong></td><td class="num">24</td><td>12 de desarrollo y <strong>12 reservados</strong> (test): solo miden, no se ajusta mirándolos.</td></tr>
-              <tr><td><strong>búsqueda</strong></td><td class="num">124</td><td>El buscador solo, sin LLM, con piso en el CI.</td></tr>
-            </tbody>
-          </table>
-          <div class="card">
-            <h3><span class="icon">▤</span> Cómo se corre</h3>
-            <ul class="compact">
-              <li><strong>Puntaje exigente:</strong> qué respondió, en qué quedó la propuesta y qué dijo.</li>
-              <li><strong>Control de gasto:</strong> <code>--max-llamadas</code> y <code>--precio</code>.</li>
-              <li><strong>Comparación:</strong> <code>comparar_corridas</code> con intervalo de Wilson.</li>
-              <li><strong>Uso real:</strong> <code>sensor_calidad</code> sobre trazas y base.</li>
-            </ul>
+      <div class="slide-body fill">
+        <div class="cols-4-even">
+          <div class="card hypo-card">
+            <span class="hypo-tag">MENSAJES</span>
+            <div class="stat-xl">32</div>
+            <div class="hypo-meta">Conversaciones cortas: saludo, aclaración, aceptación.</div>
+          </div>
+          <div class="card hypo-card">
+            <span class="hypo-tag">PEDIDOS</span>
+            <div class="stat-xl">11</div>
+            <div class="hypo-meta">Listas de hasta 30 renglones, contra un catálogo de 394.</div>
+          </div>
+          <div class="card highlight hypo-card">
+            <span class="hypo-tag">ADVERSARIALES</span>
+            <div class="stat-xl">24</div>
+            <div class="hypo-meta">12 de desarrollo y 12 reservados: solo miden.</div>
+          </div>
+          <div class="card hypo-card">
+            <span class="hypo-tag">BÚSQUEDA</span>
+            <div class="stat-xl">124</div>
+            <div class="hypo-meta">Consultas al buscador solo, sin LLM.</div>
           </div>
         </div>
-        <div class="pending"><span class="pending-tag">⏳ A-11 · A-13</span><span>Qué sets entran en test (hoy solo <code>adversariales</code> tiene grupo reservado). Confirmar como área central.</span></div>
+        <div class="card strip">
+          <span class="hypo-tag" style="margin: 0; white-space: nowrap;">CÓMO SE CORRE</span>
+          <span class="strip-item"><strong>Puntaje exigente:</strong> qué respondió y en qué quedó la propuesta.</span>
+          <span class="strip-item"><strong>Gasto:</strong> tope de llamadas y costo.</span>
+          <span class="strip-item"><strong>Comparación:</strong> intervalo de Wilson.</span>
+        </div>
       </div>
       <div class="src">Fuente: <code>internal/evaluar_agente.py</code> · <code>internal/comparar_corridas.py</code> · <code>data_example/</code></div>
     </div>
 
-    <!-- 12. ÁREAS COMPLEMENTARIAS -->
+    <!-- 14. ÁREAS COMPLEMENTARIAS -->
     <div class="slide">
       <div class="slide-header">
         <span class="tag">OTRAS ÁREAS TRABAJADAS</span>
-        <div class="slide-title">Skills, observabilidad, HITL, memoria e inferencia local</div>
+        <div class="slide-title">Skills, observabilidad, memoria, HITL e inferencia local</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Si alguna reemplaza a un área central">⏳ A-13 áreas</span>
+          <span class="todo-chip" title="Si HITL se cuenta como área: hay que medir su costo y su efecto">⏳ A-14 HITL</span>
+        </div>
       </div>
-      <div class="slide-body">
-        <div class="cols-3">
-          <div class="card">
-            <h3><span class="icon">◇</span> Skills y orquestación</h3>
-            <ul class="compact">
-              <li>4 skills: <code>tomar_pedido</code>, <code>confirmar_pedido</code>, <code>informar</code>, <code>derivar_o_cancelar</code>.</li>
-              <li>Reglas de negocio (BR) leídas con tools, no un prompt gigante.</li>
-              <li>Orquestador con sub-loops, implementado y apagado hasta medirlo.</li>
-            </ul>
+      <div class="slide-body fill">
+        <div class="cols-3-even">
+          <div class="card highlight hypo-card">
+            <span class="hypo-tag">SKILLS Y ORQUESTACIÓN</span>
+            <div>
+              <div class="stat-xl">4</div>
+              <p class="stat-caption">skills con reglas de negocio leídas con tools.</p>
+            </div>
+            <div class="hypo-meta">Orquestador con sub-loops: implementado y apagado hasta medirlo.</div>
           </div>
-          <div class="card">
-            <h3><span class="icon">◉</span> Observabilidad y memoria</h3>
-            <ul class="compact">
-              <li>MLflow: una traza por turno con tokens, latencia, tools y skills, sin el texto del cliente.</li>
-              <li>Estado del grafo en checkpoints; las opciones ofrecidas siguen visibles al turno siguiente.</li>
-              <li>Conversaciones que vencen a las 24 h.</li>
+          <div class="card hypo-card">
+            <span class="hypo-tag">OBSERVABILIDAD Y MEMORIA</span>
+            <ul>
+              <li>MLflow: una traza por turno con tokens, latencia y tools.</li>
+              <li>Checkpoints del grafo; las opciones ofrecidas siguen visibles.</li>
             </ul>
+            <div class="hypo-meta">Las trazas no guardan el texto del cliente.</div>
           </div>
-          <div class="card">
-            <h3><span class="icon">⇄</span> HITL e inferencia local</h3>
-            <ul class="compact">
-              <li>El cliente aprueba cada orden; derivación a una persona con silencio de 24 h.</li>
-              <li>Lectura de fotos con Qwen3-VL local comparada contra la API.</li>
+          <div class="card hypo-card">
+            <span class="hypo-tag">HITL E INFERENCIA LOCAL</span>
+            <ul>
+              <li>El cliente aprueba cada orden; derivación con 24 h de silencio.</li>
+              <li>Fotos con Qwen3-VL local comparado contra la API.</li>
             </ul>
+            <div class="hypo-meta">HITL todavía sin medir su costo.</div>
           </div>
         </div>
-        <div class="pending"><span class="pending-tag">⏳ A-13 · A-14</span><span>Si alguna de estas reemplaza a un área central (por ejemplo skills y orquestación), y si HITL se cuenta como área: para eso hay que <strong>medir su costo y su efecto</strong>.</span></div>
       </div>
       <div class="src">Fuente: <code>internal/skills/</code> · <code>docs/spec/orquestador-y-sub-loops.md</code> · <code>docs/spec/agente.md</code> §10.1 · PR #110</div>
     </div>
 
-    <!-- 13. DATOS -->
+    <!-- 15. DATOS -->
     <div class="slide">
       <div class="slide-header">
         <span class="tag">DATOS</span>
         <div class="slide-title">Fuentes, muestra sanitizada y datos sintéticos</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Volumen, actualización y licencia de cada fuente">⏳ A-20 fuentes</span>
+          <span class="todo-chip" title="Cómo se generaron los datos sintéticos y cómo se evaluó ese generador">⏳ A-21 generador</span>
+        </div>
       </div>
-      <div class="slide-body">
-        <div class="asym-60-40">
-          <div class="card">
-            <h3><span class="icon">▦</span> Con qué trabaja</h3>
-            <ul class="compact">
-              <li><strong>Catálogo real:</strong> 1.090 productos de 57 marcas, en Google Sheets o CSV. Privado.</li>
-              <li><strong>Muestra versionada:</strong> <code>data_example/</code>, con datos ficticios en el mismo formato, para replicar.</li>
-              <li><strong>Sintéticos para evaluar:</strong> catálogo de 394 productos, 124 consultas de búsqueda y los casos de los tres sets.</li>
-              <li><strong>Pruebas del equipo:</strong> pedidos simulados al bot beta, sin datos de clientes.</li>
-            </ul>
+      <div class="slide-body fill">
+        <div class="cols-3-even">
+          <div class="card highlight hypo-card">
+            <span class="hypo-tag">CATÁLOGO REAL · PRIVADO</span>
+            <div class="stat-xl">1.090</div>
+            <div class="hypo-meta">Productos de 57 marcas, en Google Sheets o CSV.</div>
           </div>
-          <div class="card pending-card">
-            <h3><span class="icon">⏳</span> Falta documentar</h3>
-            <ul class="compact">
-              <li><strong>A-20:</strong> volumen, actualización y licencia de cada fuente.</li>
-              <li><strong>A-21:</strong> cómo se generaron los datos sintéticos y cómo se evaluó ese generador (lo pide la consigna).</li>
-            </ul>
+          <div class="card hypo-card">
+            <span class="hypo-tag">CATÁLOGO DE EVALUACIÓN · SINTÉTICO</span>
+            <div class="stat-xl">394</div>
+            <div class="hypo-meta">Productos inventados para los casos de pedidos.</div>
           </div>
+          <div class="card hypo-card">
+            <span class="hypo-tag">CONSULTAS DE BÚSQUEDA · SINTÉTICAS</span>
+            <div class="stat-xl">124</div>
+            <div class="hypo-meta">Con su respuesta correcta.</div>
+          </div>
+        </div>
+        <div class="card strip">
+          <span class="hypo-tag" style="margin: 0; white-space: nowrap;">PARA REPLICAR</span>
+          <span class="strip-item"><code>data_example/</code> trae datos ficticios en el mismo formato. Las pruebas del equipo usan pedidos simulados, sin datos de clientes.</span>
         </div>
       </div>
       <div class="src">Fuente: <code>docs/data/fuentes.md</code> · <code>data_example/README.md</code></div>
     </div>
 
-    <!-- 14. EVALUACIÓN SOBRE TEST -->
+    <!-- 16. EVALUACIÓN SOBRE TEST -->
     <div class="slide">
       <div class="slide-header">
         <span class="tag">RESULTADOS</span>
         <div class="slide-title">Evaluación sobre test</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Modelo y presupuesto para la corrida">⏳ A-08 modelo</span>
+          <span class="todo-chip" title="Qué sets entran en test">⏳ A-11 sets</span>
+          <span class="todo-chip" title="Cuántas repeticiones por caso">⏳ A-12 repeticiones</span>
+        </div>
       </div>
-      <div class="slide-body">
-        <table>
+      <div class="slide-body fill">
+        <table class="fill-t">
           <thead>
             <tr>
               <th style="width: 30%;">Sistema</th>
@@ -1005,148 +1276,182 @@
             <tr><td><strong>Norma</strong></td><td><span class="tbd">—</span></td><td><span class="tbd">—</span></td><td><span class="tbd">—</span></td><td><span class="tbd">—</span></td></tr>
           </tbody>
         </table>
-        <div class="asym-60-40">
-          <div class="card pending-card">
-            <h3><span class="icon">⏳</span> Análisis de fallas</h3>
-            <ul class="compact">
-              <li>Clasificar los casos que fallan: uso de tools, interpretación, búsqueda o guardrail.</li>
-              <li>Uno o dos ejemplos concretos de cada tipo.</li>
-            </ul>
-          </div>
-          <div class="pending" style="flex-direction: column; gap: 4px;"><span class="pending-tag">⏳ A-08 · A-11 · A-12</span><span>Falta la corrida completa: <strong>modelo y presupuesto</strong>, qué sets entran en test y cuántas repeticiones por caso.</span></div>
+        <div class="card strip pending-card">
+          <span class="hypo-tag" style="margin: 0; white-space: nowrap; color: var(--pending);">ANÁLISIS DE FALLAS</span>
+          <span class="strip-item">Clasificar los casos que fallan (uso de tools, interpretación, búsqueda o guardrail), con uno o dos ejemplos de cada tipo.</span>
         </div>
       </div>
       <div class="src">Fuente: <code>python -m internal.evaluar_agente --set … --repeticiones … --salida …</code> · <code>python -m internal.comparar_corridas</code></div>
     </div>
 
-    <!-- 15. COSTOS -->
+    <!-- 17. COSTOS -->
     <div class="slide">
       <div class="slide-header">
         <span class="tag">ECONOMÍA DEL SISTEMA</span>
         <div class="slide-title">Costo por pedido, latencia y elección de modelo</div>
-      </div>
-      <div class="slide-body">
-        <div class="asym-40-60">
-          <div class="card warning-box">
-            <h3 style="color: var(--warning);"><span class="icon">≈</span> Orden de magnitud hoy</h3>
-            <ul class="compact">
-              <li>28 turnos de prueba del equipo, con modelos mezclados.</li>
-              <li><strong>Iteraciones del loop:</strong> p50 2, p95 5, máximo 8.</li>
-              <li><strong>Tokens por turno:</strong> ~22.500.</li>
-              <li><strong>Latencia:</strong> p95 de 69 s; 21 % de turnos con error.</li>
-              <li>Sirve como orden de magnitud, no para comparar.</li>
-            </ul>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 14px;">
-            <table class="compact">
-              <thead>
-                <tr><th>Modelo</th><th>USD por pedido</th><th>Latencia p50 / p95</th><th>Aciertos</th></tr>
-              </thead>
-              <tbody>
-                <tr><td><strong>Elegido</strong> <span class="tbd">⏳ A-08</span></td><td><span class="tbd">—</span></td><td><span class="tbd">—</span></td><td><span class="tbd">—</span></td></tr>
-                <tr><td><strong>Alternativa</strong> <span class="tbd">⏳ A-09</span></td><td><span class="tbd">—</span></td><td><span class="tbd">—</span></td><td><span class="tbd">—</span></td></tr>
-                <tr><td><strong>Visión local</strong> (Qwen3-VL)</td><td colspan="3">Comparada contra la API en el PR #110: <span class="tbd">traer los números</span></td></tr>
-              </tbody>
-            </table>
-            <div class="pending"><span class="pending-tag">⏳ A-08 · A-09</span><span>Qué modelo se usa, contra qué alternativas se compara y con qué presupuesto.</span></div>
-          </div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Qué modelo se usa y con qué presupuesto">⏳ A-08 modelo</span>
+          <span class="todo-chip" title="Contra qué modelos alternativos se compara">⏳ A-09 alternativas</span>
         </div>
       </div>
-      <div class="src">Fuente: <code>MEJORAS.md</code> (trazas locales, 2026-11-24) · MLflow · <code>--precio</code> en <code>evaluar_agente</code></div>
+      <div class="slide-body fill">
+        <div class="cols-4-even">
+          <div class="card warning-box hypo-card">
+            <span class="hypo-tag" style="color: var(--warning);">TOKENS POR TURNO</span>
+            <div class="stat-md">~22.500</div>
+          </div>
+          <div class="card warning-box hypo-card">
+            <span class="hypo-tag" style="color: var(--warning);">LATENCIA P95</span>
+            <div class="stat-md">69 s</div>
+          </div>
+          <div class="card warning-box hypo-card">
+            <span class="hypo-tag" style="color: var(--warning);">ITERACIONES P50 / P95</span>
+            <div class="stat-md">2 / 5</div>
+          </div>
+          <div class="card warning-box hypo-card">
+            <span class="hypo-tag" style="color: var(--warning);">TURNOS CON ERROR</span>
+            <div class="stat-md">21 %</div>
+          </div>
+        </div>
+        <table class="compact">
+          <thead>
+            <tr><th>Modelo</th><th>USD por pedido</th><th>Latencia p50 / p95</th><th>Aciertos</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>Elegido</strong> <span class="tbd">⏳ A-08</span></td><td><span class="tbd">—</span></td><td><span class="tbd">—</span></td><td><span class="tbd">—</span></td></tr>
+            <tr><td><strong>Alternativa</strong> <span class="tbd">⏳ A-09</span></td><td><span class="tbd">—</span></td><td><span class="tbd">—</span></td><td><span class="tbd">—</span></td></tr>
+            <tr><td><strong>Visión local</strong> (Qwen3-VL)</td><td colspan="3">Comparada contra la API en el PR #110: <span class="tbd">traer los números</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="src">Arriba: 28 turnos de prueba con modelos mezclados, solo como orden de magnitud. Fuente: <code>MEJORAS.md</code> (trazas locales, 2026-11-24) · MLflow</div>
     </div>
 
-    <!-- 16. RELATO DEL DESARROLLO -->
+    <!-- 18. RELATO DEL DESARROLLO -->
     <div class="slide">
       <div class="slide-header">
         <span class="tag">CÓMO FUE EL DESARROLLO</span>
         <div class="slide-title">Bloqueos, lo que no funcionó y lo que cambió el rumbo</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Cada integrante suma sus bloqueos y aprendizajes">⏳ A-18 aportes</span>
+        </div>
       </div>
-      <div class="slide-body">
-        <div class="cols-3">
-          <div class="card warning-box">
-            <h3 style="color: var(--warning);"><span class="icon">⚠</span> Bloqueos</h3>
-            <ul class="compact">
-              <li>Cuotas de free tier: corridas de evaluación enteras cortadas por 429, 503 y 504.</li>
+      <div class="slide-body fill">
+        <div class="cols-3-even">
+          <div class="card warning-box hypo-card">
+            <span class="hypo-tag" style="color: var(--warning);">BLOQUEOS</span>
+            <ul>
+              <li>Cuotas de free tier: corridas cortadas por 429, 503 y 504.</li>
               <li>Modelos que no usaban las tools y contestaban con texto suelto.</li>
             </ul>
+            <div class="hypo-meta">La medición se postergó.</div>
           </div>
-          <div class="card">
-            <h3><span class="icon">✕</span> Lo que no funcionó</h3>
-            <ul class="compact">
+          <div class="card hypo-card">
+            <span class="hypo-tag">LO QUE NO FUNCIONÓ</span>
+            <ul>
               <li>Un modelo inventó un número de orden y no registró nada.</li>
-              <li>Sacar «nunca respondas con texto suelto» del prompt rompió el uso de tools.</li>
-              <li>Bugs del uso real: renglones corridos por un saludo, un «sí» que confirmaba otra cosa.</li>
+              <li>Sacar «nunca respondas con texto suelto» rompió el uso de tools.</li>
+              <li>Bugs del uso real: renglones corridos, un «sí» que confirmaba otra cosa.</li>
             </ul>
+            <div class="hypo-meta">Cada uno terminó en un control en código.</div>
           </div>
-          <div class="card highlight">
-            <h3><span class="icon">↻</span> Cambios de rumbo</h3>
-            <ul class="compact">
+          <div class="card highlight hypo-card">
+            <span class="hypo-tag">CAMBIOS DE RUMBO</span>
+            <ul>
               <li>Controles del prompt al código.</li>
               <li>Skills con reglas de negocio en lugar de un prompt gigante.</li>
               <li>Telegram para la beta; sin embeddings ni BI.</li>
             </ul>
+            <div class="hypo-meta">Decisiones registradas en las specs.</div>
           </div>
         </div>
-        <div class="pending"><span class="pending-tag">⏳ A-18</span><span>Cada integrante suma <strong>sus bloqueos y aprendizajes</strong>.</span></div>
       </div>
       <div class="src">Fuente: <code>MEJORAS.md</code> · <code>CHANGELOG.md</code> · <code>docs/spec/</code></div>
     </div>
 
-    <!-- 17. ASISTENTES DE IA -->
+    <!-- 19. ASISTENTES DE IA -->
     <div class="slide">
       <div class="slide-header">
         <span class="tag">CÓMO USAMOS ASISTENTES DE IA</span>
         <div class="slide-title">Spec primero, después tests y código</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Qué herramientas usó cada integrante, dónde ayudaron y dónde hubo que corregirlas">⏳ A-18 herramientas</span>
+        </div>
       </div>
-      <div class="slide-body">
-        <div class="asym-60-40">
-          <div class="card highlight">
-            <h3><span class="icon">✦</span> Desarrollo guiado por specs</h3>
-            <ul>
-              <li><strong>Ciclo:</strong> spec con requisitos (RF) y criterios de aceptación (CA) → tests que citan el CA → código → PR que cita los IDs.</li>
-              <li><strong>Reglas para los agentes:</strong> <code>AGENTS.md</code> fija qué no pueden leer (secretos, datos de clientes).</li>
-              <li><strong>Revisión y diagnóstico:</strong> revisiones de PR y la revisión del diseño con los conceptos de la clase 7.</li>
-            </ul>
+      <div class="slide-body fill">
+        <div class="loop-container fill-h">
+          <div class="flow-row">
+            <div class="flow-step core-agent">
+              <span class="flow-step-num">1. Spec</span>
+              <span class="flow-step-title">Requisitos y criterios</span>
+              <span class="flow-step-desc">RF y CA con ID, revisados en una PR.</span>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step">
+              <span class="flow-step-num">2. Tests</span>
+              <span class="flow-step-title">Uno por criterio</span>
+              <span class="flow-step-desc">Cada test cita su CA.</span>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step">
+              <span class="flow-step-num">3. Código</span>
+              <span class="flow-step-title">Hasta que pasen</span>
+              <span class="flow-step-desc">Sin comportamiento que la spec no pida.</span>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step" style="border-left: 3px solid var(--accent);">
+              <span class="flow-step-num">4. PR</span>
+              <span class="flow-step-title">Cita los IDs</span>
+              <span class="flow-step-desc">Si aparece algo nuevo, vuelve a la spec.</span>
+            </div>
           </div>
-          <div class="card pending-card">
-            <h3><span class="icon">⏳</span> Falta completar</h3>
-            <ul class="compact">
-              <li><strong>A-18:</strong> qué herramientas usó cada integrante y para qué.</li>
-              <li>Qué aprendimos: dónde ayudaron y dónde hubo que corregirlos.</li>
-            </ul>
+          <div class="cols-2-even">
+            <div class="card">
+              <span class="hypo-tag">REGLAS PARA LOS AGENTES</span>
+              <p class="stat-caption" style="margin-top: 4px;"><code>AGENTS.md</code> fija qué no pueden leer: secretos y datos de clientes.</p>
+            </div>
+            <div class="card">
+              <span class="hypo-tag">REVISIÓN Y DIAGNÓSTICO</span>
+              <p class="stat-caption" style="margin-top: 4px;">Revisiones de PR y del diseño con los conceptos de la clase 7.</p>
+            </div>
           </div>
         </div>
       </div>
       <div class="src">Fuente: <code>docs/spec/README.md</code> §1 · <code>AGENTS.md</code> · <code>docs/spec/mejoras-clase7.md</code></div>
     </div>
 
-    <!-- 18. LIMITACIONES Y PRÓXIMOS PASOS -->
+    <!-- 20. LIMITACIONES Y PRÓXIMOS PASOS -->
     <div class="slide">
       <div class="slide-header">
         <span class="tag">CIERRE</span>
-        <div class="slide-title">Limitaciones, qué haríamos distinto y próximos pasos</div>
+        <div class="slide-title">Limitaciones y próximos pasos</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Qué haríamos distinto: definirlo en el grupo">⏳ A-16 qué haríamos distinto</span>
+        </div>
       </div>
-      <div class="slide-body">
-        <div class="asym-hero-side">
-          <div class="card warning-box">
-            <h3 style="color: var(--warning);"><span class="icon">⚑</span> Limitaciones</h3>
-            <ul class="compact">
+      <div class="slide-body fill">
+        <div class="cols-2-even">
+          <div class="card warning-box hypo-card">
+            <span class="hypo-tag" style="color: var(--warning);">LIMITACIONES</span>
+            <ul>
               <li>WhatsApp y el chat web todavía no procesan mensajes.</li>
               <li>Stock desde una planilla, sin reserva; SQLite para una sola instancia.</li>
               <li>Consultas de necesidad («algo para teñir») que la búsqueda no resuelve.</li>
               <li>El control de la aceptación no cubre todos los casos.</li>
             </ul>
+            <div class="hypo-meta">Detalle en <code>MEJORAS.md</code>.</div>
           </div>
-          <div class="card">
-            <h3><span class="icon">→</span> Próximos pasos</h3>
-            <ul class="compact">
+          <div class="card highlight hypo-card">
+            <span class="hypo-tag">PRÓXIMOS PASOS</span>
+            <ul>
+              <li>Correr la evaluación completa sobre test y fijar el modelo.</li>
+              <li>Ajustar topes y umbrales con esa medición.</li>
               <li>Embeddings solo si las consultas de necesidad pesan en el uso real.</li>
-              <li>Ajustar topes y umbrales con la medición.</li>
               <li>WhatsApp de punta a punta.</li>
             </ul>
+            <div class="hypo-meta">En orden de prioridad.</div>
           </div>
         </div>
-        <div class="pending"><span class="pending-tag">⏳ A-16</span><span><strong>Qué haríamos distinto:</strong> definirlo en el grupo (por ejemplo, medir antes de agregar funcionalidades).</span></div>
       </div>
       <div class="src">Fuente: <code>MEJORAS.md</code> · <code>docs/spec/README.md</code> §10</div>
     </div>
@@ -1173,7 +1478,7 @@
     slides.forEach((slide, idx) => {
       const dot = document.createElement('div');
       dot.classList.add('reel-dot');
-      if (slide.querySelector('.pending, .pending-card, .tbd, .pending-pill')) dot.classList.add('has-pending');
+      if (slide.querySelector('.pending, .pending-card, .tbd, .pending-pill, .todo-chip')) dot.classList.add('has-pending');
       dot.addEventListener('click', () => goToSlide(idx));
       reelContainer.appendChild(dot);
     });
