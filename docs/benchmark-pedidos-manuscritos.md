@@ -655,3 +655,22 @@ Con 3 hojas los intervalos se pisan y no alcanza para elegir modelo. Lo que sí 
   - En (b), lo que se lee tan mal que la búsqueda no lo encuentra cuesta 0,2 y no 1, porque el agente pregunta. Con
     letra difícil eso deja los errores graves bajos aunque el S sea malo: el filtro mide que no salga nada mal, y S
     mide cuánto sale bien. Hay que ver si esa división coincide con el orden a mano.
+
+### 10.1 Con `VISION_MARCAS` (D-42)
+
+Las mismas 3 fotos de desarrollo y los mismos modelos, con la lista de marcas de `catalogo_evaluacion.csv` sumada al
+prompt. Es el único cambio, y por eso cambia la huella.
+
+| Modelo | S (b) sin marcas | S (b) con marcas | S (a) sin → con | Errores graves en (b) sin → con |
+|---|---|---|---|---|
+| Qwen3-VL 2B, local | 0,33 | 0,50 | 0,15 → 0,32 | 1 → 1 |
+| `gpt-6-luna` | 0,56 | 0,73 | 0,49 → 0,68 | 1 → 3 |
+
+- **Mejoran las 3 hojas en los dos modelos**, y más en las de letra difícil: Luna pasa de 0,32 a 0,66 y de 0,44 a
+  0,57 en (b). La lista de marcas ayuda justo donde la marca se leía mal.
+- **Con las marcas bien leídas, los errores de número salen sin duda.** Los 3 errores graves de Luna son números mal
+  leídos, y uno de ellos lleva a otro producto que la búsqueda encuentra seguro (otro oxidante): antes la marca mal
+  leída lo dejaba en duda y ahora sale silencioso. Es el riesgo que la scoring tiene que mostrar, y lo muestra.
+- Con 3 hojas no alcanza para cerrar D-42, pero la dirección es clara: vale la pena medirlo con más fotos y, si se
+  confirma, prenderlo en el bot. Cuesta 90 tokens de entrada más por foto (≈ 2 %).
+
