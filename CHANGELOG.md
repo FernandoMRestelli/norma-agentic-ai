@@ -10,6 +10,8 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Agregado
 
+- Diseño de un benchmark de pedidos escritos a mano en `docs/benchmark-pedidos-manuscritos.md`. Las listas ficticias, sorteadas de antemano, las copian personas reales y las fotos se juntan con un Google Form; el puntaje por renglón pondera el producto, la cantidad y las dudas, para comparar `gpt-6-luna`, GPT Terra y un modelo local. Todavía no tiene runner.
+- `python -m internal.benchmark_manuscritos` sortea las listas del benchmark de pedidos escritos a mano y arma el Google Apps Script que crea el Form para juntar las fotos. Cada lista trae 5 renglones fijos y 10 sorteados del pool de `data_example/benchmark_manuscritos/`, que cubren los tipos de dificultad. Cada persona elige un pedido («Pedido 01»…«Pedido 30») en el desplegable del Form. La pregunta de subir la foto se agrega a mano.
 - La evaluación suma un set de 24 casos adversariales con un grupo reservado, un puntaje más exigente (qué respondió, en qué quedó la propuesta y qué dijo, no solo si registró), tope de llamadas, corte si el LLM no responde, costo, intervalo de confianza y resultado en `.json` (RF-115 a RF-117, CA-199 a CA-203). El caso `pide-una-persona` espera la derivación, que ya existe. No cambia nada en producción.
 
 - El buscador se mide solo, sin LLM: 124 consultas con sus respuestas correctas y un piso de calidad en el CI (RF-119, CA-206). Se corre con `python -m internal.evaluar_busqueda`. No cambia nada en producción.
@@ -17,9 +19,12 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 - Sensor de calidad: `python -m internal.sensor_calidad --dias 7` resume el uso real desde las trazas y la base, sin texto de clientes, y avisa si algo pasa su umbral (RF-123, CA-211 a CA-213). Cada turno dice en el log y en la traza si lo tuvo que rescatar el sistema (`rescates`).
 - `python -m internal.comparar_corridas` compara dos corridas de la evaluación, y `evaluar_agente --orquestador` elige con qué turno correr, para decidir si se queda el orquestador (RF-124, CA-214, CA-215). No cambia nada en producción.
 - Los permisos de Claude Code del repo cubren todo lo que `AGENTS.md` prohíbe leer o editar, con un test que lo controla, y `AGENTS.md` dice cómo verificar un cambio. `README.md`, `MEJORAS.md` y `architecture.md` coinciden con el código.
+- Spec de mejoras del agente a partir de la Clase 8 de Inteligencia Artificial Agéntica en `docs/spec/mejoras-clase8.md`: evaluación sin contaminación entre prompts y casos, datos que escribe el código en vez del modelo, un modelo por nodo y ruteo como nodo, entre otras.
+- La evaluación no se mide con lo que ya vio el modelo (M8-1). `mensajes` y `pedidos` suman casos reservados (18 y 13) que salen de un generador con su propia semilla, y el umbral de release (RNF-15) se calcula solo con ellos. La corrida muestra desarrollo y reservado lado a lado, con un intervalo del recall que remuestrea casos y no líneas, y avisa cuando no alcanza para decidir. Un test de CI falla si un prompt copia un caso reservado o si un reservado repite uno de desarrollo; ya encontró dos así en los adversariales y las consultas de búsqueda, que se reescribieron. Los ejemplos de los prompts y las skills cambian de productos y frases, no de reglas. No hay nada que migrar al desplegar.
 
 ### Cambiado
 
+- Las dudas, lo que no entra y cuánto queda los escribe el sistema, no el modelo (M8-2, cierra el #107). Debajo del mensaje del asistente y del detalle de la propuesta, el cliente ve «Lo que no va como lo pediste:», con cada renglón que no se trabaja o está agotado y cuánto queda del que no alcanzó, y «Me falta que me digas:», con cada renglón dudoso como lo escribió y sus opciones («• 2 sh keratina: ¿300 ML, 900 ML o 5 L?»). Una aclaración de un producto suelto lista sus opciones con precio. El modelo solo escribe qué armó y la pregunta; si igual enumera con viñetas, esa lista no sale dos veces. Sale el control `pregunta_faltante`, que ya no hace falta. No hay nada que migrar al desplegar.
 - `.env.example` trae la API paga de OpenAI (`gpt-6-luna`) para el texto, sin el límite diario del free tier; OpenRouter y Gemini quedan como alternativas comentadas. Solo afecta a quien arma su `.env` de cero: los que ya existen no cambian.
 
 ### Corregido

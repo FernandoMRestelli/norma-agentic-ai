@@ -88,7 +88,7 @@
   {"id": "conversacional-09", "tipo": "conversacional", "grupo": "desarrollo", "consulta": "algo de keratina nordika en mascara de 250", "relevantes": ["NOR-MA-KER-250"]},
   {"id": "conversacional-10", "tipo": "conversacional", "grupo": "reservado", "consulta": "precio del polvo decolorante duomo 700", "relevantes": ["DUO-DE-700"]},
   {"id": "necesidad-01", "tipo": "necesidad", "grupo": "desarrollo", "consulta": "algo para rulos", "relevantes": ["*-FI-CPR-300"]},
-  {"id": "necesidad-02", "tipo": "necesidad", "grupo": "reservado", "consulta": "tenés algo para rulos?", "relevantes": ["*-FI-CPR-300"]},
+  {"id": "necesidad-02", "tipo": "necesidad", "grupo": "reservado", "consulta": "¿qué tenés para rulos?", "relevantes": ["*-FI-CPR-300"]},
   {"id": "necesidad-03", "tipo": "necesidad", "grupo": "desarrollo", "consulta": "crema para rulos definidos", "relevantes": ["*-FI-CPR-300"]},
   {"id": "necesidad-04", "tipo": "necesidad", "grupo": "reservado", "consulta": "algo para el brillo", "relevantes": ["*-FI-SPR-*"]},
   {"id": "necesidad-05", "tipo": "necesidad", "grupo": "desarrollo", "consulta": "necesito algo para las puntas", "relevantes": ["*-FI-SER-60"]},

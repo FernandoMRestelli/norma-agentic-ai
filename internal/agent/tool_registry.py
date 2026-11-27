@@ -77,6 +77,7 @@ class TurnContext:
     propuesta: OrderDraft | None = None
     resultado: Resultado = "continuar"
     respuesta: str | None = None
+    mensaje_modelo: str | None = None  # solo lo que escribió el LLM en `respuesta`, sin lo que agrega el sistema
     kind: str | None = None
     options: list[str] = field(default_factory=list)
     order_id: str | None = None
@@ -381,6 +382,38 @@ def _sin_stock_revelado(error: ToolFailure, ctx: TurnContext) -> ToolFailure:
     return ToolFailure(error.code, error.message, lineas=lineas)
 
 
+def _bloques(data: RespondToCustomerInput, ctx: TurnContext, options: list[str]) -> dict[str, str]:
+    """Los hechos que van debajo del mensaje del LLM, armados con los campos de la respuesta (M8-2).
+
+    Las dudas y lo que queda afuera son los renglones que esta respuesta nombra en `pendientes` y `afuera`; lo que se
+    propone con menos unidades de las pedidas, porque no alcanzó el stock, dice cuánto queda (BR-01). Una aclaración
+    de un producto suelto lista sus `options`.
+    """
+    texto = {renglon["n"]: renglon["texto"] for renglon in ctx.renglones}
+    dudas = [(texto[p.renglon], p.opciones) for p in data.pendientes if p.renglon in texto]
+    afuera = [(texto[a.renglon], a.motivo) for a in data.afuera if a.renglon in texto]
+    propuestas: dict[int, list[Any]] = {}
+    for item in data.propuesta or []:
+        if item.renglon in texto:
+            propuestas.setdefault(item.renglon, []).append(item)
+    cortos = []
+    for renglon in ctx.renglones:
+        items = propuestas.get(renglon["n"])
+        if not items or not any(item.sku in ctx.turno.faltantes for item in items):
+            continue
+        pedida, unidades = interpretation_service.cantidad_inequivoca(renglon), sum(item.quantity for item in items)
+        if pedida is not None and unidades < pedida:
+            cortos.append((renglon["texto"], unidades))
+    opciones = ""
+    if data.kind.value == "aclaracion" and len(options) > 1 and not data.pendientes:  # una sola: la nombra el LLM
+        opciones = validation_service.build_options_list(options)
+    return {
+        "dudas": validation_service.build_dudas(dudas),
+        "afuera": validation_service.build_afuera(afuera, cortos),
+        "opciones": opciones,
+    }
+
+
 def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict[str, Any]:
     data = reply_tools.con_tonos(data, ctx.renglones)
     try:
@@ -418,35 +451,21 @@ def _respond_to_customer(data: RespondToCustomerInput, ctx: TurnContext) -> dict
     # Lo que escribió el LLM pasa por los guardrails antes de llegar al cliente; la vigente no cambia si falla
     rechazos = guardrails.validar_salida(
         message, data.kind.value, propuesta, options, ctx.turno, ctx.propuesta,
-        pendientes=[pendiente.renglon for pendiente in data.pendientes],
         descuento_autorizado=ctx.descuento_autorizado,
     )  # fmt: skip
     if rechazos:
         ctx.turno.rechazos += 1
         if ctx.turno.rechazos <= guardrails.MAX_RECHAZOS:
             raise guardrails.rechazar(rechazos)
-        if (
-            data.kind.value == "aclaracion"
-            and options
-            and not data.pendientes
-            and not propuesta
-            and [r.regla for r in rechazos] == ["pregunta_faltante"]
-            and (opciones_texto := validation_service.build_options_list(options))
-        ):
-            logger.warning("Guardrail: intentos agotados por pregunta_faltante, se anexan opciones del catálogo")
-            cierre = "" if "?" in message else "\n¿Cuál preferís?"
-            message = f"{message.rstrip()}\n{opciones_texto}{cierre}"
-        else:
-            logger.warning(
-                "Guardrail: intentos agotados, sale el mensaje fijo (reglas=%s)",
-                ",".join(r.regla for r in rechazos),
-            )
-            message, fijo = guardrails.mensaje_seguro(propuesta), True
-    respuesta = message
-    if propuesta:
-        # El detalle sale del catálogo, no del LLM: así entra un pedido de muchas líneas y los precios son exactos
-        respuesta = f"{message}\n\n{validation_service.build_proposal_detail(propuesta)}"
-    ctx.respuesta = respuesta
+        logger.warning(
+            "Guardrail: intentos agotados, sale el mensaje fijo (reglas=%s)", ",".join(r.regla for r in rechazos)
+        )
+        message, fijo = guardrails.mensaje_seguro(propuesta), True
+    # El detalle, las dudas con sus opciones y lo que no entra salen del catálogo y de los campos de la respuesta, no
+    # del texto del LLM: así entra un pedido de muchas líneas y los datos son exactos (M8-2). Salen también con el
+    # mensaje fijo, porque no dependen de lo que escribió el modelo
+    ctx.respuesta = validation_service.armar_respuesta(message, propuesta, **_bloques(data, ctx, options))
+    ctx.mensaje_modelo = None if fijo else data.message
     ctx.kind = data.kind.value
     ctx.options = options
     ctx.renglones = renglones

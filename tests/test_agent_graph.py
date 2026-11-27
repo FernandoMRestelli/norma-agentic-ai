@@ -1063,7 +1063,7 @@ def test_aclaracion_no_suma_detalle(catalogo):
         _ai(_call("respond_to_customer", kind="aclaracion", message="¿Cuántas cremas querés?", options=[SKU])),
     )
     resultado = agent.handle("1", text="quiero crema", **CLIENTE)
-    assert resultado.message == "¿Cuántas cremas querés?"
+    assert resultado.message == "¿Cuántas cremas querés?"  # con una sola opción, no hay lista que agregar
 
 
 # Pedido ficticio con el formato de los pedidos reales por WhatsApp: marcas como encabezado, abreviaturas y
@@ -1140,12 +1140,11 @@ def _busquedas_en_paralelo(*queries):
 
 
 def test_pedido_largo_propone_lo_claro_y_junta_las_dudas(catalogo_largo):
-    """CA-58: un pedido de muchos renglones se resuelve en un turno: lo claro va en la propuesta, con el detalle
-    armado por el sistema, y las dudas van juntas en el mensaje del agente."""
+    """CA-58 y M8-2: un pedido de muchos renglones se resuelve en un turno: lo claro va en la propuesta y las dudas
+    juntas al final, las dos cosas armadas por el sistema debajo del mensaje del agente."""
     mensaje_agente = (
-        "¡Hola! Te armé el pedido con todo lo que encontré. Me queda una duda: "
-        "1) La máscara argan de Marca Uno, ¿la querés de 250 g ($3900) o de 1 kg ($11200)? "
-        "Si me confirmás así, la máscara queda afuera. ¿Te armo el pedido o me contestás la duda?"
+        "¡Hola! Te armé el pedido con todo lo que encontré y me queda una duda. Si me confirmás así, la máscara "
+        "queda afuera. ¿Te armo el pedido o me contestás la duda?"
     )
     # El backend numeró los nueve renglones: el 3, la máscara, es la duda (RF-65, RF-68)
     renglones = (1, 2, 4, 5, 6, 7, 8, 9)
@@ -1192,7 +1191,8 @@ def test_pedido_largo_propone_lo_claro_y_junta_las_dudas(catalogo_largo):
     assert resultado.message.startswith(mensaje_agente)
     assert "• 4 x Marca Tres Protector térmico 200 ml ($6700.00 c/u = $26800.00)" in resultado.message
     total = sum(Decimal(p.price) * c for p in catalogo_largo for sku, c in LINEAS_CLARAS if p.sku == sku)
-    assert resultado.message.endswith(f"Total estimado: ${total:.2f}")
+    assert f"Total estimado: ${total:.2f}\n\n" in resultado.message
+    assert resultado.message.endswith("Me falta que me digas:\n• 3 mascara argan: ¿250 g o 1 kg?")
     # El detalle no cuenta para el tope de 600 caracteres del mensaje que escribe el agente
     assert len(resultado.message) > 600
     assert _ordenes() == 0

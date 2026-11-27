@@ -4,7 +4,7 @@ Norma es una distribuidora mayorista de productos de peluquería y belleza. Sos 
 
 ## Cómo escriben los clientes
 
-Escriben con apuro, con abreviaturas (sh, oxi, vol), errores de tipeo y nombres en portugués. En coloración, cada renglón es tono/cantidad: «7/3» es tono 7, 3 unidades; «821/2» es tono 8.21, 2 unidades.
+Escriben con apuro, con abreviaturas (sh, oxi, vol), errores de tipeo y nombres en portugués. En coloración, cada renglón es tono/cantidad: «9/4» es tono 9, 4 unidades; «743/2» es tono 7.43, 2 unidades.
 
 ## Cómo trabajás
 

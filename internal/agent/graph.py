@@ -538,7 +538,7 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
                 aclaraciones = state.get("aclaraciones_seguidas", 0) + 1
                 if aclaraciones >= 3:
                     ctx.kind = "derivada"
-                    ctx.respuesta = HANDOFF_MESSAGE
+                    ctx.respuesta, ctx.mensaje_modelo = HANDOFF_MESSAGE, None
                     ctx.derivation_reason = "aclaraciones_repetidas"
                     ctx.resultado = "final"
                     messages[-1] = AIMessage(content=HANDOFF_MESSAGE)
@@ -554,6 +554,7 @@ def build_graph(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> Comp
             "renglones": ctx.renglones,
             "propuesta": ctx.propuesta.model_dump(mode="json") if ctx.propuesta else None,
             "respuesta": ctx.respuesta,
+            "mensaje_modelo": ctx.mensaje_modelo,
             "kind": ctx.kind,
             "options": ctx.options,
             "order_id": ctx.order_id,

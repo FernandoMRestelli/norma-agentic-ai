@@ -11,6 +11,7 @@ El repositorio es público: acá nunca van clientes, teléfonos, precios ni stoc
 | `mensajes.json` | Mensajes de clientes con el resultado esperado del agente | Casos de prueba para la interpretación |
 | `catalogo_evaluacion.csv` | Un catálogo mayorista de unos 400 productos, con el formato del real | Catálogo de los casos de `pedidos_evaluacion.json` |
 | `pedidos_evaluacion.json` | Pedidos largos con el formato de los reales y su resultado esperado | Evaluación por línea del agente (RF-59, RF-60) |
+| `benchmark_manuscritos/` | El pool de renglones, las listas sorteadas y el script del Google Form del benchmark de pedidos escritos a mano | Ver [la spec](../docs/spec/benchmark-manuscritos.md) (RF-126 a RF-129) |
 
 ## `catalogo.csv`
 
@@ -133,6 +134,23 @@ algo mirando un caso reservado, pasa a `desarrollo` y se escribe otro (D-50).
 que responden la consulta, con comodines (`*-MA-ARG-1K`); vacío si el catálogo no tiene respuesta. Los `tipo` cubren
 desde nombres exactos hasta abreviaturas, errores, pedidos ambiguos, necesidades («algo para rulos») y cosas que no
 hay, y `grupo` funciona como en los adversariales. Se corre con `python -m internal.evaluar_busqueda --fallas`.
+
+## Grupos y casos reservados
+
+Los cuatro conjuntos de casos tienen un `grupo`. Los de `desarrollo` se miran para ajustar prompts; los `reservado`
+solo miden, y el umbral de release (RNF-15) se calcula con ellos (D-50, M8-1 de
+[mejoras-clase8](../docs/spec/mejoras-clase8.md)). Si se ajusta algo mirando un caso reservado, deja de medir:
+
+- en `adversariales.json` y `consultas_busqueda.json`, pasa a `desarrollo` y se escribe otro;
+- en `mensajes.json` y `pedidos_evaluacion.json`, los reservados salen de `tests/casos_reservados.py`: se cambia
+  `SEMILLA_RESERVADOS` y se regeneran todos con `python -m tests.casos_reservados`, que deja igual los de desarrollo.
+  Un test exige que el archivo sea la salida del generador, así que no se editan a mano.
+
+**Los ejemplos de los prompts no salen de los casos.** Un ejemplo en `internal/agent/*.md` o en `internal/skills/`
+usa marcas inventadas que no están en ningún catálogo (Corvana, Tessaly…) y medidas, tonos y frases que no aparecen
+en los casos. `tests/test_contaminacion.py` falla si un caso reservado comparte tres palabras seguidas con un prompt,
+una skill o una BR, o si se parece demasiado a uno de desarrollo (D-M8-1). Si falla, se cambia el ejemplo o el caso,
+nunca el control.
 
 Los tests de `tests/test_datos_ejemplo.py` verifican que estos archivos respeten
 los esquemas y sean coherentes entre sí (por ejemplo, que todo SKU exista en el catálogo).

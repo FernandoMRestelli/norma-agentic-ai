@@ -142,6 +142,7 @@ class NormaAgent:
                 "fallas": 0,
                 "falla_turno": False,
                 "aclaraciones_seguidas": 0,
+                "mensaje_modelo": None,  # cada turno escribe el suyo, o ninguno
                 "propuesta": prev_state.get("propuesta"),
                 "renglones": prev_state.get("renglones", []),
                 "descuento_autorizado": prev_state.get("descuento_autorizado"),
@@ -167,6 +168,7 @@ class NormaAgent:
             llamadas_sub_loop=state.get("iteraciones_sub_loop", 0),
             cerrada="__interrupt__" not in state,
             derivation_reason=state.get("derivation_reason"),
+            mensaje_modelo=state.get("mensaje_modelo"),
         )
         return outcome, state
 

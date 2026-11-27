@@ -151,6 +151,53 @@ def test_umbral_de_release():
     assert [falla.split()[0] for falla in fallas] == ["recall_lineas_pct", "registros_indebidos", "sin_evaluar"]
 
 
+def _fila(caso: str, correctas: int, esperadas: int, grupo: str = "desarrollo", **extra) -> dict:
+    return {"caso": caso, "resultado": "correcto" if correctas == esperadas else "incorrecto", "iteraciones": 1,
+            "latencia_ms": 1, "tokens_entrada": 0, "tokens_salida": 0, "lineas_correctas": correctas,
+            "lineas_esperadas": esperadas, "lineas_propuestas": esperadas, "grupo": grupo, **extra}  # fmt: skip
+
+
+def test_intervalo_por_casos_y_no_por_lineas():
+    """M8-1: un caso de 30 líneas que falla entero pesa como un caso, no como 30 líneas independientes."""
+    filas = [_fila(f"bien-{i}", 10, 10) for i in range(9)] + [_fila("mal", 0, 30)]
+    bajo, alto = evaluar_agente.intervalo_por_casos(filas, "lineas_correctas", "lineas_esperadas")
+    recall = evaluar_agente._metricas(filas)["recall_lineas_pct"]
+
+    assert recall == 75.0
+    assert bajo < recall < alto == 100.0  # sin el caso malo, el remuestreo puede dar 100 %
+    por_lineas = evaluar_agente.intervalo(90, 120)  # Wilson sobre líneas, como si fueran independientes
+    assert alto - bajo > por_lineas[1] - por_lineas[0]
+    # Las repeticiones de un caso salen juntas del sorteo, y la misma corrida da siempre el mismo intervalo
+    assert evaluar_agente.intervalo_por_casos(filas, "lineas_correctas", "lineas_esperadas") == (bajo, alto)
+    assert evaluar_agente.intervalo_por_casos([], "lineas_correctas", "lineas_esperadas") == (0.0, 0.0)
+
+
+def test_metricas_por_grupo_y_umbral_sobre_reservado():
+    """M8-1: desarrollo y reservado por separado; el umbral de release mira solo lo reservado."""
+    filas = [_fila("dev", 10, 10), _fila("res-1", 9, 10, "reservado"), _fila("res-2", 10, 10, "reservado")]
+    filas.append({**evaluar_agente._sin_correr({"id": "res-3", "grupo": "reservado", "esperado": {}}, 1)})
+
+    por_grupo = evaluar_agente.metricas_por_grupo(filas)
+
+    assert set(por_grupo) == {"desarrollo", "reservado"}
+    assert por_grupo["desarrollo"]["recall_lineas_pct"] == 100.0
+    assert (por_grupo["reservado"]["recall_lineas_pct"], por_grupo["reservado"]["sin_evaluar"]) == (95.0, 1)
+    assert "sin_evaluar 1 > 0" in evaluar_agente.fuera_de_umbral(por_grupo["reservado"])
+    assert evaluar_agente.fuera_de_umbral(por_grupo["desarrollo"]) == []
+    tabla = evaluar_agente.lado_a_lado(por_grupo)
+    assert "Recall por línea %" in tabla and "+5.0" in tabla
+    assert set(evaluar_agente.metricas_por_grupo(filas[:1])) == {"desarrollo"}
+
+
+def test_dice_cuando_la_corrida_no_alcanza_para_decidir():
+    """M8-1: si el intervalo incluye el umbral, la corrida no distingue un 95 % de un 90 %."""
+    base = {"recall_lineas_pct": 96.0, "recall_lineas_ic95_bajo": 88.0, "recall_lineas_ic95_alto": 100.0,
+            "precision_lineas_pct": 99.0, "precision_lineas_ic95_bajo": 98.5, "precision_lineas_ic95_alto": 100.0}
+    dudosas = evaluar_agente.umbral_sin_decidir(base)
+    assert [d.split()[0] for d in dudosas] == ["recall_lineas_pct"]
+    assert evaluar_agente.umbral_sin_decidir({**base, "recall_lineas_ic95_bajo": 95.5}) == []
+
+
 # --- Con el modelo falso ----------------------------------------------------------------------------------------
 
 

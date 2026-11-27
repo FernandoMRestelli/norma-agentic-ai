@@ -171,7 +171,11 @@ class RespondToCustomerInput(BaseModel):
         description=f"Texto para el cliente, sin SKU. Hasta {MAX_LARGO_MENSAJE} caracteres; el doble con `pendientes`",
     )
     options: list[str] = Field(
-        default_factory=list, description="SKU de las opciones o alternativas que le ofrecés en el mensaje"
+        default_factory=list,
+        description=(
+            "SKU de las opciones o alternativas que le ofrecés. Con kind aclaracion y más de una, el sistema las "
+            "lista debajo de `message` con nombre, medida y precio"
+        ),
     )
     propuesta: list[ProposedItem] | None = Field(
         default=None,
@@ -200,16 +204,15 @@ class RespondToCustomerInput(BaseModel):
     pendientes: list[RenglonPendiente] = Field(
         default_factory=list,
         description=(
-            "Con un pedido numerado: los renglones que le preguntás al cliente en este mensaje. El cliente no ve este "
-            "campo: la pregunta de cada renglón, con sus opciones, va escrita en `message`, una por renglón con una "
-            "viñeta (•)"
+            "Con un pedido numerado: los renglones que le preguntás al cliente en este mensaje. El sistema escribe "
+            "debajo de `message` cada renglón con sus opciones: en `message` no las enumeres"
         ),
     )
     afuera: list[RenglonAfuera] = Field(
         default_factory=list,
         description=(
-            "Con un pedido numerado: los renglones que no entran al pedido, con el motivo. El cliente no ve este "
-            "campo: lo que no trabajan se lo decís en `message`"
+            "Con un pedido numerado: los renglones que no entran al pedido, con el motivo. El sistema escribe "
+            "debajo de `message` cada uno con su motivo: en `message` no los enumeres"
         ),
     )
 
@@ -354,3 +357,6 @@ class AgentOutcome(BaseModel):
     llamadas_sub_loop: int = 0  # llamadas al LLM de los sub-loops del turno (RF-94)
     cerrada: bool = False
     derivation_reason: str | None = None
+    # Lo que escribió el LLM, sin el detalle, las dudas ni lo que queda afuera que suma el sistema (M8-2). None si el
+    # mensaje no lo escribió el LLM
+    mensaje_modelo: str | None = None

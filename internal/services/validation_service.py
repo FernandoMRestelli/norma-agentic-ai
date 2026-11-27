@@ -109,6 +109,118 @@ def build_options_list(skus: list[str]) -> str:
     return "\n".join(lines)
 
 
+# --- Los hechos de la respuesta los escribe el código (M8-2) -------------------------------------------------------
+#
+# El LLM escribe el marco: qué armó, cómo cierra y la pregunta. Las opciones de cada duda, lo que no entra y cuánto
+# queda salen de los campos estructurados de `respond_to_customer` y del catálogo: son correctos por construcción y
+# no hace falta revisarlos con reglas sobre el texto del modelo.
+
+ENCABEZADO_DUDAS = "Me falta que me digas:"
+ENCABEZADO_AFUERA = "Lo que no va como lo pediste:"
+CIERRE_OPCIONES = "¿Cuál preferís?"
+# Lo que se le dice al cliente de cada motivo de `afuera`. Lo que sacó él mismo o una línea que no pedía nada no se
+# le repite: ya lo sabe
+MOTIVOS_PARA_EL_CLIENTE = {"fuera_de_catalogo": "no lo trabajamos", "sin_stock": "está agotado por ahora"}
+_VINETA_DEL_MODELO = re.compile(r"^\s*(?:[•·*-]|\d{1,2}[.)])\s+\S")
+_X_INICIAL = re.compile(r"^x\s+", re.IGNORECASE)
+
+
+def nombre_comercial(sku: str) -> str | None:
+    """El nombre del producto con su presentación, si no la trae el nombre. None si el SKU no existe."""
+    from internal.tools.catalog_tools import get_product
+
+    product = get_product(sku)
+    if product is None:
+        return None
+    if product.presentation and product.presentation.lower() not in product.name.lower():
+        return f"{product.name} {product.presentation}"
+    return product.name
+
+
+def distintivos(nombres: list[str]) -> list[str]:
+    """Lo que distingue a cada opción: sin las palabras que todas comparten al principio.
+
+    «NORDIKA SHAMPOO KERATINA X 300 ML» y «… X 900 ML» quedan «300 ML» y «900 ML». Si lo que queda no alcanza para
+    distinguirlas, van los nombres completos.
+    """
+    if len(nombres) < 2:
+        return nombres
+    palabras = [nombre.split() for nombre in nombres]
+    comunes = 0
+    while all(len(p) > comunes + 1 for p in palabras) and len({p[comunes].lower() for p in palabras}) == 1:
+        comunes += 1
+    cortos = [_X_INICIAL.sub("", " ".join(p[comunes:])) for p in palabras]
+    if len({corto.lower() for corto in cortos}) < len(cortos) or not all(cortos):
+        return nombres
+    return cortos
+
+
+def _o(opciones: list[str]) -> str:
+    """«a, b o c»; «u» delante de una palabra que empieza con o («6 u 8»)."""
+    if len(opciones) == 1:
+        return opciones[0]
+    ultimo = opciones[-1]
+    conjuncion = "u" if ultimo.lower().startswith(("o", "ho", "8")) else "o"
+    return f"{', '.join(opciones[:-1])} {conjuncion} {ultimo}"
+
+
+def build_dudas(pendientes: list[tuple[str, list[str]]]) -> str:
+    """Cada renglón que se le pregunta al cliente, como lo escribió él, con sus opciones (M8-2, cierra el #107).
+
+    `pendientes` son pares (texto del renglón, SKU de las opciones). Una sola opción es una confirmación
+    («¿es …?», BR-09); sin opciones, se le pide que lo aclare.
+    """
+    lineas = []
+    for texto, skus in pendientes:
+        nombres = [nombre for sku in dict.fromkeys(skus) if (nombre := nombre_comercial(sku))]
+        if not nombres:
+            pregunta = "¿me lo aclarás?"
+        elif len(nombres) == 1:
+            pregunta = f"¿es {nombres[0]}?"
+        else:
+            pregunta = f"¿{_o(distintivos(nombres))}?"
+        lineas.append(f"• {texto}: {pregunta}")
+    return "\n".join([ENCABEZADO_DUDAS, *lineas]) if lineas else ""
+
+
+def build_afuera(afuera: list[tuple[str, str]], cortos: list[tuple[str, int]]) -> str:
+    """Lo que no entra como lo pidió: cada renglón con su motivo, y cuánto queda del que no alcanzó (M8-2, BR-01).
+
+    `afuera` son pares (texto del renglón, motivo); `cortos`, pares (texto del renglón, unidades que se proponen).
+    """
+    lineas = [f"• {texto}: {MOTIVOS_PARA_EL_CLIENTE[motivo]}" for texto, motivo in afuera
+              if motivo in MOTIVOS_PARA_EL_CLIENTE]  # fmt: skip
+    lineas += [f"• {texto}: quedan {unidades}, te puse esas" for texto, unidades in cortos]
+    return "\n".join([ENCABEZADO_AFUERA, *lineas]) if lineas else ""
+
+
+def sin_vinetas(message: str) -> str:
+    """El mensaje del LLM sin los renglones con viñeta: las listas las escribe el sistema, y no van dos veces."""
+    lineas = [linea for linea in message.splitlines() if not _VINETA_DEL_MODELO.match(linea)]
+    limpio = "\n".join(lineas).strip()
+    return limpio or message
+
+
+def armar_respuesta(
+    message: str,
+    propuesta: OrderDraft | None = None,
+    *,
+    dudas: str = "",
+    afuera: str = "",
+    opciones: str = "",
+) -> str:
+    """Lo que ve el cliente: el marco que escribió el LLM y, debajo, los hechos que arma el sistema.
+
+    Primero el detalle de la propuesta, después lo que no va como lo pidió y al final lo que tiene que contestar.
+    """
+    bloques = [bloque for bloque in (afuera, dudas, opciones) if bloque]
+    texto = sin_vinetas(message) if bloques else message
+    if opciones and "?" not in texto:
+        bloques[-1] = f"{opciones}\n{CIERRE_OPCIONES}"
+    detalle = [build_proposal_detail(propuesta)] if propuesta else []
+    return "\n\n".join([texto, *detalle, *bloques])
+
+
 def build_proposal_detail(draft: OrderDraft) -> str:
     """Líneas, precios y total de una propuesta: el LLM no los escribe, así no se equivoca ni se pasa del largo."""
     lines = _lines_and_total(draft.items, "Total estimado", draft.discount_percentage)
