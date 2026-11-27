@@ -71,7 +71,11 @@ def catalogo_de_evaluacion(ruta: Path = CATALOGO) -> Iterator[list]:
 def huella() -> str:
     """Lo que se le manda al modelo además de la foto (RF-135): si cambia, las salidas ya no son comparables."""
     with catalogo_de_evaluacion():
-        texto = f"{vision_service.instrucciones()}\n--\nlado máximo: {vision_service.MAX_LADO_PX}"
+        texto = (
+            f"{vision_service.instrucciones()}\n--\nlado máximo: {vision_service.MAX_LADO_PX}\n"
+            f"tokens del modelo local: {vision_service.MAX_TOKENS_ENTRADA} de entrada, "
+            f"{vision_service.MAX_TOKENS_SALIDA} de salida"
+        )
     return hashlib.sha256(texto.encode()).hexdigest()
 
 

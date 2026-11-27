@@ -162,6 +162,17 @@ def test_correr_con_otro_prompt_se_niega(carpeta, monkeypatch):
     assert "--corrida" in informe.problema
 
 
+def test_correr_con_otro_tope_de_tokens_se_niega(carpeta, monkeypatch):
+    """CA-230: un tope de tokens de salida distinto también cambia la huella: una salida cortada no se compara."""
+    casos = _casos(carpeta, ["p01-A", "p02-A"])
+    corrida = carpeta / "corridas" / "prueba"
+    lector = Lector()
+    em.correr(casos, carpeta, corrida, [("huggingface", "falso")], solo="p01-A", leer=lector)
+    monkeypatch.setattr(vision_service, "MAX_TOKENS_SALIDA", 1024)
+    informe = em.correr(casos, carpeta, corrida, [("huggingface", "falso")], leer=lector)
+    assert lector.fotos == ["p01-A"] and "--corrida" in informe.problema
+
+
 def test_correr_solo_desarrollo(carpeta):
     """CA-231: sin --grupo solo se corren las fotos de desarrollo."""
     grupos = {"p01-A": "desarrollo", "p02-A": "reservado", "p03-A": "desarrollo"}

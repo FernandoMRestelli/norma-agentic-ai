@@ -33,6 +33,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Corregido
 
+- Una foto de un pedido largo leída con el modelo local (Qwen) ya no corta el JSON por la mitad (RF-148, CA-249). El tope de salida era de 1024 tokens y una hoja de 15 renglones gasta unos 3.000, así que la lectura salía inválida y el mensaje caía al texto plano. Ahora genera hasta 20.000 tokens y no lee una entrada de más de 100.000. Una hoja larga puede tardar varios minutos en una Mac. No hay nada que migrar al desplegar.
 - «Tenés algo para rulos?» encuentra lo mismo que «rulos» (RF-118, CA-204, CA-205). Antes, las palabras con las que el cliente pide contaban como si fueran del producto: la búsqueda volvía vacía y el asistente podía decir que no se trabaja algo que hay. Cuando una palabra no existe en el catálogo, la pista dice qué hay sin ella y distingue una marca de una necesidad. No hay nada que migrar al desplegar.
 - El asistente no da un precio ni ofrece una medida que no vio (RF-120, RF-121, CA-207, CA-208). Antes alcanzaba con que el monto fuera el de cualquier producto del catálogo, y «sale 1500» sin «$» no se controlaba. Puede sumar una vuelta al LLM. No hay nada que migrar al desplegar.
 - Con el orquestador, la pregunta que arma el sistema cuando un sub-loop llega a su tope ya no sale con las letras separadas («m, e, d, i, d, a»).

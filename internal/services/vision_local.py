@@ -15,12 +15,16 @@ import time
 from functools import lru_cache
 
 from internal.schemas.vision_schema import ImagenLeida
+from internal.services.vision_service import MAX_TOKENS_ENTRADA, MAX_TOKENS_SALIDA
 
 # Qwen3-VL 2B: chico (≈4 GB en bf16), entiende español y sigue instrucciones de formato. Se cambia con
 # LLM_VISION_MODEL o --modelo, por ejemplo HuggingFaceTB/SmolVLM2-500M-Video-Instruct (más liviano, peor en español).
 MODELO_POR_DEFECTO = "Qwen/Qwen3-VL-2B-Instruct"
-MAX_TOKENS_NUEVOS = 1024
 REPETITION_PENALTY = 1.1
+
+
+class EntradaDemasiadoLarga(ValueError):
+    """La imagen y el prompt pasan `MAX_TOKENS_ENTRADA`: no se genera (RF-148)."""
 
 # El bot puede atender varios chats a la vez y el modelo es uno solo en memoria: de a una imagen por vez
 _lock = threading.Lock()
@@ -75,10 +79,12 @@ def generar(imagen: bytes, modelo: str, prompt: str) -> tuple[str, int, int]:
         mensajes, tokenize=True, add_generation_prompt=True, return_dict=True, return_tensors="pt"
     ).to(red.device)
     largo_entrada = entradas["input_ids"].shape[1]
+    if largo_entrada > MAX_TOKENS_ENTRADA:
+        raise EntradaDemasiadoLarga(f"La entrada tiene {largo_entrada} tokens, más que el tope de {MAX_TOKENS_ENTRADA}")
     with torch.inference_mode():
         # Sin la penalización, con una imagen sin texto el modelo se traba repitiendo un carácter hasta el tope
         salida = red.generate(
-            **entradas, max_new_tokens=MAX_TOKENS_NUEVOS, do_sample=False, repetition_penalty=REPETITION_PENALTY
+            **entradas, max_new_tokens=MAX_TOKENS_SALIDA, do_sample=False, repetition_penalty=REPETITION_PENALTY
         )
     nuevos = salida[:, largo_entrada:]
     texto = procesador.batch_decode(nuevos, skip_special_tokens=True)[0]
@@ -96,6 +102,8 @@ def leer(imagen: bytes, modelo: str = MODELO_POR_DEFECTO):
         raise RuntimeError(
             f"Falta instalar el modelo local ({exc}): pip install -r requirements-vision-local.txt"
         ) from exc
+    except EntradaDemasiadoLarga as exc:
+        return Lectura("huggingface", modelo, None, "", time.perf_counter() - inicio, error=str(exc))
     segundos = time.perf_counter() - inicio
     try:
         resultado, error = parsear_json(crudo), None

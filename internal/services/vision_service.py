@@ -32,6 +32,10 @@ logger = logging.getLogger(__name__)
 TIMEOUT_SECONDS = 180
 MAX_RETRIES = 1
 MAX_LADO_PX = 1600  # más grande no mejora la lectura de un pedido y encarece los tokens de imagen
+# Topes del modelo local (RF-148). Una hoja de 15 renglones gasta unos 3.000 tokens de JSON: con 1024 se cortaba a
+# la mitad. La entrada (imagen de 1600 px y prompt) ronda los 4.000; el tope solo frena algo fuera de lo normal.
+MAX_TOKENS_ENTRADA = 100_000
+MAX_TOKENS_SALIDA = 20_000
 
 PROVEEDORES_API = ("openai", "openrouter", "gemini")
 PROVEEDORES = (*PROVEEDORES_API, "huggingface")

@@ -12,7 +12,7 @@
 | Estado | Implementado (RF-126 a RF-147); falta validar la scoring con el orden a mano |
 | Responsable | Federico Picado |
 | Requisitos relacionados | RF-101 a RF-110 y RNF-18 ([lectura de imágenes](lectura-de-imagenes.md)), D-50 (desarrollo y reservado) |
-| IDs que reserva | RF-126 a RF-147, CA-218 a CA-248 |
+| IDs que reserva | RF-126 a RF-148, CA-218 a CA-249 |
 
 ## 1. Objetivo
 
@@ -118,7 +118,8 @@ foto de `casos.json` por cada modelo con `vision_service.leer_imagen`, el mismo 
   `resultado` (el modelo falló o devolvió un JSON inválido) también se saltea, salvo con `--reintentar`: un JSON
   inválido es un resultado del modelo, no un error de la corrida.
 - **Huella del prompt.** Cada salida guarda la huella de lo que se le mandó al modelo: `INSTRUCCIONES`, las marcas si
-  `VISION_MARCAS` está activo y el lado máximo de la imagen. Con `VISION_MARCAS`, las marcas salen de
+  `VISION_MARCAS` está activo, el lado máximo de la imagen y los topes de tokens del modelo local (RF-148): una salida
+  cortada por el tope no es comparable con una completa. Con `VISION_MARCAS`, las marcas salen de
   `catalogo_evaluacion.csv`, el catálogo de las listas, y no del de producción. Si la huella actual no es la de las salidas ya
   guardadas de ese modelo en esa corrida, `correr` se niega a seguir y pide otra `--corrida`: mezclar dos prompts en
   una corrida invalida la comparación.
@@ -428,7 +429,7 @@ En la carpeta de la corrida (§3.5). La clave:
 | RF-132 | `casos` no escribe nada si encuentra un problema, y lista cada uno con su foto: una columna de mail, nombre o archivo; un pedido que no está en `listas.json`; una foto repetida, sin archivo o con un id que no es `pNN-A`/`pNN-B`; un «No» en «¿Escribiste todos…?» sin entrada en la revisión; un `sin_copiar` fuera de 1 a 15; una entrada de la revisión sin foto |
 | RF-133 | `correr` guarda una salida por foto y modelo en cuanto vuelve el modelo, y saltea las que ya existen salvo, con `--reintentar`, las que no tienen `resultado` |
 | RF-134 | `correr` no llama a un modelo de API sin `--max-llamadas`, y con el tope no hace más llamadas nuevas que esas en toda la corrida |
-| RF-135 | Cada salida guarda la huella del prompt de visión; si no coincide con la de las salidas ya guardadas de ese modelo en la corrida, `correr` se niega a seguir |
+| RF-135 | Cada salida guarda la huella del prompt de visión y de los topes de tokens; si no coincide con la de las salidas ya guardadas de ese modelo en la corrida, `correr` se niega a seguir |
 | RF-136 | `correr` corre solo el grupo `desarrollo` salvo que se pida `--grupo reservado` o `todos` |
 | RF-137 | El nivel (a) empareja por las `palabras` del esperado que no tienen números, con distancia de edición 1 en las marcas del catálogo y también sin espacios ni guiones, uno a uno y en el orden de la hoja; entre los que corresponden prefiere el que también tiene las palabras con números |
 | RF-138 | El nivel (b) empareja por SKU con la búsqueda contra `catalogo_evaluacion.csv`, sin red; `varias` y `aproximado` emparejan si el SKU esperado está entre los candidatos, y cuentan como duda |
@@ -441,6 +442,7 @@ En la carpeta de la corrida (§3.5). La clave:
 | RF-145 | `puntuar --para-ordenar N` escribe N pares modelo + foto de `desarrollo`, al azar con semilla, sin el modelo ni el puntaje, y su clave aparte |
 | RF-146 | `validar --orden` da el porcentaje de pares en el mismo orden que S y los invertidos; la scoring es válida con al menos 80 % y ningún invertido de más de 0,1 de S, y si no sale con error |
 | RF-147 | `casos --congelar` fija las personas del reservado; con el reservado congelado, toda persona nueva va a `desarrollo`. La letra y la nitidez de la revisión pasan a `condiciones`, y un valor que no es de la §4.5 es un problema de esa foto |
+| RF-148 | El modelo local de visión (`vision_local`) genera hasta 20.000 tokens de salida, para que una hoja de 15 renglones no corte el JSON por la mitad, y no lee una imagen cuya entrada pase de 100.000 tokens: devuelve la lectura con el error, sin generar. Cambia también la lectura del bot, no solo el benchmark |
 
 ## 6. Criterios de aceptación
 
@@ -458,7 +460,7 @@ En la carpeta de la corrida (§3.5). La clave:
 | CA-227 | Tres fotos sintéticas, un modelo falso que cuenta sus llamadas y una corrida con la salida de la primera ya guardada | Se corre | Llama dos veces y quedan las tres salidas, con los campos de la §4.7 | `tests/test_evaluar_manuscritos.py::test_correr_retoma_sin_repetir` |
 | CA-228 | Una corrida con una salida sin `resultado` | Se corre sin y con `--reintentar` | Sin la opción no la vuelve a llamar; con ella sí, y la reemplaza | `tests/test_evaluar_manuscritos.py::test_correr_reintenta_solo_si_se_pide` |
 | CA-229 | Un modelo `openai:` falso y cinco fotos | Se corre sin `--max-llamadas` y después con `--max-llamadas 2` | La primera no llama nada y dice que serían 5 llamadas; la segunda llama 2 veces | `tests/test_evaluar_manuscritos.py::test_correr_con_tope_de_llamadas` |
-| CA-230 | Una corrida con salidas de una huella y otras `INSTRUCCIONES` | Se corre otra vez | Se niega, no llama al modelo y pide otra `--corrida` | `tests/test_evaluar_manuscritos.py::test_correr_con_otro_prompt_se_niega` |
+| CA-230 | Una corrida con salidas de una huella y otras `INSTRUCCIONES`, o con otro tope de tokens de salida | Se corre otra vez | Se niega, no llama al modelo y pide otra `--corrida` | `tests/test_evaluar_manuscritos.py::test_correr_con_otro_prompt_se_niega`, `test_correr_con_otro_tope_de_tokens_se_niega` |
 | CA-231 | Casos de los dos grupos | Se corre sin `--grupo` | Solo llama con las fotos de `desarrollo` | `tests/test_evaluar_manuscritos.py::test_correr_solo_desarrollo` |
 | CA-232 | Un esperado «keratina nordika 900» × 2 y los leídos «2 keratna Nordika 900» y «2 sh keratina Nordica x300»; aparte, los mismos más «2 keratina Nordika 900» al final | Se puntúa el nivel (a) | En el primero se empareja con «Nordica x300» (una letra en la marca) con la medida mal, s = 0,7, y «keratna» sobra; en el segundo se prefiere el que tiene la medida, s = 1, y sobran los otros dos | `tests/test_evaluar_manuscritos.py::test_nivel_a_empareja_por_palabras` |
 | CA-233 | Leídos que la búsqueda deja `unico`, `varias` con el SKU esperado entre los candidatos, `aproximado` y `no_encontrado` contra `catalogo_evaluacion.csv` | Se puntúa el nivel (b) | El `unico` empareja sin duda, `varias` y `aproximado` emparejan con duda y el `no_encontrado` queda sobrante con su esperado omitido | `tests/test_evaluar_manuscritos.py::test_nivel_b_empareja_por_sku` |
@@ -477,6 +479,7 @@ En la carpeta de la corrida (§3.5). La clave:
 | CA-246 | Un `casos.json` con diez personas y el reservado congelado | Se suman tres personas nuevas y se arman los casos | Las tres van a `desarrollo` y las del reservado siguen ahí | `tests/test_benchmark_manuscritos.py::test_reservado_congelado` |
 | CA-247 | Una corrida con dos modelos cuyas salidas tienen huellas distintas | Se puntúa | El resumen trae la huella de cada uno y avisa que no se comparan entre sí | `tests/test_evaluar_manuscritos.py::test_huellas_distintas_se_avisan` |
 | CA-248 | Una revisión con `letra: dificil` y `nitidez: nitida` en una foto, nada en otra y `letra: regular` en una tercera | Se arman los casos | La primera trae esos valores en `condiciones`, la segunda «sin dato», y la tercera es un problema que nombra su foto | `tests/test_benchmark_manuscritos.py::test_letra_y_nitidez` |
+| CA-249 | El modelo local con una entrada de 3.900 tokens y otra de 100.001 | Se lee la imagen | La primera genera con `max_new_tokens=20000`; la segunda devuelve la lectura con el error y no genera | `tests/test_vision.py::test_topes_de_tokens_del_modelo_local` |
 
 ## 7. Errores y casos borde
 
@@ -497,6 +500,8 @@ En la carpeta de la corrida (§3.5). La clave:
   JSON inválido, en cambio, sí trae `crudo` y cuenta como S = 0.
 - El modelo local falla al cargar (faltan `requirements-vision-local.txt`): `correr` lo dice y sigue con los demás
   modelos.
+- Una hoja de 15 renglones leída con el modelo local: con el tope de salida de antes (1024 tokens) el JSON salía
+  cortado a la mitad e inválido. Con RF-148 entra entero; puede tardar varios minutos por foto en una Mac.
 - Una corrida cortada por el tope de llamadas: `puntuar` puntúa lo que hay y avisa cuántas fotos de cada modelo no
   tienen salida; esas no entran al S de ese modelo, así que dos modelos con distinta cantidad de fotos no se
   comparan sin avisar.
