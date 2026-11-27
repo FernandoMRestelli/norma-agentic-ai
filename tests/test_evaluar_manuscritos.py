@@ -172,17 +172,20 @@ def test_correr_solo_desarrollo(carpeta):
 
 
 def test_nivel_a_empareja_por_palabras():
-    """CA-232: el esperado toma el primer leído con sus palabras; la marca acepta una letra cambiada, lo demás no."""
+    """CA-232: empareja por las palabras sin números (la marca con una letra de tolerancia) y prefiere el que también
+    tiene la medida."""
     caso = _caso("p01-A", [_esperado(1, ["keratina", "nordika", "900"], 2, "NOR-SH-KER-900")])
-    imagen = _imagen(
-        RenglonLeido(texto="2 keratna Nordika 900", cantidad=2),
-        RenglonLeido(texto="2 sh keratina Nordica x900", cantidad=2),
-        RenglonLeido(texto="1 sh keratina Nordika 900", cantidad=1),
-    )
-    foto = em.puntuar_foto(caso, imagen, "a", marcas=frozenset({"nordika"}))
-    assert [par.leido.texto for par in foto.pares] == ["2 sh keratina Nordica x900"]
-    assert foto.pares[0].s == 1
-    assert [leido.texto for leido in foto.sobrantes] == ["2 keratna Nordika 900", "1 sh keratina Nordika 900"]
+    keratna = RenglonLeido(texto="2 keratna Nordika 900", cantidad=2)
+    otra_medida = RenglonLeido(texto="2 sh keratina Nordica x300", cantidad=2)
+    foto = em.puntuar_foto(caso, _imagen(keratna, otra_medida), "a", marcas=frozenset({"nordika"}))
+    assert [par.leido.texto for par in foto.pares] == ["2 sh keratina Nordica x300"]
+    assert not foto.pares[0].variante_ok and foto.pares[0].s == pytest.approx(0.7)
+    assert [sobrante.leido.texto for sobrante in foto.sobrantes] == ["2 keratna Nordika 900"]
+
+    completo = RenglonLeido(texto="2 keratina Nordika 900", cantidad=2)
+    foto = em.puntuar_foto(caso, _imagen(keratna, otra_medida, completo), "a", marcas=frozenset({"nordika"}))
+    assert [par.leido.texto for par in foto.pares] == ["2 keratina Nordika 900"] and foto.pares[0].s == 1
+    assert len(foto.sobrantes) == 2
 
 
 def test_nivel_b_empareja_por_sku():
@@ -210,7 +213,8 @@ def test_nivel_b_empareja_por_sku():
     assert por_n[2].duda and por_n[2].s == 0.8  # varias
     assert por_n[3].duda and por_n[3].s == 0.8  # aproximado
     assert [e["n"] for e in foto.omitidos] == [4]
-    assert [leido.texto for leido in foto.sobrantes] == ["zapatillas running"]
+    assert [sobrante.leido.texto for sobrante in foto.sobrantes] == ["zapatillas running"]
+    assert foto.sobrantes[0].costo == pytest.approx(0.2)  # no_encontrado: el agente pregunta
 
 
 def _hoja_del_diseno():
@@ -242,14 +246,16 @@ def _buscar_falso(renglones):
 
 @pytest.mark.parametrize("nivel", ["a", "b"])
 def test_ejemplo_del_diseno(nivel):
-    """CA-234: S = 13,4 / 16; precision y recall 0,80; dos errores silenciosos y un tachado pedido."""
+    """CA-234: S = 13,2 / 16; precision y recall 0,80; dos errores silenciosos y graves, un tachado pedido."""
     caso, imagen = _hoja_del_diseno()
     foto = em.puntuar_foto(caso, imagen, nivel, buscar=_buscar_falso)
-    assert foto.numerador == pytest.approx(13.4) and foto.denominador == 16
-    assert foto.numerador / foto.denominador == pytest.approx(0.8375)
+    assert foto.numerador == pytest.approx(13.2) and foto.denominador == 16
+    assert foto.S == pytest.approx(0.825)
     assert foto.correctos == 12 and foto.leidos == 15 and len(foto.omitidos) == 1
-    assert foto.errores_silenciosos == 2 and foto.tachados_pedidos == 1
+    assert foto.errores_silenciosos == 2 and foto.errores_graves == 2 and foto.tachados_pedidos == 1
     assert not foto.perfecta and foto.json_valido
+    resumen = em.resumir([foto], [{"proveedor": "huggingface", "segundos": 1.0}], [], None)
+    assert resumen["elegible"] is False and "tachado" in resumen["motivo"]
 
 
 def test_json_invalido_da_cero():
@@ -261,23 +267,25 @@ def test_json_invalido_da_cero():
 
 
 def test_detalle_normalizado():
-    """CA-236: «7,1» es el tono «7.1»; «cajas» no es «unidades»."""
+    """CA-236: «7,1» es el tono «7.1»; cajas por unidades sueltas es cantidad lejos; `cada_uno` es como sin unidad."""
     caso = _caso(
         "p01-A",
         [
             _esperado(1, ["kapris", "tintura"], 3, "KAP-CO-60", tono="7.1"),
-            _esperado(2, ["duomo", "sachet"], 2, "DUO-DE-50", unidad="unidades"),
+            _esperado(2, ["duomo", "sachet"], 2, "DUO-DE-50"),
+            _esperado(3, ["trevia", "ampolla"], 24, "TRE-AM-15", unidad="cada_uno"),
         ],
     )
     imagen = _imagen(
         RenglonLeido(texto="Kapris tintura 7,1 x3", producto="Kapris tintura",
                      variantes=[Variante(detalle="", tono="7,1", cantidad=3)]),
         RenglonLeido(texto="2 cajas Duomo sachet", cantidad=2, producto="Duomo sachet", unidad="cajas"),
+        RenglonLeido(texto="24 Trevia ampolla", cantidad=24, producto="Trevia ampolla"),
     )  # fmt: skip
-    foto = em.puntuar_foto(caso, imagen, "a")
-    primero, segundo = foto.pares
-    assert primero.detalle_ok and primero.s == 1
-    assert not segundo.detalle_ok and segundo.s == pytest.approx(0.9)
+    tono, cajas, cada_uno = em.puntuar_foto(caso, imagen, "a").pares
+    assert tono.variante_ok and tono.s == 1
+    assert cajas.cantidad == "lejos" and cajas.s == pytest.approx(0.4)
+    assert cada_uno.cantidad == "ok" and cada_uno.s == 1
 
 
 def _corrida_de_dos_modelos(carpeta):
@@ -345,3 +353,183 @@ def test_sin_respuesta_no_cuenta(carpeta):
     desarrollo = resumen["modelos"][0]["niveles"]["b"]["desarrollo"]
     assert desarrollo["fotos"] == 1 and desarrollo["S"] == 1.0 and desarrollo["json_valido_pct"] == 100.0
     assert any("p02-A" in aviso and "--reintentar" in aviso for aviso in resumen["avisos"])
+
+
+
+def _par(cantidad_esperada, cantidad_leida, *, tono_esperado=None, tono_leido=None, duda=None):
+    """El s de un par sin duda (salvo que se pida) en el nivel (a), con palabras que siempre emparejan."""
+    variantes = [Variante(detalle="", tono=tono_leido, cantidad=cantidad_leida)] if tono_leido else []
+    leido = RenglonLeido(texto="producto prueba", cantidad=None if variantes else cantidad_leida,
+                         variantes=variantes, duda=duda)  # fmt: skip
+    caso = _caso("p01-A", [_esperado(1, ["producto", "prueba"], cantidad_esperada, "SKU-X", tono=tono_esperado)])
+    (par,) = em.puntuar_foto(caso, _imagen(leido), "a", marcas=frozenset()).pares
+    return par.s
+
+
+def test_penalizaciones_de_cantidad_y_variante():
+    """CA-239: cantidad cerca 0,6; lejos (el doble o más, o la mitad o menos) 0,4; con el tono mal, 0,3 y 0,1;
+    sin cantidad, 0,8."""
+    assert _par(2, 3) == pytest.approx(0.6)
+    assert _par(6, 5) == pytest.approx(0.6)
+    assert _par(2, 20) == pytest.approx(0.4)
+    assert _par(10, 1) == pytest.approx(0.4)
+    assert _par(2, 1) == pytest.approx(0.4)
+    assert _par(2, 3, tono_esperado="7.1", tono_leido="7.2") == pytest.approx(0.3)
+    assert _par(2, 20, tono_esperado="7.1", tono_leido="7.2") == pytest.approx(0.1)
+    assert _par(2, None) == pytest.approx(0.8)
+    assert _par(2, 20, duda="¿2 o 20?") == pytest.approx(0.8)
+
+
+def test_costo_de_los_sobrantes():
+    """CA-240: un sobrante silencioso cuesta 1, uno con duda o no encontrado 0,2, y un tachado 1 aunque tenga duda."""
+    caso = _caso("p01-A", [_esperado(1, ["silkara", "protector"], 7, "SIL-CU-PRO-250")], tachados=[["belkor", "rulos"]])
+    correcto = RenglonLeido(texto="7 Silkara protector", cantidad=7, producto="protector termico", marca="Silkara")
+    foto = em.puntuar_foto(caso, _imagen(
+        correcto,
+        RenglonLeido(texto="4 Belkor sh matizador 900", cantidad=4, producto="sh matizador 900", marca="Belkor"),
+        RenglonLeido(texto="1 Lumine cera", cantidad=1, producto="Lumine cera", duda="¿cera o crema?"),
+        RenglonLeido(texto="2 Belkor crema rulos", cantidad=2, producto="Belkor crema rulos", duda="¿rulos?"),
+    ), "a", marcas=frozenset())  # fmt: skip
+    assert [sobrante.costo for sobrante in foto.sobrantes] == [1, pytest.approx(0.2), 1]
+    assert foto.tachados_pedidos == 1 and foto.denominador == pytest.approx(3.2)
+
+    foto = em.puntuar_foto(caso, _imagen(
+        correcto, RenglonLeido(texto="3 zapatillas running", cantidad=3, producto="zapatillas running"),
+    ), "b")  # fmt: skip
+    assert foto.sobrantes[0].leido.estado == "no_encontrado" and foto.sobrantes[0].costo == pytest.approx(0.2)
+
+
+# La tabla de casos ambiguos del diseño (§6.5) para «2 sh keratina Nordika x900»: (salida, S en a, S en b)
+NORDIKA = _esperado(1, ["keratina", "nordika", "900"], 2, "NOR-SH-KER-900")
+CORRECTO = RenglonLeido(texto="2 sh keratina Nordika x900", cantidad=2, producto="sh keratina", marca="Nordika",
+                        presentacion="900")  # fmt: skip
+AMBIGUOS = [
+    (1, [RenglonLeido(texto="Nordika sh keratina 900", cantidad=2, producto="sh keratina", marca="Nordika",
+                      presentacion="900")], 1, 1),
+    (2, [RenglonLeido(texto="NORDIKA SH. KERATINA X900", cantidad=2, producto="SH. KERATINA", marca="NÓRDIKA",
+                      presentacion="X900")], 1, 1),
+    (3, [RenglonLeido(texto="2 sh keratina Nordica x900", cantidad=2, producto="sh keratina", marca="Nordica",
+                      presentacion="900")], 1, 1),
+    (4, [CORRECTO.model_copy(update={"cantidad": 3})], 0.6, 0.6),
+    (5, [CORRECTO.model_copy(update={"cantidad": 20})], 0.4, 0.4),
+    (6, [CORRECTO.model_copy(update={"unidad": "cajas"})], 0.4, 0.4),
+    (7, [CORRECTO.model_copy(update={"duda": "¿2 o 7?"})], 0.8, 0.8),
+    (8, [CORRECTO.model_copy(update={"cantidad": None})], 0.8, 0.8),
+    (9, [RenglonLeido(texto="2 sh keratina Nordika x300", cantidad=2, producto="sh keratina", marca="Nordika",
+                      presentacion="300")], 0.7, 0 / 2),
+    (10, [RenglonLeido(texto="2 keratina Nordika", cantidad=2, producto="keratina", marca="Nordika")], 0.7, 0.8),
+    (11, [RenglonLeido(texto="2 acond keratina Nordika 900", cantidad=2, producto="acond keratina", marca="Nordika",
+                       presentacion="900")], 1, 0 / 2),
+    (12, [], 0, 0),
+    (13, [CORRECTO, RenglonLeido(texto="4 Belkor sh matizador 900", cantidad=4, producto="sh matizador",
+                                 marca="Belkor", presentacion="900")], 1 / 2, 1 / 2),
+    (14, [CORRECTO, RenglonLeido(texto="3 zapatillas running", cantidad=3, producto="zapatillas running",
+                                 duda="¿zapatillas?")], 1 / 1.2, 1 / 1.2),
+    (15, [CORRECTO, RenglonLeido(texto="2 Belkor crema de peinar rulos", cantidad=2, producto="crema de peinar rulos",
+                                 marca="Belkor", duda="¿rulos?")], 1 / 2, 1 / 2),
+]  # fmt: skip
+
+
+@pytest.mark.parametrize(("fila", "leidos", "en_a", "en_b"), AMBIGUOS, ids=[f"fila-{f[0]}" for f in AMBIGUOS])
+def test_casos_ambiguos_del_diseno(fila, leidos, en_a, en_b):
+    """CA-241: cada fila de la tabla de casos ambiguos del diseño da su puntaje en (a) y en (b)."""
+    caso = _caso("p01-A", [NORDIKA], tachados=[["belkor", "rulos"]])
+    for nivel, esperado in (("a", en_a), ("b", en_b)):
+        foto = em.puntuar_foto(caso, _imagen(*leidos), nivel)
+        assert foto.S == pytest.approx(esperado), (fila, nivel)
+    if fila == 15:
+        assert foto.tachados_pedidos == 1
+
+
+def _hoja_sintetica(foto, cuantos, *, lejos=0, tachado=False, persona=None, letra="clara", nitidez="nitida"):
+    """Una hoja de `cuantos` renglones bien leídos, `lejos` de ellos con la cantidad lejos, y un tachado pedido."""
+    esperados = [_esperado(n, [f"producto{n:03d}"], 2, f"SKU-{n:03d}") for n in range(1, cuantos + 1)]
+    leidos = [RenglonLeido(texto=f"{20 if n <= lejos else 2} producto{n:03d}", cantidad=20 if n <= lejos else 2)
+              for n in range(1, cuantos + 1)]  # fmt: skip
+    if tachado:
+        leidos.append(RenglonLeido(texto="2 belkor rulos", cantidad=2))
+    caso = _caso(foto, esperados, tachados=[["belkor", "rulos"]] if tachado else ())
+    caso["condiciones"].update(letra=letra, nitidez=nitidez)
+    if persona:
+        caso["persona"] = persona
+    return em.puntuar_foto(caso, _imagen(*leidos), "a", marcas=frozenset())
+
+
+def _resumen(fotos):
+    return em.resumir(fotos, [{"proveedor": "huggingface", "segundos": 1.0} for _ in fotos], [], None)
+
+
+def test_filtro_de_elegibilidad():
+    """CA-242: no es elegible si pide un tachado o si los errores graves pasan el 2 %; con 2 de 100, sí."""
+    con_tachado = _resumen([_hoja_sintetica("p01-A", 100, tachado=True)])
+    assert con_tachado["elegible"] is False and "1 tachado" in con_tachado["motivo"]
+    tres = _resumen([_hoja_sintetica("p01-A", 100, lejos=3)])
+    assert tres["elegible"] is False and tres["errores_graves_pct"] == 3.0 and "graves" in tres["motivo"]
+    dos = _resumen([_hoja_sintetica("p01-A", 100, lejos=2)])
+    assert dos["elegible"] is True and dos["motivo"] is None and dos["errores_graves"] == 2
+
+
+def test_cortes_y_peores():
+    """CA-243: S por hoja, las 5 peores hojas de menor a mayor, los peores renglones y los cortes nuevos."""
+    fotos = [
+        _hoja_sintetica("p01-A", 4, lejos=3, persona="p01", letra="dificil", nitidez="borrosa"),
+        _hoja_sintetica("p01-B", 4, lejos=2, persona="p01", letra="dificil"),
+        _hoja_sintetica("p02-A", 4, lejos=1, persona="p02"),
+        _hoja_sintetica("p02-B", 4, persona="p02"),
+        _hoja_sintetica("p03-A", 4, persona="p03"),
+        _hoja_sintetica("p03-B", 4, lejos=4, persona="p03", nitidez="borrosa"),
+    ]
+    resumen = _resumen(fotos)
+    assert resumen["S_por_hoja"] == pytest.approx(sum(foto.S for foto in fotos) / 6, abs=1e-3)
+    assert [hoja["foto"] for hoja in resumen["peores_hojas"]] == ["p03-B", "p01-A", "p01-B", "p02-A", "p02-B"]
+    primero = resumen["peores_renglones"][0]
+    assert primero["id"] == "P001" and primero["apariciones"] == 6
+    assert set(resumen["por_persona"]) == {"p01", "p02", "p03"}
+    assert set(resumen["por_letra"]) == {"clara", "dificil"} and resumen["por_letra"]["dificil"] < 1
+    assert set(resumen["por_nitidez"]) == {"nitida", "borrosa"}
+
+
+def test_para_ordenar(carpeta):
+    """CA-244: los mismos 15 pares las dos veces, solo de desarrollo, sin modelo ni puntaje en el documento."""
+    fotos = [f"p{i:02d}-A" for i in range(1, 31)]
+    grupos = {foto: "desarrollo" if i < 20 else "reservado" for i, foto in enumerate(fotos)}
+    casos = _casos(carpeta, fotos, grupos)
+    corrida = carpeta / "corridas" / "prueba"
+    modelos = [("huggingface", "Qwen/falso"), ("openai", "falso")]
+    em.correr(casos, carpeta, corrida, modelos, grupo="todos", max_llamadas=100, leer=Lector())
+    puntuados: list[em.Puntuado] = []
+    em.puntuar_corrida(corrida, casos, {}, detalle=puntuados)
+
+    documento, clave, avisos = em.para_ordenar(puntuados, 15)
+    assert (documento, clave) == em.para_ordenar(puntuados, 15)[:2] and avisos == []
+    assert list(clave["items"]) == [f"O{i:02d}" for i in range(1, 16)]
+    assert all(grupos[item["foto"]] == "desarrollo" for item in clave["items"].values())
+    assert "falso" not in documento and "huggingface" not in documento and "openai" not in documento
+    assert "S =" not in documento and all("S" in item for item in clave["items"].values())
+
+
+def test_validar_orden():
+    """CA-245: 100 % es válida; un par invertido de 0,4 no, aunque coincida el 90 %; uno de 0,05 sí; ids que faltan,
+    error."""
+    clave = {"items": {f"O0{i}": {"S": s} for i, s in enumerate([0.9, 0.5, 0.45, 0.4, 0.35], start=1)}}
+    bien = em.validar_orden(clave, ["O01", "O02", "O03", "O04", "O05"])
+    assert bien.acuerdo_pct == 100 and bien.valida
+    grande = em.validar_orden(clave, ["O02", "O01", "O03", "O04", "O05"])
+    assert grande.acuerdo_pct == 90 and not grande.valida and grande.invertidos == [("O02", "O01", 0.4)]
+    chico = em.validar_orden(clave, ["O01", "O02", "O03", "O05", "O04"])
+    assert chico.acuerdo_pct == 90 and chico.valida
+    incompleto = em.validar_orden(clave, ["O01", "O02", "O03", "O04"])
+    assert not incompleto.valida and any("O05" in problema for problema in incompleto.problemas)
+
+
+def test_huellas_distintas_se_avisan(carpeta, monkeypatch):
+    """CA-247: dos modelos leídos con prompts distintos se avisan y cada uno lleva su huella."""
+    casos = _casos(carpeta, ["p01-A"])
+    corrida = carpeta / "corridas" / "prueba"
+    em.correr(casos, carpeta, corrida, [("huggingface", "uno")], leer=Lector())
+    monkeypatch.setattr(vision_service, "INSTRUCCIONES", vision_service.INSTRUCCIONES + "\n- Otra regla.")
+    em.correr(casos, carpeta, corrida, [("huggingface", "dos")], leer=Lector())
+    resumen = em.puntuar_corrida(corrida, casos, {})
+    huellas = {modelo["modelo"]: modelo["huella"] for modelo in resumen["modelos"]}
+    assert len(set(huellas.values())) == 2
+    assert any("no se comparan" in aviso for aviso in resumen["avisos"])

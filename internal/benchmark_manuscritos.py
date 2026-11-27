@@ -19,6 +19,7 @@ import re
 import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 
 CARPETA = Path("data_example/benchmark_manuscritos")
@@ -32,6 +33,7 @@ DATOS = Path("data/benchmark_manuscritos")
 RESPUESTAS = DATOS / "respuestas.csv"
 REVISION = DATOS / "revision.json"
 CASOS = DATOS / "casos.json"
+CONGELADO = DATOS / "congelado.json"
 
 SEMILLA = 116
 VARIABLES = 10
@@ -348,6 +350,8 @@ _FOTO = re.compile(r"^(p\d{2,})-([AB])$")
 # Una columna o un valor con datos de la persona: el export del Form se limpia a mano antes (diseño, §5)
 _COLUMNAS_PRIVADAS = ("mail", "correo", "nombre", "archivo")
 _LINK_DE_DRIVE = "drive.google.com"
+# Lo que anota quien revisa, para cortar los resultados (RF-147)
+VALORES_DE_REVISION = {"letra": ("clara", "dificil"), "nitidez": ("nitida", "borrosa")}
 
 
 @dataclass
@@ -390,14 +394,20 @@ def _archivo(carpeta: Path, foto: str) -> str | None:
 
 
 def asignar_grupos(
-    personas: list[str], semilla: int = SEMILLA_GRUPOS, anteriores: dict[str, str] | None = None
+    personas: list[str],
+    semilla: int = SEMILLA_GRUPOS,
+    anteriores: dict[str, str] | None = None,
+    congelado: set[str] | None = None,
 ) -> dict[str, str]:
-    """`desarrollo` o `reservado` para cada persona (RF-131).
+    """`desarrollo` o `reservado` para cada persona (RF-131, RF-147).
 
     El 40 % de las personas, redondeado para arriba, va a `desarrollo`. Quien ya tenía grupo en `anteriores` lo
-    conserva: solo se sortean las nuevas, completando la proporción sobre el total.
+    conserva: solo se sortean las nuevas, completando la proporción sobre el total. Con el reservado `congelado`, sus
+    personas siguen ahí y toda persona nueva va a `desarrollo`.
     """
     unicas = sorted(set(personas))
+    if congelado is not None:
+        return {persona: "reservado" if persona in congelado else "desarrollo" for persona in unicas}
     grupos = {persona: anteriores[persona] for persona in unicas if anteriores and persona in anteriores}
     nuevas = [persona for persona in unicas if persona not in grupos]
     random.Random(semilla).shuffle(nuevas)
@@ -414,6 +424,7 @@ def armar_casos(
     carpeta: Path,
     semilla: int = SEMILLA_GRUPOS,
     anteriores: dict[str, str] | None = None,
+    congelado: set[str] | None = None,
 ) -> Armado:
     """Un caso por foto no descartada (RF-130), o la lista de problemas si hay alguno (RF-132).
 
@@ -453,6 +464,9 @@ def armar_casos(
                 f"{foto}: dice «No» en «{TEXTOS['copio_todo']}» y no tiene entrada en revision.json"
                 " (si copió todo, anotala con {{}})"
             )
+        for campo, validos in VALORES_DE_REVISION.items():
+            if campo in notas and notas[campo] not in validos:
+                armado.problemas.append(f"{foto}: {campo} «{notas[campo]}» no es {' ni '.join(validos)}")
         sin_copiar = list(notas.get("sin_copiar", []))
         posiciones = {renglon["n"] for renglon in lista["renglones"]}
         if fuera := [n for n in sin_copiar if n not in posiciones]:
@@ -467,6 +481,8 @@ def armar_casos(
             "condiciones": {
                 "luz": fila.get(TEXTOS["luz"], "").strip().lower(),
                 "papel": fila.get(TEXTOS["papel"], "").strip().lower(),
+                "letra": notas.get("letra", "sin dato"),
+                "nitidez": notas.get("nitidez", "sin dato"),
             },
             "sexo": fila.get(TEXTOS["sexo"], "").strip().lower(),
             "legible": notas.get("legible", True),
@@ -485,7 +501,7 @@ def armar_casos(
     if armado.problemas:
         return Armado(problemas=armado.problemas)
 
-    grupos = asignar_grupos([caso["persona"] for caso in casos], semilla, anteriores)
+    grupos = asignar_grupos([caso["persona"] for caso in casos], semilla, anteriores, congelado)
     for caso in casos:
         caso["grupo"] = grupos[caso["persona"]]
     armado.casos = sorted(casos, key=lambda caso: caso["id"])
@@ -496,6 +512,23 @@ def leer_respuestas(ruta: Path = RESPUESTAS) -> list[dict]:
     # utf-8-sig: el CSV que baja Google Forms puede traer BOM
     with open(ruta, encoding="utf-8-sig", newline="") as archivo:
         return [{(clave or "").strip(): valor for clave, valor in fila.items()} for fila in csv.DictReader(archivo)]
+
+
+def leer_congelado(ruta: Path) -> set[str] | None:
+    """Las personas del reservado congelado, o None si todavía no se congeló."""
+    return set(json.loads(ruta.read_text(encoding="utf-8"))["reservado"]) if ruta.exists() else None
+
+
+def congelar(casos: Path, ruta: Path, fecha: str) -> list[str]:
+    """Fija las personas del reservado (RF-147). Devuelve las personas, o falla si no hay nada que congelar."""
+    if not casos.exists():
+        raise ValueError(f"Falta {casos}: armá los casos antes de congelar el reservado")
+    todos = json.loads(casos.read_text(encoding="utf-8"))
+    reservado = sorted({caso["persona"] for caso in todos if caso["grupo"] == "reservado"})
+    if not reservado:
+        raise ValueError("No hay nadie en el reservado: no hay nada que congelar")
+    ruta.write_text(json.dumps({"fecha": fecha, "reservado": reservado}, indent=2) + "\n", encoding="utf-8")
+    return reservado
 
 
 def _grupos_anteriores(ruta: Path) -> dict[str, str]:
@@ -525,6 +558,8 @@ def main(argv: list[str] | None = None) -> int:
     casos.add_argument("--listas", type=Path, default=LISTAS)
     casos.add_argument("--salida", type=Path, default=CASOS)
     casos.add_argument("--semilla", type=int, default=SEMILLA_GRUPOS)
+    ayuda_congelar = "fija las personas del reservado de casos.json; desde ahí, las nuevas van a desarrollo"
+    casos.add_argument("--congelar", action="store_true", help=ayuda_congelar)
 
     args = parser.parse_args(argv)
     if args.comando == "casos":
@@ -546,6 +581,15 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _comando_casos(args: argparse.Namespace) -> int:
+    congelado = args.salida.parent / CONGELADO.name
+    if args.congelar:
+        try:
+            reservado = congelar(args.salida, congelado, date.today().isoformat())
+        except ValueError as exc:
+            print(exc)
+            return 1
+        print(f"Reservado congelado en {congelado}: {', '.join(reservado)}. Las personas nuevas van a desarrollo")
+        return 0
     if not args.respuestas.exists():
         print(f"Falta {args.respuestas}: exportá las respuestas del Form, sin mail ni nombre, y sumá la columna foto")
         return 1
@@ -557,6 +601,7 @@ def _comando_casos(args: argparse.Namespace) -> int:
         args.salida.parent,
         args.semilla,
         _grupos_anteriores(args.salida),
+        leer_congelado(congelado),
     )
     if armado.problemas:
         print(f"No se armaron los casos; {len(armado.problemas)} problemas:\n- " + "\n- ".join(armado.problemas))

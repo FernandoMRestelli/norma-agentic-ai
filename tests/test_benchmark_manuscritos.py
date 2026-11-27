@@ -146,7 +146,8 @@ def test_casos_desde_respuestas(pool, carpeta):
     assert [r["n"] for r in primero["renglones"]] == [n for n in range(1, 16) if n != 11]
     assert primero["renglones"][0] == listas["listas"][6]["renglones"][0]
     assert primero["tachados"] == [["belkor", "rulos"]] and primero["sin_copiar"] == [11]
-    assert primero["condiciones"] == {"luz": "artificial", "papel": "cuaderno rayado"}
+    sin_dato = {"letra": "sin dato", "nitidez": "sin dato"}
+    assert primero["condiciones"] == {"luz": "artificial", "papel": "cuaderno rayado", **sin_dato}
     assert primero["sexo"] == "prefiero no responder"
     assert primero["legible"] is True and primero["encabezado"] == "Pedido para Norma"
     assert segundo["lista"] == "L02" and segundo["archivo"] == "imagenes/p01-B.png"
@@ -247,3 +248,59 @@ def test_comando_casos_conserva_los_grupos(pool, carpeta):
     antes = correr([_respuesta("p01-A", "Pedido 01")])
     despues = correr([_respuesta("p01-A", "Pedido 01"), _respuesta("p02-A", "Pedido 02")])
     assert despues["p01"] == antes["p01"] and set(despues) == {"p01", "p02"}
+
+
+def _escribir_respuestas(ruta, filas):
+    with open(ruta, "w", encoding="utf-8", newline="") as archivo:
+        escritor = csv.DictWriter(archivo, fieldnames=list(filas[0]))
+        escritor.writeheader()
+        escritor.writerows(filas)
+
+
+def test_reservado_congelado(pool, carpeta):
+    """CA-246: con el reservado congelado, las personas nuevas van a desarrollo y las del reservado siguen ahí."""
+    listas_json = carpeta / "listas.json"
+    listas_json.write_text(json.dumps(bm.sortear_listas(pool, 2, 116)), encoding="utf-8")
+    respuestas_csv, salida = carpeta / "respuestas.csv", carpeta / "casos.json"
+    argumentos = ["casos", "--respuestas", str(respuestas_csv), "--revision", str(carpeta / "revision.json"),
+                  "--listas", str(listas_json), "--salida", str(salida)]  # fmt: skip
+
+    def grupos():
+        return {caso["persona"]: caso["grupo"] for caso in json.loads(salida.read_text(encoding="utf-8"))}
+
+    filas = []
+    for i in range(1, 14):
+        (carpeta / "imagenes" / f"p{i:02d}-A.jpg").write_bytes(b"foto")
+        filas.append(_respuesta(f"p{i:02d}-A", "Pedido 01"))
+    _escribir_respuestas(respuestas_csv, filas[:10])
+    assert bm.main(argumentos) == 0
+    antes = grupos()
+    reservado = {persona for persona, grupo in antes.items() if grupo == "reservado"}
+    assert len(reservado) == 6
+
+    assert bm.main([*argumentos, "--congelar"]) == 0
+    assert set(json.loads((carpeta / "congelado.json").read_text(encoding="utf-8"))["reservado"]) == reservado
+    _escribir_respuestas(respuestas_csv, filas)
+    assert bm.main(argumentos) == 0
+    despues = grupos()
+    assert {p: despues[p] for p in antes} == antes
+    assert [despues[f"p{i}"] for i in (11, 12, 13)] == ["desarrollo"] * 3
+
+
+def test_congelar_sin_casos_falla(carpeta):
+    """CA-246: sin casos.json no hay reservado que congelar."""
+    with pytest.raises(ValueError, match="casos"):
+        bm.congelar(carpeta / "casos.json", carpeta / "congelado.json", "2026-12-15")
+
+
+def test_letra_y_nitidez(pool, carpeta):
+    """CA-248: la letra y la nitidez de la revisión pasan a las condiciones; un valor que no existe es un problema."""
+    listas = bm.sortear_listas(pool, 1, 116)
+    respuestas = [_respuesta("p01-A", "Pedido 01"), _respuesta("p01-B", "Pedido 01")]
+    revision = {"p01-A": {"letra": "dificil", "nitidez": "nitida"}}
+    primero, segundo = bm.armar_casos(respuestas, revision, listas, carpeta).casos
+    assert primero["condiciones"]["letra"] == "dificil" and primero["condiciones"]["nitidez"] == "nitida"
+    assert segundo["condiciones"]["letra"] == "sin dato" and segundo["condiciones"]["nitidez"] == "sin dato"
+
+    armado = bm.armar_casos(respuestas, {"p01-B": {"letra": "regular"}}, listas, carpeta)
+    assert armado.casos == [] and any("p01-B" in p and "regular" in p for p in armado.problemas)

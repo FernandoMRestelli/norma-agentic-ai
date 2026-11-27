@@ -9,7 +9,7 @@
 | | |
 |---|---|
 | Etapa del roadmap | 03 · Pedidos multimodales |
-| Estado | Implementado: RF-126 a RF-136. Especificado: la scoring nueva (RF-137 a RF-147); el runner todavía puntúa con la anterior |
+| Estado | Implementado (RF-126 a RF-147); falta validar la scoring con el orden a mano |
 | Responsable | Federico Picado |
 | Requisitos relacionados | RF-101 a RF-110 y RNF-18 ([lectura de imágenes](lectura-de-imagenes.md)), D-50 (desarrollo y reservado) |
 | IDs que reserva | RF-126 a RF-147, CA-218 a CA-248 |
@@ -562,8 +562,8 @@ En la carpeta de la corrida (§3.5). La clave:
 5. ~~Tests de CA-224 a CA-226 y el comando `casos` en `internal/benchmark_manuscritos.py`.~~
 6. ~~Tests de CA-227 a CA-238 con fotos y modelos falsos, e `internal/evaluar_manuscritos.py` con `correr` y
    `puntuar`. Los tests no llaman a ningún modelo.~~
-7. RF-137 a RF-147 y CA-239 a CA-248 en esta spec, con CA-232, CA-234 y CA-236 actualizados a la scoring nueva.
-8. Adaptar `evaluar_manuscritos` y `benchmark_manuscritos` a la scoring nueva, con sus tests.
+7. ~~RF-137 a RF-147 y CA-239 a CA-248 en esta spec, con CA-232, CA-234 y CA-236 actualizados a la scoring nueva.~~
+8. ~~Adaptar `evaluar_manuscritos` y `benchmark_manuscritos` a la scoring nueva, con sus tests.~~
 9. Validar la scoring con el orden a mano (§3.5) sobre desarrollo.
 10. Con las fotos: armar `casos.json`, correr Qwen local sobre `desarrollo` y, con permiso de quien paga la clave,
    `gpt-6-luna` y GPT Terra con `--max-llamadas`. El reservado se corre al final, una vez, para medir.

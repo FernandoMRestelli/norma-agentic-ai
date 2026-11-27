@@ -1,10 +1,10 @@
 # Benchmark de pedidos escritos a mano
 
 > **Estado: diseño aprobado en general (15 renglones por hoja, sorteados, juntados con un Google Form; tres
-> modelos); faltan los detalles de la §8.** Las listas, el Form, el armado de los casos y la corrida ya están
-> implementados; la scoring de la §6 está especificada (RF-137 a RF-147 en la
-> [spec](spec/benchmark-manuscritos.md)) y falta adaptar el runner, que puntúa con la versión anterior. El
-> comportamiento nuevo entra primero a la spec (RF y CA) y después al código, como pide `CONTRIBUTING.md`.
+> modelos); faltan los detalles de la §8.** Las listas, el Form, el armado de los casos, la corrida y la scoring de
+> la §6 ya están implementados (RF-126 a RF-147 en la [spec](spec/benchmark-manuscritos.md)); falta validar la
+> scoring con el orden a mano (§6.9). El comportamiento nuevo entra primero a la spec (RF y CA) y después al código,
+> como pide `CONTRIBUTING.md`.
 >
 > **Dependencias:** todo lo que se cita ya está en `develop`: `docs/spec/lectura-de-imagenes.md`, D-42, D-50 (grupos
 > `desarrollo`/`reservado`), RNF-18, el intervalo de Wilson de `evaluar_agente`, la lectura, `renglones_desde_lectura`,
@@ -621,7 +621,6 @@ El mismo benchmark sirve para comparar un modelo solo, modelo + prompt (con y si
 4. Correr el nivel (a) con `comparar_vision --casos` (sin código nuevo).
 5. ~~Runner de los niveles (a) y (b)~~: `python -m internal.evaluar_manuscritos correr` guarda cada salida y
    `puntuar` la puntúa sin llamar a ningún modelo ([spec](spec/benchmark-manuscritos.md#33-corrida), RF-133 a
-   RF-140). Falta adaptarlo a la scoring de la §6 (RF-141 a RF-147): penalizaciones, sobrantes dudosos, filtro,
-   cortes nuevos, validación y reservado congelado.
+   RF-147), con la scoring de la §6.
 6. Validar la scoring con el orden a mano de la §6.9, sobre desarrollo, antes de comparar modelos.
 7. Nivel (c) y optimización con DSPy/GEPA solo con permiso, porque llaman a un LLM pago.

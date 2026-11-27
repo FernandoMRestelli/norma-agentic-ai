@@ -18,8 +18,10 @@ import contextlib
 import hashlib
 import json
 import math
+import random
 import re
 import unicodedata
+from collections import Counter
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -32,6 +34,13 @@ from internal.services import vision_service
 
 GRUPOS = ("desarrollo", "reservado")
 NIVELES = ("a", "b")
+
+# La scoring del diseño, §6.4: una pregunta al cliente cuesta 0,2 y todo error silencioso cuesta más
+DUDA = 0.8
+COSTO_PREGUNTA = 1 - DUDA
+PENALIZACION = {"ok": 0.0, "cerca": 0.4, "lejos": 0.6, "variante": 0.3}
+PISO = 0.1
+MAX_GRAVES_PCT = 2.0
 
 Lector = Callable[[bytes, str, str], vision_service.Lectura]
 Buscador = Callable[[list[dict]], list[dict]]
@@ -193,11 +202,11 @@ def correr(
     return informe
 
 
-# --- Puntaje de una foto (RF-137 a RF-139) ---
+# --- Puntaje de una foto (RF-137 a RF-142) ---
 
 
 def normalizar(texto: str | None) -> str:
-    """Minúsculas, sin tildes ni signos y con espacios simples: «Térmico (7)» → «termico 7»."""
+    """Minúsculas, sin tildes y con los signos como espacios: «Térmico (7)» → «termico 7»."""
     sin_tildes = unicodedata.normalize("NFKD", texto or "").encode("ascii", "ignore").decode().lower()
     return " ".join(re.sub(r"[^\w]+", " ", sin_tildes).split())
 
@@ -222,11 +231,18 @@ def marcas_del_catalogo(ruta: Path = CATALOGO) -> frozenset[str]:
     return frozenset(normalizar(p.brand) for p in leer_catalogo(ruta) if p.brand)
 
 
-def _tiene_palabras(textos: list[str], palabras: list[str], marcas: frozenset[str]) -> bool:
+def _tiene_numero(palabra: str) -> bool:
+    return any(caracter.isdigit() for caracter in palabra)
+
+
+def _tiene_palabras(textos: list[str | None], palabras: list[str], marcas: frozenset[str]) -> bool:
+    """Todas las palabras están en los textos: tal cual, sin espacios («cocacola» en «Coca-Cola») o, si son marca del
+    catálogo, con una letra de diferencia (RF-137)."""
     junto = " ".join(normalizar(texto) for texto in textos if texto)
+    pegado = junto.replace(" ", "")
     tokens = junto.split()
     for palabra in map(normalizar, palabras):
-        if palabra in junto:
+        if palabra in junto or palabra.replace(" ", "") in pegado:
             continue
         if palabra in marcas and any(_a_lo_sumo_una_letra(palabra, token) for token in tokens):
             continue
@@ -243,22 +259,48 @@ class Leido:
     """Un renglón de la salida, del nivel que sea: lo que hace falta para emparejarlo y puntuarlo."""
 
     texto: str
-    textos: list[str]  # donde se buscan las palabras
+    textos: list[str | None]  # donde se buscan las palabras
     cantidad: float | None
     tono: str | None
     unidad: str | None
     duda: bool
     skus: frozenset[str] = frozenset()
+    candidatos: tuple[str, ...] = ()  # nivel (b): los SKU de la búsqueda, en su orden
+    estado: str | None = None  # nivel (b): el estado de la búsqueda
 
 
 @dataclass
 class Par:
     esperado: dict
     leido: Leido
-    cantidad_ok: bool
-    detalle_ok: bool
+    cantidad: str  # "ok", "cerca" o "lejos"
+    variante_ok: bool
     duda: bool
     s: float
+
+    @property
+    def cantidad_ok(self) -> bool:
+        return self.cantidad == "ok"
+
+    @property
+    def silencioso(self) -> bool:
+        """Salió mal sin duda: el agente no lo va a preguntar."""
+        return not self.duda and not (self.cantidad_ok and self.variante_ok)
+
+    @property
+    def grave(self) -> bool:
+        return not self.duda and self.cantidad == "lejos"
+
+
+@dataclass
+class Sobrante:
+    leido: Leido
+    tachado: bool
+
+    @property
+    def costo(self) -> float:
+        """1 si se mandaría (silencioso o tachado), 0,2 si el agente lo pregunta antes (RF-142)."""
+        return 1.0 if self.tachado or not self.leido.duda else COSTO_PREGUNTA
 
 
 @dataclass
@@ -267,16 +309,23 @@ class Foto:
     json_valido: bool
     pares: list[Par] = field(default_factory=list)
     omitidos: list[dict] = field(default_factory=list)
-    sobrantes: list[Leido] = field(default_factory=list)
-    tachados_pedidos: int = 0
+    sobrantes: list[Sobrante] = field(default_factory=list)
 
     @property
     def numerador(self) -> float:
         return sum(par.s for par in self.pares)
 
     @property
-    def denominador(self) -> int:
-        return len(self.pares) + len(self.omitidos) + len(self.sobrantes)
+    def esperados(self) -> int:
+        return len(self.pares) + len(self.omitidos)
+
+    @property
+    def denominador(self) -> float:
+        return round(self.esperados + sum(sobrante.costo for sobrante in self.sobrantes), 6)
+
+    @property
+    def S(self) -> float:  # noqa: N802 - es el nombre del puntaje en el diseño
+        return self.numerador / self.denominador if self.denominador else 0.0
 
     @property
     def correctos(self) -> int:
@@ -287,9 +336,20 @@ class Foto:
         return len(self.pares) + len(self.sobrantes)
 
     @property
+    def tachados_pedidos(self) -> int:
+        return sum(1 for sobrante in self.sobrantes if sobrante.tachado)
+
+    @property
+    def sobrantes_que_se_mandan(self) -> int:
+        return sum(1 for sobrante in self.sobrantes if sobrante.costo == 1)
+
+    @property
     def errores_silenciosos(self) -> int:
-        malos = sum(1 for par in self.pares if not par.duda and not (par.cantidad_ok and par.detalle_ok))
-        return malos + len(self.sobrantes)
+        return sum(1 for par in self.pares if par.silencioso) + self.sobrantes_que_se_mandan
+
+    @property
+    def errores_graves(self) -> int:
+        return sum(1 for par in self.pares if par.grave) + self.sobrantes_que_se_mandan
 
     @property
     def perfecta(self) -> bool:
@@ -346,14 +406,14 @@ def leidos_nivel_b(resultado: ImagenLeida, buscar: Buscador | None = None) -> li
     for renglon, consulta in zip(renglones, consultas, strict=True):
         buscado = renglon.get("buscar") or {}
         encontrado = encontrados.get(renglon["n"], {"estado": "no_encontrado", "candidatos": []})
-        candidatos = [c["sku"] for c in encontrado.get("candidatos", [])]
+        candidatos = tuple(c["sku"] for c in encontrado.get("candidatos", []))
         estado = encontrado["estado"]
         if estado in ("unico", "sin_stock"):
-            skus, duda_de_busqueda = frozenset(candidatos[:1]), False
+            skus = frozenset(candidatos[:1])
         elif estado in ("varias", "aproximado"):
-            skus, duda_de_busqueda = frozenset(candidatos), True
+            skus = frozenset(candidatos)
         else:
-            skus, duda_de_busqueda = frozenset(), False
+            skus = frozenset()
         leidos.append(
             Leido(
                 texto=consulta["texto"],
@@ -361,21 +421,42 @@ def leidos_nivel_b(resultado: ImagenLeida, buscar: Buscador | None = None) -> li
                 cantidad=buscado.get("cantidad"),
                 tono=_tono(buscado.get("tono")),
                 unidad=renglon.get("unidad"),
-                # sin cantidad leída el agente la va a preguntar
-                duda=bool(renglon.get("duda")) or duda_de_busqueda or buscado.get("cantidad") is None,
+                # el agente pregunta si la lectura duda, si la búsqueda no da un solo producto o si falta la cantidad
+                duda=bool(renglon.get("duda")) or estado not in ("unico", "sin_stock") or not buscado.get("cantidad"),
                 skus=skus,
+                candidatos=candidatos,
+                estado=estado,
             )
         )
     return leidos
 
 
-def _puntaje(esperado: dict, leido: Leido) -> Par:
-    cantidad_ok = leido.cantidad is not None and float(leido.cantidad) == float(esperado["cantidad"])
-    tono_ok = esperado.get("tono") is None or _tono(esperado["tono"]) == leido.tono
-    unidad_ok = esperado.get("unidad") is None or esperado["unidad"] == leido.unidad
-    detalle_ok = tono_ok and unidad_ok
-    s = 0.8 if leido.duda else 0.5 + 0.4 * cantidad_ok + 0.1 * detalle_ok
-    return Par(esperado, leido, cantidad_ok, detalle_ok, leido.duda, round(s, 6))
+def _clase_de_unidad(unidad: str | None) -> str:
+    return "cajas" if unidad == "cajas" else "sueltas"
+
+
+def comparar_cantidad(esperado: dict, leido: Leido) -> str:
+    """`ok`, `cerca` o `lejos` (RF-141): lejos es el doble o más, o cajas por unidades."""
+    if _clase_de_unidad(esperado.get("unidad")) != _clase_de_unidad(leido.unidad):
+        return "lejos"
+    pedida, leida = float(esperado["cantidad"]), float(leido.cantidad or 0)
+    if pedida == leida:
+        return "ok"
+    menor, mayor = sorted((pedida, leida))
+    return "lejos" if menor <= 0 or mayor >= 2 * menor else "cerca"
+
+
+def _puntaje(esperado: dict, leido: Leido, medida_ok: bool = True) -> Par:
+    """0,8 con duda o sin cantidad; si no, 1 menos las penalizaciones, con piso 0,1 (RF-139)."""
+    cantidad = comparar_cantidad(esperado, leido) if leido.cantidad is not None else "lejos"
+    variante_ok = medida_ok and (esperado.get("tono") is None or _tono(esperado["tono"]) == leido.tono)
+    duda = leido.duda or leido.cantidad is None
+    if duda:
+        s = DUDA
+    else:
+        penalizacion = PENALIZACION[cantidad] + (0 if variante_ok else PENALIZACION["variante"])
+        s = max(PISO, 1 - penalizacion)
+    return Par(esperado, leido, cantidad, variante_ok, duda, round(s, 6))
 
 
 def puntuar_foto(
@@ -386,37 +467,36 @@ def puntuar_foto(
     marcas: frozenset[str] | None = None,
     buscar: Buscador | None = None,
 ) -> Foto:
-    """Empareja los esperados con lo leído, uno a uno y en el orden de la hoja, y puntúa cada par (RF-139)."""
+    """Empareja los esperados con lo leído, uno a uno y en el orden de la hoja, y puntúa cada par (RF-137 a RF-142)."""
     esperados = sorted(caso["renglones"], key=lambda renglon: renglon["n"])
     if resultado is None or not resultado.legible:
         return Foto(caso, json_valido=resultado is not None, omitidos=esperados)
-    if nivel == "a":
-        marcas = marcas_del_catalogo() if marcas is None else marcas
-        leidos = leidos_nivel_a(resultado)
-
-        def corresponde(esperado: dict, leido: Leido) -> bool:
-            return _tiene_palabras(leido.textos, esperado["palabras"], marcas)
-    else:
-        leidos = leidos_nivel_b(resultado, buscar)
-
-        def corresponde(esperado: dict, leido: Leido) -> bool:
-            return esperado["sku"] in leido.skus
+    marcas = marcas_del_catalogo() if marcas is None else marcas
+    leidos = leidos_nivel_a(resultado) if nivel == "a" else leidos_nivel_b(resultado, buscar)
 
     foto = Foto(caso, json_valido=True)
     libres = list(leidos)
     for esperado in esperados:
-        leido = next((leido for leido in libres if corresponde(esperado, leido)), None)
+        if nivel == "a":
+            sin_numeros = [p for p in esperado["palabras"] if not _tiene_numero(p)]
+            con_numeros = [p for p in esperado["palabras"] if _tiene_numero(p)]
+            candidatos = [leido for leido in libres if _tiene_palabras(leido.textos, sin_numeros, marcas)]
+            completos = [leido for leido in candidatos if _tiene_palabras(leido.textos, con_numeros, marcas)]
+            leido = (completos or candidatos or [None])[0]
+            medida_ok = leido is not None and leido in completos
+        else:
+            leido = next((leido for leido in libres if esperado["sku"] in leido.skus), None)
+            medida_ok = True  # la medida está en el SKU
         if leido is None:
             foto.omitidos.append(esperado)
             continue
         libres.remove(leido)
-        foto.pares.append(_puntaje(esperado, leido))
-    foto.sobrantes = libres
-    foto.tachados_pedidos = sum(
-        1
+        foto.pares.append(_puntaje(esperado, leido, medida_ok))
+    tachados = caso.get("tachados", [])
+    foto.sobrantes = [
+        Sobrante(leido, any(_tiene_palabras(leido.textos, tachado, frozenset()) for tachado in tachados))
         for leido in libres
-        if any(_tiene_palabras(leido.textos, tachado, frozenset()) for tachado in caso.get("tachados", []))
-    )
+    ]
     return foto
 
 
@@ -455,13 +535,46 @@ def _cortes(fotos: list[Foto], clave: Callable[[dict], list[str]]) -> dict[str, 
     return {valor: round(num / den, 3) for valor, (num, den) in sorted(acumulado.items())}
 
 
-def _por_condicion(fotos: list[Foto], condicion: str) -> dict[str, float]:
+def _por_foto(fotos: list[Foto], clave: Callable[[dict], str | None]) -> dict[str, float]:
+    """S micro de las fotos de cada valor: persona, letra, nitidez, luz o papel."""
     acumulado: dict[str, list[float]] = {}
     for foto in fotos:
-        suma = acumulado.setdefault(foto.caso["condiciones"].get(condicion) or "sin dato", [0.0, 0])
+        suma = acumulado.setdefault(clave(foto.caso) or "sin dato", [0.0, 0])
         suma[0] += foto.numerador
         suma[1] += foto.denominador
     return {valor: round(num / den, 3) for valor, (num, den) in sorted(acumulado.items()) if den}
+
+
+def _condicion(nombre: str) -> Callable[[dict], str | None]:
+    return lambda caso: caso.get("condiciones", {}).get(nombre)
+
+
+def peores_renglones(fotos: list[Foto], cuantos: int = 10, minimo: int = 2) -> list[dict]:
+    """Los renglones del pool con menor s promedio entre las fotos en que aparecieron (un omitido vale 0)."""
+    por_id: dict[str, dict] = {}
+    for foto in fotos:
+        filas = [(par.esperado, par.s) for par in foto.pares] + [(esperado, 0.0) for esperado in foto.omitidos]
+        for esperado, s in filas:
+            fila = por_id.setdefault(esperado.get("id") or esperado["texto"], {"texto": esperado["texto"], "s": []})
+            fila["s"].append(s)
+    peores = [
+        {"id": id_, "texto": fila["texto"], "s": round(sum(fila["s"]) / len(fila["s"]), 3),
+         "apariciones": len(fila["s"])}
+        for id_, fila in por_id.items()
+        if len(fila["s"]) >= minimo
+    ]  # fmt: skip
+    return sorted(peores, key=lambda fila: (fila["s"], fila["id"]))[:cuantos]
+
+
+def elegibilidad(tachados_pedidos: int, errores_graves: int, esperados: int) -> tuple[bool, str | None]:
+    """Si la configuración se puede elegir (RF-143): sin tachados pedidos y con hasta 2 % de errores graves."""
+    motivos = []
+    if tachados_pedidos:
+        motivos.append(f"pide {tachados_pedidos} {'tachado' if tachados_pedidos == 1 else 'tachados'}")
+    pct = 100 * errores_graves / esperados if esperados else 0.0
+    if pct > MAX_GRAVES_PCT:
+        motivos.append(f"errores graves en {pct:.1f} % de los renglones (máx. {MAX_GRAVES_PCT:g} %)")
+    return not motivos, "; ".join(motivos) or None
 
 
 def resumir(fotos: list[Foto], salidas: list[dict], ilegibles: list[bool], precio: tuple[float, float] | None) -> dict:
@@ -483,6 +596,11 @@ def resumir(fotos: list[Foto], salidas: list[dict], ilegibles: list[bool], preci
     usd_total = None if None in costos else sum(costos)
     usd_por_foto = round(usd_total / len(salidas), 6) if usd_total is not None and salidas else None
     usd_por_1000 = round(1000 * usd_total / esperados, 4) if usd_total is not None and esperados else None
+    tachados = sum(foto.tachados_pedidos for foto in fotos)
+    graves = sum(foto.errores_graves for foto in fotos)
+    elegible, motivo = elegibilidad(tachados, graves, esperados)
+    peores_hojas = sorted(({"foto": foto.caso["id"], "S": round(foto.S, 3)} for foto in fotos),
+                          key=lambda hoja: (hoja["S"], hoja["foto"]))[:5]  # fmt: skip
     return {
         "fotos": len(fotos),
         "S": _proporcion(numerador, denominador),
@@ -491,8 +609,15 @@ def resumir(fotos: list[Foto], salidas: list[dict], ilegibles: list[bool], preci
         "precision": precision,
         "recall": recall,
         "f1": f1,
+        "S_por_hoja": round(sum(foto.S for foto in fotos) / len(fotos), 3) if fotos else None,
+        "elegible": elegible,
+        "motivo": motivo,
+        "errores_graves": graves,
+        "errores_graves_pct": round(100 * graves / esperados, 1) if esperados else None,
         "errores_silenciosos": sum(foto.errores_silenciosos for foto in fotos),
-        "tachados_pedidos": sum(foto.tachados_pedidos for foto in fotos),
+        "tachados_pedidos": tachados,
+        "peores_hojas": peores_hojas,
+        "peores_renglones": peores_renglones(fotos),
         "json_valido_pct": round(100 * sum(foto.json_valido for foto in fotos) / len(fotos), 1) if fotos else None,
         "ilegibles": {"fotos": len(ilegibles), "marcadas_ilegibles": sum(ilegibles)},
         "segundos_p50": _percentil([salida["segundos"] for salida in salidas], 0.5),
@@ -501,8 +626,11 @@ def resumir(fotos: list[Foto], salidas: list[dict], ilegibles: list[bool], preci
         "usd_por_1000_renglones": usd_por_1000,
         "por_dificultad": _cortes(fotos, lambda esperado: esperado.get("dificultad", [])),
         "por_origen": _cortes(fotos, lambda esperado: [esperado.get("origen") or "sin dato"]),
-        "por_luz": _por_condicion(fotos, "luz"),
-        "por_papel": _por_condicion(fotos, "papel"),
+        "por_persona": _por_foto(fotos, lambda caso: caso.get("persona")),
+        "por_letra": _por_foto(fotos, _condicion("letra")),
+        "por_nitidez": _por_foto(fotos, _condicion("nitidez")),
+        "por_luz": _por_foto(fotos, _condicion("luz")),
+        "por_papel": _por_foto(fotos, _condicion("papel")),
     }
 
 
@@ -587,7 +715,110 @@ def puntuar_corrida(
                                    "niveles": niveles})  # fmt: skip
         if detalle is not None:
             detalle.append(Puntuado(modelo, huellas[0], fotos, niveles))
+    distintas = {m["huella"] for m in resumen["modelos"]}
+    if len(distintas) > 1:
+        resumen["avisos"].append(
+            "los modelos de esta corrida se leyeron con prompts distintos (huellas "
+            + ", ".join(sorted((h or "mezcladas")[:8] for h in distintas))
+            + "): no se comparan entre sí"
+        )
     return resumen
+
+
+# --- Validación de la scoring (RF-145, RF-146) ---
+
+SEMILLA_ORDENAR = 145
+MIN_ACUERDO_PCT = 80.0
+MAX_DIFERENCIA_INVERTIDA = 0.1
+
+
+def _renglon_para_ordenar(leido: Leido, nombres: dict[str, str]) -> str:
+    if not leido.candidatos:
+        producto = f"«{leido.texto}» (no está en el catálogo)"
+    elif len(leido.skus) == 1:
+        producto = nombres.get(leido.candidatos[0], leido.candidatos[0])
+    else:
+        producto = " o ".join(nombres.get(sku, sku) for sku in leido.candidatos)
+    cantidad = "sin cantidad" if leido.cantidad is None else f"× {leido.cantidad:g}"
+    detalle = f", tono {leido.tono}" if leido.tono else ""
+    detalle += f", {leido.unidad}" if leido.unidad else ""
+    return f"{producto} {cantidad}{detalle}" + (" — pregunta" if leido.duda else "")
+
+
+def para_ordenar(
+    puntuados: list[Puntuado], cuantos: int, semilla: int = SEMILLA_ORDENAR
+) -> tuple[str, dict, list[str]]:
+    """El documento para ordenar a mano y su clave: pares modelo + foto de desarrollo, nivel (b), sin modelo ni S."""
+    from internal.evaluar_busqueda import leer_catalogo
+
+    nombres = {producto.sku: producto.name for producto in leer_catalogo()}
+    todos = sorted(
+        ((puntuado.modelo, foto) for puntuado in puntuados for foto in puntuado.fotos["b"].get("desarrollo", [])),
+        key=lambda par: (par[1].caso["id"], par[0]),
+    )
+    rng = random.Random(semilla)
+    elegidos = rng.sample(todos, min(cuantos, len(todos)))
+    avisos = [f"hay {len(todos)} pares de desarrollo, menos que los {cuantos} pedidos"] if len(todos) < cuantos else []
+
+    lineas = ["# Ordenar de mejor a peor", "",
+              "Cada bloque es lo que quedó de una hoja: lo que pidió el cliente y lo que se le habría propuesto. "
+              "Ordená los ids de mejor a peor y pasalos a `validar --orden`.", ""]  # fmt: skip
+    clave: dict[str, Any] = {"semilla": semilla, "nivel": "b", "items": {}}
+    for numero, (modelo, foto) in enumerate(elegidos, start=1):
+        id_ = f"O{numero:02d}"
+        clave["items"][id_] = {"modelo": modelo, "foto": foto.caso["id"], "S": round(foto.S, 4)}
+        lineas += [f"## {id_}", "", "| Pidió | Se propone |", "|---|---|"]
+        propuestos = {id(par.esperado): par.leido for par in foto.pares}
+        for esperado in sorted(foto.caso["renglones"], key=lambda renglon: renglon["n"]):
+            leido = propuestos.get(id(esperado))
+            lineas.append(f"| {esperado['texto']} | {_renglon_para_ordenar(leido, nombres) if leido else '—'} |")
+        for sobrante in foto.sobrantes:
+            lineas.append(f"| — | {_renglon_para_ordenar(sobrante.leido, nombres)} |")
+        lineas.append("")
+    return "\n".join(lineas), clave, avisos
+
+
+@dataclass
+class Validacion:
+    acuerdo_pct: float | None = None
+    invertidos: list[tuple[str, str, float]] = field(default_factory=list)  # mejor según la persona, peor, ΔS
+    problemas: list[str] = field(default_factory=list)
+
+    @property
+    def valida(self) -> bool:
+        return (
+            not self.problemas
+            and self.acuerdo_pct is not None
+            and self.acuerdo_pct >= MIN_ACUERDO_PCT
+            and all(diferencia <= MAX_DIFERENCIA_INVERTIDA for *_, diferencia in self.invertidos)
+        )
+
+
+def validar_orden(clave: dict, orden: list[str]) -> Validacion:
+    """Compara el orden de una persona (de mejor a peor) con el de S (RF-146)."""
+    items = clave["items"]
+    validacion = Validacion()
+    vistos = Counter(orden)
+    if repetidos := sorted(id_ for id_, veces in vistos.items() if veces > 1):
+        validacion.problemas.append(f"ids repetidos: {', '.join(repetidos)}")
+    if desconocidos := sorted(set(orden) - set(items)):
+        validacion.problemas.append(f"ids que no están en la clave: {', '.join(desconocidos)}")
+    if faltan := sorted(set(items) - set(orden)):
+        validacion.problemas.append(f"faltan ids: {', '.join(faltan)}")
+    if validacion.problemas:
+        return validacion
+    de_acuerdo = total = 0
+    for i, mejor in enumerate(orden):
+        for peor in orden[i + 1 :]:
+            total += 1
+            diferencia = items[peor]["S"] - items[mejor]["S"]
+            if diferencia <= 0:
+                de_acuerdo += 1
+            else:
+                validacion.invertidos.append((mejor, peor, round(diferencia, 4)))
+    validacion.acuerdo_pct = round(100 * de_acuerdo / total, 1) if total else 100.0
+    validacion.invertidos.sort(key=lambda par: -par[2])
+    return validacion
 
 
 # --- Línea de comandos ---
@@ -598,8 +829,8 @@ def _num(valor: float | None, formato: str, vacio: str = "-") -> str:
 
 
 def _tabla(resumen: dict) -> str:
-    columnas = ("modelo", "nivel", "grupo", "fotos", "S", "intervalo", "perfectas", "F1", "silenciosos",
-                "tachados", "JSON", "p50 s", "USD/foto")  # fmt: skip
+    columnas = ("modelo", "prompt", "nivel", "grupo", "fotos", "S", "intervalo", "elegible", "graves", "silenciosos",
+                "tachados", "perfectas", "F1", "JSON", "p50 s", "USD/foto")  # fmt: skip
     filas = [columnas]
     for modelo in resumen["modelos"]:
         for nivel, grupos in modelo["niveles"].items():
@@ -607,11 +838,13 @@ def _tabla(resumen: dict) -> str:
                 if not m:
                     continue
                 filas.append((
-                    modelo["modelo"], nivel, grupo, str(m["fotos"]), _num(m["S"], "{:.3f}"),
-                    f"[{m['S_intervalo'][0]:.2f}, {m['S_intervalo'][1]:.2f}]",
+                    modelo["modelo"], (modelo["huella"] or "mezcladas")[:8], nivel, grupo, str(m["fotos"]),
+                    _num(m["S"], "{:.3f}"), f"[{m['S_intervalo'][0]:.2f}, {m['S_intervalo'][1]:.2f}]",
+                    "sí" if m["elegible"] else "no", _num(m["errores_graves_pct"], "{:.1f} %"),
+                    str(m["errores_silenciosos"]), str(m["tachados_pedidos"]),
                     _num(m["fotos_perfectas_pct"], "{:.0f} %"), _num(m["f1"], "{:.2f}"),
-                    str(m["errores_silenciosos"]), str(m["tachados_pedidos"]), _num(m["json_valido_pct"], "{:.0f} %"),
-                    _num(m["segundos_p50"], "{}"), _num(m["usd_por_foto"], "{:.4f}", "?"),
+                    _num(m["json_valido_pct"], "{:.0f} %"), _num(m["segundos_p50"], "{}"),
+                    _num(m["usd_por_foto"], "{:.4f}", "?"),
                 ))  # fmt: skip
     anchos = [max(len(fila[i]) for fila in filas) for i in range(len(columnas))]
     return "\n".join("  ".join(valor.ljust(ancho) for valor, ancho in zip(fila, anchos, strict=True)) for fila in filas)
@@ -624,12 +857,14 @@ def _detalle(puntuados: list[Puntuado]) -> str:
             for grupo, fotos in grupos.items():
                 for foto in fotos:
                     lineas.append(f"\n{puntuado.modelo} · nivel {nivel} · {grupo} · {foto.caso['id']}: "
-                                  f"S = {foto.numerador:.1f} / {foto.denominador}")  # fmt: skip
+                                  f"S = {foto.numerador:.1f} / {foto.denominador:g}")  # fmt: skip
                     for par in foto.pares:
                         marca = "duda" if par.duda else ("ok" if par.s == 1 else "mal")
                         lineas.append(f"  {par.s:.1f} {marca:<4} {par.esperado['texto']}  ←  {par.leido.texto}")
                     lineas += [f"  0.0 omit {esperado['texto']}" for esperado in foto.omitidos]
-                    lineas += [f"  +1  sobra {leido.texto}" for leido in foto.sobrantes]
+                    for sobrante in foto.sobrantes:
+                        motivo = " (tachado)" if sobrante.tachado else ""
+                        lineas.append(f"  +{sobrante.costo:g} sobra {sobrante.leido.texto}{motivo}")
     return "\n".join(lineas)
 
 
@@ -673,13 +908,23 @@ def main(argv: list[str] | None = None) -> int:
     ayuda_precio = "proveedor:modelo=ENTRADA,SALIDA en USD por millón de tokens (se puede repetir)"
     puntuar_.add_argument("--precio", type=_precio, action="append", default=[], help=ayuda_precio)
     puntuar_.add_argument("--detalle", action="store_true", help="muestra cada renglón de cada foto")
+    puntuar_.add_argument("--para-ordenar", type=int, metavar="N",
+                          help="escribe ordenar.md con N pares de desarrollo para ordenar a mano")  # fmt: skip
+    puntuar_.add_argument("--semilla", type=int, default=SEMILLA_ORDENAR)
+
+    validar_ = comandos.add_parser("validar", help="Compara un orden hecho a mano con el de la scoring")
+    validar_.add_argument("corrida", help="nombre de la carpeta en corridas/, o su ruta")
+    validar_.add_argument("--casos", type=Path, default=CASOS)
+    validar_.add_argument("--orden", required=True, help="los ids de ordenar.md de mejor a peor: O07,O02,…")
 
     args = parser.parse_args(argv)
+    carpeta = _carpeta_de_corrida(args.casos, args.corrida)
+    if args.comando == "validar":
+        return _comando_validar(carpeta, args.orden)
     if not args.casos.exists():
         print(f"Falta {args.casos}: armalo con python -m internal.benchmark_manuscritos casos")
         return 1
     casos = json.loads(args.casos.read_text(encoding="utf-8"))
-    carpeta = _carpeta_de_corrida(args.casos, args.corrida)
 
     if args.comando == "correr":
         informe = correr(casos, args.casos.parent, carpeta, args.modelo, grupo=args.grupo,
@@ -709,8 +954,35 @@ def main(argv: list[str] | None = None) -> int:
         print(f"- {aviso}")
     if args.detalle:
         print(_detalle(puntuados))
+    if args.para_ordenar:
+        documento, clave, avisos = para_ordenar(puntuados, args.para_ordenar, args.semilla)
+        (carpeta / "ordenar.md").write_text(documento + "\n", encoding="utf-8")
+        _guardar(carpeta / "ordenar_clave.json", clave)
+        for aviso in avisos:
+            print(f"- {aviso}")
+        print(f"\nPara ordenar: {carpeta / 'ordenar.md'} (no abras ordenar_clave.json hasta terminar)")
     print(f"\nResumen en {carpeta / 'resumen.json'}")
     return 0
+
+
+def _comando_validar(carpeta: Path, orden: str) -> int:
+    ruta = carpeta / "ordenar_clave.json"
+    if not ruta.exists():
+        print(f"Falta {ruta}: primero corré puntuar --para-ordenar")
+        return 1
+    validacion = validar_orden(json.loads(ruta.read_text(encoding="utf-8")),
+                               [id_.strip() for id_ in orden.split(",") if id_.strip()])  # fmt: skip
+    if validacion.problemas:
+        print("El orden no sirve:\n- " + "\n- ".join(validacion.problemas))
+        return 1
+    print(f"Pares en el mismo orden que S: {validacion.acuerdo_pct:.1f} % (mínimo {MIN_ACUERDO_PCT:g} %)")
+    for mejor, peor, diferencia in validacion.invertidos:
+        print(f"- {mejor} antes que {peor}, pero S dice lo contrario por {diferencia:.3f}")
+    if validacion.valida:
+        print("La scoring es válida: se puede usar para comparar y optimizar")
+        return 0
+    print(f"La scoring no es válida: revisá los pares invertidos (máximo {MAX_DIFERENCIA_INVERTIDA:g} de S)")
+    return 1
 
 
 if __name__ == "__main__":
