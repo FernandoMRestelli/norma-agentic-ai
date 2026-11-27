@@ -6,9 +6,10 @@
 > scoring con el orden a mano (§6.9). El comportamiento nuevo entra primero a la spec (RF y CA) y después al código,
 > como pide `CONTRIBUTING.md`.
 >
-> **Dependencias:** todo lo que se cita ya está en `develop`: `docs/spec/lectura-de-imagenes.md`, D-42, D-50 (grupos
-> `desarrollo`/`reservado`), RNF-18, el intervalo de Wilson de `evaluar_agente`, la lectura, `renglones_desde_lectura`,
-> `buscar_renglones` y `comparar_vision`.
+> **Dependencias:** todo lo que se cita del código ya está en `develop`: D-42, D-50 (grupos `desarrollo`/`reservado`),
+> RNF-18, el intervalo de Wilson de `evaluar_agente`, la lectura, `renglones_desde_lectura`, `buscar_renglones` y
+> `comparar_vision`. La spec de lectura de imágenes (`docs/spec/lectura-de-imagenes.md`) es un plan local que no se
+> versionó: lo que el benchmark necesita de ella está en la [spec del benchmark](spec/benchmark-manuscritos.md).
 
 La idea viene de la clase 9 de IA Agéntica (AI Benchmarks): un leaderboard global no dice qué modelo conviene para
 *esta* tarea, así que armamos un benchmark propio, orientado a la tarea, con la forma
@@ -92,7 +93,7 @@ Tres modelos de visión, uno por tipo, con el mismo prompt (`INSTRUCCIONES`) y l
 |---|---|---|---|
 | `gpt-6-luna` | `openai` | El que está configurado hoy | Por token |
 | GPT Terra (id exacto a confirmar) | `openai` (u `openrouter`) | Otro modelo de frontera, de otra escala | Por token |
-| Modelo local, por defecto `Qwen/Qwen3-VL-2B-Instruct` | `huggingface` | Sin API key ni envío de fotos a terceros | USD 0, tarda más (≈ 16 s por imagen) |
+| Modelo local, por defecto `Qwen/Qwen3-VL-2B-Instruct` | `huggingface` | Sin API key ni envío de fotos a terceros | USD 0, tarda más: 100 a 140 s por hoja de 15 renglones en una Mac (≈ 16 s con las imágenes cortas de `tests/fixtures/`) |
 
 El nivel (a) de los tres sale de una sola corrida, que ya soporta `comparar_vision`:
 
@@ -577,7 +578,7 @@ graves bajan a 1; el F1 no se mueve. Sigue sin ser elegible mientras pida el tac
 **Por imagen** se registra: modelo, huella del prompt, segundos, tokens de entrada y salida, USD (`--precio`), si el
 JSON salió válido y el error si lo hubo (todo eso ya está en `Lectura`). Por modelo se reporta: S con intervalo, p50 y
 p95 de segundos, USD por imagen y USD por cada 1000 renglones. Con eso se arma la **frontera puntaje vs. costo**: por
-ejemplo, si Qwen local (USD 0, ~16 s) queda cerca de un modelo de API, o si `VISION_MARCAS` vale los tokens extra
+ejemplo, si Qwen local (USD 0, unos 2 minutos por hoja) queda cerca de un modelo de API, o si `VISION_MARCAS` vale los tokens extra
 (cierra D-42).
 
 **Separación por persona, no por imagen:** las dos hojas de una persona van al mismo grupo, así lo reservado mide
@@ -615,12 +616,42 @@ El mismo benchmark sirve para comparar un modelo solo, modelo + prompt (con y si
 
 1. ~~Spec, pool, listas y Form~~: hecho en [`docs/spec/benchmark-manuscritos.md`](spec/benchmark-manuscritos.md)
    (RF-126 a RF-129) e `internal/benchmark_manuscritos.py`. Los RF y CA del runner van en esa misma spec.
-2. Crear el Form con `crear_form.gs`, agregar la pregunta de la foto y mandar el link.
-3. Juntar las fotos con el Form, revisarlas contra su lista y armar `casos.json` cruzando `respuestas.csv` con
-   `listas.json`.
-4. Correr el nivel (a) con `comparar_vision --casos` (sin código nuevo).
+2. ~~Crear el Form con `crear_form.gs`, agregar la pregunta de la foto y mandar el link.~~
+3. Juntar las fotos con el Form y armar `casos.json` cruzando `respuestas.csv` con `listas.json`. Hay 6 (§10); la
+   revisión foto por foto se saltea y se asume que cada persona copió su lista tal cual.
+4. ~~Correr el nivel (a) con `comparar_vision --casos`~~: lo reemplaza `evaluar_manuscritos`, que mide (a) y (b).
 5. ~~Runner de los niveles (a) y (b)~~: `python -m internal.evaluar_manuscritos correr` guarda cada salida y
    `puntuar` la puntúa sin llamar a ningún modelo ([spec](spec/benchmark-manuscritos.md#33-corrida), RF-133 a
    RF-147), con la scoring de la §6.
 6. Validar la scoring con el orden a mano de la §6.9, sobre desarrollo, antes de comparar modelos.
 7. Nivel (c) y optimización con DSPy/GEPA solo con permiso, porque llaman a un LLM pago.
+8. Con 15 a 20 salidas de desarrollo, validar la scoring (§6.9) y revisar los dos puntos de la §10.
+
+## 10. Primera prueba (2026-11-26)
+
+Con las primeras 6 fotos del Form, para probar el circuito de punta a punta: 3 personas quedaron en `desarrollo` y 3
+en `reservado`, que no se corrió. Las fotos se unieron con su pedido por la hora de subida, y lo leído sigue el orden
+de cada lista, así que ninguna quedó cruzada. Sin revisión: se asume que todos copiaron bien.
+
+| Modelo | S (a) lectura | S (b) interpretación | Intervalo de (b) | Errores graves en (b) | Elegible | Segundos por hoja |
+|---|---|---|---|---|---|---|
+| Qwen3-VL 2B, local | 0,15 | 0,33 | [0,14; 0,70] | 2,2 % | no | ≈ 120 |
+| `gpt-6-luna` | 0,49 | 0,56 | [0,32; 0,95] | 2,2 % | no | ≈ 21 |
+
+Con 3 hojas los intervalos se pisan y no alcanza para elegir modelo. Lo que sí mostró:
+
+- **El tope de 1024 tokens del modelo local cortaba el JSON** de una hoja de 15 renglones (unos 3.000 tokens con
+  Qwen y hasta 4.800 con Luna). Se subió a 20.000 (RF-148).
+- **Una de las tres letras se lee bien y dos no.** En la hoja clara Luna llega a S = 0,95 en (b) y Qwen a 0,70; en
+  las otras dos los dos caen por debajo de 0,45. Es la diferencia que el corte por letra tiene que mostrar cuando se
+  anote en la revisión.
+- **Errores de los modelos que la scoring castigó bien:** el encabezado leído como renglón, la medida tomada como
+  cantidad («300» por «4») y un renglón de más, sin duda, que se habría mandado.
+- **Dos puntos de la scoring para la validación de la §6.9**, sin cambiar nada todavía:
+  - En (a), un renglón mal leído cuenta doble (omitido y sobrante de costo 1), y una letra cambiada en una palabra
+    que no es marca («tinture» por «tintura») ya no empareja. Por eso (a) queda muy por debajo de (b) con letra
+    difícil. Puede ser lo correcto para diagnosticar la lectura, o puede convenir una tolerancia de una letra en las
+    palabras largas.
+  - En (b), lo que se lee tan mal que la búsqueda no lo encuentra cuesta 0,2 y no 1, porque el agente pregunta. Con
+    letra difícil eso deja los errores graves bajos aunque el S sea malo: el filtro mide que no salga nada mal, y S
+    mide cuánto sale bien. Hay que ver si esa división coincide con el orden a mano.
