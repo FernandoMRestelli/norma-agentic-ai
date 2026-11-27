@@ -12,7 +12,7 @@
 | Estado | Implementado (RF-126 a RF-147); falta validar la scoring con el orden a mano |
 | Responsable | Federico Picado |
 | Requisitos relacionados | RF-101 a RF-110 y RNF-18 ([lectura de imágenes](lectura-de-imagenes.md)), D-50 (desarrollo y reservado) |
-| IDs que reserva | RF-126 a RF-148, CA-218 a CA-249 |
+| IDs que reserva | RF-126 a RF-148, CA-218 a CA-250 |
 
 ## 1. Objetivo
 
@@ -480,6 +480,7 @@ En la carpeta de la corrida (§3.5). La clave:
 | CA-247 | Una corrida con dos modelos cuyas salidas tienen huellas distintas | Se puntúa | El resumen trae la huella de cada uno y avisa que no se comparan entre sí | `tests/test_evaluar_manuscritos.py::test_huellas_distintas_se_avisan` |
 | CA-248 | Una revisión con `letra: dificil` y `nitidez: nitida` en una foto, nada en otra y `letra: regular` en una tercera | Se arman los casos | La primera trae esos valores en `condiciones`, la segunda «sin dato», y la tercera es un problema que nombra su foto | `tests/test_benchmark_manuscritos.py::test_letra_y_nitidez` |
 | CA-249 | El modelo local con una entrada de 3.900 tokens y otra de 100.001 | Se lee la imagen | La primera genera con `max_new_tokens=20000`; la segunda devuelve la lectura con el error y no genera | `tests/test_vision.py::test_topes_de_tokens_del_modelo_local` |
+| CA-250 | `VISION_MARCAS=true` y un catálogo de producción con otra marca | Se corre una foto | El prompt que recibe el modelo trae las marcas de `catalogo_evaluacion.csv` y no la de producción, y el catálogo de producción vuelve a su lugar al terminar | `tests/test_evaluar_manuscritos.py::test_correr_manda_las_marcas_del_catalogo_de_evaluacion` |
 
 ## 7. Errores y casos borde
 

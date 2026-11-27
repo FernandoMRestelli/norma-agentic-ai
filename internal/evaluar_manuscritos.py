@@ -182,7 +182,9 @@ def correr(
             imagen = (carpeta_casos / caso["archivo"]).read_bytes()
             informe.llamadas += 1
             try:
-                lectura = leer(imagen, proveedor, modelo)
+                # Con VISION_MARCAS, las marcas del prompt salen del catálogo de las listas, como en la huella
+                with catalogo_de_evaluacion():
+                    lectura = leer(imagen, proveedor, modelo)
             except ImportError as exc:  # el modelo local sin requirements-vision-local.txt: no es culpa de la foto
                 informe.avisos.append(f"{proveedor}:{modelo} no se pudo cargar ({exc}); sigo con los demás")
                 break

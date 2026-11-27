@@ -84,6 +84,20 @@ class Lector:
 
 
 @pytest.fixture
+def settings(monkeypatch):
+    """Cambia variables de entorno de la configuración y limpia el caché de `get_settings`."""
+    from internal.config import get_settings
+
+    def configurar(**valores):
+        for clave, valor in valores.items():
+            monkeypatch.setenv(clave, valor)
+        get_settings.cache_clear()
+
+    yield configurar
+    get_settings.cache_clear()
+
+
+@pytest.fixture
 def carpeta(tmp_path):
     (tmp_path / "imagenes").mkdir()
     return tmp_path
@@ -544,3 +558,25 @@ def test_huellas_distintas_se_avisan(carpeta, monkeypatch):
     huellas = {modelo["modelo"]: modelo["huella"] for modelo in resumen["modelos"]}
     assert len(set(huellas.values())) == 2
     assert any("no se comparan" in aviso for aviso in resumen["avisos"])
+
+
+
+def test_correr_manda_las_marcas_del_catalogo_de_evaluacion(carpeta, settings, monkeypatch):
+    """CA-250: con VISION_MARCAS, el prompt que recibe el modelo trae las marcas de catalogo_evaluacion.csv, no las
+    del catálogo de producción, y es el mismo que firma la huella."""
+    from internal.schemas.catalog_schema import Product
+    from internal.services import inventory_service
+
+    produccion = [Product(sku="R1", name="SHAMPOO X 1L", brand="MARCA DE PRODUCCION", price=100, stock=5)]
+    monkeypatch.setattr(inventory_service, "get_catalog", lambda *_, **__: produccion)
+    settings(VISION_MARCAS="true")
+    prompts = []
+
+    def leer(imagen, proveedor, modelo):
+        prompts.append(vision_service.instrucciones())
+        return Lector()(imagen, proveedor, modelo)
+
+    casos = _casos(carpeta, ["p01-A"])
+    em.correr(casos, carpeta, carpeta / "corridas" / "prueba", [("huggingface", "falso")], leer=leer)
+    assert "NORDIKA" in prompts[0] and "MARCA DE PRODUCCION" not in prompts[0]
+    assert inventory_service.get_catalog() == produccion  # el catálogo de producción vuelve a su lugar
