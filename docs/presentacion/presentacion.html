@@ -1,0 +1,1518 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Norma - Presentación final TP IAA</title>
+  <!--
+    Presentación final del TP de IA Agéntica (Grupo 10).
+    Sigue el formato de la propuesta inicial. Lo que falta definir está en cajas
+    «⏳ A-xx», con los IDs de docs/presentacion/plan.md §8.
+    Navegación: ← → o barra espaciadora.
+  -->
+  <style>
+    :root {
+      /* Paleta Neutra Grafito / Carbón (la de la propuesta) */
+      --bg-dark: #0f1012;
+      --card-bg: #18191d;
+      --card-alt: #212328;
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --text-dim: #6b7280;
+
+      --accent: #10b981;
+      --accent-glow: rgba(16, 185, 129, 0.15);
+      --accent-light: #6ee7b7;
+      --warning: #f59e0b;
+      --border: #2d3037;
+      --border-light: #3a3e47;
+
+      /* Pendientes de definir */
+      --pending: #a78bfa;
+      --pending-bg: rgba(167, 139, 250, 0.06);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    code {
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.88em;
+      color: var(--accent-light);
+      background: rgba(16, 185, 129, 0.07);
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+
+    .deck-container {
+      width: 92vw;
+      max-width: 1220px;
+      height: calc(100vh - 80px);
+      max-height: 720px;
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .slide {
+      display: none;
+      height: 100%;
+      padding: 44px 60px 30px;
+      flex-direction: column;
+      justify-content: space-between;
+      animation: fadeIn 0.22s ease-out;
+    }
+
+    .slide.active { display: flex; }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .slide-header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 14px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      column-gap: 24px;
+    }
+
+    .slide-header .tag,
+    .slide-header .slide-title { grid-column: 1; }
+
+    /* Pendientes de la diapositiva: etiquetas chicas a la derecha del título */
+    .todo-chips {
+      grid-column: 2;
+      grid-row: 1 / 3;
+      align-self: end;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 6px;
+      max-width: 560px;
+    }
+
+    .todo-chip {
+      font-size: 0.72rem;
+      color: var(--pending);
+      border: 1px dashed var(--pending);
+      background: var(--pending-bg);
+      padding: 4px 10px;
+      border-radius: 12px;
+      white-space: nowrap;
+      cursor: help;
+    }
+
+    /* Números grandes como ancla de la diapositiva */
+    .stat-xl {
+      font-size: 3.4rem;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: -1.5px;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .stat-xl .from { color: var(--text-dim); font-weight: 600; font-size: 0.55em; letter-spacing: -0.5px; }
+
+    .stat-caption { font-size: 0.9rem; color: var(--text-muted); margin-top: 8px; line-height: 1.45; }
+
+    .quote-lg {
+      font-size: 1.6rem;
+      font-style: italic;
+      color: #fff;
+      line-height: 1.35;
+      padding-left: 16px;
+      border-left: 2px solid var(--accent);
+    }
+
+    .stack { display: flex; flex-direction: column; gap: 18px; }
+
+    /* El contenido ocupa todo el alto disponible, sin bandas vacías */
+    .slide-body.fill { justify-content: stretch; }
+    .slide-body.fill > :first-child { flex: 1; min-height: 0; }
+
+    .cols-3-even { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; align-items: stretch; }
+    .cols-4-even { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
+    .cols-2-even { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: stretch; }
+
+    .stat-md {
+      font-size: 2.3rem;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: -1px;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .stat-md .from, .stat-xl .from { color: var(--text-dim); font-weight: 600; font-size: 0.55em; letter-spacing: -0.5px; }
+
+    /* Lista de números chicos dentro de una tarjeta */
+    .stat-rows { display: flex; flex-direction: column; gap: 14px; }
+    .stat-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+    .stat-row:last-child { border-bottom: none; padding-bottom: 0; }
+    .stat-row .lbl { font-size: 0.88rem; color: var(--text-muted); }
+    .stat-row .val { font-size: 1.45rem; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .stat-row .val .from { color: var(--text-dim); font-weight: 600; font-size: 0.8em; }
+
+    /* Tarjeta en una sola fila, para un dato de cierre */
+    .card.strip { flex-direction: row; align-items: center; justify-content: flex-start; gap: 28px; padding: 16px 24px; }
+    .strip-item { font-size: 0.9rem; color: var(--text-muted); line-height: 1.45; }
+    .strip-item strong { color: #fff; }
+
+    .chip-code {
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.85rem;
+      color: var(--accent-light);
+      border: 1px solid var(--border-light);
+      border-radius: 14px;
+      padding: 4px 10px;
+      white-space: nowrap;
+    }
+
+    .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+
+    /* Diagrama de arquitectura que ocupa todo el alto */
+    .loop-container.fill-h { height: 100%; }
+    .loop-container.fill-h .flow-row { flex: 1; }
+    .loop-container.fill-h .flow-step { justify-content: center; }
+
+    table.fill-t { height: 100%; }
+
+    .skill-fn { font-size: 1.02rem; color: #fff; line-height: 1.4; }
+    .hypo-card .chip-row { gap: 6px; }
+    .hypo-card .chip-code { font-size: 0.76rem; padding: 3px 8px; }
+
+    /* Árbol de carpetas */
+    .card.tree-card { justify-content: center; padding: 22px 26px; }
+    .tree {
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.86rem;
+      line-height: 1.75;
+      color: var(--text-dim);
+      white-space: pre;
+      overflow: hidden;
+    }
+    .tree .d { color: #fff; font-family: "SF Mono", Menlo, Consolas, monospace; }
+    .tree .d.hl { color: var(--accent-light); }
+    .tree .c { color: var(--text-muted); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+
+    .card.hypo-card, .card.spread { justify-content: space-between; gap: 14px; }
+    .hypo-card .hypo-text { font-size: 1.35rem; line-height: 1.35; margin-bottom: 0; }
+    .hypo-meta { font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; border-top: 1px solid var(--border); padding-top: 12px; }
+    .hypo-meta strong { color: var(--accent-light); font-weight: 600; }
+
+    .tag {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--accent);
+      font-weight: 700;
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .slide-title {
+      font-size: 1.95rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      color: #fff;
+    }
+
+    .slide-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 16px;
+      margin-top: 20px;
+      min-height: 0;
+    }
+
+    .src {
+      margin-top: 14px;
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      letter-spacing: 0.2px;
+    }
+
+    .src code { font-size: 0.95em; color: var(--text-muted); background: none; padding: 0; }
+
+    /* Layouts Asimétricos */
+    .asym-60-40 { display: grid; grid-template-columns: 1.5fr 1fr; gap: 24px; align-items: stretch; }
+    .asym-40-60 { display: grid; grid-template-columns: 1fr 1.6fr; gap: 24px; align-items: stretch; }
+    .asym-hero-side { display: grid; grid-template-columns: 1.6fr 1fr; gap: 26px; }
+    .cols-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; align-items: stretch; }
+
+    .card {
+      background-color: var(--card-alt);
+      border: 1px solid var(--border);
+      padding: 22px 26px;
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .card.highlight {
+      background: linear-gradient(145deg, #24272f 0%, #1c1d22 100%);
+      border-left: 3px solid var(--accent);
+    }
+
+    .card.warning-box {
+      border-left: 3px solid var(--warning);
+      background-color: rgba(245, 158, 11, 0.04);
+    }
+
+    .card h3 {
+      font-size: 1.15rem;
+      color: #fff;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .card h3 .icon { color: var(--accent); font-size: 1.1rem; }
+
+    .card ul {
+      list-style-type: none;
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      line-height: 1.55;
+    }
+
+    .card ul.compact { font-size: 0.86rem; line-height: 1.45; }
+    .card ul.compact li { margin-bottom: 8px; }
+
+    .card ul li { margin-bottom: 11px; position: relative; padding-left: 20px; }
+    .card ul li:last-child { margin-bottom: 0; }
+
+    .card ul li::before {
+      content: "—";
+      color: var(--accent);
+      position: absolute;
+      left: 0;
+      font-weight: bold;
+    }
+
+    .card ul li strong { color: #fff; }
+
+    /* Tablas */
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 0.93rem;
+      background-color: var(--card-alt);
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+
+    table.compact { font-size: 0.84rem; }
+    table.compact th, table.compact td { padding: 10px 16px; }
+
+    th, td { padding: 15px 20px; text-align: left; }
+
+    th {
+      background-color: #131417;
+      color: var(--accent-light);
+      font-weight: 600;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    tr:not(:last-child) td { border-bottom: 1px solid var(--border); }
+    td { color: var(--text-muted); vertical-align: top; line-height: 1.45; }
+    td strong { color: #fff; }
+    td.num { font-variant-numeric: tabular-nums; color: #fff; }
+
+    /* Flujo (arquitectura) */
+    .loop-container { display: flex; flex-direction: column; gap: 14px; width: 100%; }
+
+    .flow-row { display: flex; align-items: stretch; justify-content: space-between; gap: 12px; }
+
+    .flow-step {
+      background: var(--card-alt);
+      border: 1px solid var(--border);
+      padding: 14px 16px;
+      border-radius: 8px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .flow-step.core-agent { border: 1px solid var(--accent); background: rgba(16, 185, 129, 0.05); }
+    .flow-step.guard { border: 1px solid rgba(245, 158, 11, 0.55); background: rgba(245, 158, 11, 0.04); }
+
+    .flow-step-num {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--accent);
+      font-weight: bold;
+    }
+
+    .flow-step.guard .flow-step-num { color: var(--warning); }
+
+    .flow-step-title { font-size: 0.95rem; font-weight: 600; color: #fff; }
+    .flow-step-desc { font-size: 0.79rem; color: var(--text-muted); line-height: 1.4; }
+
+    .flow-arrow { color: var(--text-dim); font-size: 1.3rem; font-weight: bold; align-self: center; }
+
+    .loop-feedback {
+      background: rgba(245, 158, 11, 0.04);
+      border: 1px dashed var(--warning);
+      border-radius: 8px;
+      padding: 12px 18px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .loop-feedback strong { color: #fff; }
+
+    .loop-badge {
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--warning);
+      padding: 5px 12px;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .principle {
+      text-align: center;
+      font-size: 0.95rem;
+      color: var(--text-muted);
+    }
+
+    .principle strong { color: var(--accent-light); }
+
+    /* Hipótesis */
+    .hypo-item {
+      background: rgba(15, 16, 18, 0.5);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 13px 16px;
+      margin-bottom: 11px;
+    }
+
+    .hypo-item:last-child { margin-bottom: 0; }
+
+    .hypo-tag {
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: 1px;
+      margin-bottom: 4px;
+      display: block;
+    }
+
+    .hypo-text { font-size: 0.92rem; color: #fff; margin-bottom: 6px; line-height: 1.4; }
+    .hypo-baseline { font-size: 0.82rem; color: var(--text-muted); line-height: 1.45; }
+    .hypo-baseline strong { color: var(--warning); }
+
+    /* Números destacados */
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+
+    .stat {
+      background: rgba(15, 16, 18, 0.5);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+    }
+
+    .stat-value {
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: #fff;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.5px;
+    }
+
+    .stat-value .from { color: var(--text-dim); font-weight: 600; font-size: 1.05rem; }
+    .stat-label { font-size: 0.76rem; color: var(--text-muted); margin-top: 3px; }
+
+    /* Pendientes de definir */
+    .pending {
+      border: 1px dashed var(--pending);
+      background: var(--pending-bg);
+      border-radius: 8px;
+      padding: 11px 16px;
+      font-size: 0.84rem;
+      color: var(--text-muted);
+      line-height: 1.45;
+      display: flex;
+      gap: 12px;
+      align-items: baseline;
+    }
+
+    .pending-tag {
+      color: var(--pending);
+      font-weight: 700;
+      font-size: 0.72rem;
+      letter-spacing: 1px;
+      white-space: nowrap;
+      text-transform: uppercase;
+    }
+
+    .pending strong { color: #fff; }
+
+    .tbd {
+      color: var(--pending);
+      font-weight: 600;
+      font-size: 0.82rem;
+      letter-spacing: 0.5px;
+    }
+
+    .card.pending-card {
+      border: 1px dashed var(--pending);
+      background: var(--pending-bg);
+    }
+
+    .card.pending-card h3 .icon { color: var(--pending); }
+
+    /* Controles de Navegación */
+    .nav-bar {
+      margin-top: 16px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 20px;
+      width: 100%;
+    }
+
+    .nav-arrow {
+      background: none;
+      border: none;
+      color: var(--text-dim);
+      font-size: 1.4rem;
+      cursor: pointer;
+      padding: 4px 10px;
+      line-height: 1;
+      border-radius: 6px;
+      transition: all 0.15s ease;
+      font-family: monospace;
+    }
+
+    .nav-arrow:hover:not(:disabled) { color: var(--accent); background-color: rgba(255, 255, 255, 0.04); }
+    .nav-arrow:disabled { color: #262930; cursor: not-allowed; }
+
+    .reel-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: #15161a;
+      padding: 8px 18px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+    }
+
+    .reel-dot {
+      width: 7px;
+      height: 7px;
+      background-color: var(--text-dim);
+      border-radius: 50%;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      opacity: 0.45;
+    }
+
+    .reel-dot:hover { opacity: 1; transform: scale(1.25); }
+
+    .reel-dot.active {
+      width: 22px;
+      height: 8px;
+      background: var(--accent);
+      border-radius: 10px;
+      opacity: 1;
+      box-shadow: 0 0 10px var(--accent-glow);
+    }
+
+    .reel-dot.has-pending:not(.active) { background-color: var(--pending); }
+
+    .slide-count { font-size: 0.75rem; color: var(--text-dim); font-variant-numeric: tabular-nums; min-width: 44px; }
+
+    /* Portada */
+    .hero-layout {
+      display: grid;
+      grid-template-columns: 1.6fr 1fr;
+      gap: 36px;
+      align-items: center;
+      height: 100%;
+    }
+
+    .hero-left h1 {
+      font-size: 2.5rem;
+      line-height: 1.15;
+      font-weight: 800;
+      color: #fff;
+      margin-bottom: 16px;
+      letter-spacing: -1px;
+    }
+
+    .hero-left p { font-size: 1.02rem; color: var(--text-muted); line-height: 1.55; margin-bottom: 22px; }
+    .hero-tags { display: flex; gap: 10px; flex-wrap: wrap; }
+
+    .pill {
+      background: #212328;
+      border: 1px solid var(--border-light);
+      padding: 6px 14px;
+      border-radius: 14px;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .pill.featured { color: var(--accent); border-color: rgba(16, 185, 129, 0.4); background: rgba(16, 185, 129, 0.05); }
+    .pill.pending-pill { color: var(--pending); border: 1px dashed var(--pending); background: var(--pending-bg); }
+
+    .team-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; margin-top: 14px; }
+
+    .team-member {
+      background: rgba(15, 16, 18, 0.6);
+      border: 1px solid var(--border);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .team-member::before { content: "•"; color: var(--accent); font-weight: bold; }
+
+    .legend { margin-top: 18px; font-size: 0.78rem; color: var(--text-dim); display: flex; gap: 8px; align-items: center; }
+    .legend .swatch { width: 14px; height: 10px; border: 1px dashed var(--pending); background: var(--pending-bg); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+  <div class="deck-container">
+
+    <!-- 1. PORTADA -->
+    <div class="slide active">
+      <div class="hero-layout">
+        <div class="hero-left">
+          <span class="tag">IAA · MAESTRÍA EN EXPLOTACIÓN DE DATOS Y DESCUBRIMIENTO DEL CONOCIMIENTO (UBA)</span>
+          <h1>Norma: agente de pedidos para una distribuidora de perfumería</h1>
+          <p>Recibe pedidos informales por texto, foto o audio, los interpreta contra el catálogo, le propone el pedido al cliente en el mismo chat y registra la orden solo cuando el cliente la acepta.</p>
+          <div class="hero-tags">
+            <span class="pill featured">Entrega final · Trabajo Práctico Integrador</span>
+            <span class="pill">Distribuidora Mayorista B2B</span>
+            <span class="pill pending-pill">⏳ A-02 · Fecha de exposición</span>
+          </div>
+        </div>
+
+        <div class="card highlight">
+          <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px;">
+            <h3 style="font-size: 1.05rem; margin-bottom: 0; color: #fff;">Grupo 10</h3>
+            <span style="font-size: 0.72rem; letter-spacing: 1px; color: var(--accent-light); text-transform: uppercase; font-weight: 700;">Integrantes</span>
+          </div>
+          <div class="team-grid" style="grid-template-columns: 1fr;">
+            <div class="team-member">Fernando Restelli</div>
+            <div class="team-member">Pablo Bianchi</div>
+            <div class="team-member">Federico Picado</div>
+          </div>
+          <div class="legend"><span class="swatch"></span> Borrador: lo punteado violeta falta definir (IDs de <code>docs/presentacion/plan.md</code> §8)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. EL PROBLEMA -->
+    <div class="slide">
+      <div class="slide-header">
+        <span class="tag">EL PROBLEMA Y SU USUARIO</span>
+        <div class="slide-title">Pedidos informales, catálogo enorme, tipeo a mano</div>
+      </div>
+      <div class="slide-body fill">
+        <div class="asym-60-40">
+          <div class="card spread">
+            <h3><span class="icon">↳</span> Así llegan los pedidos</h3>
+            <div class="stack" style="gap: 22px;">
+              <div class="quote-lg">«mandame 3 elvive reparación»</div>
+              <div class="quote-lg">«2 mascara argan x 1k»</div>
+              <div class="quote-lg">«coleston 821»</div>
+            </div>
+            <p class="stat-caption">Por chat, nota de voz o foto de una lista escrita a mano.</p>
+          </div>
+          <div class="stack">
+            <div class="card highlight" style="flex: 1;">
+              <div class="stat-xl">1.090</div>
+              <p class="stat-caption">productos de 57 marcas, con variantes mínimas: 200 ml o 400 ml, tonos, fragancias.</p>
+            </div>
+            <div class="card warning-box" style="flex: 1;">
+              <h3 style="color: var(--warning); margin-bottom: 8px;"><span class="icon">⚠</span> Hoy, a mano</h3>
+              <p class="stat-caption" style="margin-top: 0;">Quien atiende los pedidos los tipea a ojo contra planillas: errores de despacho y pedidos sin seguimiento.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="src">Fuente: <code>docs/spec/toma-de-pedidos-por-texto.md</code> · <code>docs/architecture.md</code></div>
+    </div>
+
+    <!-- 3. POR QUÉ UN LLM -->
+    <div class="slide">
+      <div class="slide-header">
+        <span class="tag">JUSTIFICACIÓN TÉCNICA</span>
+        <div class="slide-title">¿Por qué un LLM y no software clásico?</div>
+      </div>
+      <div class="slide-body fill">
+        <div class="cols-3-even">
+          <div class="card hypo-card">
+            <span class="hypo-tag">ENTRADAS LIBRES</span>
+            <div class="hypo-text">Interpreta la intención y arma renglones con producto, cantidad y presentación.</div>
+            <div class="hypo-meta"><strong>Software clásico:</strong> falla con faltas de ortografía, jerga, fotos y audios.</div>
+          </div>
+          <div class="card hypo-card">
+            <span class="hypo-tag">AMBIGÜEDAD</span>
+            <div class="hypo-text">Pregunta con opciones salidas de la búsqueda cuando no hay un único producto.</div>
+            <div class="hypo-meta"><strong>Software clásico:</strong> reglas rígidas, imposibles de mantener para cada variante.</div>
+          </div>
+          <div class="card highlight hypo-card">
+            <span class="hypo-tag">DATOS Y ACCIONES</span>
+            <div class="hypo-text">El LLM interpreta, el backend valida: precios, stock, SKU y aceptación se comprueban en código.</div>
+            <div class="hypo-meta"><strong>Software clásico:</strong> determinístico y seguro. Por eso esa parte queda en código.</div>
+          </div>
+        </div>
+      </div>
+      <div class="src">Fuente: <code>README.md</code> · <code>docs/spec/guardrails.md</code></div>
+    </div>
+
+    <!-- 4. ANTECEDENTES -->
+    <div class="slide">
+      <div class="slide-header">
+        <span class="tag">ANTECEDENTES</span>
+        <div class="slide-title">Qué existe hoy y en qué nos diferenciamos</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Cuántos productos y papers, y dónde queda escrita la revisión">⏳ A-19 revisión</span>
+        </div>
+      </div>
+      <div class="slide-body fill">
+        <div class="cols-3-even">
+          <div class="card pending-card hypo-card">
+            <span class="hypo-tag" style="color: var(--pending);">REVISIÓN DE MERCADO</span>
+            <ul>
+              <li>Bots de pedidos por WhatsApp.</li>
+              <li>Módulos de ERP y plataformas B2B.</li>
+              <li>Qué hacen y qué no hacen.</li>
+            </ul>
+            <div class="hypo-meta"><span class="tbd">Falta hacerla</span></div>
+          </div>
+          <div class="card pending-card hypo-card">
+            <span class="hypo-tag" style="color: var(--pending);">REVISIÓN DE LITERATURA</span>
+            <ul>
+              <li>Extracción de pedidos desde texto informal.</li>
+              <li>Product matching contra catálogo.</li>
+              <li>Agentes con tools: métodos y métricas.</li>
+            </ul>
+            <div class="hypo-meta"><span class="tbd">Falta hacerla</span></div>
+          </div>
+          <div class="card highlight hypo-card">
+            <span class="hypo-tag">DIFERENCIA A SOSTENER</span>
+            <div class="hypo-text">Entiende listas informales contra el catálogo propio y no registra nada sin la aceptación del cliente.</div>
+            <div class="hypo-meta">Se compara contra lo existente en la evaluación.</div>
+          </div>
+        </div>
+      </div>
+      <div class="src">Fuente: <span class="tbd">pendiente</span></div>
+    </div>
+
+    <!-- 5. CASOS DE USO -->
+    <div class="slide">
+      <div class="slide-header">
+        <span class="tag">CASOS DE USO</span>
+        <div class="slide-title">Qué hace hoy Norma en Telegram</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Qué casos muestra la demo y si va grabada (propuesta) o en vivo">⏳ A-15 demo</span>
+        </div>
+      </div>
+      <div class="slide-body fill">
+        <div class="cols-3-even">
+          <div class="card hypo-card">
+            <span class="hypo-tag">TOMAR EL PEDIDO</span>
+            <ul>
+              <li><strong>Texto:</strong> un producto o una lista de hasta 30 renglones.</li>
+              <li><strong>Foto:</strong> lee la lista escrita a mano.</li>
+              <li><strong>Audio:</strong> transcribe la nota de voz.</li>
+            </ul>
+            <div class="hypo-meta">Los tres terminan en el mismo flujo.</div>
+          </div>
+          <div class="card hypo-card">
+            <span class="hypo-tag">RESOLVER DUDAS</span>
+            <ul>
+              <li><strong>Aclarar:</strong> «¿el de 400 o el de 900?».</li>
+              <li><strong>Avisar:</strong> fuera de catálogo o sin stock.</li>
+              <li><strong>Corregir:</strong> sumar, sacar o cambiar renglones.</li>
+            </ul>
+            <div class="hypo-meta">Las opciones salen de la búsqueda.</div>
+          </div>
+          <div class="card highlight hypo-card">
+            <span class="hypo-tag">CERRAR Y SEGUIR</span>
+            <ul>
+              <li><strong>Registrar</strong> solo si el cliente acepta.</li>
+              <li><strong>Estado:</strong> «¿cómo viene mi pedido?».</li>
+              <li><strong>Derivar</strong> descuentos, envíos y pagos especiales.</li>
+            </ul>
+            <div class="hypo-meta">La aceptación la comprueba el backend.</div>
+          </div>
+        </div>
+      </div>
+      <div class="src">Fuente: <code>internal/skills/</code> · <code>CHANGELOG.md</code> 0.2.0</div>
+    </div>
+
+    <!-- 6. QUÉ CAMBIÓ DESDE LA PROPUESTA -->
+    <div class="slide">
+      <div class="slide-header">
+        <span class="tag">DE LA PROPUESTA AL SISTEMA</span>
+        <div class="slide-title">Qué cambió y por qué</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Validar la tabla en el grupo, en especial si el BI con DuckDB es recorte definitivo o próximo paso">⏳ A-16 validar</span>
+        </div>
+      </div>
+      <div class="slide-body fill">
+        <table class="fill-t">
+          <thead>
+            <tr>
+              <th style="width: 18%;">Tema</th>
+              <th style="width: 28%;">En la propuesta</th>
+              <th style="width: 54%;">Hoy</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>Canal</strong></td><td>WhatsApp, notas, fotos, correos</td><td><strong>Telegram</strong> con texto, foto y audio, para la beta del equipo.</td></tr>
+            <tr><td><strong>Retrieval</strong></td><td>BM25 + embeddings</td><td><strong>Búsqueda tolerante sin embeddings:</strong> recall@3 de 0,94, medido sin LLM.</td></tr>
+            <tr><td><strong>Analítica</strong></td><td>Preguntas sobre ventas con DuckDB</td><td><strong>Recortada:</strong> foco en la toma de pedidos; hay un dashboard operativo.</td></tr>
+            <tr><td><strong>Repregunta</strong></td><td>Umbrales de confianza</td><td><strong>Ampliada:</strong> aclaraciones con opciones, aceptación comprobada en el backend y derivación.</td></tr>
+            <tr><td><strong>Controles</strong></td><td>—</td><td><strong>Nuevo:</strong> guardrails y verificadores de evidencia en código.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="src">Fuente: <code>docs/presentacion/plan.md</code> §2 · <code>MEJORAS.md</code></div>
+    </div>
+
+    <!-- 7. HIPÓTESIS -->
+    <div class="slide">
+      <div class="slide-header">
+        <span class="tag">HIPÓTESIS</span>
+        <div class="slide-title">Qué queremos demostrar y contra qué</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Baseline de H1: script determinístico, zero-shot o los dos">⏳ A-05 baseline</span>
+          <span class="todo-chip" title="Si H2 entra como hipótesis">⏳ A-06 H2</span>
+          <span class="todo-chip" title="Hipótesis del historial del cliente: medirla o explicar por qué no">⏳ A-07 historial</span>
+          <span class="todo-chip" title="Separar test en el set de búsqueda o declararlo como limitación">⏳ A-10 dev/test</span>
+        </div>
+      </div>
+      <div class="slide-body fill">
+        <div class="cols-3-even">
+          <div class="card hypo-card">
+            <span class="hypo-tag">H1 · EXACTITUD DE LA ORDEN</span>
+            <div class="hypo-text">El agente arma la orden correcta más seguido que un baseline simple.</div>
+            <div class="hypo-meta"><strong>Mide:</strong> aciertos y recall de renglones en test.<br><strong>Contra:</strong> <span class="tbd">baseline a definir</span></div>
+          </div>
+          <div class="card hypo-card">
+            <span class="hypo-tag">H2 · CONTROLES EN CÓDIGO</span>
+            <div class="hypo-text">Los guardrails bajan los errores graves: SKU o precio inventado, registro sin aceptación.</div>
+            <div class="hypo-meta"><strong>Mide:</strong> errores graves en adversariales.<br><strong>Contra:</strong> el mismo agente sin controles.</div>
+          </div>
+          <div class="card highlight hypo-card">
+            <span class="hypo-tag">H3 · RETRIEVAL · YA MEDIDA</span>
+            <div>
+              <div class="stat-xl"><span class="from">0,87 →</span> 0,94</div>
+              <p class="stat-caption">recall@3 de la búsqueda tolerante en 124 consultas.</p>
+            </div>
+            <div class="hypo-meta"><strong>Contra:</strong> la búsqueda exacta anterior.</div>
+          </div>
+        </div>
+      </div>
+      <div class="src">Fuente: <code>docs/presentacion/plan.md</code> §5.1 · <code>docs/spec/busqueda-tolerante.md</code> D-A5</div>
+    </div>
+
+    <!-- 8. ARQUITECTURA -->
+    <div class="slide">
+      <div class="slide-header">
+        <span class="tag">ARQUITECTURA</span>
+        <div class="slide-title">Del mensaje a la orden registrada</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Diagrama final: rehacer el de la imagen del flujo o partir del de docs/architecture.md">⏳ A-17 diagrama</span>
+        </div>
+      </div>
+      <div class="slide-body fill">
+        <div class="loop-container fill-h">
+          <div class="flow-row">
+            <div class="flow-step">
+              <span class="flow-step-num">1. Canal</span>
+              <span class="flow-step-title">Telegram</span>
+              <span class="flow-step-desc">Foto → lectura; audio → transcripción.</span>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step">
+              <span class="flow-step-num">2. Antes del LLM</span>
+              <span class="flow-step-title">Filtro y atajos</span>
+              <span class="flow-step-desc">Desvíos y «dale» sin tokens.</span>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step core-agent">
+              <span class="flow-step-num">3. Núcleo LLM</span>
+              <span class="flow-step-title">Grafo con skills</span>
+              <span class="flow-step-desc">Las tools llegan al leer la skill.</span>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step">
+              <span class="flow-step-num">4. Tools</span>
+              <span class="flow-step-title">Catálogo y pedidos</span>
+              <span class="flow-step-desc">Búsqueda por renglón, stock, historial.</span>
+            </div>
+          </div>
+          <div class="flow-row">
+            <div class="flow-step guard">
+              <span class="flow-step-num">5. Guardrails</span>
+              <span class="flow-step-title">Validar la salida</span>
+              <span class="flow-step-desc">Cada SKU salió de una búsqueda.</span>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step">
+              <span class="flow-step-num">6. Propuesta</span>
+              <span class="flow-step-title">Al cliente</span>
+              <span class="flow-step-desc">Renglones, cantidades y precios.</span>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step">
+              <span class="flow-step-num">7. Aceptación</span>
+              <span class="flow-step-title">La comprueba el backend</span>
+              <span class="flow-step-desc">Revalida precios.</span>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step" style="border-left: 3px solid var(--accent);">
+              <span class="flow-step-num">8. Registro</span>
+              <span class="flow-step-title">Orden única</span>
+              <span class="flow-step-desc">SQLite, CSV, Sheets y dashboard.</span>
+            </div>
+          </div>
+          <div class="loop-feedback">
+            <span class="loop-badge">LOOP DE VERIFICACIÓN</span>
+            <span><strong>¿Rechaza el guardrail?</strong> Reescribe, hasta 3 veces. <strong>¿Varios productos?</strong> Pregunta con opciones. <strong>¿Pedido especial?</strong> Deriva a una persona.</span>
+          </div>
+          <div class="principle"><strong>El LLM interpreta; el backend valida y registra; el cliente confirma.</strong></div>
+        </div>
+      </div>
+      <div class="src">Fuente: <code>docs/architecture.md</code> · <code>internal/agent/graph.py</code> · <code>docs/spec/agente.md</code></div>
+    </div>
+
+    <!-- 9. SKILLS Y TOOLS -->
+    <div class="slide">
+      <div class="slide-header">
+        <span class="tag">CÓMO DECIDE EL AGENTE</span>
+        <div class="slide-title">4 skills, 9 reglas de negocio y 15 tools</div>
+      </div>
+      <div class="slide-body fill">
+        <div class="cols-4-even">
+          <div class="card highlight hypo-card">
+            <span class="hypo-tag">TOMAR_PEDIDO</span>
+            <div class="skill-fn">Convierte lo que pide el cliente en una propuesta.</div>
+            <div class="chip-row">
+              <span class="chip-code">search_products</span><span class="chip-code">buscar_renglones</span>
+              <span class="chip-code">get_product</span><span class="chip-code">check_stock</span>
+              <span class="chip-code">explorar_catalogo</span><span class="chip-code">pedidos_anteriores</span>
+            </div>
+            <div class="hypo-meta"><strong>7 BR:</strong> stock, aclaraciones, correcciones, «lo de siempre»…</div>
+          </div>
+          <div class="card hypo-card">
+            <span class="hypo-tag">CONFIRMAR_PEDIDO</span>
+            <div class="skill-fn">Cierra la propuesta: registra solo si el cliente la acepta.</div>
+            <div class="chip-row">
+              <span class="chip-code">armar_pedido</span><span class="chip-code">respond_to_customer</span>
+            </div>
+            <div class="hypo-meta"><strong>1 BR:</strong> aceptación de la propuesta.</div>
+          </div>
+          <div class="card hypo-card">
+            <span class="hypo-tag">INFORMAR</span>
+            <div class="skill-fn">Saludos, horarios, pagos y estado de pedidos ya hechos.</div>
+            <div class="chip-row">
+              <span class="chip-code">respond_to_customer</span><span class="chip-code">consultar_estado_pedido</span>
+            </div>
+            <div class="hypo-meta"><strong>Datos del negocio</strong> en un archivo aparte.</div>
+          </div>
+          <div class="card hypo-card">
+            <span class="hypo-tag">DERIVAR_O_CANCELAR</span>
+            <div class="skill-fn">Pasa a una persona o descarta el borrador.</div>
+            <div class="chip-row">
+              <span class="chip-code">escalate_to_human</span><span class="chip-code">discard_order_draft</span><span class="chip-code">respond_to_customer</span>
+            </div>
+            <div class="hypo-meta"><strong>1 BR:</strong> derivación y cancelación.</div>
+          </div>
+        </div>
+        <div class="card strip">
+          <span class="hypo-tag" style="margin: 0; white-space: nowrap;">CÓMO SE USAN</span>
+          <span class="strip-item"><strong>1.</strong> Lee la skill (<code>leer_skill</code>)</span>
+          <span class="strip-item"><strong>2.</strong> Aparecen sus tools</span>
+          <span class="strip-item"><strong>3.</strong> Lee la BR que necesita (<code>leer_br</code>)</span>
+          <span class="strip-item">+2 del orquestador: <code>delegar_skill</code>, <code>entregar_nota</code></span>
+        </div>
+      </div>
+      <div class="src">Fuente: <code>internal/skills/</code> · <code>internal/agent/tool_registry.py</code> · <code>docs/spec/skills-y-respuestas.md</code></div>
+    </div>
+
+    <!-- 10. ORGANIZACIÓN DEL REPOSITORIO -->
+    <div class="slide">
+      <div class="slide-header">
+        <span class="tag">REPOSITORIO</span>
+        <div class="slide-title">Cómo está organizada la carpeta</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="La consigna pide algo «símil Makefile» para correr el sistema y la evaluación">⏳ A-22 Makefile</span>
+        </div>
+      </div>
+      <div class="slide-body fill">
+        <div class="asym-60-40">
+          <div class="card tree-card">
+<pre class="tree"><span class="d">norma-agentic-ai/</span>
+├── <span class="d">internal/</span>             <span class="c">el sistema</span>
+│   ├── <span class="d">agent/</span>            <span class="c">grafo, guardrails, evidencia, sub-loop</span>
+│   ├── <span class="d hl">skills/</span>           <span class="c">4 skills y 9 reglas de negocio en .md</span>
+│   ├── <span class="d hl">tools/</span>            <span class="c">lo que el LLM puede llamar</span>
+│   ├── <span class="d">services/</span>         <span class="c">búsqueda, audio, visión, pedidos, planillas</span>
+│   ├── <span class="d">api/, database/</span>   <span class="c">webhooks, órdenes, dashboard, SQLite</span>
+│   └── <span class="d">evaluar_*.py</span>      <span class="c">evaluación del agente y del buscador</span>
+├── <span class="d">tests/</span>                <span class="c">tests y datos sintéticos</span>
+├── <span class="d hl">docs/spec/</span>            <span class="c">qué tiene que hacer: RF, RNF y CA con ID</span>
+├── <span class="d">data_example/</span>         <span class="c">datos ficticios y sets de evaluación</span>
+├── <span class="d">frontend/</span>             <span class="c">dashboard operativo</span>
+├── <span class="d">.github/workflows/</span>    <span class="c">CI en cada PR</span>
+└── AGENTS.md · MEJORAS.md · CHANGELOG.md</pre>
+          </div>
+          <div class="stack">
+            <div class="cols-2-even" style="flex: 1;">
+              <div class="card highlight hypo-card">
+                <span class="hypo-tag">TESTS</span>
+                <div class="stat-md">772</div>
+                <div class="hypo-meta">Corren en el CI con cada PR.</div>
+              </div>
+              <div class="card hypo-card">
+                <span class="hypo-tag">SPECS</span>
+                <div class="stat-md">14</div>
+                <div class="hypo-meta">Documentos en <code>docs/spec/</code>.</div>
+              </div>
+            </div>
+            <div class="cols-2-even" style="flex: 1;">
+              <div class="card hypo-card">
+                <span class="hypo-tag">CI</span>
+                <div class="stat-md">4</div>
+                <div class="hypo-meta">Tests, reglas de PR, secretos e imagen.</div>
+              </div>
+              <div class="card hypo-card">
+                <span class="hypo-tag">COMMITS</span>
+                <div class="stat-md">120</div>
+                <div class="hypo-meta">En <code>develop</code>, de los tres integrantes.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="src">Fuente: <code>docs/architecture.md</code> §Estructura de código · <code>CONTRIBUTING.md</code> · <code>git log develop</code> (2026-11-26)</div>
+    </div>
+
+    <!-- 11. ÁREA: RETRIEVAL -->
+    <div class="slide">
+      <div class="slide-header">
+        <span class="tag">ÁREA DE PROFUNDIZACIÓN · RECUPERACIÓN DE INFORMACIÓN</span>
+        <div class="slide-title">Búsqueda tolerante, evaluada sin el LLM</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Las consultas son inventadas y no tienen partición desarrollo/test">⏳ A-10 dev/test</span>
+          <span class="todo-chip" title="Confirmar que es una de las áreas centrales">⏳ A-13 área</span>
+        </div>
+      </div>
+      <div class="slide-body fill">
+        <div class="cols-2-even">
+          <div class="card highlight hypo-card">
+            <span class="hypo-tag">RECALL@3 · 124 CONSULTAS, SIN LLM</span>
+            <div>
+              <div class="stat-xl" style="font-size: 4.2rem;"><span class="from">0,87 →</span> 0,94</div>
+              <p class="stat-caption">Antes y después de RF-118, con un piso de calidad en el CI.</p>
+            </div>
+            <div class="hypo-meta">Falla con necesidades («teñir», «mechas»), no con errores de tipeo.</div>
+          </div>
+          <div class="stack">
+            <div class="card" style="flex: 1;">
+              <div class="stat-rows">
+                <div class="stat-row"><span class="lbl">MRR</span><span class="val"><span class="from">0,867 →</span> 0,937</span></div>
+                <div class="stat-row"><span class="lbl">Únicos correctos</span><span class="val"><span class="from">0,776 →</span> 0,91</span></div>
+                <div class="stat-row"><span class="lbl">Productos existentes negados</span><span class="val"><span class="from">12 →</span> 5</span></div>
+                <div class="stat-row"><span class="lbl">Abstención · falsos únicos</span><span class="val">1,0 · 0</span></div>
+              </div>
+            </div>
+            <div class="card">
+              <span class="hypo-tag" style="margin-bottom: 10px;">QUÉ TOLERA</span>
+              <div class="chip-row">
+                <span class="chip-code">pantne</span><span class="chip-code">coleston</span><span class="chip-code">sh</span>
+                <span class="chip-code">x900 = 900 ml</span><span class="chip-code">1k = 1 kg</span><span class="chip-code">821 = 8.21</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="src">Fuente: <code>python -m internal.evaluar_busqueda</code> · <code>data_example/consultas_busqueda.json</code> · <code>docs/spec/busqueda-tolerante.md</code></div>
+    </div>
+
+    <!-- 12. ÁREA: TOOLS Y GUARDRAILS -->
+    <div class="slide">
+      <div class="slide-header">
+        <span class="tag">ÁREA DE PROFUNDIZACIÓN · TOOLS Y GUARDRAILS</span>
+        <div class="slide-title">El código impide lo que el agente no puede hacer</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Falta el número que lo respalde: errores graves con y sin controles">⏳ A-06 medir</span>
+          <span class="todo-chip" title="Confirmar que es una de las áreas centrales">⏳ A-13 área</span>
+        </div>
+      </div>
+      <div class="slide-body fill">
+        <div class="cols-3-even">
+          <div class="card hypo-card">
+            <span class="hypo-tag">CONTRATOS DE TOOLS</span>
+            <ul>
+              <li>Cada tool aparece al leer la skill que la habilita.</li>
+              <li>Los errores dicen qué hacer: <code>tool_no_permitida</code> nombra la skill.</li>
+              <li>La propuesta se arma con una tool, no con texto libre.</li>
+            </ul>
+            <div class="hypo-meta">Permisos por skill.</div>
+          </div>
+          <div class="card highlight hypo-card">
+            <span class="hypo-tag">VERIFICADORES DE EVIDENCIA</span>
+            <ul>
+              <li><code>sku_no_buscado</code></li>
+              <li><code>opcion_sin_elegir</code></li>
+              <li><code>cantidad_distinta</code></li>
+              <li>Precios y medidas que el modelo vio</li>
+              <li>Aceptación comprobada antes de registrar</li>
+            </ul>
+            <div class="hypo-meta">Lo que el sistema resuelve en lugar del modelo queda en <code>rescates</code>.</div>
+          </div>
+          <div class="card warning-box hypo-card">
+            <span class="hypo-tag" style="color: var(--warning);">GUARDRAILS Y TOPES</span>
+            <div>
+              <div class="stat-md">50 · 300 s · 200k</div>
+              <p class="stat-caption">iteraciones, segundos y tokens por turno.</p>
+            </div>
+            <div class="hypo-meta">Sin stock, SKU ni promesas en la respuesta; reintenta hasta 3 veces.</div>
+          </div>
+        </div>
+      </div>
+      <div class="src">Fuente: <code>internal/agent/guardrails.py</code> · <code>internal/agent/evidencia.py</code> · <code>docs/spec/guardrails.md</code> · RF-111 a RF-122</div>
+    </div>
+
+    <!-- 13. ÁREA: EVALUACIÓN -->
+    <div class="slide">
+      <div class="slide-header">
+        <span class="tag">ÁREA DE PROFUNDIZACIÓN · EVALUACIÓN</span>
+        <div class="slide-title">Benchmark propio del dominio</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Qué sets entran en test: hoy solo adversariales tiene grupo reservado">⏳ A-11 test</span>
+          <span class="todo-chip" title="Si el benchmark de pedidos escritos a mano entra en la presentación">⏳ A-26 manuscritos</span>
+          <span class="todo-chip" title="Confirmar que es una de las áreas centrales">⏳ A-13 área</span>
+        </div>
+      </div>
+      <div class="slide-body fill">
+        <div class="cols-4-even">
+          <div class="card hypo-card">
+            <span class="hypo-tag">MENSAJES</span>
+            <div class="stat-xl">32</div>
+            <div class="hypo-meta">Conversaciones cortas: saludo, aclaración, aceptación.</div>
+          </div>
+          <div class="card hypo-card">
+            <span class="hypo-tag">PEDIDOS</span>
+            <div class="stat-xl">11</div>
+            <div class="hypo-meta">Listas de hasta 30 renglones, contra un catálogo de 394.</div>
+          </div>
+          <div class="card highlight hypo-card">
+            <span class="hypo-tag">ADVERSARIALES</span>
+            <div class="stat-xl">24</div>
+            <div class="hypo-meta">12 de desarrollo y 12 reservados: solo miden.</div>
+          </div>
+          <div class="card hypo-card">
+            <span class="hypo-tag">BÚSQUEDA</span>
+            <div class="stat-xl">124</div>
+            <div class="hypo-meta">Consultas al buscador solo, sin LLM.</div>
+          </div>
+        </div>
+        <div class="card strip">
+          <span class="hypo-tag" style="margin: 0; white-space: nowrap;">CÓMO SE CORRE</span>
+          <span class="strip-item"><strong>Puntaje exigente:</strong> qué respondió y en qué quedó la propuesta.</span>
+          <span class="strip-item"><strong>Gasto:</strong> tope de llamadas y costo.</span>
+          <span class="strip-item"><strong>Comparación:</strong> intervalo de Wilson.</span>
+        </div>
+      </div>
+      <div class="src">Fuente: <code>internal/evaluar_agente.py</code> · <code>internal/comparar_corridas.py</code> · <code>data_example/</code></div>
+    </div>
+
+    <!-- 14. ÁREAS COMPLEMENTARIAS -->
+    <div class="slide">
+      <div class="slide-header">
+        <span class="tag">OTRAS ÁREAS TRABAJADAS</span>
+        <div class="slide-title">Skills, observabilidad, memoria, HITL e inferencia local</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Si alguna reemplaza a un área central">⏳ A-13 áreas</span>
+          <span class="todo-chip" title="Si HITL se cuenta como área: hay que medir su costo y su efecto">⏳ A-14 HITL</span>
+        </div>
+      </div>
+      <div class="slide-body fill">
+        <div class="cols-3-even">
+          <div class="card highlight hypo-card">
+            <span class="hypo-tag">SKILLS Y ORQUESTACIÓN</span>
+            <div>
+              <div class="stat-xl">4</div>
+              <p class="stat-caption">skills con reglas de negocio leídas con tools.</p>
+            </div>
+            <div class="hypo-meta">Orquestador con sub-loops: implementado y apagado hasta medirlo.</div>
+          </div>
+          <div class="card hypo-card">
+            <span class="hypo-tag">OBSERVABILIDAD Y MEMORIA</span>
+            <ul>
+              <li>MLflow: una traza por turno con tokens, latencia y tools.</li>
+              <li>Checkpoints del grafo; las opciones ofrecidas siguen visibles.</li>
+            </ul>
+            <div class="hypo-meta">Las trazas no guardan el texto del cliente.</div>
+          </div>
+          <div class="card hypo-card">
+            <span class="hypo-tag">HITL E INFERENCIA LOCAL</span>
+            <ul>
+              <li>El cliente aprueba cada orden; derivación con 24 h de silencio.</li>
+              <li>Fotos con Qwen3-VL local comparado contra la API.</li>
+            </ul>
+            <div class="hypo-meta">HITL todavía sin medir su costo.</div>
+          </div>
+        </div>
+      </div>
+      <div class="src">Fuente: <code>internal/skills/</code> · <code>docs/spec/orquestador-y-sub-loops.md</code> · <code>docs/spec/agente.md</code> §10.1 · PR #110</div>
+    </div>
+
+    <!-- 15. DATOS -->
+    <div class="slide">
+      <div class="slide-header">
+        <span class="tag">DATOS</span>
+        <div class="slide-title">Fuentes, muestra sanitizada y datos sintéticos</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Volumen, actualización y licencia de cada fuente">⏳ A-20 fuentes</span>
+          <span class="todo-chip" title="Cómo se generaron los datos sintéticos y cómo se evaluó ese generador">⏳ A-21 generador</span>
+        </div>
+      </div>
+      <div class="slide-body fill">
+        <div class="cols-3-even">
+          <div class="card highlight hypo-card">
+            <span class="hypo-tag">CATÁLOGO REAL · PRIVADO</span>
+            <div class="stat-xl">1.090</div>
+            <div class="hypo-meta">Productos de 57 marcas, en Google Sheets o CSV.</div>
+          </div>
+          <div class="card hypo-card">
+            <span class="hypo-tag">CATÁLOGO DE EVALUACIÓN · SINTÉTICO</span>
+            <div class="stat-xl">394</div>
+            <div class="hypo-meta">Productos inventados para los casos de pedidos.</div>
+          </div>
+          <div class="card hypo-card">
+            <span class="hypo-tag">CONSULTAS DE BÚSQUEDA · SINTÉTICAS</span>
+            <div class="stat-xl">124</div>
+            <div class="hypo-meta">Con su respuesta correcta.</div>
+          </div>
+        </div>
+        <div class="card strip">
+          <span class="hypo-tag" style="margin: 0; white-space: nowrap;">PARA REPLICAR</span>
+          <span class="strip-item"><code>data_example/</code> trae datos ficticios en el mismo formato. Las pruebas del equipo usan pedidos simulados, sin datos de clientes.</span>
+        </div>
+      </div>
+      <div class="src">Fuente: <code>docs/data/fuentes.md</code> · <code>data_example/README.md</code></div>
+    </div>
+
+    <!-- 16. EVALUACIÓN SOBRE TEST -->
+    <div class="slide">
+      <div class="slide-header">
+        <span class="tag">RESULTADOS</span>
+        <div class="slide-title">Evaluación sobre test</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Modelo y presupuesto para la corrida">⏳ A-08 modelo</span>
+          <span class="todo-chip" title="Qué sets entran en test">⏳ A-11 sets</span>
+          <span class="todo-chip" title="Cuántas repeticiones por caso">⏳ A-12 repeticiones</span>
+        </div>
+      </div>
+      <div class="slide-body fill">
+        <table class="fill-t">
+          <thead>
+            <tr>
+              <th style="width: 30%;">Sistema</th>
+              <th>Aciertos (IC 95 %)</th>
+              <th>Recall de renglones</th>
+              <th>Errores graves</th>
+              <th>Llamadas por caso</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>Baseline</strong> <span class="tbd">⏳ A-05</span></td><td><span class="tbd">—</span></td><td><span class="tbd">—</span></td><td><span class="tbd">—</span></td><td><span class="tbd">—</span></td></tr>
+            <tr><td><strong>Norma sin guardrails</strong> <span class="tbd">⏳ A-06</span></td><td><span class="tbd">—</span></td><td><span class="tbd">—</span></td><td><span class="tbd">—</span></td><td><span class="tbd">—</span></td></tr>
+            <tr><td><strong>Norma</strong></td><td><span class="tbd">—</span></td><td><span class="tbd">—</span></td><td><span class="tbd">—</span></td><td><span class="tbd">—</span></td></tr>
+          </tbody>
+        </table>
+        <div class="card strip pending-card">
+          <span class="hypo-tag" style="margin: 0; white-space: nowrap; color: var(--pending);">⏳ T-02 · ANÁLISIS DE FALLAS</span>
+          <span class="strip-item">Clasificar los casos que fallan (uso de tools, interpretación, búsqueda o guardrail), con uno o dos ejemplos de cada tipo.</span>
+        </div>
+      </div>
+      <div class="src">Fuente: <code>python -m internal.evaluar_agente --set … --repeticiones … --salida …</code> · <code>python -m internal.comparar_corridas</code></div>
+    </div>
+
+    <!-- 17. COSTOS -->
+    <div class="slide">
+      <div class="slide-header">
+        <span class="tag">ECONOMÍA DEL SISTEMA</span>
+        <div class="slide-title">Costo por pedido, latencia y elección de modelo</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Qué modelo se usa y con qué presupuesto">⏳ A-08 modelo</span>
+          <span class="todo-chip" title="Contra qué modelos alternativos se compara">⏳ A-09 alternativas</span>
+        </div>
+      </div>
+      <div class="slide-body fill">
+        <div class="cols-4-even">
+          <div class="card warning-box hypo-card">
+            <span class="hypo-tag" style="color: var(--warning);">TOKENS POR TURNO</span>
+            <div class="stat-md">~22.500</div>
+          </div>
+          <div class="card warning-box hypo-card">
+            <span class="hypo-tag" style="color: var(--warning);">LATENCIA P95</span>
+            <div class="stat-md">69 s</div>
+          </div>
+          <div class="card warning-box hypo-card">
+            <span class="hypo-tag" style="color: var(--warning);">ITERACIONES P50 / P95</span>
+            <div class="stat-md">2 / 5</div>
+          </div>
+          <div class="card warning-box hypo-card">
+            <span class="hypo-tag" style="color: var(--warning);">TURNOS CON ERROR</span>
+            <div class="stat-md">21 %</div>
+          </div>
+        </div>
+        <table class="compact">
+          <thead>
+            <tr><th>Modelo</th><th>USD por pedido</th><th>Latencia p50 / p95</th><th>Aciertos</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>Elegido</strong> <span class="tbd">⏳ A-08</span></td><td><span class="tbd">—</span></td><td><span class="tbd">—</span></td><td><span class="tbd">—</span></td></tr>
+            <tr><td><strong>Alternativa</strong> <span class="tbd">⏳ A-09</span></td><td><span class="tbd">—</span></td><td><span class="tbd">—</span></td><td><span class="tbd">—</span></td></tr>
+            <tr><td><strong>Visión local</strong> (Qwen3-VL)</td><td colspan="3">Comparada contra la API en el PR #110: <span class="tbd">⏳ T-01 traer los números</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="src">Arriba: 28 turnos de prueba con modelos mezclados, solo como orden de magnitud. Fuente: <code>MEJORAS.md</code> (trazas locales, 2026-11-24) · MLflow</div>
+    </div>
+
+    <!-- 18. RELATO DEL DESARROLLO -->
+    <div class="slide">
+      <div class="slide-header">
+        <span class="tag">CÓMO FUE EL DESARROLLO</span>
+        <div class="slide-title">Bloqueos, lo que no funcionó y lo que cambió el rumbo</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Cada integrante suma sus bloqueos y aprendizajes">⏳ A-18 aportes</span>
+        </div>
+      </div>
+      <div class="slide-body fill">
+        <div class="cols-3-even">
+          <div class="card warning-box hypo-card">
+            <span class="hypo-tag" style="color: var(--warning);">BLOQUEOS</span>
+            <ul>
+              <li>Cuotas de free tier: corridas cortadas por 429, 503 y 504.</li>
+              <li>Modelos que no usaban las tools y contestaban con texto suelto.</li>
+            </ul>
+            <div class="hypo-meta">La medición se postergó.</div>
+          </div>
+          <div class="card hypo-card">
+            <span class="hypo-tag">LO QUE NO FUNCIONÓ</span>
+            <ul>
+              <li>Un modelo inventó un número de orden y no registró nada.</li>
+              <li>Sacar «nunca respondas con texto suelto» rompió el uso de tools.</li>
+              <li>Bugs del uso real: renglones corridos, un «sí» que confirmaba otra cosa.</li>
+            </ul>
+            <div class="hypo-meta">Cada uno terminó en un control en código.</div>
+          </div>
+          <div class="card highlight hypo-card">
+            <span class="hypo-tag">CAMBIOS DE RUMBO</span>
+            <ul>
+              <li>Controles del prompt al código.</li>
+              <li>Skills con reglas de negocio en lugar de un prompt gigante.</li>
+              <li>Telegram para la beta; sin embeddings ni BI.</li>
+            </ul>
+            <div class="hypo-meta">Decisiones registradas en las specs.</div>
+          </div>
+        </div>
+      </div>
+      <div class="src">Fuente: <code>MEJORAS.md</code> · <code>CHANGELOG.md</code> · <code>docs/spec/</code></div>
+    </div>
+
+    <!-- 19. ASISTENTES DE IA -->
+    <div class="slide">
+      <div class="slide-header">
+        <span class="tag">CÓMO USAMOS ASISTENTES DE IA</span>
+        <div class="slide-title">Spec primero, después tests y código</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Qué herramientas usó cada integrante, dónde ayudaron y dónde hubo que corregirlas">⏳ A-18 herramientas</span>
+        </div>
+      </div>
+      <div class="slide-body fill">
+        <div class="loop-container fill-h">
+          <div class="flow-row">
+            <div class="flow-step core-agent">
+              <span class="flow-step-num">1. Spec</span>
+              <span class="flow-step-title">Requisitos y criterios</span>
+              <span class="flow-step-desc">RF y CA con ID, revisados en una PR.</span>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step">
+              <span class="flow-step-num">2. Tests</span>
+              <span class="flow-step-title">Uno por criterio</span>
+              <span class="flow-step-desc">Cada test cita su CA.</span>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step">
+              <span class="flow-step-num">3. Código</span>
+              <span class="flow-step-title">Hasta que pasen</span>
+              <span class="flow-step-desc">Sin comportamiento que la spec no pida.</span>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step" style="border-left: 3px solid var(--accent);">
+              <span class="flow-step-num">4. PR</span>
+              <span class="flow-step-title">Cita los IDs</span>
+              <span class="flow-step-desc">Si aparece algo nuevo, vuelve a la spec.</span>
+            </div>
+          </div>
+          <div class="cols-2-even">
+            <div class="card">
+              <span class="hypo-tag">REGLAS PARA LOS AGENTES</span>
+              <p class="stat-caption" style="margin-top: 4px;"><code>AGENTS.md</code> fija qué no pueden leer: secretos y datos de clientes.</p>
+            </div>
+            <div class="card">
+              <span class="hypo-tag">REVISIÓN Y DIAGNÓSTICO</span>
+              <p class="stat-caption" style="margin-top: 4px;">Revisiones de PR y del diseño con los conceptos de la clase 7.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="src">Fuente: <code>docs/spec/README.md</code> §1 · <code>AGENTS.md</code> · <code>docs/spec/mejoras-clase7.md</code></div>
+    </div>
+
+    <!-- 20. LIMITACIONES Y PRÓXIMOS PASOS -->
+    <div class="slide">
+      <div class="slide-header">
+        <span class="tag">CIERRE</span>
+        <div class="slide-title">Limitaciones y próximos pasos</div>
+        <div class="todo-chips">
+          <span class="todo-chip" title="Qué haríamos distinto: definirlo en el grupo (lo pide la consigna)">⏳ A-25 qué haríamos distinto</span>
+        </div>
+      </div>
+      <div class="slide-body fill">
+        <div class="cols-2-even">
+          <div class="card warning-box hypo-card">
+            <span class="hypo-tag" style="color: var(--warning);">LIMITACIONES</span>
+            <ul>
+              <li>WhatsApp y el chat web todavía no procesan mensajes.</li>
+              <li>Stock desde una planilla, sin reserva; SQLite para una sola instancia.</li>
+              <li>Consultas de necesidad («algo para teñir») que la búsqueda no resuelve.</li>
+              <li>El control de la aceptación no cubre todos los casos.</li>
+            </ul>
+            <div class="hypo-meta">Detalle en <code>MEJORAS.md</code>.</div>
+          </div>
+          <div class="card highlight hypo-card">
+            <span class="hypo-tag">PRÓXIMOS PASOS</span>
+            <ul>
+              <li>Correr la evaluación completa sobre test y fijar el modelo.</li>
+              <li>Ajustar topes y umbrales con esa medición.</li>
+              <li>Embeddings solo si las consultas de necesidad pesan en el uso real.</li>
+              <li>WhatsApp de punta a punta.</li>
+            </ul>
+            <div class="hypo-meta">En orden de prioridad.</div>
+          </div>
+        </div>
+      </div>
+      <div class="src">Fuente: <code>MEJORAS.md</code> · <code>docs/spec/README.md</code> §10</div>
+    </div>
+
+  </div>
+
+  <!-- NAVEGACIÓN -->
+  <div class="nav-bar">
+    <button class="nav-arrow" id="prevBtn" onclick="prevSlide()" title="Anterior (←)">⟨</button>
+    <div class="reel-container" id="reelContainer"></div>
+    <button class="nav-arrow" id="nextBtn" onclick="nextSlide()" title="Siguiente (→)">⟩</button>
+    <span class="slide-count" id="slideCount"></span>
+  </div>
+
+  <script>
+    let currentSlide = 0;
+    const slides = document.querySelectorAll('.slide');
+    const reelContainer = document.getElementById('reelContainer');
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+    const slideCount = document.getElementById('slideCount');
+
+    // Un punto por diapositiva; violeta si tiene algo pendiente de definir
+    slides.forEach((slide, idx) => {
+      const dot = document.createElement('div');
+      dot.classList.add('reel-dot');
+      if (slide.querySelector('.pending, .pending-card, .tbd, .pending-pill, .todo-chip')) dot.classList.add('has-pending');
+      dot.addEventListener('click', () => goToSlide(idx));
+      reelContainer.appendChild(dot);
+    });
+
+    const dots = document.querySelectorAll('.reel-dot');
+
+    function updateView() {
+      slides.forEach((s, idx) => s.classList.toggle('active', idx === currentSlide));
+      dots.forEach((d, idx) => d.classList.toggle('active', idx === currentSlide));
+      prevBtn.disabled = currentSlide === 0;
+      nextBtn.disabled = currentSlide === slides.length - 1;
+      slideCount.textContent = (currentSlide + 1) + ' / ' + slides.length;
+    }
+
+    function nextSlide() {
+      if (currentSlide < slides.length - 1) { currentSlide++; updateView(); }
+    }
+
+    function prevSlide() {
+      if (currentSlide > 0) { currentSlide--; updateView(); }
+    }
+
+    function goToSlide(index) {
+      currentSlide = index;
+      updateView();
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === ' ') nextSlide();
+      else if (e.key === 'ArrowLeft') prevSlide();
+    });
+
+    updateView();
+  </script>
+</body>
+</html>

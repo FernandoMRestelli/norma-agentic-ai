@@ -10,6 +10,7 @@ Cómo mantenerlo: ver [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Agregado
 
+- Plan y borrador de la presentación final del TP en `docs/presentacion/`: `plan.md` cruza la consigna con la propuesta y con lo que hay hoy, y marca lo que falta definir; `presentacion.html` tiene las diapositivas. Es solo documentación: no cambia nada en producción.
 - Diseño de un benchmark de pedidos escritos a mano en `docs/benchmark-pedidos-manuscritos.md`. Las listas ficticias, sorteadas de antemano, las copian personas reales y las fotos se juntan con un Google Form; el puntaje por renglón pondera el producto, la cantidad y las dudas, para comparar `gpt-6-luna`, GPT Terra y un modelo local. Todavía no tiene runner.
 - `python -m internal.benchmark_manuscritos` sortea las listas del benchmark de pedidos escritos a mano y arma el Google Apps Script que crea el Form para juntar las fotos. Cada lista trae 5 renglones fijos y 10 sorteados del pool de `data_example/benchmark_manuscritos/`, que cubren los tipos de dificultad. Cada persona elige un pedido («Pedido 01»…«Pedido 30») en el desplegable del Form. La pregunta de subir la foto se agrega a mano.
 - La evaluación suma un set de 24 casos adversariales con un grupo reservado, un puntaje más exigente (qué respondió, en qué quedó la propuesta y qué dijo, no solo si registró), tope de llamadas, corte si el LLM no responde, costo, intervalo de confianza y resultado en `.json` (RF-115 a RF-117, CA-199 a CA-203). El caso `pide-una-persona` espera la derivación, que ya existe. No cambia nada en producción.
