@@ -316,6 +316,9 @@ class Foto:
     pares: list[Par] = field(default_factory=list)
     omitidos: list[dict] = field(default_factory=list)
     sobrantes: list[Sobrante] = field(default_factory=list)
+    tachados_inventados: int = 0
+    senal: bool | None = None  # la señal de faltante disparó (RF-152); None sin resultado
+    faltan: bool | None = None  # la salida tiene menos renglones que los esperados
 
     @property
     def numerador(self) -> float:
@@ -351,15 +354,40 @@ class Foto:
 
     @property
     def errores_silenciosos(self) -> int:
-        return sum(1 for par in self.pares if par.silencioso) + self.sobrantes_que_se_mandan
+        """Lo que sale mal sin que nadie avise: un omitido también, porque el cliente no se entera (RF-150)."""
+        return sum(1 for par in self.pares if par.silencioso) + len(self.omitidos) + self.sobrantes_que_se_mandan
 
     @property
     def errores_graves(self) -> int:
-        return sum(1 for par in self.pares if par.grave) + self.sobrantes_que_se_mandan
+        return sum(1 for par in self.pares if par.grave) + len(self.omitidos) + self.sobrantes_que_se_mandan
 
     @property
     def perfecta(self) -> bool:
         return not self.omitidos and not self.sobrantes and all(par.s == 1 for par in self.pares)
+
+
+def renglones_leidos(resultado: ImagenLeida) -> int:
+    """Cuántos renglones leyó el modelo, sin el encabezado leído como renglón («Pedido para …») (RF-149)."""
+    return sum(1 for renglon in resultado.renglones if not normalizar(renglon.texto).startswith("pedido"))
+
+
+def lineas_de_producto(texto: str) -> int:
+    """Líneas de la transcripción con al menos una letra y un número: no cuentan encabezado, fecha ni membrete."""
+    return sum(
+        1
+        for linea in texto.splitlines()
+        if any(c.isalpha() for c in linea) and any(c.isdigit() for c in linea)
+    )
+
+
+def _tachados_inventados(caso: dict, resultado: ImagenLeida) -> int:
+    """Tachados leídos que no tienen las palabras de ningún tachado de la revisión (RF-151)."""
+    tachados = caso.get("tachados", [])
+    return sum(
+        1
+        for leido in resultado.tachados
+        if not any(_tiene_palabras([leido], tachado, frozenset()) for tachado in tachados)
+    )
 
 
 def _cantidad(renglon: RenglonLeido) -> float | None:
@@ -480,7 +508,13 @@ def puntuar_foto(
     marcas = marcas_del_catalogo() if marcas is None else marcas
     leidos = leidos_nivel_a(resultado) if nivel == "a" else leidos_nivel_b(resultado, buscar)
 
-    foto = Foto(caso, json_valido=True)
+    foto = Foto(
+        caso,
+        json_valido=True,
+        tachados_inventados=_tachados_inventados(caso, resultado),
+        senal=lineas_de_producto(resultado.texto) > len(resultado.renglones),
+        faltan=renglones_leidos(resultado) < len(esperados),
+    )
     libres = list(leidos)
     for esperado in esperados:
         if nivel == "a":
@@ -583,7 +617,26 @@ def elegibilidad(tachados_pedidos: int, errores_graves: int, esperados: int) -> 
     return not motivos, "; ".join(motivos) or None
 
 
-def resumir(fotos: list[Foto], salidas: list[dict], ilegibles: list[bool], precio: tuple[float, float] | None) -> dict:
+def senal_de_faltante(fotos: list[Foto], para_revisar: set[str] = frozenset()) -> dict[str, int]:
+    """Cuántas veces la señal acertó, dio falsa alarma o no vio un faltante, sin las fotos para revisar (RF-152)."""
+    cuenta = {"detectada": 0, "falsa_alarma": 0, "no_detectada": 0, "bien": 0}
+    for foto in fotos:
+        if foto.senal is None or foto.caso["id"] in para_revisar:
+            continue
+        if foto.senal:
+            cuenta["detectada" if foto.faltan else "falsa_alarma"] += 1
+        else:
+            cuenta["no_detectada" if foto.faltan else "bien"] += 1
+    return cuenta
+
+
+def resumir(
+    fotos: list[Foto],
+    salidas: list[dict],
+    ilegibles: list[bool],
+    precio: tuple[float, float] | None,
+    para_revisar: set[str] = frozenset(),
+) -> dict:
     """Las métricas de un modelo, un nivel y un grupo."""
     from internal.evaluar_agente import intervalo_por_casos
 
@@ -622,6 +675,8 @@ def resumir(fotos: list[Foto], salidas: list[dict], ilegibles: list[bool], preci
         "errores_graves_pct": round(100 * graves / esperados, 1) if esperados else None,
         "errores_silenciosos": sum(foto.errores_silenciosos for foto in fotos),
         "tachados_pedidos": tachados,
+        "tachados_inventados": sum(foto.tachados_inventados for foto in fotos),
+        "senal_de_faltante": senal_de_faltante(fotos, para_revisar),
         "peores_hojas": peores_hojas,
         "peores_renglones": peores_renglones(fotos),
         "json_valido_pct": round(100 * sum(foto.json_valido for foto in fotos) / len(fotos), 1) if fotos else None,
@@ -655,6 +710,7 @@ def puntuar_modelo(
     *,
     marcas: frozenset[str] | None = None,
     buscar: Buscador | None = None,
+    para_revisar: set[str] = frozenset(),
 ) -> tuple[dict, dict[str, dict[str, list[Foto]]], list[str]]:
     por_id = {caso["id"]: caso for caso in casos}
     avisos = []
@@ -684,9 +740,36 @@ def puntuar_modelo(
                     ilegibles.append(resultado is not None and not resultado.legible)
                     continue
                 fotos.append(puntuar_foto(caso, resultado, nivel, marcas=marcas, buscar=buscar))
-            niveles[nivel][grupo] = resumir(fotos, [salida for _, salida in usadas], ilegibles, precio)
+            niveles[nivel][grupo] = resumir(fotos, [salida for _, salida in usadas], ilegibles, precio, para_revisar)
             fotos_por_nivel[nivel][grupo] = fotos
     return niveles, fotos_por_nivel, avisos
+
+
+def fotos_para_revisar(salidas_por_modelo: list[dict[str, dict]], casos: list[dict]) -> list[dict]:
+    """Las fotos en que todos los modelos, si son al menos dos, leen menos renglones que los esperados (RF-149).
+
+    Si dos modelos distintos leen los mismos renglones de menos, lo más probable es que falten en la hoja.
+    """
+    if len(salidas_por_modelo) < 2:
+        return []
+    revisar = []
+    for caso in sorted(casos, key=lambda caso: caso["id"]):
+        if not caso.get("legible", True):
+            continue
+        leidos = {}
+        for salidas in salidas_por_modelo:
+            salida = salidas.get(caso["id"])
+            if not salida or not salida["resultado"]:
+                break
+            resultado = ImagenLeida.model_validate(salida["resultado"])
+            if not resultado.legible:
+                break
+            leidos[f"{salida['proveedor']}:{salida['modelo']}"] = renglones_leidos(resultado)
+        else:
+            esperados = len(caso["renglones"])
+            if all(cuantos < esperados for cuantos in leidos.values()):
+                revisar.append({"foto": caso["id"], "esperados": esperados, "leidos": leidos})
+    return revisar
 
 
 def puntuar_corrida(
@@ -700,15 +783,17 @@ def puntuar_corrida(
     """El resumen de todos los modelos de una corrida, sin llamar a ninguno (RF-140)."""
     precios = precios or {}
     marcas = marcas_del_catalogo()
-    resumen: dict[str, Any] = {"corrida": carpeta_corrida.name, "modelos": [], "avisos": []}
-    for carpeta in sorted(p for p in carpeta_corrida.iterdir() if p.is_dir()):
-        salidas = leer_salidas(carpeta)
-        if not salidas:
-            continue
+    todas = {carpeta: leer_salidas(carpeta) for carpeta in sorted(p for p in carpeta_corrida.iterdir() if p.is_dir())}
+    todas = {carpeta: salidas for carpeta, salidas in todas.items() if salidas}
+    revisar = fotos_para_revisar(list(todas.values()), casos)
+    resumen: dict[str, Any] = {"corrida": carpeta_corrida.name, "para_revisar": revisar, "modelos": [], "avisos": []}
+    ids_para_revisar = {foto["foto"] for foto in revisar}
+    for salidas in todas.values():
         primera = next(iter(salidas.values()))
         modelo = f"{primera['proveedor']}:{primera['modelo']}"
         huellas = sorted({salida["huella"] for salida in salidas.values()})
-        niveles, fotos, avisos = puntuar_modelo(salidas, casos, precios.get(modelo), marcas=marcas, buscar=buscar)
+        niveles, fotos, avisos = puntuar_modelo(salidas, casos, precios.get(modelo), marcas=marcas, buscar=buscar,
+                                                para_revisar=ids_para_revisar)  # fmt: skip
         if len(huellas) > 1:
             avisos.append(f"las salidas tienen {len(huellas)} prompts distintos: no se comparan entre sí")
         por_grupo = {grupo: [c["id"] for c in casos if c["grupo"] == grupo] for grupo in GRUPOS}
@@ -956,6 +1041,10 @@ def main(argv: list[str] | None = None) -> int:
     resumen["casos"] = str(args.casos)
     _guardar(carpeta / "resumen.json", resumen)
     print(_tabla(resumen))
+    for foto in resumen["para_revisar"]:
+        leidos = ", ".join(f"{modelo} {cuantos}" for modelo, cuantos in foto["leidos"].items())
+        print(f"- Para revisar: {foto['foto']} tiene {foto['esperados']} renglones y todos leen menos ({leidos}). "
+              "Si a la hoja le faltan, anotalos en sin_copiar de revision.json")  # fmt: skip
     for aviso in resumen["avisos"]:
         print(f"- {aviso}")
     if args.detalle:

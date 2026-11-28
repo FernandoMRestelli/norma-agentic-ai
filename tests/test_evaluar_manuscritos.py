@@ -271,13 +271,13 @@ def _buscar_falso(renglones):
 
 @pytest.mark.parametrize("nivel", ["a", "b"])
 def test_ejemplo_del_diseno(nivel):
-    """CA-234: S = 13,2 / 16; precision y recall 0,80; dos errores silenciosos y graves, un tachado pedido."""
+    """CA-234: S = 13,2 / 16; precision y recall 0,80; tres errores silenciosos y graves, un tachado pedido."""
     caso, imagen = _hoja_del_diseno()
     foto = em.puntuar_foto(caso, imagen, nivel, buscar=_buscar_falso)
     assert foto.numerador == pytest.approx(13.2) and foto.denominador == 16
     assert foto.S == pytest.approx(0.825)
     assert foto.correctos == 12 and foto.leidos == 15 and len(foto.omitidos) == 1
-    assert foto.errores_silenciosos == 2 and foto.errores_graves == 2 and foto.tachados_pedidos == 1
+    assert foto.errores_silenciosos == 3 and foto.errores_graves == 3 and foto.tachados_pedidos == 1
     assert not foto.perfecta and foto.json_valido
     resumen = em.resumir([foto], [{"proveedor": "huggingface", "segundos": 1.0}], [], None)
     assert resumen["elegible"] is False and "tachado" in resumen["motivo"]
@@ -466,11 +466,12 @@ def test_casos_ambiguos_del_diseno(fila, leidos, en_a, en_b):
         assert foto.tachados_pedidos == 1
 
 
-def _hoja_sintetica(foto, cuantos, *, lejos=0, tachado=False, persona=None, letra="clara", nitidez="nitida"):
-    """Una hoja de `cuantos` renglones bien leídos, `lejos` de ellos con la cantidad lejos, y un tachado pedido."""
+def _hoja_sintetica(foto, cuantos, *, lejos=0, tachado=False, persona=None, letra="clara", nitidez="nitida", faltan=0):
+    """Una hoja de `cuantos` renglones bien leídos, `lejos` de ellos con la cantidad lejos, los últimos `faltan` sin
+    leer y un tachado pedido."""
     esperados = [_esperado(n, [f"producto{n:03d}"], 2, f"SKU-{n:03d}") for n in range(1, cuantos + 1)]
     leidos = [RenglonLeido(texto=f"{20 if n <= lejos else 2} producto{n:03d}", cantidad=20 if n <= lejos else 2)
-              for n in range(1, cuantos + 1)]  # fmt: skip
+              for n in range(1, cuantos + 1 - faltan)]  # fmt: skip
     if tachado:
         leidos.append(RenglonLeido(texto="2 belkor rulos", cantidad=2))
     caso = _caso(foto, esperados, tachados=[["belkor", "rulos"]] if tachado else ())
@@ -580,3 +581,92 @@ def test_correr_manda_las_marcas_del_catalogo_de_evaluacion(carpeta, settings, m
     em.correr(casos, carpeta, carpeta / "corridas" / "prueba", [("huggingface", "falso")], leer=leer)
     assert "NORDIKA" in prompts[0] and "MARCA DE PRODUCCION" not in prompts[0]
     assert inventory_service.get_catalog() == produccion  # el catálogo de producción vuelve a su lugar
+
+
+
+def test_omitido_es_error_grave():
+    """CA-252: un renglón que no aparece es un error silencioso y grave, y deja la configuración afuera."""
+    resumen = _resumen([_hoja_sintetica("p01-A", 15, faltan=1)])
+    assert resumen["errores_silenciosos"] == 1 and resumen["errores_graves"] == 1
+    assert resumen["errores_graves_pct"] == 6.7 and resumen["elegible"] is False
+
+
+def test_tachados_inventados():
+    """CA-253: un tachado leído que no está en la revisión es inventado; S no cambia por eso."""
+    caso = _caso("p01-A", [_esperado(1, ["silkara", "protector"], 7, "SIL-CU-PRO-250")])
+    renglon = RenglonLeido(texto="7 Silkara protector", cantidad=7)
+    con_tachados = _imagen(renglon).model_copy(update={"tachados": ["7 Silkara protector", "otro", "uno más"]})
+    foto = em.puntuar_foto(caso, con_tachados, "a", marcas=frozenset())
+    assert foto.tachados_inventados == 3
+    assert foto.S == em.puntuar_foto(caso, _imagen(renglon), "a", marcas=frozenset()).S == 1
+
+    caso_con_tachado = _caso("p01-A", caso["renglones"], tachados=[["belkor", "rulos"]])
+    real = _imagen(renglon).model_copy(update={"tachados": ["2 Belkor crema de peinar rulos"]})
+    assert em.puntuar_foto(caso_con_tachado, real, "a", marcas=frozenset()).tachados_inventados == 0
+    assert _resumen([foto])["tachados_inventados"] == 3
+
+
+def _salida_con(lineas: int, renglones: int, esperados: int = 15, encabezado: bool = False):
+    """Una lectura con `lineas` líneas de producto en `texto` y `renglones` renglones, para una hoja de `esperados`."""
+    texto = "\n".join([*(["Pedido para Norma", "Fecha: hoy"] if encabezado else []),
+                       *(f"{n} producto{n:03d}" for n in range(1, lineas + 1))])  # fmt: skip
+    imagen = ImagenLeida(legible=True, tipo="lista_pedido", texto=texto,
+                         renglones=[RenglonLeido(texto=f"{n} producto{n:03d}", cantidad=n)
+                                    for n in range(1, renglones + 1)])  # fmt: skip
+    caso = _caso("p01-A", [_esperado(n, [f"producto{n:03d}"], n, f"SKU-{n:03d}") for n in range(1, esperados + 1)])
+    return em.puntuar_foto(caso, imagen, "a", marcas=frozenset())
+
+
+def test_senal_de_faltante():
+    """CA-254: la señal dispara con más líneas de producto que renglones; el encabezado y la fecha no cuentan."""
+    detectada, bien, no_detectada = _salida_con(15, 12), _salida_con(15, 15), _salida_con(14, 14)
+    assert (detectada.senal, detectada.faltan) == (True, True)
+    assert (bien.senal, bien.faltan) == (False, False)
+    assert (no_detectada.senal, no_detectada.faltan) == (False, True)
+    assert em.lineas_de_producto("Pedido para Norma\nFecha: hoy\n2 sh keratina") == 1
+    assert _salida_con(15, 15, encabezado=True).senal is False
+    falsa_alarma = _salida_con(16, 15)
+    cuenta = em.senal_de_faltante([detectada, bien, no_detectada, falsa_alarma])
+    assert cuenta == {"detectada": 1, "falsa_alarma": 1, "no_detectada": 1, "bien": 1}
+    assert em.senal_de_faltante([detectada], para_revisar={"p01-A"})["detectada"] == 0
+
+
+class LectorPorFoto(Lector):
+    """Un modelo falso que devuelve una lectura distinta según la foto."""
+
+    def __init__(self, por_foto: dict[str, ImagenLeida]):
+        super().__init__()
+        self.por_foto = por_foto
+
+    def __call__(self, imagen, proveedor, modelo):
+        self.resultado = self.por_foto[imagen.decode()]
+        return super().__call__(imagen, proveedor, modelo)
+
+
+def _leidos(cuantos: int, encabezado: bool = False) -> ImagenLeida:
+    renglones = [RenglonLeido(texto=f"{n} producto{n:03d}", cantidad=n) for n in range(1, cuantos + 1)]
+    if encabezado:
+        renglones.insert(0, RenglonLeido(texto="Pedido para Norma"))
+    return ImagenLeida(legible=True, tipo="lista_pedido", texto="Pedido para Norma", renglones=renglones)
+
+
+def test_fotos_para_revisar(carpeta):
+    """CA-251: si todos los modelos (al menos dos) leen renglones de menos, la foto va a revisar; el encabezado leído
+    como renglón no cuenta."""
+    esperados = [_esperado(n, [f"producto{n:03d}"], n, f"SKU-{n:03d}") for n in range(1, 16)]
+    casos = []
+    for foto in ("p01-A", "p02-A"):
+        (carpeta / "imagenes" / f"{foto}.jpg").write_bytes(foto.encode())
+        casos.append(_caso(foto, esperados))
+    corrida = carpeta / "corridas" / "prueba"
+    uno = LectorPorFoto({"p01-A": _leidos(12), "p02-A": _leidos(15)})
+    dos = LectorPorFoto({"p01-A": _leidos(12, encabezado=True), "p02-A": _leidos(13)})
+    em.correr(casos, carpeta, corrida, [("huggingface", "uno")], leer=uno)
+    solo_uno = em.puntuar_corrida(corrida, casos, {})
+    assert solo_uno["para_revisar"] == []
+
+    em.correr(casos, carpeta, corrida, [("huggingface", "dos")], leer=dos)
+    resumen = em.puntuar_corrida(corrida, casos, {})
+    assert resumen["para_revisar"] == [
+        {"foto": "p01-A", "esperados": 15, "leidos": {"huggingface:uno": 12, "huggingface:dos": 12}}
+    ]

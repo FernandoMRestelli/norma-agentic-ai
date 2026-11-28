@@ -9,7 +9,7 @@
 | | |
 |---|---|
 | Etapa del roadmap | 03 · Pedidos multimodales |
-| Estado | Implementado: RF-126 a RF-148. Especificado: el control de conteo, los omitidos como errores, los tachados inventados y la señal de faltante (RF-149 a RF-152). Falta validar la scoring con el orden a mano |
+| Estado | Implementado (RF-126 a RF-152); falta validar la scoring con el orden a mano |
 | Responsable | Federico Picado |
 | Requisitos relacionados | RF-101 a RF-110 y RNF-18 ([lectura de imágenes](lectura-de-imagenes.md)), D-50 (desarrollo y reservado) |
 | IDs que reserva | RF-126 a RF-152, CA-218 a CA-254 |
@@ -621,8 +621,8 @@ En la carpeta de la corrida (§3.5). La clave:
    `puntuar`. Los tests no llaman a ningún modelo.~~
 7. ~~RF-137 a RF-147 y CA-239 a CA-248 en esta spec, con CA-232, CA-234 y CA-236 actualizados a la scoring nueva.~~
 8. ~~Adaptar `evaluar_manuscritos` y `benchmark_manuscritos` a la scoring nueva, con sus tests.~~
-9. RF-149 a RF-152 y CA-251 a CA-254 en esta spec, con CA-234 actualizado (los omitidos cuentan como errores).
-10. Implementarlos en `evaluar_manuscritos`, con sus tests.
+9. ~~RF-149 a RF-152 y CA-251 a CA-254 en esta spec, con CA-234 actualizado (los omitidos cuentan como errores).~~
+10. ~~Implementarlos en `evaluar_manuscritos`, con sus tests.~~
 11. Validar la scoring con el orden a mano (§3.5) sobre desarrollo.
 12. Con las fotos: armar `casos.json`, correr Qwen local sobre `desarrollo` y, con permiso de quien paga la clave,
    `gpt-6-luna` y GPT Terra con `--max-llamadas`. El reservado se corre al final, una vez, para medir.

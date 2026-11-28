@@ -645,10 +645,11 @@ de cada lista, así que ninguna quedó cruzada. Sin revisión: se asume que todo
 
 | Modelo | S (a) lectura | S (b) interpretación | Intervalo de (b) | Errores graves en (b) | Elegible | Segundos por hoja |
 |---|---|---|---|---|---|---|
-| Qwen3-VL 2B, local | 0,15 | 0,33 | [0,14; 0,70] | 2,2 % | no | ≈ 120 |
-| `gpt-6-luna` | 0,49 | 0,56 | [0,32; 0,95] | 2,2 % | no | ≈ 21 |
+| Qwen3-VL 2B, local | 0,15 | 0,33 | [0,14; 0,70] | 57,8 % | no | ≈ 120 |
+| `gpt-6-luna` | 0,49 | 0,56 | [0,32; 0,95] | 35,6 % | no | ≈ 21 |
 
-Con 3 hojas los intervalos se pisan y no alcanza para elegir modelo. Lo que sí mostró:
+Los errores graves cuentan los renglones omitidos (RF-150): por eso son altos aunque casi no haya cantidades mal ni
+productos de más. Con 3 hojas los intervalos se pisan y no alcanza para elegir modelo. Lo que sí mostró:
 
 - **El tope de 1024 tokens del modelo local cortaba el JSON** de una hoja de 15 renglones (unos 3.000 tokens con
   Qwen y hasta 4.800 con Luna). Se subió a 20.000 (RF-148).
@@ -673,13 +674,13 @@ prompt. Es el único cambio, y por eso cambia la huella.
 
 | Modelo | S (b) sin marcas | S (b) con marcas | S (a) sin → con | Errores graves en (b) sin → con |
 |---|---|---|---|---|
-| Qwen3-VL 2B, local | 0,33 | 0,50 | 0,15 → 0,32 | 1 → 1 |
-| `gpt-6-luna` | 0,56 | 0,73 | 0,49 → 0,68 | 1 → 3 |
+| Qwen3-VL 2B, local | 0,33 | 0,50 | 0,15 → 0,32 | 26 → 17 |
+| `gpt-6-luna` | 0,56 | 0,73 | 0,49 → 0,68 | 16 → 11 |
 
 - **Mejoran las 3 hojas en los dos modelos**, y más en las de letra difícil: Luna pasa de 0,32 a 0,66 y de 0,44 a
   0,57 en (b). La lista de marcas ayuda justo donde la marca se leía mal.
-- **Con las marcas bien leídas, los errores de número salen sin duda.** Los 3 errores graves de Luna son números mal
-  leídos, y uno de ellos lleva a otro producto que la búsqueda encuentra seguro (otro oxidante): antes la marca mal
+- **Con las marcas bien leídas, los errores de número salen sin duda.** Sin contar los omitidos, que bajan, los
+  errores graves de Luna suben de 1 a 3, y los 3 son números mal leídos, y uno de ellos lleva a otro producto que la búsqueda encuentra seguro (otro oxidante): antes la marca mal
   leída lo dejaba en duda y ahora sale silencioso. Es el riesgo que la scoring tiene que mostrar, y lo muestra.
 - Con 3 hojas no alcanza para cerrar D-42, pero la dirección es clara: vale la pena medirlo con más fotos y, si se
   confirma, prenderlo en el bot. Cuesta 90 tokens de entrada más por foto (≈ 2 %).
@@ -693,6 +694,10 @@ Cada lista tiene 15 renglones, y contar cuántos leyó cada modelo mostró dos c
   por renglones que no están. De ahí salen las fotos para revisar (§6.7, RF-149).
 - **Qwen copia en `tachados` casi todos los renglones** (de 12 a 16 por hoja), además de dejarlos en `renglones`. En
   el bot eso le dice al agente que medio pedido está tachado. De ahí sale la métrica de tachados inventados (RF-151).
+
+Con las dos hojas que no están para revisar, la señal de faltante (RF-152) no detectó nada: en la única salida con
+un renglón de menos (Luna, 14 de 15), el modelo tampoco lo había copiado en `texto`, así que no había con qué
+compararlo. Es lo que la señal no puede ver, y con más fotos se va a saber cuánto pasa.
 
 Y una decisión: un renglón omitido pasa a contar como error grave (RF-150). En un pedido real nadie avisa que faltó
 algo, así que es tan silencioso como mandar otro producto.
