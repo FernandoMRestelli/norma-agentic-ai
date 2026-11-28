@@ -9,8 +9,9 @@
 > **Pendientes:** lo que falta decidir está marcado como **⏳ A-xx**, y las tareas sin dueño como **⏳ T-xx**. Todo
 > está reunido en [§8](#8-pendientes-de-definir).
 >
-> **Diapositivas:** borrador en [`presentacion.html`](presentacion.html), con el formato de la propuesta, y la misma
-> presentación con otro estilo en [`presentacion-opcion-2.html`](presentacion-opcion-2.html) (A-23). Lo que
+> **Diapositivas:** borrador en [`presentacion.html`](presentacion.html), con el formato de la propuesta, la misma
+> presentación con otro estilo en [`presentacion-opcion-2.html`](presentacion-opcion-2.html) y seis diapositivas de
+> muestra de un tercer estilo en [`presentacion-opcion-3.html`](presentacion-opcion-3.html) (A-23). Lo que
 > falta aparece como etiqueta junto al título, con el mismo ID, y el punto de esa diapositiva en la barra de abajo
 > cambia de color.
 
@@ -280,7 +281,7 @@ corrida, que es lo que más tarda) y el resto en paralelo.
 | A-20 | Dónde se documentan los datos | Ampliar `docs/data/fuentes.md` o un documento nuevo | §5.4 | |
 | A-21 | Cómo se describe y evalúa el generador de datos sintéticos | Documentar cómo se armaron el catálogo de evaluación, las consultas y los casos, y qué control de calidad tuvieron | §5.4 | |
 | A-22 | Sumar un `Makefile` (o scripts) para correr sistema y evaluación | Sí, con `make test`, `make eval-busqueda`, `make eval-agente`, `make bot`; o solo comandos en el README | §5.6 | |
-| A-23 | Formato de las diapositivas | Las dos opciones tienen el mismo contenido: `presentacion.html` (grafito y verde, el estilo de la propuesta) y `presentacion-opcion-2.html` (crema, títulos con serifa y acento terracota). Se probaron y descartaron una grilla «bento» y un estilo violeta | Armado de diapositivas | HTML, sí. Falta elegir entre las dos opciones |
+| A-23 | Formato de las diapositivas | Tres opciones: `presentacion.html` (grafito y verde, el estilo de la propuesta) y `presentacion-opcion-2.html` (crema, títulos con serifa y acento terracota), con las 20 diapositivas; y `presentacion-opcion-3.html` (fondo blanco, eje al centro, grotesca y mono, botones que alternan vistas), con 6 de muestra. Se probaron y descartaron una grilla «bento» y un estilo violeta | Armado de diapositivas | HTML, sí. Falta elegir; si es la opción 3, convertir las 14 diapositivas que faltan |
 
 ### Tareas sin dueño
 

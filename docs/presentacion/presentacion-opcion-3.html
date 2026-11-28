@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Norma - Presentación final (opción 3)</title>
+  <!--
+    Opción 3, muestra de seis diapositivas: estética editorial sobre fondo casi blanco, eje vertical al centro
+    (título a la izquierda alineado a la derecha, contenido a la derecha), grotesca para títulos y mono para
+    metadatos y números. Los botones alternan vistas dentro de una diapositiva.
+    Teclas: ← → o espacio para navegar, F para pantalla completa.
+  -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter+Tight:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #fafaf8;
+      --ink: #121212;
+      --grey: #6e6e6a;
+      --light: #a3a39e;
+      --hair: #e2e2dc;
+      --green: #dcebd4;
+      --green-b: #a9c99c;
+      --todo: #fbf1d3;
+      --todo-b: #c9a227;
+      --todo-ink: #6b5200;
+      --sans: "Inter", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+      --display: "Inter Tight", "Inter", -apple-system, "Helvetica Neue", Arial, sans-serif;
+      --mono: "IBM Plex Mono", "SF Mono", Menlo, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body { height: 100%; background: var(--bg); color: var(--ink); overflow: hidden; }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--sans);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Escenario 16:9 que escala con el ancho (cqw) */
+    .stage {
+      position: relative;
+      width: min(100vw, calc(100vh * 16 / 9));
+      aspect-ratio: 16 / 9;
+      container-type: inline-size;
+    }
+
+    /* Encabezado, eje y pie fijos */
+    .chrome-top, .chrome-bottom {
+      position: absolute;
+      left: 4cqw;
+      right: 4cqw;
+      display: flex;
+      justify-content: space-between;
+      font-family: var(--mono);
+      color: var(--grey);
+      z-index: 2;
+    }
+    .chrome-top { top: 2.4cqw; font-size: 0.95cqw; }
+    .chrome-bottom { bottom: 2.2cqw; font-size: 0.88cqw; align-items: flex-end; gap: 2cqw; }
+
+    .axis {
+      position: absolute;
+      left: 50%;
+      top: 2.1cqw;
+      height: 1.8cqw;
+      border-left: 1px solid var(--ink);
+      z-index: 2;
+    }
+    .stage.cover .axis { height: calc(100% - 5cqw); }
+
+    .src span { text-decoration: underline; text-underline-offset: 0.25cqw; }
+    .src .sep { text-decoration: none; padding: 0 0.4cqw; }
+
+    .nav { display: flex; align-items: center; gap: 1.2cqw; white-space: nowrap; }
+    .nav button {
+      font-family: var(--mono);
+      font-size: 0.95cqw;
+      color: var(--grey);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0.1cqw 0.3cqw;
+    }
+    .nav button:hover:not(:disabled) { color: var(--ink); }
+    .nav button:disabled { color: var(--hair); cursor: default; }
+
+    /* Diapositivas */
+    .slide { position: absolute; inset: 6.4cqw 4cqw 5.8cqw 4cqw; display: none; }
+    .slide.active { display: block; animation: aparecer 0.25s ease-out; }
+    @keyframes aparecer { from { opacity: 0; } to { opacity: 1; } }
+
+    .split { display: grid; grid-template-columns: 1fr 1fr; height: 100%; }
+    .split > .l {
+      padding-right: 1.8cqw;
+      text-align: right;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      justify-content: center;
+      gap: 1.6cqw;
+    }
+    .split > .r {
+      padding-left: 1.8cqw;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 1.6cqw;
+      min-width: 0;
+    }
+
+    /* Tipografía */
+    .h-xl { font-family: var(--display); font-weight: 500; font-size: 5.3cqw; letter-spacing: -0.045em; line-height: 1.02; }
+    .h-l { font-family: var(--display); font-weight: 500; font-size: 3.7cqw; letter-spacing: -0.04em; line-height: 1.05; }
+    .h-m { font-family: var(--display); font-weight: 500; font-size: 1.9cqw; letter-spacing: -0.02em; line-height: 1.2; }
+    .mono { font-family: var(--mono); }
+    .kick { font-family: var(--mono); font-size: 1.05cqw; color: var(--grey); }
+    .body { font-size: 1.45cqw; line-height: 1.5; }
+    .grey { color: var(--grey); }
+    .num-xl { font-family: var(--mono); font-weight: 500; font-size: 6.4cqw; letter-spacing: -0.03em; line-height: 1; }
+    .num-l { font-family: var(--mono); font-weight: 500; font-size: 3.4cqw; letter-spacing: -0.02em; line-height: 1; }
+    .num-cap { font-family: var(--mono); font-size: 1.05cqw; color: var(--grey); margin-top: 0.6cqw; }
+    .hl { background: var(--green); padding: 0 0.6cqw; }
+    .from { color: var(--light); }
+
+    .blackbox {
+      display: inline-block;
+      background: var(--ink);
+      color: #fff;
+      font-family: var(--mono);
+      font-weight: 600;
+      font-size: 5.4cqw;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      padding: 0.3cqw 1.6cqw 0.5cqw;
+    }
+
+    /* Botones de vista */
+    .toggles { display: flex; gap: 0.6cqw; flex-wrap: wrap; justify-content: flex-end; }
+    .r .toggles { justify-content: flex-start; }
+    .toggle {
+      font-family: var(--mono);
+      font-size: 1.08cqw;
+      color: var(--ink);
+      background: #fff;
+      border: 1px solid #9c9c96;
+      padding: 0.5cqw 1cqw;
+      cursor: pointer;
+    }
+    .toggle.on { background: var(--green); border-color: var(--green-b); }
+
+    .view { display: none; }
+    .view.on { display: flex; flex-direction: column; gap: 1.4cqw; }
+
+    /* Pendientes */
+    .todo {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 0.88cqw;
+      color: var(--todo-ink);
+      background: var(--todo);
+      border: 1px dashed var(--todo-b);
+      padding: 0.2cqw 0.6cqw;
+      white-space: nowrap;
+    }
+
+    /* Filas con etiqueta mono y línea fina */
+    .rows { display: flex; flex-direction: column; }
+    .rows .row { display: grid; grid-template-columns: 7cqw 1fr; gap: 1.2cqw; padding: 0.9cqw 0; border-top: 1px solid var(--hair); }
+    .rows .row:last-child { border-bottom: 1px solid var(--hair); }
+    .rows .lbl { font-family: var(--mono); font-size: 0.98cqw; color: var(--grey); padding-top: 0.25cqw; }
+    .rows .val { font-size: 1.35cqw; line-height: 1.45; }
+
+    /* Tabla de dos columnas que se encuentran en el eje */
+    table.axis-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .axis-table td { padding: 0.7cqw 0; border-top: 1px solid var(--hair); vertical-align: top; }
+    .axis-table tr:last-child td { border-bottom: 1px solid var(--hair); }
+    .axis-table .lbl { width: 15%; font-family: var(--mono); font-size: 0.98cqw; color: var(--grey); padding-top: 0.85cqw; }
+    .axis-table .left { width: 35%; text-align: right; padding-right: 1.8cqw; font-size: 1.25cqw; line-height: 1.4; }
+    .axis-table .right { width: 50%; padding-left: 1.8cqw; font-family: var(--mono); font-size: 1cqw; line-height: 1.75; }
+    .axis-table th { font-family: var(--display); font-weight: 600; font-size: 1.45cqw; letter-spacing: -0.02em; padding-bottom: 0.8cqw; }
+    .axis-table th.left { text-align: right; }
+    .axis-table th.right { text-align: left; font-family: var(--display); font-size: 1.55cqw; }
+    .tool { white-space: nowrap; display: inline-block; margin-right: 0.7cqw; }
+    .tool:not(:last-child)::after { content: "·"; color: var(--light); margin-left: 0.7cqw; }
+
+    /* Citas del problema */
+    .quote { font-family: var(--display); font-size: 2.3cqw; letter-spacing: -0.02em; line-height: 1.25; }
+    .quote::before { content: "«"; color: var(--light); }
+    .quote::after { content: "»"; color: var(--light); }
+
+    /* Agenda de la portada */
+    .agenda { display: flex; flex-direction: column; gap: 0.6cqw; }
+    .agenda div { font-family: var(--display); font-size: 1.9cqw; letter-spacing: -0.02em; }
+
+    /* SVG: diagramas y gráficos */
+    svg text { font-family: var(--sans); }
+    svg .t { font-size: 20px; fill: var(--ink); font-weight: 500; }
+    svg .s { font-family: var(--mono); font-size: 14px; fill: var(--grey); }
+    svg .g { font-family: var(--mono); font-size: 15px; fill: var(--grey); }
+    svg .box { fill: var(--bg); stroke: var(--ink); stroke-width: 1.2; }
+    svg .llm { fill: var(--bg); stroke: var(--ink); stroke-width: 3; }
+    svg .know { fill: var(--green); stroke: none; }
+    svg .group { fill: none; stroke: var(--light); stroke-width: 1.2; stroke-dasharray: 5 4; }
+    svg .flow { fill: none; stroke: var(--ink); stroke-width: 1.2; }
+    svg .feed { fill: none; stroke: var(--grey); stroke-width: 1.2; stroke-dasharray: 4 4; }
+    svg .grid { stroke: var(--hair); stroke-width: 1; }
+    svg .axis-t { font-family: var(--mono); font-size: 13px; fill: var(--grey); }
+  </style>
+</head>
+<body>
+
+<div class="stage cover" id="stage">
+
+  <div class="chrome-top">
+    <span>norma / agente de pedidos · Maestría en Explotación de Datos · UBA</span>
+    <span id="section"></span>
+  </div>
+  <div class="axis"></div>
+
+  <!-- 1. PORTADA -->
+  <section class="slide active" data-sec="" data-src="">
+    <div class="split">
+      <div class="l" style="justify-content: space-between; padding-top: 6cqw; padding-bottom: 2cqw;">
+        <div class="h-xl">De pedidos<br>informales a</div>
+        <div style="display:flex; flex-direction:column; align-items:flex-end; gap:0.5cqw;">
+          <div class="h-m" style="font-weight:600;">Grupo 10</div>
+          <div class="body grey">Fernando Restelli</div>
+          <div class="body grey">Pablo Bianchi</div>
+          <div class="body grey">Federico Picado</div>
+          <div class="kick" style="margin-top:1cqw;">Maestría en Explotación de Datos · UBA</div>
+          <div class="kick">IA Agéntica · Trabajo Práctico Integrador</div>
+        </div>
+      </div>
+      <div class="r" style="justify-content: space-between; padding-top: 6cqw; padding-bottom: 2cqw; position: relative;">
+        <div>
+          <div style="margin-top: 5.3cqw;"><span class="blackbox">órdenes</span></div>
+          <div class="h-m" style="margin-top:0.8cqw; font-size:2.3cqw;">Norma, un agente de pedidos para una distribuidora de perfumería</div>
+          <div class="kick" style="margin-top:0.6cqw;">Inteligencia artificial agéntica</div>
+        </div>
+        <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:2cqw;">
+          <div class="agenda">
+            <div>01 · Problema e hipótesis</div>
+            <div>02 · Cómo funciona</div>
+            <div>03 · Evidencia y costos</div>
+            <div>04 · Cómo lo hicimos</div>
+          </div>
+          <span class="todo" title="Fecha de la exposición: 10/12 u 11/12">⏳ A-02 fecha</span>
+        </div>
+        <svg viewBox="0 0 200 180" style="position:absolute; right:2cqw; top:5cqw; width:11cqw;" aria-hidden="true">
+          <g class="flow" style="stroke-width:1;">
+            <line x1="100" y1="80" x2="30" y2="35"/><line x1="100" y1="80" x2="170" y2="25"/>
+            <line x1="100" y1="80" x2="35" y2="135"/><line x1="100" y1="80" x2="165" y2="125"/>
+            <line x1="100" y1="80" x2="110" y2="165"/><line x1="35" y1="135" x2="165" y2="125"/>
+            <line x1="30" y1="35" x2="35" y2="135"/>
+          </g>
+          <circle cx="100" cy="80" r="22" fill="#dcebd4"/>
+          <text x="100" y="85" text-anchor="middle" style="font-family: var(--mono); font-size: 14px; font-weight: 600;">LLM</text>
+          <g fill="#fafaf8" stroke="#121212" stroke-width="1.2">
+            <circle cx="30" cy="35" r="12"/><circle cx="170" cy="25" r="9"/><circle cx="35" cy="135" r="14"/>
+            <circle cx="165" cy="125" r="16"/><circle cx="110" cy="165" r="10"/>
+          </g>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. EL PROBLEMA -->
+  <section class="slide" data-sec="01 / problema" data-src="<span>docs/spec/toma-de-pedidos-por-texto.md</span><span class='sep'>·</span><span>docs/architecture.md</span>">
+    <div class="split">
+      <div class="l">
+        <div class="h-l">Pedidos informales contra un catálogo enorme</div>
+        <div class="kick">por chat, nota de voz o foto de una lista</div>
+        <div style="margin-top: 2cqw;">
+          <div class="num-xl">1.090</div>
+          <div class="num-cap">productos · 57 marcas · variantes mínimas</div>
+        </div>
+      </div>
+      <div class="r">
+        <div class="kick">así llegan</div>
+        <div style="display:flex; flex-direction:column; gap:0.9cqw;">
+          <div class="quote">mandame 3 elvive reparación</div>
+          <div class="quote">2 mascara argan x 1k</div>
+          <div class="quote">coleston 821</div>
+        </div>
+        <div class="rows" style="margin-top: 1.4cqw; max-width: 38cqw;">
+          <div class="row"><span class="lbl">usuario</span><span class="val">Quien atiende los pedidos en la distribuidora.</span></div>
+          <div class="row"><span class="lbl">hoy</span><span class="val">Los pasa a mano, a ojo, contra planillas.</span></div>
+          <div class="row"><span class="lbl">costo</span><span class="val">Errores de despacho y pedidos sin seguimiento.</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. HIPÓTESIS -->
+  <section class="slide" data-sec="01 / hipótesis" data-src="<span>docs/presentacion/plan.md §5.1</span><span class='sep'>·</span><span>docs/spec/busqueda-tolerante.md</span>">
+    <div class="split">
+      <div class="l">
+        <div class="h-l">Qué queremos demostrar</div>
+        <div class="kick">contra un baseline, sobre el grupo reservado</div>
+        <div class="toggles" data-group="hipo">
+          <button class="toggle on" data-view="h1">H1 · exactitud</button>
+          <button class="toggle" data-view="h2">H2 · controles</button>
+          <button class="toggle" data-view="h3">H3 · retrieval</button>
+        </div>
+      </div>
+      <div class="r" data-views="hipo">
+        <div class="view on" data-view="h1">
+          <div class="h-m" style="font-size:2.5cqw; max-width: 40cqw;">El agente arma la orden correcta más seguido que un baseline simple.</div>
+          <div class="rows" style="max-width: 40cqw;">
+            <div class="row"><span class="lbl">mide</span><span class="val">Aciertos y recall de renglones, con intervalo de Wilson.</span></div>
+            <div class="row"><span class="lbl">contra</span><span class="val">Script determinístico o prompt zero-shot. <span class="todo" title="Baseline de H1: script determinístico, zero-shot o los dos">⏳ A-05</span></span></div>
+            <div class="row"><span class="lbl">estado</span><span class="val grey">Sin correr: falta fijar modelo y presupuesto.</span></div>
+          </div>
+        </div>
+        <div class="view" data-view="h2">
+          <div class="h-m" style="font-size:2.5cqw; max-width: 40cqw;">Los guardrails bajan los errores graves.</div>
+          <div class="rows" style="max-width: 40cqw;">
+            <div class="row"><span class="lbl">mide</span><span class="val">SKU o precio inventado, registro sin aceptación, en adversariales.</span></div>
+            <div class="row"><span class="lbl">contra</span><span class="val">El mismo agente sin controles. <span class="todo" title="Si H2 entra como hipótesis">⏳ A-06</span></span></div>
+            <div class="row"><span class="lbl">estado</span><span class="val grey">Sin correr.</span></div>
+          </div>
+        </div>
+        <div class="view" data-view="h3">
+          <div class="h-m" style="font-size:2.5cqw; max-width: 40cqw;">La búsqueda tolerante encuentra más productos que la exacta.</div>
+          <div><span class="num-l"><span class="from">0,87 →</span> <span class="hl">0,94</span></span><div class="num-cap">recall@3 · 124 consultas</div></div>
+          <div class="rows" style="max-width: 40cqw;">
+            <div class="row"><span class="lbl">estado</span><span class="val">Medida, sin LLM. <span class="todo" title="Separar test en el set de búsqueda o declararlo como limitación">⏳ A-10</span></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. SKILLS Y TOOLS -->
+  <section class="slide" data-sec="02 / cómo funciona" data-src="<span>internal/skills/</span><span class='sep'>·</span><span>internal/agent/tool_registry.py</span>">
+    <div style="display:flex; flex-direction:column; justify-content:center; height:100%; gap: 1.8cqw;">
+      <div class="split" style="height:auto;">
+        <div class="l"><div class="h-l">Cómo decide el agente</div></div>
+        <div class="r"><div class="kick" style="font-size:1.25cqw;">4 skills · 9 reglas de negocio · 15 tools</div>
+          <div class="body grey" style="max-width: 40cqw;">Lee la skill, recién ahí le aparecen sus tools, y lee una regla solo cuando la necesita.</div></div>
+      </div>
+      <table class="axis-table">
+        <thead>
+          <tr><th class="lbl"></th><th class="left">Qué hace</th><th class="right">Tools</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="lbl">tomar_pedido</td><td class="left">Convierte el pedido en una propuesta · 7 reglas</td><td class="right"><span class="tool">search_products</span><span class="tool">buscar_renglones</span><span class="tool">get_product</span><span class="tool">check_stock</span><span class="tool">explorar_catalogo</span><span class="tool">pedidos_anteriores</span></td></tr>
+          <tr><td class="lbl">confirmar_pedido</td><td class="left">Registra solo si el cliente acepta · 1 regla</td><td class="right"><span class="tool">armar_pedido</span><span class="tool">respond_to_customer</span></td></tr>
+          <tr><td class="lbl">informar</td><td class="left">Horarios, pagos y estado de pedidos</td><td class="right"><span class="tool">respond_to_customer</span><span class="tool">consultar_estado_pedido</span></td></tr>
+          <tr><td class="lbl">derivar_o_cancelar</td><td class="left">Pasa a una persona o descarta · 1 regla</td><td class="right"><span class="tool">escalate_to_human</span><span class="tool">discard_order_draft</span><span class="tool">respond_to_customer</span></td></tr>
+          <tr><td class="lbl">siempre</td><td class="left grey">Leer skills y reglas</td><td class="right"><span class="tool">leer_skill</span><span class="tool">leer_br</span></td></tr>
+          <tr><td class="lbl">orquestador</td><td class="left grey">Delegar un trabajo largo</td><td class="right"><span class="tool">delegar_skill</span><span class="tool">entregar_nota</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 5. ARQUITECTURA -->
+  <section class="slide" data-sec="02 / cómo funciona" data-src="<span>docs/architecture.md</span><span class='sep'>·</span><span>internal/agent/graph.py</span><span class='sep'>·</span><span>docs/spec/agente.md</span>">
+    <svg viewBox="0 0 1600 700" style="width:100%; height:100%;" role="img" aria-label="Arquitectura de Norma: entrada, agente, control y registro">
+      <defs>
+        <marker id="fl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9" fill="none" stroke="#121212" stroke-width="1.4"/></marker>
+        <marker id="fd" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9" fill="none" stroke="#6e6e6a" stroke-width="1.4"/></marker>
+      </defs>
+
+      <!-- Etiquetas de sección -->
+      <text class="g" x="0" y="34">Entrada</text>
+      <text class="g" x="0" y="178">Agente</text>
+      <text class="g" x="0" y="472">Control y registro</text>
+
+      <!-- Entrada -->
+      <rect class="box" x="0" y="60" width="150" height="70" rx="35"/>
+      <text class="t" x="75" y="101" text-anchor="middle">Cliente</text>
+      <rect class="box" x="200" y="60" width="200" height="70"/>
+      <text class="t" x="300" y="92" text-anchor="middle">Telegram</text>
+      <text class="s" x="300" y="115" text-anchor="middle">texto · foto · audio</text>
+      <rect class="group" x="450" y="44" width="550" height="102"/>
+      <text class="s" x="460" y="40">antes del LLM del agente</text>
+      <rect class="llm" x="470" y="56" width="220" height="36"/>
+      <text class="t" x="580" y="80" text-anchor="middle" style="font-size:17px;">Lectura de foto</text>
+      <rect class="llm" x="470" y="100" width="220" height="36"/>
+      <text class="t" x="580" y="124" text-anchor="middle" style="font-size:17px;">Transcripción</text>
+      <rect class="box" x="740" y="60" width="240" height="70"/>
+      <text class="t" x="860" y="92" text-anchor="middle">Filtro y atajos</text>
+      <text class="s" x="860" y="115" text-anchor="middle">sin tokens del LLM</text>
+      <path class="flow" d="M150,95 H198" marker-end="url(#fl)"/>
+      <path class="flow" d="M400,95 H435 V74 H468" marker-end="url(#fl)"/>
+      <path class="flow" d="M435,95 V118 H468" marker-end="url(#fl)"/>
+      <path class="flow" d="M690,74 H715 V95 H738" marker-end="url(#fl)"/>
+      <path class="flow" d="M690,118 H715 V95"/>
+
+      <!-- Agente -->
+      <rect class="know" x="200" y="190" width="220" height="62"/>
+      <text class="t" x="310" y="218" text-anchor="middle">Contexto del cliente</text>
+      <text class="s" x="310" y="240" text-anchor="middle">pedidos anteriores</text>
+      <rect class="know" x="960" y="190" width="220" height="62"/>
+      <text class="t" x="1070" y="218" text-anchor="middle">Catálogo</text>
+      <text class="s" x="1070" y="240" text-anchor="middle">1.090 productos</text>
+      <rect class="know" x="200" y="296" width="220" height="70"/>
+      <text class="t" x="310" y="327" text-anchor="middle">Skills y reglas</text>
+      <text class="s" x="310" y="350" text-anchor="middle">4 skills · 9 BR en .md</text>
+      <rect class="llm" x="520" y="280" width="340" height="100"/>
+      <text class="t" x="690" y="322" text-anchor="middle" style="font-size:23px;">Grafo con skills · LangGraph</text>
+      <text class="s" x="690" y="348" text-anchor="middle">lee la skill → recibe sus tools</text>
+      <rect class="box" x="960" y="280" width="220" height="100"/>
+      <text class="t" x="1070" y="322" text-anchor="middle">15 tools</text>
+      <text class="s" x="1070" y="348" text-anchor="middle">búsqueda, stock, pedido</text>
+      <path class="flow" d="M860,130 V250 H760 V278" marker-end="url(#fl)"/>
+      <path class="feed" d="M420,221 H600 V278" marker-end="url(#fd)"/>
+      <path class="feed" d="M420,331 H518" marker-end="url(#fd)"/>
+      <path class="flow" d="M860,316 H958" marker-end="url(#fl)"/>
+      <path class="flow" d="M960,346 H862" marker-end="url(#fl)"/>
+      <path class="feed" d="M1070,252 V278" marker-end="url(#fd)"/>
+
+      <!-- Control y registro -->
+      <rect class="box" x="200" y="500" width="220" height="70"/>
+      <text class="t" x="310" y="531" text-anchor="middle">MLflow</text>
+      <text class="s" x="310" y="554" text-anchor="middle">una traza por turno</text>
+      <rect class="box" x="520" y="500" width="240" height="70"/>
+      <text class="t" x="640" y="531" text-anchor="middle">Guardrails</text>
+      <text class="s" x="640" y="554" text-anchor="middle">SKU, precios y promesas</text>
+      <rect class="box" x="820" y="500" width="180" height="70"/>
+      <text class="t" x="910" y="531" text-anchor="middle">Propuesta</text>
+      <text class="s" x="910" y="554" text-anchor="middle">renglones y precios</text>
+      <rect class="box" x="1050" y="500" width="200" height="70" rx="35"/>
+      <text class="t" x="1150" y="541" text-anchor="middle">Cliente acepta</text>
+      <rect class="box" x="1050" y="612" width="200" height="70"/>
+      <text class="t" x="1150" y="643" text-anchor="middle">Backend registra</text>
+      <text class="s" x="1150" y="666" text-anchor="middle">revalida precios</text>
+      <rect class="know" x="780" y="612" width="220" height="70"/>
+      <text class="t" x="890" y="643" text-anchor="middle">Pedidos</text>
+      <text class="s" x="890" y="666" text-anchor="middle">SQLite · CSV · Sheets</text>
+      <rect class="box" x="520" y="612" width="220" height="70"/>
+      <text class="t" x="630" y="653" text-anchor="middle">Dashboard</text>
+      <rect class="box" x="200" y="612" width="220" height="70" rx="35"/>
+      <text class="t" x="310" y="653" text-anchor="middle">Operador</text>
+
+      <path class="flow" d="M620,380 V498" marker-end="url(#fl)"/>
+      <path class="feed" d="M720,498 V382" marker-end="url(#fd)"/>
+      <text class="s" x="732" y="446">reescribe, hasta 3</text>
+      <path class="feed" d="M520,360 H470 V535 H422" marker-end="url(#fd)"/>
+      <path class="flow" d="M760,535 H818" marker-end="url(#fl)"/>
+      <path class="flow" d="M1000,535 H1048" marker-end="url(#fl)"/>
+      <path class="flow" d="M1150,570 V610" marker-end="url(#fl)"/>
+      <path class="flow" d="M1050,647 H1002" marker-end="url(#fl)"/>
+      <path class="flow" d="M780,647 H742" marker-end="url(#fl)"/>
+      <path class="flow" d="M520,647 H422" marker-end="url(#fl)"/>
+
+      <!-- Leyenda -->
+      <g transform="translate(1330,60)">
+        <line x1="0" y1="0" x2="44" y2="0" class="flow"/><text class="g" x="58" y="5">flujo</text>
+        <line x1="0" y1="36" x2="44" y2="36" class="feed"/><text class="g" x="58" y="41">lectura y feedback</text>
+        <rect x="0" y="62" width="44" height="22" class="llm"/><text class="g" x="58" y="78">paso con LLM</text>
+        <rect x="0" y="100" width="44" height="22" class="box"/><text class="g" x="58" y="116">proceso en código</text>
+        <rect x="0" y="138" width="44" height="22" class="know"/><text class="g" x="58" y="154">conocimiento</text>
+        <rect x="0" y="176" width="44" height="22" rx="11" class="box"/><text class="g" x="58" y="192">persona</text>
+      </g>
+      <text class="s" x="1330" y="330" style="font-size:15px;">el LLM interpreta;</text>
+      <text class="s" x="1330" y="352" style="font-size:15px;">el backend valida y registra;</text>
+      <text class="s" x="1330" y="374" style="font-size:15px;">el cliente confirma.</text>
+    </svg>
+  </section>
+
+  <!-- 6. RETRIEVAL -->
+  <section class="slide" data-sec="03 / evidencia" data-src="<span>python -m internal.evaluar_busqueda</span><span class='sep'>·</span><span>data_example/consultas_busqueda.json</span><span class='sep'>·</span><span>docs/spec/busqueda-tolerante.md</span>">
+    <div class="split">
+      <div class="l">
+        <div class="h-l">Búsqueda tolerante, medida sin el LLM</div>
+        <div class="kick">124 consultas · antes y después de RF-118</div>
+        <div class="toggles" data-group="met">
+          <button class="toggle on" data-view="recall">recall@3</button>
+          <button class="toggle" data-view="mrr">MRR</button>
+          <button class="toggle" data-view="unicos">únicos correctos</button>
+          <button class="toggle" data-view="negados">negados</button>
+        </div>
+        <div data-views="met" style="margin-top: 1cqw;">
+          <div class="view on" data-view="recall" style="align-items:flex-end;"><div class="num-xl"><span class="hl">0,94</span></div><div class="num-cap">recall@3 · antes 0,87</div></div>
+          <div class="view" data-view="mrr" style="align-items:flex-end;"><div class="num-xl"><span class="hl">0,937</span></div><div class="num-cap">MRR · antes 0,867</div></div>
+          <div class="view" data-view="unicos" style="align-items:flex-end;"><div class="num-xl"><span class="hl">0,91</span></div><div class="num-cap">únicos correctos · antes 0,776</div></div>
+          <div class="view" data-view="negados" style="align-items:flex-end;"><div class="num-xl"><span class="from">12 →</span> <span class="hl">5</span></div><div class="num-cap">productos que existen y se negaban</div></div>
+        </div>
+      </div>
+      <div class="r">
+        <svg viewBox="0 0 700 400" style="width:100%;" role="img" aria-label="Antes y después de tres métricas del buscador: recall@3 0,87 a 0,94; MRR 0,867 a 0,937; únicos correctos 0,776 a 0,91">
+          <g>
+            <line class="grid" x1="80" y1="40" x2="80" y2="340"/><line class="grid" x1="266.7" y1="40" x2="266.7" y2="340"/>
+            <line class="grid" x1="453.3" y1="40" x2="453.3" y2="340"/><line class="grid" x1="640" y1="40" x2="640" y2="340"/>
+            <line x1="80" y1="340" x2="640" y2="340" stroke="#121212" stroke-width="1"/>
+            <text class="axis-t" x="80" y="366" text-anchor="middle">0,7</text><text class="axis-t" x="266.7" y="366" text-anchor="middle">0,8</text>
+            <text class="axis-t" x="453.3" y="366" text-anchor="middle">0,9</text><text class="axis-t" x="640" y="366" text-anchor="middle">1,0</text>
+          </g>
+          <g class="dumb" data-row="recall">
+            <text class="axis-t lbl-row" x="80" y="82">recall@3</text>
+            <line x1="397.3" y1="100" x2="528" y2="100" stroke="#121212" stroke-width="1.5"/>
+            <circle cx="397.3" cy="100" r="7" fill="#fafaf8" stroke="#121212" stroke-width="1.5"/>
+            <circle class="after" cx="528" cy="100" r="7" fill="#121212"/>
+            <text class="axis-t" x="545" y="105">0,94</text>
+          </g>
+          <g class="dumb" data-row="mrr">
+            <text class="axis-t lbl-row" x="80" y="182">MRR</text>
+            <line x1="391.7" y1="200" x2="522.4" y2="200" stroke="#121212" stroke-width="1.5"/>
+            <circle cx="391.7" cy="200" r="7" fill="#fafaf8" stroke="#121212" stroke-width="1.5"/>
+            <circle class="after" cx="522.4" cy="200" r="7" fill="#121212"/>
+            <text class="axis-t" x="540" y="205">0,937</text>
+          </g>
+          <g class="dumb" data-row="unicos">
+            <text class="axis-t lbl-row" x="80" y="282">únicos correctos</text>
+            <line x1="221.9" y1="300" x2="472" y2="300" stroke="#121212" stroke-width="1.5"/>
+            <circle cx="221.9" cy="300" r="7" fill="#fafaf8" stroke="#121212" stroke-width="1.5"/>
+            <circle class="after" cx="472" cy="300" r="7" fill="#121212"/>
+            <text class="axis-t" x="489" y="305">0,91</text>
+          </g>
+          <g transform="translate(470,22)">
+            <circle cx="0" cy="0" r="6" fill="#fafaf8" stroke="#121212" stroke-width="1.5"/><text class="axis-t" x="12" y="5">antes</text>
+            <circle cx="80" cy="0" r="6" fill="#121212"/><text class="axis-t" x="92" y="5">después</text>
+          </g>
+        </svg>
+        <div class="body grey" style="max-width: 40cqw;">Abstención 1,0 y 0 falsos únicos, sin cambios. Falla con necesidades («teñir»), no con errores de tipeo. <span class="todo" title="Las consultas son inventadas y no tienen partición desarrollo/test">⏳ A-10</span></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="chrome-bottom">
+    <span class="src" id="src"></span>
+    <span class="nav">
+      <span>grupo 10</span>
+      <span id="count"></span>
+      <button id="prev" aria-label="Anterior">←</button>
+      <button id="next" aria-label="Siguiente">→</button>
+      <button id="full" aria-label="Pantalla completa">⤢</button>
+    </span>
+  </div>
+</div>
+
+<script>
+  const stage = document.getElementById('stage');
+  const slides = [...document.querySelectorAll('.slide')];
+  const section = document.getElementById('section');
+  const src = document.getElementById('src');
+  const count = document.getElementById('count');
+  const prev = document.getElementById('prev');
+  const next = document.getElementById('next');
+  let current = 0;
+
+  function go(i) {
+    current = Math.max(0, Math.min(slides.length - 1, i));
+    slides.forEach((s, k) => s.classList.toggle('active', k === current));
+    const s = slides[current];
+    stage.classList.toggle('cover', current === 0);
+    section.textContent = s.dataset.sec || '';
+    src.innerHTML = s.dataset.src || '';
+    count.textContent = String(current + 1).padStart(2, '0') + ' / ' + String(slides.length).padStart(2, '0');
+    prev.disabled = current === 0;
+    next.disabled = current === slides.length - 1;
+  }
+
+  // Botones que alternan vistas dentro de una diapositiva
+  document.querySelectorAll('.toggles').forEach((group) => {
+    const name = group.dataset.group;
+    group.addEventListener('click', (e) => {
+      const btn = e.target.closest('.toggle');
+      if (!btn) return;
+      const view = btn.dataset.view;
+      group.querySelectorAll('.toggle').forEach((b) => b.classList.toggle('on', b === btn));
+      document.querySelectorAll(`[data-views="${name}"] > .view`).forEach((v) => v.classList.toggle('on', v.dataset.view === view));
+      document.querySelectorAll('.dumb').forEach((d) => {
+        const on = d.dataset.row === view;
+        d.style.opacity = name === 'met' && view !== 'negados' && !on ? 0.3 : 1;
+      });
+    });
+  });
+
+  prev.addEventListener('click', () => go(current - 1));
+  next.addEventListener('click', () => go(current + 1));
+  document.getElementById('full').addEventListener('click', toggleFull);
+
+  function toggleFull() {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+    else document.exitFullscreen?.();
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === ' ') go(current + 1);
+    else if (e.key === 'ArrowLeft') go(current - 1);
+    else if (e.key === 'f' || e.key === 'F') toggleFull();
+  });
+
+  go(0);
+  document.querySelector('[data-group="met"] .toggle.on').click();
+</script>
+</body>
+</html>
