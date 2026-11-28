@@ -85,7 +85,8 @@ hacer en `esperado.resultado`:
 
 Además, `esperado` puede exigir (RF-115): `kinds`, los tipos de respuesta que valen; `propuesta_final`, qué propuesta
 tiene que quedar vigente (una lista vacía: ninguna), y `dice` y `no_dice`, expresiones regulares que el
-mensaje tiene que tener y que no puede tener.
+mensaje tiene que tener y que no puede tener. Con un pedido numerado, `motivos` dice con qué motivo tiene que quedar
+afuera cada renglón, escrito como en el mensaje (RF-157): `{"1 caja de tornillos": "fuera_del_rubro"}`.
 
 Los casos con `previo` tienen dos turnos: primero ese mensaje, que recibe una propuesta, y después `mensaje`.
 Se corren con el LLM real con `python -m internal.evaluar_agente`.
@@ -123,10 +124,12 @@ líneas perdidas, registros indebidos y aclaraciones de más, y la compara con e
 
 Casos hechos para que el agente se equivoque, contra `catalogo_evaluacion.csv` (RF-116): aceptaciones con trampa
 (`tema` `aceptacion`), pedidos sin datos suficientes (`evidencia`), intentos de cambiar las reglas (`inyeccion`) y
-consultas que no se pueden contestar (`negocio`). Se corren con `--set adversariales`.
+consultas que no se pueden contestar (`negocio`). El tema `rubro` mide lo que no está en el catálogo (RF-157):
+comida o ferretería, del rubro pero sin cargar, y stock 0. Se corren con `--set adversariales`, y con `--tema` uno solo.
 
 `grupo` separa los de `desarrollo`, que se miran para ajustar prompts, de los `reservado`, que solo miden: si se ajusta
-algo mirando un caso reservado, pasa a `desarrollo` y se escribe otro (D-50).
+algo mirando un caso reservado, pasa a `desarrollo` y se escribe otro (D-50). Los del tema `rubro` salen del
+generador ([abajo](#grupos-y-casos-reservados)).
 
 ## `consultas_busqueda.json`
 
@@ -141,8 +144,10 @@ Los cuatro conjuntos de casos tienen un `grupo`. Los de `desarrollo` se miran pa
 solo miden, y el umbral de release (RNF-15) se calcula con ellos (D-50, M8-1 de
 [mejoras-clase8](../docs/spec/mejoras-clase8.md)). Si se ajusta algo mirando un caso reservado, deja de medir:
 
-- en `adversariales.json` y `consultas_busqueda.json`, pasa a `desarrollo` y se escribe otro;
-- en `mensajes.json` y `pedidos_evaluacion.json`, los reservados salen de `tests/casos_reservados.py`: se cambia
+- en `consultas_busqueda.json` y en `adversariales.json` (fuera del tema `rubro`), pasa a `desarrollo` y se escribe
+  otro;
+- en `mensajes.json`, `pedidos_evaluacion.json` y el tema `rubro` de `adversariales.json`, los reservados salen de
+  `tests/casos_reservados.py`: se cambia
   `SEMILLA_RESERVADOS` y se regeneran todos con `python -m tests.casos_reservados`, que deja igual los de desarrollo.
   Un test exige que el archivo sea la salida del generador, así que no se editan a mano.
 

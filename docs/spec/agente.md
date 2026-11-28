@@ -129,7 +129,7 @@ Reglas del loop:
    `AGENT_MAX_SECONDS_PER_TURN`. Un turno es la respuesta a un mensaje del cliente: la conversación no tiene tope. Si se
    alcanza sin tool terminal, el turno **cierra con lo encontrado**: el modelo recibe solo `respond_to_customer` y un
    aviso en el estado actual, y tiene 2 iteraciones más para responder con lo que ya buscó (lo resuelto en
-   `propuesta`, lo que falta en `pendientes`, lo que no se trabaja en `afuera`). Solo si tampoco responde, el turno
+   `propuesta`, lo que falta en `pendientes`, lo que no está en el catálogo en `afuera`). Solo si tampoco responde, el turno
    termina con un mensaje fijo de disculpa y suma una falla a la conversación (§6).
 3. Si el LLM responde **solo texto** sin llamar a una tool terminal, se trata como
    `respond_to_customer(kind="informacion")`, descarta la propuesta y queda registrado como advertencia.
@@ -400,7 +400,7 @@ aceptación exacta se registra sin el LLM solo si la respuesta anterior cerró c
 | `propuesta` | El pedido está claro y alcanza el stock: se le pregunta si lo arma | `borrador_pendiente` |
 | `aclaracion` | Producto, presentación, tono o cantidad no claros; varias opciones posibles | `aclarando` |
 | `sin_stock` | No alcanza el stock; se ofrece lo disponible o una alternativa | `aclarando` |
-| `fuera_de_catalogo` | El producto no está en el catálogo (sin inventar un SKU parecido) | `aclarando` |
+| `fuera_de_catalogo` | El producto no está en el catálogo, sea del rubro o no (sin inventar un SKU parecido, BR-04) | `aclarando` |
 | `informacion` | Saludo o consulta general | Sin cambio |
 
 Los `kind` coinciden con los resultados esperados de [`data_example/mensajes.json`](../../data_example/mensajes.json),
@@ -517,7 +517,7 @@ hace cumplir el backend, aunque el agente no la haya leído.
 | BR-01 | Si no alcanza el stock, proponer lo disponible; si no queda nada, ofrecer una alternativa sin proponerla | LLM ofrece, backend bloquea con `stock_insuficiente` | RF-10 |
 | BR-02 | Nunca inventar SKU, precio ni presentación | Backend y system prompt. No la permite ninguna skill | RF-08 |
 | BR-03 | Ante una ambigüedad, hacer una sola pregunta con opciones del catálogo | LLM | RF-09 |
-| BR-04 | Si el producto no está en el catálogo, decirlo sin ofrecer un SKU inventado; lo demás del pedido se propone igual | LLM y backend | RF-08, RF-10 |
+| BR-04 | Si el producto no está en el catálogo, decirlo sin ofrecer un SKU inventado: lo del rubro «no lo tengo cargado, lo consulto» y lo de otro rubro, que eso no se vende; lo demás del pedido se propone igual | LLM y backend | RF-08, RF-10, RF-154 |
 | BR-05 | Una corrección vuelve a enviar la propuesta completa, en el mismo borrador y con otra versión | LLM arma las líneas, backend versiona | RF-12 |
 | BR-06 | Armar el pedido solo si el cliente acepta la propuesta vigente sin cambios ni condiciones; si cambia algo, proponer de nuevo; si pone una condición, duda o pregunta, responder y volver a ofrecerla | LLM interpreta, backend bloquea con `aceptacion_no_clara` y registra solo la propuesta | RF-13, RF-111 |
 | BR-07 | Revalidar el stock al crear la orden | Backend. No la permite ninguna skill | RF-14 |

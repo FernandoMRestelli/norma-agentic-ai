@@ -9,7 +9,8 @@ Hay tres conjuntos de casos (--set):
 - `pedidos`: `data_example/pedidos_evaluacion.json` contra `data_example/catalogo_evaluacion.csv`, de unos 400.
   Son listas largas con el formato de los pedidos reales (RF-59); lo reservado se compara con el umbral de RNF-15.
 - `adversariales`: `data_example/adversariales.json`, contra el mismo catálogo. Aceptaciones con trampa, falta de
-  evidencia, inyección y datos del negocio (RF-116).
+  evidencia, inyección y datos del negocio (RF-116), y lo que no está en el catálogo, sea del rubro o no (tema `rubro`,
+  RF-157). Con --tema corre un tema solo.
 
 Los tres conjuntos tienen casos de `desarrollo` y `reservado`, y --grupo elige uno o `todos`: lo reservado se corre
 para medir y no se ajusta nada mirando sus casos (D-50, M8-1). Con los dos grupos, la corrida los muestra lado a lado:
@@ -191,7 +192,19 @@ def faltantes(esperado: dict, texto: str) -> list[str]:
     return [patron for patron in esperado.get("dice", []) if not re.search(patron, texto, re.IGNORECASE)]
 
 
-def _passes(case: dict, outcome, order_items: dict[str, int] | None, texto: str = "") -> bool:
+def motivos_distintos(esperado: dict, renglones: list[dict]) -> list[str]:
+    """Los renglones de `motivos` que no quedaron afuera con ese motivo (RF-157)."""
+    obtenidos = {r["texto"]: r.get("motivo") for r in renglones if r["estado"] == "afuera"}
+    return [
+        f"{texto}: {obtenidos.get(texto) or 'no quedó afuera'}"
+        for texto, motivo in esperado.get("motivos", {}).items()
+        if obtenidos.get(texto) != motivo
+    ]
+
+
+def _passes(
+    case: dict, outcome, order_items: dict[str, int] | None, texto: str = "", renglones: Iterable[dict] = ()
+) -> bool:
     expected = case["esperado"]
     # No registrar no alcanza: también importa qué respondió y en qué quedó la propuesta (RF-115)
     if "kinds" in expected and outcome.kind not in expected["kinds"]:
@@ -200,7 +213,7 @@ def _passes(case: dict, outcome, order_items: dict[str, int] | None, texto: str 
         final = _items(outcome.draft.items) if outcome.draft else {}
         if final != _esperados(expected["propuesta_final"]):
             return False
-    if dichos(expected, texto) or faltantes(expected, texto):
+    if dichos(expected, texto) or faltantes(expected, texto) or motivos_distintos(expected, list(renglones)):
         return False
     wanted = expected["resultado"]
     items = _esperados(expected.get("items", []))
@@ -380,6 +393,7 @@ def main() -> int:
     parser.add_argument("--repeticiones", type=int, default=1, help="veces que corre cada caso")
     parser.add_argument("--pausa", type=float, default=0, help="segundos de espera entre casos")
     parser.add_argument("--grupo", choices=(*GRUPOS, "todos"), default="todos", help="casos de desarrollo o reservados")
+    parser.add_argument("--tema", help="corre solo los casos de este tema (adversariales), por ejemplo rubro")
     parser.add_argument("--max-llamadas", type=int, help="tope de llamadas al LLM de toda la corrida")
     parser.add_argument("--precio", help="USD por millón de tokens de entrada y de salida, por ejemplo 0.10,0.50")
     parser.add_argument("--salida", type=Path, help="guarda las filas y las métricas en este .json")
@@ -419,7 +433,7 @@ def main() -> int:
     skus = [product.sku for product in sheets_service.get_catalog()]
 
     cases = [case for case in json.loads(archivo_casos.read_text(encoding="utf-8")) if args.caso in (None, case["id"])]
-    cases = del_grupo(cases, args.grupo)
+    cases = del_tema(del_grupo(cases, args.grupo), args.tema)
     corridas = [(case, repeticion) for case in cases for repeticion in range(1, args.repeticiones + 1)]
     corrida: contextlib.AbstractContextManager = contextlib.nullcontext()
     if args.mlflow:
@@ -432,7 +446,7 @@ def main() -> int:
 
     settings = get_settings()
     contexto = {
-        "conjunto": args.conjunto, "grupo": args.grupo, "repeticiones": args.repeticiones,
+        "conjunto": args.conjunto, "grupo": args.grupo, "tema": args.tema, "repeticiones": args.repeticiones,
         "proveedor": settings.llm_provider, "modelo": settings.llm_model, "prompt_version": agent.prompt_version,
         "orquestador": settings.agent_orquestador, "max_iteraciones": settings.agent_max_iterations,
     }  # fmt: skip
@@ -519,6 +533,11 @@ def lado_a_lado(por_grupo: dict[str, dict[str, float]]) -> str:
 def del_grupo(cases: list[dict], grupo: str) -> list[dict]:
     """Los casos de un grupo; los que no dicen el suyo son de desarrollo (RF-116)."""
     return [case for case in cases if grupo in ("todos", case.get("grupo", GRUPOS[0]))]
+
+
+def del_tema(cases: list[dict], tema: str | None) -> list[dict]:
+    """Los casos de un tema, o todos sin tema (RF-157)."""
+    return [case for case in cases if tema in (None, case.get("tema"))]
 
 
 def leer_precio(texto: str) -> tuple[float, float]:
@@ -706,7 +725,8 @@ def _evaluar(agent, case: dict, skus: Iterable[str] = (), repeticion: int = 1) -
     ultimo = conversacion[-1]["agente"]
     fila["dijo"] = "; ".join(dichos(esperado, ultimo))
     fila["no_dijo"] = "; ".join(faltantes(esperado, ultimo))
-    ok = _passes(case, outcome, order_items, ultimo)
+    fila["motivos_mal"] = "; ".join(motivos_distintos(esperado, renglones))
+    ok = _passes(case, outcome, order_items, ultimo, renglones)
     fila["resultado"] = "correcto" if ok else "incorrecto"
     marca = "✅" if ok else "❌"
     lineas = f", líneas {fila['lineas_correctas']}/{fila['lineas_esperadas']}" if fila["lineas_esperadas"] else ""

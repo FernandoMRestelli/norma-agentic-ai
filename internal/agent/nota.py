@@ -124,7 +124,8 @@ def con_lo_encontrado(encargo: list[int], busquedas: dict[int, tuple[dict, dict]
     """La nota que arma el backend si el sub-loop llega a su tope sin entregarla (RF-93, CA-156).
 
     Usa el último resultado de `buscar_renglones` de cada renglón (de la precarga o del sub-loop): `unico` va
-    resuelto, lo que no existe o no tiene stock va afuera y el resto queda para preguntar.
+    resuelto, lo que no existe o no tiene stock va afuera y el resto queda para preguntar. El sistema no sabe si lo que
+    no existe es del rubro: va `a_consultar`, que es lo que pide BR-04 ante la duda (RF-155).
     """
     nota: dict[str, Any] = {"resueltos": [], "pendientes": [], "afuera": [], "observaciones": ""}
     for n in encargo:
@@ -138,7 +139,7 @@ def con_lo_encontrado(encargo: list[int], busquedas: dict[int, tuple[dict, dict]
             resuelto = {"renglon": n, "sku": candidatos[0], "cantidad": buscado.get("cantidad", 1)}
             nota["resueltos"].append({**resuelto, **({"tono": buscado["tono"]} if buscado.get("tono") else {})})
         elif estado == "no_encontrado":
-            nota["afuera"].append({"renglon": n, "motivo": "fuera_de_catalogo"})
+            nota["afuera"].append({"renglon": n, "motivo": "a_consultar"})
         elif estado == "sin_stock" and not resultado.get("falta", {}).get("available"):
             nota["afuera"].append({"renglon": n, "motivo": "sin_stock"})
         else:

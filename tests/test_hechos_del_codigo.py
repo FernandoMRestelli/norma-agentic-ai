@@ -58,14 +58,17 @@ def test_distintivos_y_conjuncion():
 
 
 def test_lo_que_no_va_dice_su_motivo():
+    """CA-260 / RF-155: del rubro se consulta, lo de otro rubro no se vende, y nada «no se trabaja»."""
     afuera = validation_service.build_afuera(
-        [("2 shampoo", "fuera_de_catalogo"), ("1 oxi 30", "sin_stock"), ("3 gel", "lo_saco_el_cliente"),
-         ("Para el salón:", "no_es_producto")],
+        [("2 shampoo", "a_consultar"), ("1 pizza", "fuera_del_rubro"), ("4 serum", "fuera_de_catalogo"),
+         ("1 oxi 30", "sin_stock"), ("3 gel", "lo_saco_el_cliente"), ("Para el salón:", "no_es_producto")],
         [("5 deco 700", 2)],
     )  # fmt: skip
     assert afuera.splitlines() == [
         "Lo que no va como lo pediste:",
-        "• 2 shampoo: no lo trabajamos",
+        "• 2 shampoo: no lo tengo cargado, lo consulto con el equipo",
+        "• 1 pizza: eso no lo vendemos, somos de perfumería y peluquería 😄",
+        "• 4 serum: no lo tengo cargado, lo consulto con el equipo",
         "• 1 oxi 30: está agotado por ahora",
         "• 5 deco 700: quedan 2, te puse esas",
     ]

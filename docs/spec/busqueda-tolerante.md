@@ -120,7 +120,7 @@ exactas. Entre dos palabras de 4 letras tampoco: ahí una letra cambiada ya es o
 7. **`pistas` y `_hint`**: cuando no hay `matches`, o el primero es `aproximado`, la búsqueda explica por qué no
    hubo una coincidencia segura, para que el agente no vuelva a buscar a ciegas:
    - `no_estan`: las palabras que no se parecen a ninguna del catálogo («kerastase»). Si es la marca o el
-     producto, no se trabaja.
+     producto, no está en el catálogo (BR-04).
    - `cercanos`: hasta 3 productos con más partes de la búsqueda, y qué partes les faltan (`falta`).
    - `medidas`: si lo buscado existe con todas sus palabras pero no en esa medida, las medidas que sí hay, de menor
      a mayor y sin repetir («X 900» y «X 900 ML» son una). Solo si son 20 productos o menos: con más, la lista no
@@ -171,7 +171,7 @@ no cambian en esta PR; la regla que usa `sugerencias` es BR-07 (frente E).
 | RF-37 | Una palabra coincide aunque tenga letras cambiadas, faltantes o transpuestas, o un error por sonido del español (`b/v`, `s/c/z`, `ll/y`, `h` muda, `k/qu`); los números nunca se aproximan |
 | RF-38 | La medida de cada producto se separa del nombre al indexar y se compara medida con medida, venga del nombre o de la presentación |
 | RF-39 | `search_products` devuelve coincidencias confiables, sugerencias cuando no las hay y las palabras corregidas, sobre un índice en memoria del catálogo normalizado con el stock siempre fresco |
-| RF-118 | Las palabras con las que el cliente pide («tenés algo para…») no cuentan en la búsqueda, salvo que estén en un producto. Si una palabra no existe en el catálogo, la pista dice qué productos tienen todo lo demás: puede ser una marca que no se trabaja o para qué lo quiere |
+| RF-118 | Las palabras con las que el cliente pide («tenés algo para…») no cuentan en la búsqueda, salvo que estén en un producto. Si una palabra no existe en el catálogo, la pista dice qué productos tienen todo lo demás: puede ser una marca que no está en el catálogo o para qué lo quiere |
 | RF-119 | El buscador se mide solo, sin LLM: consultas con sus juicios de relevancia, de varios tipos, con y sin respuesta y en dos grupos (D-50). El CI exige un piso de recall, MRR y acierto, ningún falso único y que sin respuesta no proponga |
 
 ## 6. Criterios de aceptación

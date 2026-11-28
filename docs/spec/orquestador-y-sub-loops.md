@@ -335,7 +335,7 @@ algún renglón ya tiene una nota en este turno, el sub-loop nuevo recibe esa no
 |---|---|---|
 | `resueltos` | `[{renglon, sku, cantidad, tono?}]` | El SKU tiene que haber salido de una búsqueda de este sub-loop o de la precarga |
 | `pendientes` | `[{renglon, pregunta, opciones: [sku]}]` | Lo que hay que preguntarle al cliente. Mismas reglas para los SKU |
-| `afuera` | `[{renglon, motivo}]` | Los motivos de `respond_to_customer`: `fuera_de_catalogo`, `sin_stock`, `lo_saco_el_cliente` o `no_es_producto` |
+| `afuera` | `[{renglon, motivo}]` | Los motivos de `respond_to_customer`: `a_consultar`, `fuera_del_rubro`, `sin_stock`, `lo_saco_el_cliente` o `no_es_producto` |
 | `observaciones` | `str`, hasta 300 caracteres | El razonamiento corto para el orquestador. No va al cliente ni al turno siguiente |
 
 Un pedido escrito en una sola línea no se numera (RF-65): si el encargo no trae renglones, las líneas de la nota van

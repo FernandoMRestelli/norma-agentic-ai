@@ -577,5 +577,267 @@
         "(?:ya|listo)[^.?]{0,20}(?:cambi[eé]|modifiqu[eé])"
       ]
     }
+  },
+  {
+    "id": "rubro-fuera-solo",
+    "grupo": "desarrollo",
+    "tema": "rubro",
+    "descripcion": "Pide comida: no se vende, con buena onda y sin alternativas",
+    "mensaje": {
+      "customer_id": "cli-adv-rubro-fuera-solo",
+      "channel": "telegram",
+      "type": "text",
+      "text": "me mandás 2 kilos de muzzarella?"
+    },
+    "esperado": {
+      "resultado": "sin_pedido",
+      "kinds": [
+        "fuera_de_catalogo",
+        "informacion"
+      ],
+      "propuesta_final": [],
+      "dice": [
+        "perfumer[ií]a|peluquer[ií]a"
+      ],
+      "no_dice": [
+        "consult",
+        "cargad"
+      ]
+    }
+  },
+  {
+    "id": "rubro-fuera-mezclado",
+    "grupo": "desarrollo",
+    "tema": "rubro",
+    "descripcion": "Un producto del catálogo y uno de ferretería: propone el primero",
+    "mensaje": {
+      "customer_id": "cli-adv-rubro-fuera-mezclado",
+      "channel": "telegram",
+      "type": "text",
+      "text": "2 shampoo keratina nordika 900\n1 caja de tornillos"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "NOR-SH-KER-900",
+          "cantidad": 2
+        }
+      ],
+      "afuera": [
+        "1 caja de tornillos"
+      ],
+      "motivos": {
+        "1 caja de tornillos": "fuera_del_rubro"
+      }
+    }
+  },
+  {
+    "id": "rubro-sin-cargar-solo",
+    "grupo": "desarrollo",
+    "tema": "rubro",
+    "descripcion": "Del rubro y no está cargado: lo consulta, sin decir que no se trabaja",
+    "mensaje": {
+      "customer_id": "cli-adv-rubro-sin-cargar-solo",
+      "channel": "telegram",
+      "type": "text",
+      "text": "tenés esmalte de uñas? quiero 6"
+    },
+    "esperado": {
+      "resultado": "sin_pedido",
+      "kinds": [
+        "fuera_de_catalogo",
+        "aclaracion",
+        "informacion"
+      ],
+      "propuesta_final": [],
+      "dice": [
+        "consult"
+      ],
+      "no_dice": [
+        "no (?:lo |la |los |las )?(?:trabaj|vend)"
+      ]
+    }
+  },
+  {
+    "id": "rubro-sin-cargar-mezclado",
+    "grupo": "desarrollo",
+    "tema": "rubro",
+    "descripcion": "Una herramienta de peluquería que no está, junto a un producto que sí",
+    "mensaje": {
+      "customer_id": "cli-adv-rubro-sin-cargar-mezclado",
+      "channel": "telegram",
+      "type": "text",
+      "text": "3 acond argan nordika 900\n1 tijera de entresacar"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "NOR-AC-ARG-900",
+          "cantidad": 3
+        }
+      ],
+      "afuera": [
+        "1 tijera de entresacar"
+      ],
+      "motivos": {
+        "1 tijera de entresacar": "a_consultar"
+      },
+      "no_dice": [
+        "no (?:lo |la |los |las )?(?:trabaj|vend)"
+      ]
+    }
+  },
+  {
+    "id": "rubro-agotado",
+    "grupo": "desarrollo",
+    "tema": "rubro",
+    "descripcion": "Stock 0: avisa que está agotado y ofrece anotarlo",
+    "mensaje": {
+      "customer_id": "cli-adv-rubro-agotado",
+      "channel": "telegram",
+      "type": "text",
+      "text": "necesito 2 shampoo argan nordika 900"
+    },
+    "esperado": {
+      "resultado": "sin_stock",
+      "propuesta_final": [],
+      "dice": [
+        "agotad|sin stock|no (?:me )?queda",
+        "anot|avis"
+      ]
+    }
+  },
+  {
+    "id": "res-rubro-fuera-solo",
+    "grupo": "reservado",
+    "tema": "rubro",
+    "descripcion": "Pide comida o bebida: no se vende, sin alternativas",
+    "mensaje": {
+      "customer_id": "cli-res-rubro-fuera-solo",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "me vendés un pack de cerveza?"
+    },
+    "esperado": {
+      "resultado": "sin_pedido",
+      "kinds": [
+        "fuera_de_catalogo",
+        "informacion"
+      ],
+      "propuesta_final": [],
+      "dice": [
+        "perfumer[ií]a|peluquer[ií]a"
+      ],
+      "no_dice": [
+        "consult",
+        "cargad"
+      ]
+    }
+  },
+  {
+    "id": "res-rubro-fuera-mezclado",
+    "grupo": "reservado",
+    "tema": "rubro",
+    "descripcion": "Productos del catálogo y uno de ferretería",
+    "mensaje": {
+      "customer_id": "cli-res-rubro-fuera-mezclado",
+      "channel": "telegram",
+      "type": "text",
+      "text": "lumine\n1 acondicionador argán 300\n2 foco led"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "LUM-AC-ARG-300",
+          "cantidad": 1
+        }
+      ],
+      "afuera": [
+        "2 foco led"
+      ],
+      "motivos": {
+        "2 foco led": "fuera_del_rubro"
+      }
+    }
+  },
+  {
+    "id": "res-rubro-sin-cargar-solo",
+    "grupo": "reservado",
+    "tema": "rubro",
+    "descripcion": "Del rubro y no está cargado",
+    "mensaje": {
+      "customer_id": "cli-res-rubro-sin-cargar-solo",
+      "channel": "telegram",
+      "type": "text",
+      "text": "me podés traer una rizadora para bucles?"
+    },
+    "esperado": {
+      "resultado": "sin_pedido",
+      "kinds": [
+        "fuera_de_catalogo",
+        "aclaracion",
+        "informacion"
+      ],
+      "propuesta_final": [],
+      "dice": [
+        "consult"
+      ],
+      "no_dice": [
+        "no (?:lo |la |los |las )?(?:trabaj|vend)"
+      ]
+    }
+  },
+  {
+    "id": "res-rubro-sin-cargar-mezclado",
+    "grupo": "reservado",
+    "tema": "rubro",
+    "descripcion": "Productos del catálogo y una herramienta de peluquería que no está",
+    "mensaje": {
+      "customer_id": "cli-res-rubro-sin-cargar-mezclado",
+      "channel": "telegram",
+      "type": "text",
+      "text": "silkara\n4 champu argán 300\n3 redecillas"
+    },
+    "esperado": {
+      "resultado": "borrador",
+      "items": [
+        {
+          "sku": "SIL-SH-ARG-300",
+          "cantidad": 4
+        }
+      ],
+      "afuera": [
+        "3 redecillas"
+      ],
+      "motivos": {
+        "3 redecillas": "a_consultar"
+      },
+      "no_dice": [
+        "no (?:lo |la |los |las )?(?:trabaj|vend)"
+      ]
+    }
+  },
+  {
+    "id": "res-rubro-agotado",
+    "grupo": "reservado",
+    "tema": "rubro",
+    "descripcion": "Stock 0: avisa que está agotado y ofrece anotarlo",
+    "mensaje": {
+      "customer_id": "cli-res-rubro-agotado",
+      "channel": "whatsapp",
+      "type": "text",
+      "text": "quiero 3 ox 30 vol 900ml fiorela"
+    },
+    "esperado": {
+      "resultado": "sin_stock",
+      "propuesta_final": [],
+      "dice": [
+        "agotad|sin stock|no (?:me )?queda",
+        "anot|avis"
+      ]
+    }
   }
 ]

@@ -30,7 +30,15 @@ MAX_RENGLONES_POR_BUSQUEDA = 60
 MAX_LARGO_MENSAJE = 600  # un mensaje normal
 MAX_LARGO_MENSAJE_CON_DUDAS = 1200  # una lista larga puede traer varias dudas juntas (RF-70)
 
-MotivoAfuera = Literal["fuera_de_catalogo", "sin_stock", "lo_saco_el_cliente", "no_es_producto"]
+# `fuera_de_catalogo` es el motivo anterior a BR-04 con tres casos: se sigue aceptando por las conversaciones abiertas
+MotivoAfuera = Literal[
+    "a_consultar", "fuera_del_rubro", "sin_stock", "lo_saco_el_cliente", "no_es_producto", "fuera_de_catalogo"
+]
+_MOTIVOS_PARA_EL_LLM = (
+    "a_consultar: es de perfumería o peluquería y no está en el catálogo; ante la duda, este. "
+    "fuera_del_rubro: no es de perfumería ni peluquería (comida, bebida, ferretería). "
+    "sin_stock: está agotado. lo_saco_el_cliente: pidió sacarlo. fuera_de_catalogo: el motivo anterior, no lo uses. "
+)
 
 
 class ProposedItem(BaseModel):
@@ -97,10 +105,7 @@ class RenglonPendiente(BaseModel):
 class RenglonAfuera(BaseModel):
     renglon: int = Field(ge=1, description="Número del renglón que no entra al pedido")
     motivo: MotivoAfuera = Field(
-        description=(
-            "fuera_de_catalogo: no lo trabajan. sin_stock: está agotado. lo_saco_el_cliente: pidió sacarlo. "
-            "no_es_producto: la línea no pide nada, por ejemplo un título o un comentario."
-        )
+        description=_MOTIVOS_PARA_EL_LLM + "no_es_producto: la línea no pide nada: un título o un comentario."
     )
 
 
@@ -161,7 +166,7 @@ class RespondToCustomerInput(BaseModel):
             "propuesta: el pedido está claro y alcanza el stock. "
             "aclaracion: falta producto, presentación, tono o cantidad. "
             "sin_stock: no alcanza el stock. "
-            "fuera_de_catalogo: el producto no está en el catálogo. "
+            "fuera_de_catalogo: lo que pide no está en el catálogo, sea del rubro o no. "
             "informacion: saludo, consulta o cualquier otra respuesta."
         )
     )
@@ -284,12 +289,7 @@ class NotaPendiente(BaseModel):
 
 class NotaAfuera(BaseModel):
     renglon: int | None = Field(default=None, ge=1, description=_RENGLON_DE_LA_NOTA)
-    motivo: MotivoAfuera = Field(
-        description=(
-            "fuera_de_catalogo: no lo trabajan. sin_stock: está agotado. lo_saco_el_cliente: pidió sacarlo. "
-            "no_es_producto: la línea no pide nada."
-        )
-    )
+    motivo: MotivoAfuera = Field(description=_MOTIVOS_PARA_EL_LLM + "no_es_producto: la línea no pide nada.")
 
 
 class EntregarNotaInput(BaseModel):

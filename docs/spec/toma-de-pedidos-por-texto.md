@@ -9,7 +9,7 @@
 | Estado | Implementado en cinco ramas, una por mejora ([§10.1](#101-estado-de-implementación)). Falta medirlo con un LLM real |
 | Responsable | Federico Picado |
 | Requisitos de la spec del MVP | RF-07, RF-11, RF-13, RF-19, RF-21, RF-28, RF-36 a RF-39, RNF-03, RNF-06, RNF-07 |
-| IDs que reserva | RF-59 a RF-79, RF-98, RF-99, RF-111 a RF-117, RF-122 a RF-124, RNF-15 y RNF-16, CA-113 a CA-134, CA-162 a CA-164, CA-183 a CA-203, CA-209 a CA-216, D-21 a D-29, D-47 a D-52, BR-11 |
+| IDs que reserva | RF-59 a RF-79, RF-98, RF-99, RF-111 a RF-117, RF-122 a RF-124, RNF-15 y RNF-16, CA-113 a CA-134, CA-162 a CA-164, CA-183 a CA-203, CA-209 a CA-216, D-21 a D-29, D-47 a D-52, BR-11. Lo que no está en el catálogo: RF-154 a RF-157, CA-257 a CA-265 |
 
 **Índice**
 
@@ -387,7 +387,7 @@ Además:
 | `varias` | Más de un producto confiable | Pregunta (BR-03), con hasta 3 candidatos; `difieren_en` dice qué preguntar |
 | `aproximado` | Solo hay coincidencias aproximadas | Pregunta «¿es este?» (BR-09) |
 | `sin_stock` | Un solo producto, pero no alcanza | Ofrece lo que dice `falta.available` (BR-01) |
-| `no_encontrado` | Nada parecido | Va a `afuera` (BR-04) |
+| `no_encontrado` | Nada parecido | Va a `afuera`, con `a_consultar` o `fuera_del_rubro` (BR-04) |
 
 Cada candidato lleva 4 campos en lugar de 9, con los mismos nombres que en `search_products` para que los
 guardrails los reconozcan. `falta` aparece solo en `sin_stock`, que es el único caso en que el cliente necesita el
@@ -403,7 +403,7 @@ puntaje el renglón queda `aproximado`. El resultado trae las BR de los estados 
 |---|---|
 | `propuesta[].renglon` | Nuevo, opcional: el número del renglón del cliente que resuelve esa línea |
 | `pendientes` | Nuevo: `[{"renglon": 3, "opciones": ["SKU-A", "SKU-B"]}]`, los renglones que se preguntan. El sistema escribe cada uno debajo de `message`, como lo escribió el cliente y con sus opciones (M8-2 de [mejoras-clase8](mejoras-clase8.md)) |
-| `afuera` | Nuevo: `[{"renglon": 7, "motivo": "fuera_de_catalogo"}]`. Motivos: `fuera_de_catalogo`, `sin_stock`, `lo_saco_el_cliente`, `no_es_producto` (un título o un comentario que quedó numerado). El sistema escribe debajo de `message` los dos primeros, con el motivo en castellano (M8-2) |
+| `afuera` | Nuevo: `[{"renglon": 7, "motivo": "fuera_de_catalogo"}]`. Motivos: `a_consultar`, `fuera_del_rubro` ([abajo](#lo-que-no-está-en-el-catálogo)), `sin_stock`, `lo_saco_el_cliente`, `no_es_producto` (un título o un comentario que quedó numerado). El sistema escribe debajo de `message` los tres primeros, con el motivo en castellano (M8-2) |
 | `options` | Se mantiene para un mensaje de un solo renglón. Con `pendientes`, se calcula a partir de ellos |
 
 Lo que ya usa `respond_to_customer` sin estos campos sigue funcionando: el control de cobertura solo corre cuando
@@ -429,6 +429,27 @@ agrega renglones con la numeración a continuación.
 **Hecho cuando:** un pedido de 30 renglones con el modelo falso queda con cada renglón en `propuesta`, `pendientes`
 o `afuera`, la respuesta a las dudas completa la propuesta sin volver a buscar los renglones resueltos, y la
 evaluación de M1 muestra `lineas_perdidas` en 0.
+
+#### Lo que no está en el catálogo
+
+La búsqueda da `no_encontrado` igual para una tintura de otra marca que para un kilo de yerba: no distingue lo que
+es del rubro. Lo decide el agente (RF-154), con las categorías del catálogo como referencia (`explorar_catalogo`):
+shampoo, acondicionador, tratamiento y máscara, coloración, oxidante, decolorante, finalización y peinado, cuidado y
+cosmética, y accesorios y herramientas de peluquería. También es del rubro lo demás de perfumería e higiene
+personal. Ante la duda, es del rubro: es peor decirle a un cliente que no vendemos algo que sí podríamos conseguir.
+
+| Caso | Ejemplo | Responde | Motivo en `afuera` |
+|---|---|---|---|
+| Del rubro, no está en el catálogo (producto nuevo, marca que no se trabaja) | Una tintura de una marca que no está | «No lo tengo cargado: lo consulto con el equipo». No afirma que no se trabaja | `a_consultar` |
+| Fuera del rubro | Comida, bebida, ferretería | Con buena onda: «Somos una distribuidora de perfumería y peluquería, eso no lo vendemos 😄». Sin opciones ni alternativas | `fuera_del_rubro` |
+| En el catálogo, con stock 0 | Un producto agotado | Está agotado, ofrece una alternativa (BR-01) y anotarlo para cuando llegue (RF-156) | `sin_stock` |
+
+- Si el mensaje mezcla, se propone lo que sí está y cada renglón que no entra lleva su motivo (RF-155). Los motivos
+  se guardan con el pedido: así el equipo ve qué le piden y no tiene.
+- `fuera_de_catalogo` es el motivo anterior. El esquema lo sigue aceptando, por las conversaciones abiertas, pero al
+  LLM se le pide no usarlo; si llega, el cliente lee lo mismo que con `a_consultar`.
+- Solo hay dónde guardar el motivo cuando el pedido vino numerado y se confirma una orden. Un mensaje de una línea
+  no tiene renglones, y una consulta que no termina en pedido no deja nada guardado ([§8](#8-errores-y-casos-borde)).
 
 ### M4 · Memoria entre turnos y entre pedidos
 
@@ -544,7 +565,7 @@ varios miles de caracteres.
 |---|---|
 | `lineas` | Cantidad de líneas de la orden |
 | `unidades` | Suma de cantidades |
-| `fuera_del_pedido` | Lo que el cliente pidió y no entró, con su motivo: `shampoo skala (fuera_de_catalogo); …`. Motivos: `fuera_de_catalogo`, `sin_stock`, `lo_saco_el_cliente` y `duda_sin_resolver` (un renglón que se preguntó y el cliente confirmó sin contestar) |
+| `fuera_del_pedido` | Lo que el cliente pidió y no entró, con su motivo: `shampoo skala (fuera_de_catalogo); …`. Motivos: `a_consultar`, `fuera_del_rubro`, `sin_stock`, `lo_saco_el_cliente` y `duda_sin_resolver` (un renglón que se preguntó y el cliente confirmó sin contestar) |
 | `origen` | `texto`, `audio` o `imagen` |
 | `draft_id` | Borrador del que salió la orden |
 | `actualizado` | Fecha y hora del último cambio de estado |
@@ -624,6 +645,10 @@ Todos están implementados en las ramas de [§10.1](#101-estado-de-implementaci�
 | RF-124 | M1 | Dos corridas de la evaluación se comparan con una herramienta: métricas lado a lado, casos que cambiaron, si la diferencia puede ser azar y, con y sin orquestador, si cumple RNF-17 |
 | RNF-15 | M1 | Umbral de release sobre los casos `reservado` del set de RF-59 (M8-1): recall por línea ≥ 95 %, precisión ≥ 98 %, 0 registros indebidos y 0 líneas perdidas. Los números se ajustan con la primera corrida (D-28) |
 | RNF-16 | M2 | Presupuesto del turno: hasta 2 llamadas al LLM en el camino normal, tope de 50 iteraciones y 300 s en total (configurables); al agotarse, el turno cierra respondiendo con lo encontrado |
+| RF-154 | M3 | Lo que la búsqueda no encuentra se contesta según sea del rubro o no (BR-04). Del rubro: «no lo tengo cargado, lo consulto con el equipo», sin afirmar que no se trabaja. Fuera del rubro: con buena onda, que eso no se vende, sin opciones ni alternativas. Lo decide el agente; ante la duda, es del rubro. Pedir algo de otro rubro no es un tema ajeno |
+| RF-155 | M3 | Cada renglón que no entra por no estar en el catálogo lleva `a_consultar` o `fuera_del_rubro`; el resto del mensaje se propone igual. El sistema le escribe el motivo al cliente y lo guarda en `order_leftovers` y `fuera_del_pedido`. Si el backend arma la nota sin el LLM, usa `a_consultar`. Ni el sistema ni las pistas de la búsqueda dicen que algo «no se trabaja» |
+| RF-156 | M3 | Con stock 0, además de la alternativa, se ofrece anotar el producto para cuando llegue. Con una propuesta en el mensaje o vigente, la pregunta que cierra sigue siendo la de confirmarla: así un «sí» no contesta otra cosa (RF-99). No se dice que quedó anotado si no hay un pedido donde guardarlo |
+| RF-157 | M1 | Un caso puede exigir el motivo de cada renglón que queda afuera (`motivos`). Los adversariales suman el tema `rubro` en los dos grupos: fuera del rubro solo y mezclado, del rubro sin cargar y stock 0; los reservados salen del generador. `--tema` corre un tema solo |
 
 ## 7. Criterios de aceptación
 
@@ -683,6 +708,15 @@ Todos están implementados en las ramas de [§10.1](#101-estado-de-implementaci�
 | CA-132 | Una orden recibida | El operador la cancela | La fila del CSV dice `Cancelado` y `actualizado` cambia | `tests/test_planillas.py::test_estado_sincronizado` |
 | CA-133 | Una propuesta aceptada con un renglón fuera de catálogo | Se registra | El renglón está en `order_leftovers` y en `fuera_del_pedido` | `tests/test_guardado_pedidos.py::test_guarda_lo_que_quedo_afuera`, `tests/test_planillas.py::test_guarda_lo_que_quedo_afuera_en_el_csv` |
 | CA-134 | Una nota que empieza con `=` y un `pedidos.csv` con encabezado viejo | Se registra una orden | La celda empieza con apóstrofo y el encabezado queda completo | `tests/test_planillas.py::test_csv_seguro_y_encabezado` |
+| CA-257 | La skill `tomar_pedido` | Se leen BR-04, `skill.md` y `respuesta.md` | BR-04 trae los tres casos con sus motivos, las categorías del rubro y «ante la duda, es del rubro», y los ejemplos no dicen que algo no se trabaja | `tests/test_fuera_de_catalogo.py::test_br04_separa_los_tres_casos` |
+| CA-258 | Los motivos `a_consultar` y `fuera_del_rubro` | Se validan `respond_to_customer` y `entregar_nota` | Pasan, y las dos descripciones para el LLM los explican | `tests/test_fuera_de_catalogo.py::test_los_motivos_validan_en_el_esquema` |
+| CA-259 | Un pedido numerado con un renglón del rubro sin cargar y otro fuera del rubro | Se propone y el cliente acepta | La respuesta dice el motivo de cada uno y la orden los guarda en `order_leftovers` y `fuera_del_pedido` | `tests/test_fuera_de_catalogo.py::test_los_motivos_llegan_al_pedido_guardado` |
+| CA-260 | Los motivos de `afuera` | El sistema escribe «Lo que no va como lo pediste» | `a_consultar` (y `fuera_de_catalogo`) dice que lo consulta con el equipo; `fuera_del_rubro`, que eso no se vende | `tests/test_hechos_del_codigo.py::test_lo_que_no_va_dice_su_motivo` |
+| CA-261 | Un sub-loop que llega a su tope con un renglón `no_encontrado` | El backend arma la nota | Va a `afuera` con `a_consultar` | `tests/test_fuera_de_catalogo.py::test_la_nota_del_sistema_lo_manda_a_consultar` |
+| CA-262 | Una búsqueda o una exploración sin resultados | Se arma el `_hint` | Manda a BR-04 y no pide decir que no se trabaja; el system prompt aclara que pedir algo de otro rubro es un pedido | `tests/test_fuera_de_catalogo.py::test_las_pistas_no_dicen_que_no_se_trabaja` |
+| CA-263 | Un pedido de algo fuera del rubro, solo | El agente contesta con `kind = fuera_de_catalogo` | El mensaje pasa los guardrails y no queda ninguna propuesta | `tests/test_fuera_de_catalogo.py::test_fuera_del_rubro_pasa_los_guardrails` |
+| CA-264 | La skill `tomar_pedido` | Se lee BR-01 | Con stock 0 ofrece anotarlo para cuando llegue, sin dar por anotado lo que no tiene pedido | `tests/test_fuera_de_catalogo.py::test_br01_ofrece_anotarlo` |
+| CA-265 | El set adversarial y un caso con `motivos` | Se valida y se corre | Los dos grupos tienen el tema `rubro` con sus cuatro situaciones; los reservados son los del generador; un motivo distinto hace incorrecto el caso; `--tema` elige solo ese tema | `tests/test_fuera_de_catalogo.py::test_casos_del_rubro_en_los_dos_grupos`, `::test_un_motivo_distinto_es_incorrecto`, `::test_elegir_tema`, `tests/test_contaminacion.py::test_los_reservados_son_los_del_generador` |
 
 ## 8. Errores y casos borde
 
@@ -703,6 +737,8 @@ Todos están implementados en las ramas de [§10.1](#101-estado-de-implementaci�
 | Falla la escritura de `pedidos_lineas.csv` | La orden ya está en la base; queda con `sheets_synced = False` y la toma el reintento |
 | Un cambio de estado con Sheet 2 caída | El CSV se actualiza; Sheet 2 queda para el reintento |
 | Una orden anterior a la migración | Sus líneas quedan con `match` y `source_text` vacíos; el CSV por línea se puede regenerar desde la base |
+| Piden algo que no está y no arman ningún pedido, o el mensaje tiene una sola línea | El motivo no se guarda: el equipo solo lo ve en la conversación y en las trazas. «Lo consulto con el equipo» no dispara ningún aviso (RF-27 sigue aparte) |
+| El cliente acepta que le anoten un agotado y no hay propuesta | No hay dónde guardarlo: el agente no dice que quedó anotado y lo suma en `notes` cuando arme el pedido |
 
 ## 9. Decisiones y preguntas abiertas
 
@@ -761,6 +797,7 @@ Cada rama sale de la anterior, en el orden en que se implementó. Esta tabla se 
 | M3 · Renglones | `feature/pedidos-por-renglon` | Implementado: RF-65 a RF-70, CA-122 a CA-126. La evaluación de M1 ya cuenta como perdidos los renglones `afuera` que el agente no avisó | Medir `lineas_perdidas` con un LLM real |
 | M5 · CSV | `feature/csv-pedidos-por-linea` | Implementado: RF-75 a RF-79, CA-131 a CA-134 | La prueba contra las planillas reales, que hace una persona del equipo con sus credenciales. Sumar las columnas nuevas a `planillas.md` y `guardado-de-pedidos.md` |
 | M4 · Memoria | `feature/memoria-entre-turnos` | Implementado: RF-71 a RF-74, BR-11, CA-127 a CA-130 | Decidir la ventana de D-26 y prenderla. El agrupador solo está conectado a Telegram |
+| Lo que no está en el catálogo | `feature/fuera-de-catalogo` | Implementado: RF-154 a RF-157, CA-257 a CA-265 | Medir con `evaluar_agente --tema rubro` y probar a mano en Telegram |
 
 La PR de «funciones y guidelines para tomar y guardar el pedido» corresponde a M3 y M5. Conviene que M1 entre
 antes, aunque sea con pocos casos: sin línea de base no se puede saber si M3 mejoró algo.

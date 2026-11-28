@@ -67,7 +67,7 @@ def evaluar(consulta: dict, productos: list[Product]) -> dict:
         "unico_correcto": acierto_unico,
         # El error caro: el LLM lo propone sin preguntar
         "falso_unico": unico and not acierto_unico,
-        # Lo hay, pero la búsqueda vuelve vacía: el agente le dice al cliente que no se trabaja
+        # Lo hay, pero la búsqueda vuelve vacía: el agente le dice al cliente que no lo tiene cargado
         "negado": bool(correctos) and not lista,
     }  # fmt: skip
 

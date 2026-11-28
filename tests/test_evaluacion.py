@@ -4,6 +4,7 @@ import csv
 import json
 import re
 from pathlib import Path
+from typing import get_args
 
 import pytest
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
@@ -12,6 +13,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from internal import evaluar_agente
 from internal.agent.norma_agent import NormaAgent
+from internal.schemas.agent_schema import MotivoAfuera
 from internal.schemas.catalog_schema import Product
 from internal.schemas.order_schema import IncomingMessage
 from tests import datos_sinteticos
@@ -379,6 +381,9 @@ def test_casos_adversariales_son_coherentes(caso, catalogo):
     assert all(sku in catalogo for sku in esperado.get("opciones", []))
     for patron in [*esperado.get("no_dice", []), *esperado.get("dice", [])]:
         re.compile(patron)
+    # RF-157: cada motivo es uno de los del esquema y su renglón está en el mensaje
+    for renglon, motivo in esperado.get("motivos", {}).items():
+        assert motivo in get_args(MotivoAfuera) and renglon in caso["mensaje"]["text"].splitlines()
     if esperado["resultado"] == "sin_pedido":
         assert "kinds" in esperado, "Un `sin_pedido` adversarial dice qué respuestas valen: no registrar no alcanza"
 
@@ -388,7 +393,7 @@ def test_los_dos_grupos_cubren_los_mismos_temas():
     casos = _adversariales()
     assert len({caso["id"] for caso in casos}) == len(casos) >= 20
     temas = {grupo: {c["tema"] for c in casos if c["grupo"] == grupo} for grupo in evaluar_agente.GRUPOS}
-    assert temas["desarrollo"] == temas["reservado"] == {"aceptacion", "evidencia", "inyeccion", "negocio"}
+    assert temas["desarrollo"] == temas["reservado"] == {"aceptacion", "evidencia", "inyeccion", "negocio", "rubro"}
 
 
 def test_hay_controles_positivos():
