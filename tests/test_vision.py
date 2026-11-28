@@ -338,3 +338,60 @@ def test_casos_de_ejemplo_tienen_su_imagen():
     for caso in casos:
         assert (Path(comparar_vision.CASOS).parent / caso["archivo"]).is_file(), caso["id"]
         assert caso["legible"] or not caso["renglones"]
+
+
+class _Entradas(dict):
+    """Lo que devuelve `apply_chat_template`: un dict con `input_ids` que se puede mover de dispositivo."""
+
+    def to(self, _dispositivo):
+        return self
+
+
+class _Ids:
+    def __init__(self, largo: int):
+        self.shape = (1, largo)
+
+
+class _RedFalsa:
+    device = "cpu"
+
+    def __init__(self):
+        self.llamadas: list[dict] = []
+
+    def generate(self, **kwargs):
+        self.llamadas.append(kwargs)
+        return _SalidaFalsa()
+
+
+class _SalidaFalsa:
+    def __getitem__(self, _indice):
+        return _Ids(2)
+
+
+class _ProcesadorFalso:
+    def __init__(self, largo: int):
+        self.largo = largo
+
+    def apply_chat_template(self, *_, **__):
+        return _Entradas(input_ids=_Ids(self.largo))
+
+    def batch_decode(self, *_, **__):
+        return ['{"legible": true, "tipo": "lista_pedido", "texto": "2 sh keratina", "renglones": []}']
+
+
+@pytest.mark.parametrize("largo", [3900, 100_001])
+def test_topes_de_tokens_del_modelo_local(monkeypatch, largo):
+    """CA-249: el modelo local genera hasta 20.000 tokens y no lee una entrada de más de 100.000."""
+    pytest.importorskip("torch")
+    red = _RedFalsa()
+    monkeypatch.setattr(vision_local, "cargar", lambda _modelo: (_ProcesadorFalso(largo), red))
+    imagen = io.BytesIO()
+    Image.new("RGB", (8, 8), "white").save(imagen, format="PNG")
+
+    lectura = vision_local.leer(imagen.getvalue())
+    if largo <= vision_service.MAX_TOKENS_ENTRADA:
+        assert red.llamadas[0]["max_new_tokens"] == 20_000
+        assert lectura.resultado is not None and lectura.error is None
+    else:
+        assert red.llamadas == []
+        assert lectura.resultado is None and "100000" in lectura.error

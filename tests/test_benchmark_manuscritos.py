@@ -1,8 +1,10 @@
 """Listas y Google Form del benchmark de pedidos escritos a mano (docs/spec/benchmark-manuscritos.md)."""
 
+import csv
 import json
 import random
 import re
+from collections import Counter
 
 import pytest
 
@@ -93,3 +95,212 @@ def test_script_del_form(pool):
     assert textos["sexos"] == ["Masculino", "Femenino", "Prefiero no responder"]
     assert "setTitle(TEXTOS.sexo)" in script
     assert "ngulo" not in script  # la pregunta del ángulo se sacó
+
+
+T = bm.TEXTOS
+
+
+def _respuesta(foto: str, pedido: str, copio: str = "Sí", luz: str = "Natural", papel: str = "Hoja lisa") -> dict:
+    """Una fila de respuestas.csv como la deja quien revisa: el export del Form más la columna `foto`."""
+    return {
+        "Marca temporal": "2026/12/01 10:00:00",
+        T["consentimiento_titulo"]: T["consentimiento"],
+        T["elegir_lista"]: pedido,
+        T["copio_todo"]: copio,
+        T["cambios"]: "",
+        T["luz"]: luz,
+        T["papel"]: papel,
+        T["sexo"]: "Prefiero no responder",
+        "foto": foto,
+    }
+
+
+@pytest.fixture
+def carpeta(tmp_path):
+    (tmp_path / "imagenes").mkdir()
+    for foto in ("p01-A.jpg", "p01-B.png", "p02-A.jpg"):
+        (tmp_path / "imagenes" / foto).write_bytes(b"foto")
+    return tmp_path
+
+
+def test_casos_desde_respuestas(pool, carpeta):
+    """CA-224: un caso por foto no descartada, con los renglones de su lista menos los salteados, los tachados de
+    la revisión y las condiciones del Form."""
+    listas = bm.sortear_listas(pool, 7, 116)
+    respuestas = [
+        _respuesta("p01-A", "Pedido 07", copio="No", luz="Artificial", papel="Cuaderno rayado"),
+        _respuesta("p01-B", "Pedido 02"),
+        _respuesta("p02-A", "Pedido 03"),
+    ]
+    revision = {
+        "p01-A": {"sin_copiar": [11], "tachados": [["belkor", "rulos"]], "notas": "cambió el 11"},
+        "p02-A": {"descartar": "la foto corta la mitad de la hoja"},
+    }
+    armado = bm.armar_casos(respuestas, revision, listas, carpeta)
+
+    assert armado.problemas == []
+    assert armado.descartadas == {"p02-A": "la foto corta la mitad de la hoja"}
+    primero, segundo = armado.casos
+    assert primero["id"] == "p01-A" and primero["lista"] == "L07" and primero["archivo"] == "imagenes/p01-A.jpg"
+    assert primero["persona"] == "p01" and primero["hoja"] == "A"
+    assert [r["n"] for r in primero["renglones"]] == [n for n in range(1, 16) if n != 11]
+    assert primero["renglones"][0] == listas["listas"][6]["renglones"][0]
+    assert primero["tachados"] == [["belkor", "rulos"]] and primero["sin_copiar"] == [11]
+    sin_dato = {"letra": "sin dato", "nitidez": "sin dato"}
+    assert primero["condiciones"] == {"luz": "artificial", "papel": "cuaderno rayado", **sin_dato}
+    assert primero["sexo"] == "prefiero no responder"
+    assert primero["legible"] is True and primero["encabezado"] == "Pedido para Norma"
+    assert segundo["lista"] == "L02" and segundo["archivo"] == "imagenes/p01-B.png"
+    assert len(segundo["renglones"]) == 15 and segundo["tachados"] == [] and segundo["sin_copiar"] == []
+    assert primero["grupo"] == segundo["grupo"]  # las dos hojas de la misma persona
+
+
+def test_grupos_por_persona():
+    """CA-225: el 40 % de las personas a desarrollo, reproducible, y quien ya tenía grupo lo conserva."""
+    personas = [f"p{i:02d}" for i in range(1, 11)]
+    grupos = bm.asignar_grupos(personas, semilla=130)
+    assert grupos == bm.asignar_grupos(personas, semilla=130)
+    assert Counter(grupos.values()) == {"desarrollo": 4, "reservado": 6}
+
+    con_nuevas = bm.asignar_grupos([*personas, *(f"p{i:02d}" for i in range(11, 16))], semilla=130, anteriores=grupos)
+    assert {p: con_nuevas[p] for p in personas} == grupos
+    assert Counter(con_nuevas.values()) == {"desarrollo": 6, "reservado": 9}
+
+
+def test_grupos_comparten_las_hojas(pool, carpeta):
+    """CA-225: las hojas de una persona van al mismo grupo aunque haya varias personas."""
+    for i in range(3, 11):
+        (carpeta / "imagenes" / f"p{i:02d}-A.jpg").write_bytes(b"foto")
+    respuestas = [_respuesta("p01-A", "Pedido 01"), _respuesta("p01-B", "Pedido 02")]
+    respuestas += [_respuesta(f"p{i:02d}-A", "Pedido 01") for i in range(3, 11)]
+    respuestas.append(_respuesta("p02-A", "Pedido 01"))
+    armado = bm.armar_casos(respuestas, {}, bm.sortear_listas(pool, 2, 116), carpeta)
+    assert armado.problemas == []
+    por_persona: dict[str, set[str]] = {}
+    for caso in armado.casos:
+        por_persona.setdefault(caso["persona"], set()).add(caso["grupo"])
+    assert len(por_persona) == 10 and all(len(grupos) == 1 for grupos in por_persona.values())
+
+
+def test_casos_con_problemas(pool, carpeta):
+    """CA-226: cada problema sale con su foto y no se arma ningún caso."""
+    listas = bm.sortear_listas(pool, 2, 116)
+    respuestas = [
+        _respuesta("p01-A", "Pedido 31"),
+        _respuesta("p01-B", "Pedido 01", copio="No"),
+        _respuesta("p02-A", "Pedido 01"),
+        _respuesta("p02-A", "Pedido 02"),
+        _respuesta("p09-A", "Pedido 01"),
+        _respuesta("persona-3", "Pedido 01"),
+        _respuesta("p01-C", "Pedido 01"),
+    ]
+    (carpeta / "imagenes" / "p03-A.jpg").write_bytes(b"foto")
+    respuestas.append(_respuesta("p03-A", "Pedido 02"))
+    revision = {"p03-A": {"sin_copiar": [16]}, "p07-B": {"tachados": []}}
+    armado = bm.armar_casos(respuestas, revision, listas, carpeta)
+
+    assert armado.casos == []
+    esperados = {
+        "p01-A": "Pedido 31",
+        "p01-B": "No",
+        "p02-A": "repetida",
+        "p09-A": "archivo",
+        "persona-3": "pNN",
+        "p07-B": "revisión",
+    }
+    for foto, texto in esperados.items():
+        assert any(foto in p and texto in p for p in armado.problemas), (foto, armado.problemas)
+    assert any("p01-C" in p and "pNN" in p for p in armado.problemas)
+    assert any("p03-A" in p and "16" in p for p in armado.problemas)
+
+
+def test_casos_sin_datos_de_la_persona(pool, carpeta):
+    """CA-226: una columna de mail o un link de Drive frena el armado antes de mirar las fotos, y nombra la columna."""
+    listas = bm.sortear_listas(pool, 1, 116)
+    con_mail = _respuesta("p01-A", "Pedido 31")
+    con_mail["Dirección de correo electrónico"] = ""
+    armado = bm.armar_casos([con_mail], {}, listas, carpeta)
+    assert armado.casos == []
+    assert armado.problemas == [bm.problema_de_privacidad("Dirección de correo electrónico")]
+
+    con_link = _respuesta("p01-A", "Pedido 01")
+    con_link["La foto de la hoja"] = "https://drive.google.com/open?id=abc"
+    armado = bm.armar_casos([con_link], {}, listas, carpeta)
+    assert armado.casos == [] and armado.problemas == [bm.problema_de_privacidad("La foto de la hoja")]
+
+
+def test_comando_casos_conserva_los_grupos(pool, carpeta):
+    """CA-225: correr `casos` otra vez con una persona más no le cambia el grupo a las que ya estaban."""
+    listas_json = carpeta / "listas.json"
+    listas_json.write_text(json.dumps(bm.sortear_listas(pool, 2, 116)), encoding="utf-8")
+    respuestas_csv = carpeta / "respuestas.csv"
+    salida = carpeta / "casos.json"
+
+    def correr(filas):
+        with open(respuestas_csv, "w", encoding="utf-8", newline="") as archivo:
+            escritor = csv.DictWriter(archivo, fieldnames=list(filas[0]))
+            escritor.writeheader()
+            escritor.writerows(filas)
+        argumentos = ["casos", "--respuestas", str(respuestas_csv), "--revision", str(carpeta / "revision.json")]
+        assert bm.main([*argumentos, "--listas", str(listas_json), "--salida", str(salida)]) == 0
+        return {caso["persona"]: caso["grupo"] for caso in json.loads(salida.read_text(encoding="utf-8"))}
+
+    antes = correr([_respuesta("p01-A", "Pedido 01")])
+    despues = correr([_respuesta("p01-A", "Pedido 01"), _respuesta("p02-A", "Pedido 02")])
+    assert despues["p01"] == antes["p01"] and set(despues) == {"p01", "p02"}
+
+
+def _escribir_respuestas(ruta, filas):
+    with open(ruta, "w", encoding="utf-8", newline="") as archivo:
+        escritor = csv.DictWriter(archivo, fieldnames=list(filas[0]))
+        escritor.writeheader()
+        escritor.writerows(filas)
+
+
+def test_reservado_congelado(pool, carpeta):
+    """CA-246: con el reservado congelado, las personas nuevas van a desarrollo y las del reservado siguen ahí."""
+    listas_json = carpeta / "listas.json"
+    listas_json.write_text(json.dumps(bm.sortear_listas(pool, 2, 116)), encoding="utf-8")
+    respuestas_csv, salida = carpeta / "respuestas.csv", carpeta / "casos.json"
+    argumentos = ["casos", "--respuestas", str(respuestas_csv), "--revision", str(carpeta / "revision.json"),
+                  "--listas", str(listas_json), "--salida", str(salida)]  # fmt: skip
+
+    def grupos():
+        return {caso["persona"]: caso["grupo"] for caso in json.loads(salida.read_text(encoding="utf-8"))}
+
+    filas = []
+    for i in range(1, 14):
+        (carpeta / "imagenes" / f"p{i:02d}-A.jpg").write_bytes(b"foto")
+        filas.append(_respuesta(f"p{i:02d}-A", "Pedido 01"))
+    _escribir_respuestas(respuestas_csv, filas[:10])
+    assert bm.main(argumentos) == 0
+    antes = grupos()
+    reservado = {persona for persona, grupo in antes.items() if grupo == "reservado"}
+    assert len(reservado) == 6
+
+    assert bm.main([*argumentos, "--congelar"]) == 0
+    assert set(json.loads((carpeta / "congelado.json").read_text(encoding="utf-8"))["reservado"]) == reservado
+    _escribir_respuestas(respuestas_csv, filas)
+    assert bm.main(argumentos) == 0
+    despues = grupos()
+    assert {p: despues[p] for p in antes} == antes
+    assert [despues[f"p{i}"] for i in (11, 12, 13)] == ["desarrollo"] * 3
+
+
+def test_congelar_sin_casos_falla(carpeta):
+    """CA-246: sin casos.json no hay reservado que congelar."""
+    with pytest.raises(ValueError, match="casos"):
+        bm.congelar(carpeta / "casos.json", carpeta / "congelado.json", "2026-12-15")
+
+
+def test_letra_y_nitidez(pool, carpeta):
+    """CA-248: la letra y la nitidez de la revisión pasan a las condiciones; un valor que no existe es un problema."""
+    listas = bm.sortear_listas(pool, 1, 116)
+    respuestas = [_respuesta("p01-A", "Pedido 01"), _respuesta("p01-B", "Pedido 01")]
+    revision = {"p01-A": {"letra": "dificil", "nitidez": "nitida"}}
+    primero, segundo = bm.armar_casos(respuestas, revision, listas, carpeta).casos
+    assert primero["condiciones"]["letra"] == "dificil" and primero["condiciones"]["nitidez"] == "nitida"
+    assert segundo["condiciones"]["letra"] == "sin dato" and segundo["condiciones"]["nitidez"] == "sin dato"
+
+    armado = bm.armar_casos(respuestas, {"p01-B": {"letra": "regular"}}, listas, carpeta)
+    assert armado.casos == [] and any("p01-B" in p and "regular" in p for p in armado.problemas)
