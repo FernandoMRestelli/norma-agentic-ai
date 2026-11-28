@@ -155,7 +155,8 @@ def test_los_reservados_son_los_del_generador(conjunto):
     """Nadie los ajusta a mano: si cambian, se cambia la semilla y se regeneran (`python -m tests.casos_reservados`)."""
     casos = json.loads(casos_reservados.ARCHIVOS[conjunto].read_text(encoding="utf-8"))
     assert all(caso["grupo"] in evaluar_agente.GRUPOS for caso in casos), "Cada caso dice su grupo"
-    assert [c for c in casos if c["grupo"] == "reservado"] == casos_reservados.GENERADORES[conjunto]()
+    del_generador = [c for c in casos if casos_reservados.del_generador(conjunto, c)]
+    assert del_generador == casos_reservados.GENERADORES[conjunto]()
     assert len({caso["id"] for caso in casos}) == len(casos)
 
 

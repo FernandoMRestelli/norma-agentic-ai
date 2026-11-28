@@ -1,4 +1,5 @@
-"""Casos `reservado` de los conjuntos `mensajes` y `pedidos` de la evaluación (M8-1, D-50).
+"""Casos `reservado` de los conjuntos `mensajes` y `pedidos` de la evaluación (M8-1, D-50), y los del tema `rubro`
+de `adversariales` (RF-157). Los reservados de los otros temas adversariales están escritos a mano y no se tocan.
 
 Salen de un generador con una semilla propia, y no de la mano de quien ajusta los prompts: así ningún ejemplo de un
 prompt, una skill o una BR se escribe mirándolos. Las formas de escribir (abreviaturas, errores, medidas) se sortean
@@ -18,7 +19,13 @@ from tests.datos_sinteticos import STOCK_MAYORISTA, catalogo_mayorista
 
 SEMILLA_RESERVADOS = 20261125
 DATOS = Path(__file__).resolve().parent.parent / "data_example"
-ARCHIVOS = {"mensajes": DATOS / "mensajes.json", "pedidos": DATOS / "pedidos_evaluacion.json"}
+ARCHIVOS = {
+    "mensajes": DATOS / "mensajes.json",
+    "pedidos": DATOS / "pedidos_evaluacion.json",
+    "adversariales": DATOS / "adversariales.json",
+}
+# De estos conjuntos, el generador escribe solo los reservados de un tema: el resto se escribió a mano
+TEMAS_DEL_GENERADOR = {"adversariales": "rubro"}
 
 # --- Formas de escribir cada producto del catálogo mayorista ------------------------------------------------------
 
@@ -512,18 +519,92 @@ def mensajes_reservados(semilla: int = SEMILLA_RESERVADOS) -> list[dict]:
     return casos
 
 
-GENERADORES = {"mensajes": mensajes_reservados, "pedidos": pedidos_reservados}
+# --- Lo que no está en el catálogo, del conjunto `adversariales` ------------------------------------------------
+
+# Otros productos y otras formas de pedirlos que los de desarrollo. Ninguno está en el catálogo de evaluación
+_DE_OTRO_RUBRO = ["una docena de empanadas", "un kilo de yerba", "un pack de cerveza", "dos kilos de helado"]
+_DE_FERRETERIA = ["caja de clavos", "foco led", "martillo", "destornillador"]
+_DEL_RUBRO_SIN_CARGAR = ["una rizadora para bucles", "un difusor para secador", "un vaporizador capilar"]
+_HERRAMIENTAS_SIN_CARGAR = ["secador de pelo", "ruleros", "redecillas"]
+_NO_SE_TRABAJA = "no (?:lo |la |los |las )?(?:trabaj|vend)"
 
 
-def con_reservados(casos: list[dict], reservados: list[dict]) -> list[dict]:
-    """Los casos de desarrollo, con su grupo explícito, seguidos de los reservados nuevos."""
-    desarrollo = [caso for caso in casos if caso.get("grupo", "desarrollo") == "desarrollo"]
-    return [{"id": caso["id"], "grupo": "desarrollo", **caso} for caso in desarrollo] + reservados
+def rubro_reservados(semilla: int = SEMILLA_RESERVADOS) -> list[dict]:
+    """Los reservados del tema `rubro`, contra `catalogo_evaluacion.csv` (RF-157)."""
+    rng = random.Random(semilla + 2)
+    marcas = _marcas()
+    casos = []
+
+    def caso(id: str, descripcion: str, texto: str, esperado: dict) -> None:
+        base = _caso(id, descripcion, texto, esperado, rng)
+        casos.append({"id": id, "grupo": "reservado", "tema": "rubro", **base})
+
+    def mezclado(sufijo: str, descripcion: str, renglon: str, motivo: str, **extra) -> None:
+        lista = _Lista(rng, marcas)
+        marca = rng.choice([m for m, c in marcas.items() if _rubro(m, c) in _CON_SHAMPOO])
+        lista.marca(marca)
+        lista.claros(marca, rng.randint(1, 2))
+        lista.lineas.append(renglon)
+        lista.afuera.append(renglon)
+        caso(f"res-rubro-{sufijo}", descripcion, lista.texto(),
+             {**lista.esperado(), "motivos": {renglon: motivo}, **extra})  # fmt: skip
+
+    caso(
+        "res-rubro-fuera-solo",
+        "Pide comida o bebida: no se vende, sin alternativas",
+        f"{rng.choice(['me vendés', 'sumame', 'conseguís'])} {rng.choice(_DE_OTRO_RUBRO)}?",
+        {"resultado": "sin_pedido", "kinds": ["fuera_de_catalogo", "informacion"], "propuesta_final": [],
+         "dice": ["perfumer[ií]a|peluquer[ií]a"], "no_dice": ["consult", "cargad"]},
+    )  # fmt: skip
+    mezclado(
+        "fuera-mezclado",
+        "Productos del catálogo y uno de ferretería",
+        f"{rng.randint(1, 4)} {rng.choice(_DE_FERRETERIA)}",
+        "fuera_del_rubro",
+    )
+    caso(
+        "res-rubro-sin-cargar-solo",
+        "Del rubro y no está cargado",
+        f"{rng.choice(['conseguís', 'andan con', 'me podés traer'])} {rng.choice(_DEL_RUBRO_SIN_CARGAR)}?",
+        {"resultado": "sin_pedido", "kinds": ["fuera_de_catalogo", "aclaracion", "informacion"],
+         "propuesta_final": [], "dice": ["consult"], "no_dice": [_NO_SE_TRABAJA]},
+    )  # fmt: skip
+    mezclado(
+        "sin-cargar-mezclado",
+        "Productos del catálogo y una herramienta de peluquería que no está",
+        f"{rng.randint(1, 3)} {rng.choice(_HERRAMIENTAS_SIN_CARGAR)}",
+        "a_consultar",
+        no_dice=[_NO_SE_TRABAJA],
+    )
+    caso(
+        "res-rubro-agotado",
+        "Stock 0: avisa que está agotado y ofrece anotarlo",
+        f"{rng.choice(['me hacen falta', 'quiero', 'mandame'])} {rng.randint(2, 5)} "
+        f"{_forma(rng, 'OX-30-900')} fiorela",
+        {"resultado": "sin_stock", "propuesta_final": [],
+         "dice": ["agotad|sin stock|no (?:me )?queda", "anot|avis"]},
+    )  # fmt: skip
+    return casos
+
+
+GENERADORES = {"mensajes": mensajes_reservados, "pedidos": pedidos_reservados, "adversariales": rubro_reservados}
+
+
+def del_generador(conjunto: str, caso: dict) -> bool:
+    """Si ese caso lo escribe el generador: reservado y, en `adversariales`, del tema `rubro`."""
+    tema = TEMAS_DEL_GENERADOR.get(conjunto)
+    return caso.get("grupo") == "reservado" and tema in (None, caso.get("tema"))
+
+
+def con_reservados(conjunto: str, casos: list[dict], reservados: list[dict]) -> list[dict]:
+    """Los casos escritos a mano, con su grupo explícito, seguidos de los reservados nuevos."""
+    a_mano = [caso for caso in casos if not del_generador(conjunto, caso)]
+    return [{"id": c["id"], "grupo": c.get("grupo", "desarrollo"), **c} for c in a_mano] + reservados
 
 
 def escribir(conjunto: str) -> None:
     archivo = ARCHIVOS[conjunto]
-    casos = con_reservados(json.loads(archivo.read_text(encoding="utf-8")), GENERADORES[conjunto]())
+    casos = con_reservados(conjunto, json.loads(archivo.read_text(encoding="utf-8")), GENERADORES[conjunto]())
     archivo.write_text(json.dumps(casos, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
