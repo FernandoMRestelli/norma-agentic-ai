@@ -373,11 +373,7 @@ def renglones_leidos(resultado: ImagenLeida) -> int:
 
 def lineas_de_producto(texto: str) -> int:
     """Líneas de la transcripción con al menos una letra y un número: no cuentan encabezado, fecha ni membrete."""
-    return sum(
-        1
-        for linea in texto.splitlines()
-        if any(c.isalpha() for c in linea) and any(c.isdigit() for c in linea)
-    )
+    return sum(1 for linea in texto.splitlines() if any(c.isalpha() for c in linea) and any(c.isdigit() for c in linea))
 
 
 def _tachados_inventados(caso: dict, resultado: ImagenLeida) -> int:
@@ -803,7 +799,7 @@ def puntuar_corrida(
                 avisos.append(f"{grupo}: {len(ids) - len(corridas)} de {len(ids)} fotos sin salida")
         resumen["avisos"] += [f"{modelo}: {aviso}" for aviso in avisos]
         resumen["modelos"].append({"modelo": modelo, "huella": huellas[0] if len(huellas) == 1 else None,
-                                   "niveles": niveles})  # fmt: skip
+                                   "fotos": sorted(salidas), "niveles": niveles})  # fmt: skip
         if detalle is not None:
             detalle.append(Puntuado(modelo, huellas[0], fotos, niveles))
     distintas = {m["huella"] for m in resumen["modelos"]}
@@ -941,6 +937,104 @@ def _tabla(resumen: dict) -> str:
     return "\n".join("  ".join(valor.ljust(ancho) for valor, ancho in zip(fila, anchos, strict=True)) for fila in filas)
 
 
+# --- Tablas para presentar (RF-153) ---
+
+NOMBRE_DE_NIVEL = {"a": "Nivel (a): lectura", "b": "Nivel (b): lectura + búsqueda"}
+
+
+def _fila(*celdas: str) -> str:
+    return "| " + " | ".join(celda.replace("|", "/") for celda in celdas) + " |"
+
+
+def _tabla_markdown(columnas: tuple[str, ...], filas: list[tuple[str, ...]]) -> list[str]:
+    return [_fila(*columnas), _fila(*("---",) * len(columnas)), *(_fila(*fila) for fila in filas), ""]
+
+
+def _grupos_con_datos(modelo: dict, nivel: str) -> dict[str, dict]:
+    return {grupo: m for grupo, m in modelo["niveles"].get(nivel, {}).items() if m}
+
+
+def resumen_markdown(resumen: dict) -> str:
+    """Las tablas del resumen en Markdown, para copiarlas a una presentación (RF-153). Solo ids de foto."""
+    lineas = [f"# Resumen de la corrida {resumen['corrida']}", ""]
+    columnas = ("Modelo", "Grupo", "Fotos", "S", "Intervalo", "Elegible", "Errores graves %", "Segundos p50",
+                "USD por foto")  # fmt: skip
+    for nivel in ("a", "b"):
+        filas = [
+            (modelo["modelo"], grupo, str(m["fotos"]), _num(m["S"], "{:.3f}"),
+             f"[{m['S_intervalo'][0]:.2f}, {m['S_intervalo'][1]:.2f}]", "sí" if m["elegible"] else "no",
+             _num(m["errores_graves_pct"], "{:.1f}"), _num(m["segundos_p50"], "{}"),
+             _num(m["usd_por_foto"], "{:.4f}", "?"))
+            for modelo in resumen["modelos"]
+            for grupo, m in _grupos_con_datos(modelo, nivel).items()
+        ]  # fmt: skip
+        lineas += [f"## {NOMBRE_DE_NIVEL[nivel]}", "", *_tabla_markdown(columnas, filas)]
+    peores = [
+        (modelo["modelo"], grupo, hoja["foto"], f"{hoja['S']:.3f}")
+        for modelo in resumen["modelos"]
+        for grupo, m in _grupos_con_datos(modelo, "b").items()
+        for hoja in m["peores_hojas"][:5]
+    ]  # fmt: skip
+    lineas += ["## Peores hojas (nivel b)", "", *_tabla_markdown(("Modelo", "Grupo", "Foto", "S"), peores)]
+    lineas += ["## Fotos para revisar", ""]
+    if resumen["para_revisar"]:
+        filas = [
+            (foto["foto"], str(foto["esperados"]), ", ".join(f"{m} {n}" for m, n in foto["leidos"].items()))
+            for foto in resumen["para_revisar"]
+        ]  # fmt: skip
+        lineas += _tabla_markdown(("Foto", "Renglones esperados", "Renglones leídos por modelo"), filas)
+    else:
+        lineas += ["Ninguna.", ""]
+    return "\n".join(lineas)
+
+
+def _diferencia(antes: float | None, despues: float | None, formato: str) -> str:
+    return "-" if antes is None or despues is None else formato.format(despues - antes)
+
+
+def comparar(resumen_antes: dict, resumen_despues: dict) -> tuple[str, list[str]]:
+    """S y errores graves de dos corridas por modelo, nivel y grupo, y su diferencia (después menos antes)."""
+    antes = {m["modelo"]: m for m in resumen_antes["modelos"]}
+    despues = {m["modelo"]: m for m in resumen_despues["modelos"]}
+    avisos = []
+    for modelo in antes:
+        if modelo not in despues:
+            avisos.append(f"{modelo} está solo en {resumen_antes['corrida']}: no se compara")
+    for modelo in despues:
+        if modelo not in antes:
+            avisos.append(f"{modelo} está solo en {resumen_despues['corrida']}: no se compara")
+    columnas = ("Modelo", "Nivel", "Grupo", "S antes", "S después", "Dif. S", "Graves % antes", "Graves % después",
+                "Dif. graves")  # fmt: skip
+    filas = []
+    for modelo in antes:
+        if modelo not in despues:
+            continue
+        fotos_antes, fotos_despues = set(antes[modelo].get("fotos", [])), set(despues[modelo].get("fotos", []))
+        if fotos_antes != fotos_despues:
+            solo_antes, solo_despues = sorted(fotos_antes - fotos_despues), sorted(fotos_despues - fotos_antes)
+            avisos.append(
+                f"{modelo}: las dos corridas no tienen las mismas fotos "
+                f"(solo antes: {', '.join(solo_antes) or 'ninguna'}; "
+                f"solo después: {', '.join(solo_despues) or 'ninguna'}): la diferencia compara fotos distintas"
+            )
+        for nivel in ("a", "b"):
+            grupos_antes, grupos_despues = (
+                _grupos_con_datos(antes[modelo], nivel),
+                _grupos_con_datos(despues[modelo], nivel),
+            )
+            for grupo in (g for g in GRUPOS if g in grupos_antes and g in grupos_despues):
+                a, d = grupos_antes[grupo], grupos_despues[grupo]
+                filas.append((modelo, nivel, grupo, _num(a["S"], "{:.3f}"), _num(d["S"], "{:.3f}"),
+                              _diferencia(a["S"], d["S"], "{:+.3f}"),
+                              _num(a["errores_graves_pct"], "{:.1f}"), _num(d["errores_graves_pct"], "{:.1f}"),
+                              _diferencia(a["errores_graves_pct"], d["errores_graves_pct"], "{:+.1f}")))  # fmt: skip
+    titulo = f"# Comparación: {resumen_antes['corrida']} → {resumen_despues['corrida']}"
+    lineas = [titulo, "", *_tabla_markdown(columnas, filas)]
+    if avisos:
+        lineas += ["Avisos:", "", *(f"- {aviso}" for aviso in avisos), ""]
+    return "\n".join(lineas), avisos
+
+
 def _detalle(puntuados: list[Puntuado]) -> str:
     lineas = []
     for puntuado in puntuados:
@@ -1002,6 +1096,14 @@ def main(argv: list[str] | None = None) -> int:
     puntuar_.add_argument("--para-ordenar", type=int, metavar="N",
                           help="escribe ordenar.md con N pares de desarrollo para ordenar a mano")  # fmt: skip
     puntuar_.add_argument("--semilla", type=int, default=SEMILLA_ORDENAR)
+    puntuar_.add_argument("--markdown", action="store_true", help="escribe resumen.md con tablas para copiar")
+
+    comparar_ = comandos.add_parser("comparar", help="Compara dos corridas: S y errores graves por modelo y nivel")
+    comparar_.add_argument("antes", help="la corrida de antes: nombre de la carpeta en corridas/, o su ruta")
+    comparar_.add_argument("despues", help="la corrida de después")
+    comparar_.add_argument("--casos", type=Path, default=CASOS)
+    comparar_.add_argument("--precio", type=_precio, action="append", default=[], help=ayuda_precio)
+    comparar_.add_argument("--markdown", action="store_true", help="escribe comparacion.md en la carpeta de la segunda")
 
     validar_ = comandos.add_parser("validar", help="Compara un orden hecho a mano con el de la scoring")
     validar_.add_argument("corrida", help="nombre de la carpeta en corridas/, o su ruta")
@@ -1009,6 +1111,8 @@ def main(argv: list[str] | None = None) -> int:
     validar_.add_argument("--orden", required=True, help="los ids de ordenar.md de mejor a peor: O07,O02,…")
 
     args = parser.parse_args(argv)
+    if args.comando == "comparar":
+        return _comando_comparar(args)
     carpeta = _carpeta_de_corrida(args.casos, args.corrida)
     if args.comando == "validar":
         return _comando_validar(carpeta, args.orden)
@@ -1056,7 +1160,29 @@ def main(argv: list[str] | None = None) -> int:
         for aviso in avisos:
             print(f"- {aviso}")
         print(f"\nPara ordenar: {carpeta / 'ordenar.md'} (no abras ordenar_clave.json hasta terminar)")
+    if args.markdown:
+        (carpeta / "resumen.md").write_text(resumen_markdown(resumen), encoding="utf-8")
+        print(f"\nTablas en {carpeta / 'resumen.md'}")
     print(f"\nResumen en {carpeta / 'resumen.json'}")
+    return 0
+
+
+def _comando_comparar(args: argparse.Namespace) -> int:
+    if not args.casos.exists():
+        print(f"Falta {args.casos}: armalo con python -m internal.benchmark_manuscritos casos")
+        return 1
+    casos = json.loads(args.casos.read_text(encoding="utf-8"))
+    carpetas = [_carpeta_de_corrida(args.casos, corrida) for corrida in (args.antes, args.despues)]
+    for carpeta in carpetas:
+        if not carpeta.is_dir():
+            print(f"No existe la corrida {carpeta}")
+            return 1
+    resumenes = [puntuar_corrida(carpeta, casos, dict(args.precio)) for carpeta in carpetas]
+    texto, _ = comparar(*resumenes)
+    print(texto)
+    if args.markdown:
+        (carpetas[1] / "comparacion.md").write_text(texto + "\n", encoding="utf-8")
+        print(f"\nComparación en {carpetas[1] / 'comparacion.md'}")
     return 0
 
 

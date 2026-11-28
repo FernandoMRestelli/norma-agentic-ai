@@ -9,10 +9,10 @@
 | | |
 |---|---|
 | Etapa del roadmap | 03 · Pedidos multimodales |
-| Estado | Implementado (RF-126 a RF-152); falta validar la scoring con el orden a mano |
+| Estado | Implementado (RF-126 a RF-153); falta validar la scoring con el orden a mano |
 | Responsable | Federico Picado |
 | Requisitos relacionados | RF-101 a RF-110 y RNF-18 ([lectura de imágenes](lectura-de-imagenes.md)), D-50 (desarrollo y reservado) |
-| IDs que reserva | RF-126 a RF-152, CA-218 a CA-254 |
+| IDs que reserva | RF-126 a RF-153, CA-218 a CA-256 |
 
 ## 1. Objetivo
 
@@ -46,6 +46,8 @@ listas.json ──► python -m internal.benchmark_manuscritos form ──► cr
 respuestas.csv + revision.json + listas.json ──► python -m internal.benchmark_manuscritos casos ──► casos.json
 casos.json + imagenes/ ──► python -m internal.evaluar_manuscritos correr ──► corridas/<corrida>/<modelo>/<foto>.json
 corridas/<corrida>/ ──► python -m internal.evaluar_manuscritos puntuar ──► corridas/<corrida>/resumen.json + tabla
+                                                  (con --markdown) ──► corridas/<corrida>/resumen.md
+dos corridas ──► python -m internal.evaluar_manuscritos comparar ──► diferencias (con --markdown) comparacion.md
 ```
 
 `listas` y `form` trabajan sobre `data_example/benchmark_manuscritos/`, que se versiona. `casos`, `correr` y
@@ -217,7 +219,7 @@ referencia.
 | Peores hojas | Las 5 fotos de menor S, con su S, de menor a mayor (los empates, por id) |
 | Peores renglones | Los 10 renglones del pool (por `id`) de menor s promedio, entre los que aparecieron en al menos dos fotos, con su texto, su s promedio y cuántas veces aparecieron. Un omitido cuenta s = 0 |
 | Elegible | Sí o no, con el motivo si no |
-| Errores graves | Omitidos, sobrantes de costo 1 y cantidades lejos sin duda: cantidad y porcentaje sobre los renglones esperados |
+| Errores graves | Omitidos, sobrantes de costo 1 y cantidades lejos sin duda: cantidad y porcentaje sobre los renglones esperados. Puede pasar del 100 %: un modelo que lee mal casi todo suma un omitido y un sobrante por renglón |
 | Errores silenciosos | Pares con alguna penalización y sin duda, más los omitidos y los sobrantes de costo 1 |
 | Tachados pedidos | Objetivo 0 (RNF-18) |
 | Tachados inventados | Tachados leídos (`ImagenLeida.tachados`) que no tienen las palabras de ningún tachado de la revisión. Es una señal: si la foto no se revisó, puede ser un tachado real. No entra a S ni al filtro |
@@ -260,6 +262,26 @@ el encabezado, la fecha ni el membrete del papel. El benchmark sí conoce la ver
 | La señal no dispara | No detectada | Bien |
 
 Las fotos de `para_revisar` no entran a esta cuenta hasta que se revisen: ahí el faltante puede ser de la hoja.
+
+### 3.7 Tablas para presentar
+
+Los resultados se muestran en una presentación, así que hacen falta tablas listas para copiar.
+
+`puntuar <corrida> --markdown` escribe además `corridas/<corrida>/resumen.md`, con tablas Markdown:
+
+- Una tabla por nivel, con una fila por modelo y grupo: modelo, grupo, fotos, S, intervalo, elegible, errores graves
+  (%), segundos p50 y USD por foto (con «?» si el modelo no tiene precio). Los números llevan punto decimal, como la
+  tabla de la consola.
+- Las 5 peores hojas de cada modelo en el nivel (b), con su S.
+- Las fotos para revisar, con los renglones esperados y los que leyó cada modelo.
+
+El archivo nombra fotos por su id (`pNN-A`) y modelos, nunca a las personas ni lo que escribieron.
+
+`comparar <corrida_antes> <corrida_despues>` puntúa las dos corridas (así los números están al día), y muestra por
+modelo, nivel y grupo la S y los errores graves (%) de cada una y la diferencia (después menos antes). Con
+`--markdown` escribe lo mismo como tabla en `comparacion.md`, en la carpeta de la segunda corrida. Avisa si un
+modelo está en una sola de las dos corridas y si las dos no tienen las mismas fotos para un modelo: en ese caso la
+diferencia compara fotos distintas. Para saber qué fotos tiene cada modelo, el resumen lista sus ids en `fotos`.
 
 ### 3.5 Validación de la scoring
 
@@ -408,7 +430,7 @@ Son los campos de `vision_service.Lectura`, con `resultado` como `ImagenLeida.mo
   "corrida": "2026-12-02-luna", "casos": "data/benchmark_manuscritos/casos.json",
   "para_revisar": [{"foto": "p02-A", "esperados": 15, "leidos": {"openai:gpt-6-luna": 12, "huggingface:…": 12}}],
   "modelos": [
-    {"modelo": "openai:gpt-6-luna", "huella": "3f9a…",
+    {"modelo": "openai:gpt-6-luna", "huella": "3f9a…", "fotos": ["p01-A", "p02-A"],
      "niveles": {
        "b": {"desarrollo": {"fotos": 8, "S": 0.84, "S_intervalo": [0.79, 0.88], "fotos_perfectas_pct": 25.0,
                             "precision": 0.8, "recall": 0.8, "f1": 0.8, "errores_silenciosos": 9,
@@ -478,6 +500,7 @@ En la carpeta de la corrida (§3.5). La clave:
 | RF-150 | Un renglón omitido cuenta como error silencioso y como error grave |
 | RF-151 | El resumen cuenta los tachados inventados: tachados leídos que no tienen las palabras de ningún tachado de la revisión; no entran a S ni al filtro |
 | RF-152 | El resumen cuenta cuántas veces la señal de faltante (más líneas de producto en `texto` que `renglones`) detectó, dio una falsa alarma o no detectó una salida con renglones de menos, sin las fotos de `para_revisar` |
+| RF-153 | `puntuar <corrida> --markdown` escribe `resumen.md` con una tabla por nivel (modelo, grupo, fotos, S, intervalo, elegible, errores graves %, segundos p50, USD por foto con «?» si no hay precio), las 5 peores hojas de cada modelo en el nivel (b) y las fotos para revisar. `comparar <corrida_antes> <corrida_despues>` muestra por modelo y nivel la S y los errores graves de las dos corridas y su diferencia (con `--markdown` la escribe en `comparacion.md`, en la carpeta de la segunda) y avisa si las fotos no coinciden o si un modelo está en una sola |
 
 ## 6. Criterios de aceptación
 
@@ -520,6 +543,8 @@ En la carpeta de la corrida (§3.5). La clave:
 | CA-252 | Una hoja de 15 esperados con 14 renglones bien leídos y uno que no aparece | Se resume | Errores silenciosos 1, errores graves 1 (6,7 %), y no es elegible | `tests/test_evaluar_manuscritos.py::test_omitido_es_error_grave` |
 | CA-253 | Una foto sin tachados en la revisión con 3 tachados leídos, y otra con un tachado en la revisión que el modelo lee | Se resume | 3 tachados inventados en la primera y 0 en la segunda; S y el filtro no cambian | `tests/test_evaluar_manuscritos.py::test_tachados_inventados` |
 | CA-254 | Salidas con 15 líneas de producto en `texto` y 12 renglones, con 15 y 15, con 14 y 14 en una hoja de 15, y con encabezado y fecha sin números | Se cuenta la señal | Detectada, bien, no detectada, y el encabezado y la fecha no cuentan como líneas de producto | `tests/test_evaluar_manuscritos.py::test_senal_de_faltante` |
+| CA-255 | Una corrida de dos modelos con una foto para revisar y un modelo sin precio | `puntuar --markdown` | `resumen.md` tiene una tabla por nivel con sus columnas y «?» en el USD sin precio, las peores hojas del nivel (b), la foto para revisar, y solo ids de foto (`pNN-A`): ni personas ni textos de renglones | `tests/test_evaluar_manuscritos.py::test_resumen_markdown` |
+| CA-256 | Dos corridas sintéticas, la segunda con un modelo que lee mejor, una foto de menos y un modelo que la primera no tiene | `comparar` | La diferencia de S por modelo y nivel es la correcta; avisa que las fotos no coinciden y que un modelo está en una sola corrida; con `--markdown` escribe `comparacion.md` en la segunda | `tests/test_evaluar_manuscritos.py::test_comparar_corridas` |
 
 ## 7. Errores y casos borde
 
@@ -623,6 +648,7 @@ En la carpeta de la corrida (§3.5). La clave:
 8. ~~Adaptar `evaluar_manuscritos` y `benchmark_manuscritos` a la scoring nueva, con sus tests.~~
 9. ~~RF-149 a RF-152 y CA-251 a CA-254 en esta spec, con CA-234 actualizado (los omitidos cuentan como errores).~~
 10. ~~Implementarlos en `evaluar_manuscritos`, con sus tests.~~
-11. Validar la scoring con el orden a mano (§3.5) sobre desarrollo.
-12. Con las fotos: armar `casos.json`, correr Qwen local sobre `desarrollo` y, con permiso de quien paga la clave,
+11. ~~RF-153 y CA-255, CA-256: `puntuar --markdown` y `comparar`, con sus tests.~~
+12. Validar la scoring con el orden a mano (§3.5) sobre desarrollo.
+13. Con las fotos: armar `casos.json`, correr Qwen local sobre `desarrollo` y, con permiso de quien paga la clave,
    `gpt-6-luna` y GPT Terra con `--max-llamadas`. El reservado se corre al final, una vez, para medir.

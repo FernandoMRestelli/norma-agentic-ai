@@ -380,7 +380,6 @@ def test_sin_respuesta_no_cuenta(carpeta):
     assert any("p02-A" in aviso and "--reintentar" in aviso for aviso in resumen["avisos"])
 
 
-
 def _par(cantidad_esperada, cantidad_leida, *, tono_esperado=None, tono_leido=None, duda=None):
     """El s de un par sin duda (salvo que se pida) en el nivel (a), con palabras que siempre emparejan."""
     variantes = [Variante(detalle="", tono=tono_leido, cantidad=cantidad_leida)] if tono_leido else []
@@ -561,7 +560,6 @@ def test_huellas_distintas_se_avisan(carpeta, monkeypatch):
     assert any("no se comparan" in aviso for aviso in resumen["avisos"])
 
 
-
 def test_correr_manda_las_marcas_del_catalogo_de_evaluacion(carpeta, settings, monkeypatch):
     """CA-250: con VISION_MARCAS, el prompt que recibe el modelo trae las marcas de catalogo_evaluacion.csv, no las
     del catálogo de producción, y es el mismo que firma la huella."""
@@ -581,7 +579,6 @@ def test_correr_manda_las_marcas_del_catalogo_de_evaluacion(carpeta, settings, m
     em.correr(casos, carpeta, carpeta / "corridas" / "prueba", [("huggingface", "falso")], leer=leer)
     assert "NORDIKA" in prompts[0] and "MARCA DE PRODUCCION" not in prompts[0]
     assert inventory_service.get_catalog() == produccion  # el catálogo de producción vuelve a su lugar
-
 
 
 def test_omitido_es_error_grave():
@@ -670,3 +667,66 @@ def test_fotos_para_revisar(carpeta):
     assert resumen["para_revisar"] == [
         {"foto": "p01-A", "esperados": 15, "leidos": {"huggingface:uno": 12, "huggingface:dos": 12}}
     ]
+
+
+def _corridas_de_quince(carpeta):
+    esperados = [_esperado(n, [f"producto{n:03d}"], n, f"SKU-{n:03d}") for n in range(1, 16)]
+    casos = []
+    for foto in ("p01-A", "p02-A"):
+        (carpeta / "imagenes" / f"{foto}.jpg").write_bytes(foto.encode())
+        casos.append(_caso(foto, esperados))
+    return casos
+
+
+def _correr_falso(casos, carpeta, corrida, modelo, por_foto, **kwargs):
+    lector = LectorPorFoto({foto: _leidos(cuantos) for foto, cuantos in por_foto.items()})
+    em.correr(casos, carpeta, corrida, [modelo], leer=lector, max_llamadas=10, **kwargs)
+
+
+def test_resumen_markdown(carpeta):
+    """CA-255: resumen.md tiene las tablas por nivel, las peores hojas y las fotos para revisar, sin datos de
+    personas."""
+    casos = _corridas_de_quince(carpeta)
+    (carpeta / "casos.json").write_text(json.dumps(casos), encoding="utf-8")
+    corrida = carpeta / "corridas" / "prueba"
+    _correr_falso(casos, carpeta, corrida, ("huggingface", "uno"), {"p01-A": 12, "p02-A": 15})
+    _correr_falso(casos, carpeta, corrida, ("openai", "dos"), {"p01-A": 12, "p02-A": 14})
+    assert em.main(["puntuar", str(corrida), "--casos", str(carpeta / "casos.json"), "--markdown"]) == 0  # fmt: skip
+    texto = (corrida / "resumen.md").read_text(encoding="utf-8")
+    assert "## Nivel (a): lectura\n" in texto and "## Nivel (b): lectura + búsqueda\n" in texto
+    assert (
+        "| Modelo | Grupo | Fotos | S | Intervalo | Elegible | Errores graves % | Segundos p50 | USD por foto |"
+        in texto
+    )
+    fila_dos = next(linea for linea in texto.splitlines() if linea.startswith("| openai:dos | desarrollo"))
+    assert fila_dos.endswith("| ? |")
+    assert "| huggingface:uno | desarrollo | 2 |" in texto and "| 0.0000 |" in texto
+    peores = texto.split("## Peores hojas (nivel b)")[1].split("## Fotos para revisar")[0]
+    assert "| openai:dos | desarrollo | p01-A |" in peores
+    assert "| p01-A | 15 | huggingface:uno 12, openai:dos 12 |" in texto
+    assert "p02-A" not in texto.split("## Fotos para revisar")[1]
+    for dato in ("Pedido para Norma", "producto001", "persona"):
+        assert dato not in texto
+
+
+def test_comparar_corridas(carpeta):
+    """CA-256: comparar dos corridas da la diferencia de S por modelo y nivel, y avisa si las fotos no coinciden o
+    si falta un modelo."""
+    casos = _corridas_de_quince(carpeta)
+    (carpeta / "casos.json").write_text(json.dumps(casos), encoding="utf-8")
+    antes, despues = carpeta / "corridas" / "antes", carpeta / "corridas" / "despues"
+    _correr_falso(casos, carpeta, antes, ("huggingface", "uno"), {"p01-A": 12, "p02-A": 15})
+    _correr_falso(casos, carpeta, despues, ("huggingface", "uno"), {"p01-A": 15}, solo="p01-A")
+    _correr_falso(casos, carpeta, despues, ("openai", "dos"), {"p01-A": 15}, solo="p01-A")
+    resumen_antes, resumen_despues = (em.puntuar_corrida(c, casos, {}) for c in (antes, despues))
+    texto, avisos = em.comparar(resumen_antes, resumen_despues)
+    fila = next(linea for linea in texto.splitlines() if linea.startswith("| huggingface:uno | a | desarrollo"))
+    # antes: (12/15 + 15/15) / 2 = 0.9; después: 1.0
+    assert fila.startswith("| huggingface:uno | a | desarrollo | 0.900 | 1.000 | +0.100 |")
+    assert any("huggingface:uno" in aviso and "mismas fotos" in aviso and "p02-A" in aviso for aviso in avisos)
+    assert any("openai:dos" in aviso and "solo en despues" in aviso for aviso in avisos)
+    assert not any("openai:dos | " in linea for linea in texto.splitlines())
+
+    assert em.main(["comparar", str(antes), str(despues), "--casos", str(carpeta / "casos.json"), "--markdown"]) == 0
+    assert (despues / "comparacion.md").read_text(encoding="utf-8").startswith("# Comparación: antes → despues")
+    assert not (antes / "comparacion.md").exists()
