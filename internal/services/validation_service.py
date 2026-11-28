@@ -120,7 +120,14 @@ ENCABEZADO_AFUERA = "Lo que no va como lo pediste:"
 CIERRE_OPCIONES = "¿Cuál preferís?"
 # Lo que se le dice al cliente de cada motivo de `afuera`. Lo que sacó él mismo o una línea que no pedía nada no se
 # le repite: ya lo sabe
-MOTIVOS_PARA_EL_CLIENTE = {"fuera_de_catalogo": "no lo trabajamos", "sin_stock": "está agotado por ahora"}
+_A_CONSULTAR = "no lo tengo cargado, lo consulto con el equipo"
+MOTIVOS_PARA_EL_CLIENTE = {
+    "a_consultar": _A_CONSULTAR,
+    "fuera_del_rubro": "eso no lo vendemos, somos de perfumería y peluquería 😄",
+    "sin_stock": "está agotado por ahora",
+    # El motivo anterior: ante la duda es del rubro (BR-04), así que no se dice que no se trabaja
+    "fuera_de_catalogo": _A_CONSULTAR,
+}
 _VINETA_DEL_MODELO = re.compile(r"^\s*(?:[•·*-]|\d{1,2}[.)])\s+\S")
 _X_INICIAL = re.compile(r"^x\s+", re.IGNORECASE)
 

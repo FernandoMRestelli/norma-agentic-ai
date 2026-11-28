@@ -426,9 +426,8 @@ def test_lo_que_queda_afuera_lo_escribe_el_sistema():
 
     resultado = agent.handle("1", text="2 shampoo pantene\n1 tintura igora", **CLIENTE)
 
-    assert "Total estimado: $14700.00\n\nLo que no va como lo pediste:\n• 1 tintura igora: no lo trabajamos" in (
-        resultado.message
-    )
+    aviso = "• 1 tintura igora: no lo tengo cargado, lo consulto con el equipo"
+    assert f"Total estimado: $14700.00\n\nLo que no va como lo pediste:\n{aviso}" in resultado.message
 
 
 def test_intentos_agotados_con_propuesta():

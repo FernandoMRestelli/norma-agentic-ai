@@ -36,12 +36,12 @@ def hint_busqueda(resultado: SearchResult) -> str | None:
         partes.append(
             f"{_citar(pistas.no_estan)}: no {'aparecen' if len(pistas.no_estan) > 1 else 'aparece'} en ningún "
             "producto del catálogo. Si es la marca o el producto, "
-            "no se trabaja: avisale al cliente y no ofrezcas otro en su lugar como si fuera lo pedido."
+            "no está cargado: avisale según BR-04 y no ofrezcas otro en su lugar como si fuera lo pedido."
         )
         if pistas.sin_lo_que_no_esta:
             partes.append(
                 f"Sin eso hay: {', '.join(pistas.sin_lo_que_no_esta)}. Si {_citar(pistas.no_estan)} dice para qué lo "
-                "quiere y no es una marca, no digas que no lo trabajás: ofrecé esos y preguntale si le sirven."
+                "quiere y no es una marca, no digas que no lo tenés: ofrecé esos y preguntale si le sirven."
             )
     primero = pistas.cercanos[0] if pistas.cercanos else None
     faltan = [f for f in (primero.falta if primero else []) if f not in pistas.no_estan]
@@ -59,7 +59,8 @@ def hint_busqueda(resultado: SearchResult) -> str | None:
         )
     if not partes and not resultado.matches and not resultado.sugerencias:
         partes.append(
-            "No hay nada parecido en el catálogo. Avisale al cliente que no lo trabajás; no inventes un producto."
+            "No hay nada parecido en el catálogo: avisale según BR-04, que cambia si es del rubro o no, y no "
+            "inventes un producto."
         )
     return " ".join(partes) or None
 
@@ -189,9 +190,9 @@ def _hint_sin_resultados(que: str, buscado: str, opciones: set[str]) -> str:
     if parecidas:
         return (
             f"No hay {que} «{buscado}». Las más parecidas del catálogo: {', '.join(parecidas)}. Si es una de esas, "
-            "volvé a llamar con ese nombre; si no, avisale al cliente que no la trabajás."
+            "volvé a llamar con ese nombre; si no, avisale al cliente según BR-04."
         )
-    return f"No hay {que} «{buscado}» ni otra parecida en el catálogo: avisale al cliente que no la trabajás."
+    return f"No hay {que} «{buscado}» ni otra parecida en el catálogo: avisale al cliente según BR-04."
 
 
 def _marcas_con(products: list[Product], c_norm: str, tope: int = 5) -> str:

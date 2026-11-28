@@ -192,7 +192,8 @@ class Leftover(BaseModel):
     """Un renglón que el cliente pidió y no entró al pedido (RF-76): es una venta que el equipo puede recuperar."""
 
     source_text: str = Field(min_length=1, max_length=MAX_SOURCE_TEXT_LENGTH)
-    reason: str  # fuera_de_catalogo, sin_stock, lo_saco_el_cliente o duda_sin_resolver
+    # a_consultar, fuera_del_rubro, sin_stock, lo_saco_el_cliente, duda_sin_resolver o fuera_de_catalogo (el viejo)
+    reason: str
 
 
 class DraftStatus(StrEnum):
